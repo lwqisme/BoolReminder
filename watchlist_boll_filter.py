@@ -6,7 +6,8 @@
 """
 
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
+from dataclasses import dataclass, field
 
 try:
     from longbridge.openapi import QuoteContext, Config, Period, AdjustType  # type: ignore
@@ -16,6 +17,229 @@ except ImportError:
     print("警告: longbridge SDK未安装，请运行: pip install longbridge")
 
 from boll_calculator import BOLLCalculator
+
+
+# 市场货币映射表
+MARKET_CURRENCY = {
+    '.US': ('$', 'USD'),      # 美元
+    '.HK': ('H', 'HKD'),    # 港币
+    '.SH': ('¥', 'CNY'),      # 人民币（上海）
+    '.SZ': ('¥', 'CNY'),      # 人民币（深圳）
+    '.T': ('¥', 'JPY'),       # 日元
+    '.SI': ('S$', 'SGD'),     # 新加坡元
+}
+
+
+def get_currency_info(symbol: str) -> Tuple[str, str]:
+    """获取股票对应的货币符号和货币代码
+    
+    Args:
+        symbol: 股票代码，例如 "AAPL.US", "700.HK", "600000.SH"
+    
+    Returns:
+        (货币符号, 货币代码)，例如 ("$", "USD")
+    """
+    for suffix, (currency_symbol, currency_code) in MARKET_CURRENCY.items():
+        if symbol.endswith(suffix):
+            return currency_symbol, currency_code
+    
+    # 默认返回美元
+    return '$', 'USD'
+
+
+@dataclass
+class StockInfo:
+    """单个股票的BOLL信息"""
+    symbol: str
+    display_name: str
+    current_price: float
+    lower_band: float
+    mid_band: float
+    upper_band: float
+    distance_from_lower_pct: float
+    distance_from_upper_pct: float
+    position_pct: float
+    currency_symbol: str = '$'
+    currency_code: str = 'USD'
+
+
+@dataclass
+class WatchlistBollFilterResult:
+    """BOLL筛选结果结构化对象"""
+    # 基本配置信息
+    period: int = 22
+    k: float = 2.0
+    threshold: float = 0.10
+    total_analyzed: int = 0
+    total_found: int = 0
+    update_time: str = ""
+    
+    # 筛选出的股票列表
+    below_lower: List[StockInfo] = field(default_factory=list)
+    near_lower: List[StockInfo] = field(default_factory=list)
+    near_upper: List[StockInfo] = field(default_factory=list)
+    above_upper: List[StockInfo] = field(default_factory=list)
+    
+    # 所有股票代码和名称映射
+    all_symbols: List[str] = field(default_factory=list)
+    symbol_to_name: Dict[str, str] = field(default_factory=dict)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典格式"""
+        return {
+            "config": {
+                "period": self.period,
+                "k": self.k,
+                "threshold": self.threshold
+            },
+            "summary": {
+                "total_analyzed": self.total_analyzed,
+                "total_found": self.total_found,
+                "below_lower_count": len(self.below_lower),
+                "near_lower_count": len(self.near_lower),
+                "near_upper_count": len(self.near_upper),
+                "above_upper_count": len(self.above_upper),
+                "update_time": self.update_time
+            },
+            "results": {
+                "below_lower": [self._stock_info_to_dict(s) for s in self.below_lower],
+                "near_lower": [self._stock_info_to_dict(s) for s in self.near_lower],
+                "near_upper": [self._stock_info_to_dict(s) for s in self.near_upper],
+                "above_upper": [self._stock_info_to_dict(s) for s in self.above_upper]
+            },
+            "all_symbols": self.all_symbols,
+            "symbol_to_name": self.symbol_to_name
+        }
+    
+    def _stock_info_to_dict(self, stock: StockInfo) -> Dict[str, Any]:
+        """将StockInfo转换为字典"""
+        return {
+            "symbol": stock.symbol,
+            "display_name": stock.display_name,
+            "current_price": stock.current_price,
+            "lower_band": stock.lower_band,
+            "mid_band": stock.mid_band,
+            "upper_band": stock.upper_band,
+            "distance_from_lower_pct": stock.distance_from_lower_pct,
+            "distance_from_upper_pct": stock.distance_from_upper_pct,
+            "position_pct": stock.position_pct
+        }
+    
+    def print_summary(self) -> None:
+        """打印汇总信息"""
+        print("=" * 80)
+        print(f"筛选结果：找到 {self.total_found} 只需要关注的股票")
+        print("=" * 80)
+        print(f"\n📊 统计汇总:")
+        print(f"  分析总数: {self.total_analyzed}")
+        print(f"  🔴 低于下轨（超卖）: {len(self.below_lower)} 只")
+        print(f"  🟡 接近下轨: {len(self.near_lower)} 只")
+        print(f"  🟠 接近上轨: {len(self.near_upper)} 只")
+        print(f"  🔵 超出上轨（超买）: {len(self.above_upper)} 只")
+        print(f"\n配置参数: 周期={self.period}, k={self.k}, 阈值={self.threshold * 100}%")
+        print(f"更新时间: {self.update_time}")
+    
+    def print_detailed_results(self) -> None:
+        """打印详细结果表格"""
+        self._print_below_lower()
+        self._print_near_lower()
+        self._print_near_upper()
+        self._print_above_upper()
+    
+    def _print_below_lower(self) -> None:
+        """打印低于下轨的股票"""
+        if not self.below_lower:
+            return
+        
+        print(f"\n🔴 【低于下轨 - 超卖区域】({len(self.below_lower)} 只)")
+        print("=" * 90)
+        print(f"{'股票名称':<25} {'当前价格':<12} {'下轨':<12} {'中轨':<12} {'上轨':<12} {'距离下轨':<12}")
+        print("-" * 90)
+        
+        for stock in self.below_lower:
+            display_name = stock.display_name[:24] if len(stock.display_name) > 24 else stock.display_name
+            print(f"{display_name:<25} "
+                  f"{stock.currency_symbol}{stock.current_price:<11.2f} "
+                  f"{stock.currency_symbol}{stock.lower_band:<11.4f} "
+                  f"{stock.currency_symbol}{stock.mid_band:<11.4f} "
+                  f"{stock.currency_symbol}{stock.upper_band:<11.4f} "
+                  f"{stock.distance_from_lower_pct:>10.2f}% ⚠️")
+    
+    def _print_near_lower(self) -> None:
+        """打印接近下轨的股票"""
+        if not self.near_lower:
+            return
+        
+        print(f"\n🟡 【接近下轨】(2%以内) ({len(self.near_lower)} 只)")
+        print("=" * 90)
+        print(f"{'股票名称':<25} {'当前价格':<12} {'下轨':<12} {'中轨':<12} {'上轨':<12} {'距离下轨':<12}")
+        print("-" * 90)
+        
+        for stock in self.near_lower:
+            display_name = stock.display_name[:24] if len(stock.display_name) > 24 else stock.display_name
+            print(f"{display_name:<25} "
+                  f"{stock.currency_symbol}{stock.current_price:<11.2f} "
+                  f"{stock.currency_symbol}{stock.lower_band:<11.4f} "
+                  f"{stock.currency_symbol}{stock.mid_band:<11.4f} "
+                  f"{stock.currency_symbol}{stock.upper_band:<11.4f} "
+                  f"{stock.distance_from_lower_pct:>10.2f}%")
+    
+    def _print_near_upper(self) -> None:
+        """打印接近上轨的股票"""
+        if not self.near_upper:
+            return
+        
+        print(f"\n🟠 【接近上轨】(2%以内) ({len(self.near_upper)} 只)")
+        print("=" * 90)
+        print(f"{'股票名称':<25} {'当前价格':<12} {'下轨':<12} {'中轨':<12} {'上轨':<12} {'距离上轨':<12}")
+        print("-" * 90)
+        
+        for stock in self.near_upper:
+            distance_str = f"{abs(stock.distance_from_upper_pct):.2f}%"
+            display_name = stock.display_name[:24] if len(stock.display_name) > 24 else stock.display_name
+            print(f"{display_name:<25} "
+                  f"{stock.currency_symbol}{stock.current_price:<11.2f} "
+                  f"{stock.currency_symbol}{stock.lower_band:<11.4f} "
+                  f"{stock.currency_symbol}{stock.mid_band:<11.4f} "
+                  f"{stock.currency_symbol}{stock.upper_band:<11.4f} "
+                  f"{distance_str:>10}")
+    
+    def _print_above_upper(self) -> None:
+        """打印超出上轨的股票"""
+        if not self.above_upper:
+            return
+        
+        print(f"\n🔵 【超出上轨 - 超买区域】({len(self.above_upper)} 只)")
+        print("=" * 90)
+        print(f"{'股票名称':<25} {'当前价格':<12} {'下轨':<12} {'中轨':<12} {'上轨':<12} {'距离上轨':<12}")
+        print("-" * 90)
+        
+        for stock in self.above_upper:
+            display_name = stock.display_name[:24] if len(stock.display_name) > 24 else stock.display_name
+            print(f"{display_name:<25} "
+                  f"{stock.currency_symbol}{stock.current_price:<11.2f} "
+                  f"{stock.currency_symbol}{stock.lower_band:<11.4f} "
+                  f"{stock.currency_symbol}{stock.mid_band:<11.4f} "
+                  f"{stock.currency_symbol}{stock.upper_band:<11.4f} "
+                  f"{stock.distance_from_upper_pct:>10.2f}% ⚠️")
+    
+    def __str__(self) -> str:
+        """字符串表示，用于直接打印对象"""
+        lines = [
+            "=" * 80,
+            f"筛选结果：找到 {self.total_found} 只需要关注的股票",
+            "=" * 80,
+            f"\n📊 统计汇总:",
+            f"  分析总数: {self.total_analyzed}",
+            f"  🔴 低于下轨（超卖）: {len(self.below_lower)} 只",
+            f"  🟡 接近下轨: {len(self.near_lower)} 只",
+            f"  🟠 接近上轨: {len(self.near_upper)} 只",
+            f"  🔵 超出上轨（超买）: {len(self.above_upper)} 只",
+            f"\n配置参数: 周期={self.period}, k={self.k}, 阈值={self.threshold * 100}%",
+            f"更新时间: {self.update_time}"
+        ]
+        
+        return "\n".join(lines)
 
 
 def get_watchlist_symbols(quote_ctx: QuoteContext, exclude_options: bool = True) -> Tuple[List[str], Dict[str, str]]:
@@ -106,8 +330,9 @@ def analyze_all_stocks(
     period: int = 22,
     k: float = 2.0,
     threshold: float = 0.10,
-    exclude_options: bool = True
-) -> Dict[str, List[Dict]]:
+    exclude_options: bool = True,
+    verbose: bool = False
+) -> WatchlistBollFilterResult:
     """
     分析所有股票，按位置分类
     
@@ -118,34 +343,35 @@ def analyze_all_stocks(
         k: 标准差倍数
         threshold: 接近上下轨的阈值（10% = 0.10）
         exclude_options: 是否排除期权
+        verbose: 是否打印详细进度信息
         
     Returns:
-        按位置分类的股票字典：
-        {
-            "below_lower": 低于下轨的股票列表,
-            "near_lower": 接近下轨的股票列表,
-            "near_upper": 接近上轨的股票列表,
-            "above_upper": 超出上轨的股票列表
-        }
+        WatchlistBollFilterResult 结构化结果对象
     """
-    results = {
-        "below_lower": [],
-        "near_lower": [],
-        "near_upper": [],
-        "above_upper": []
-    }
+    result = WatchlistBollFilterResult(
+        period=period,
+        k=k,
+        threshold=threshold,
+        all_symbols=symbols.copy(),
+        symbol_to_name=symbol_to_name.copy(),
+        update_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    )
+    
     total = len(symbols)
     
-    print(f"开始分析 {total} 只股票...")
+    if verbose:
+        print(f"开始分析 {total} 只股票...")
     
     for idx, symbol in enumerate(symbols, 1):
-        print(f"[{idx}/{total}] 正在分析 {symbol}...", end=" ")
+        if verbose:
+            print(f"[{idx}/{total}] 正在分析 {symbol}...", end=" ")
         
         # 获取BOLL数据
         boll_data = get_stock_boll_data(quote_ctx, symbol, period, k)
         
         if not boll_data:
-            print("数据不足，跳过")
+            if verbose:
+                print("数据不足，跳过")
             continue
         
         current_price = boll_data["current_price"]
@@ -163,46 +389,70 @@ def analyze_all_stocks(
         is_us_stock = symbol.endswith('.US')
         display_name = symbol if is_us_stock else symbol_to_name.get(symbol, symbol)
         
-        result = {
-            "symbol": symbol,
-            "display_name": display_name,  # 显示用的名称
-            "current_price": current_price,
-            "lower_band": lower_band,
-            "mid_band": mid_band,
-            "upper_band": upper_band,
-            "distance_from_lower_pct": distance_from_lower_pct,
-            "distance_from_upper_pct": distance_from_upper_pct,
-            "position_pct": ((current_price - lower_band) / (upper_band - lower_band) * 100) if (upper_band - lower_band) > 0 else 50
-        }
+        # 获取货币信息
+        currency_symbol, currency_code = get_currency_info(symbol)
+        
+        stock_info = StockInfo(
+            symbol=symbol,
+            display_name=display_name,
+            current_price=current_price,
+            lower_band=lower_band,
+            mid_band=mid_band,
+            upper_band=upper_band,
+            distance_from_lower_pct=distance_from_lower_pct,
+            distance_from_upper_pct=distance_from_upper_pct,
+            position_pct=((current_price - lower_band) / (upper_band - lower_band) * 100) if (upper_band - lower_band) > 0 else 50,
+            currency_symbol=currency_symbol,
+            currency_code=currency_code
+        )
         
         # 分类判断
         if current_price < lower_band:
-            # 低于下轨
-            results["below_lower"].append(result)
-            print(f"✓ 低于下轨 ({distance_from_lower_pct:.2f}%)")
+            result.below_lower.append(stock_info)
+            if verbose:
+                print(f"✓ 低于下轨 ({distance_from_lower_pct:.2f}%)")
         elif current_price > upper_band:
-            # 超出上轨
-            results["above_upper"].append(result)
-            print(f"✓ 超出上轨 ({distance_from_upper_pct:.2f}%)")
+            result.above_upper.append(stock_info)
+            if verbose:
+                print(f"✓ 超出上轨 ({distance_from_upper_pct:.2f}%)")
         elif distance_from_lower_pct <= threshold * 100:
-            # 接近下轨（在threshold范围内）
-            results["near_lower"].append(result)
-            print(f"✓ 接近下轨 ({distance_from_lower_pct:.2f}%)")
+            result.near_lower.append(stock_info)
+            if verbose:
+                print(f"✓ 接近下轨 ({distance_from_lower_pct:.2f}%)")
         elif abs(distance_from_upper_pct) <= threshold * 100:
-            # 接近上轨（在threshold范围内）
-            results["near_upper"].append(result)
-            print(f"✓ 接近上轨 ({abs(distance_from_upper_pct):.2f}%)")
+            result.near_upper.append(stock_info)
+            if verbose:
+                print(f"✓ 接近上轨 ({abs(distance_from_upper_pct):.2f}%)")
         else:
-            print(f"✗ 正常区间")
+            if verbose:
+                print(f"✗ 正常区间")
     
-    return results
+    # 更新统计信息
+    result.total_analyzed = total
+    result.total_found = len(result.below_lower) + len(result.near_lower) + \
+                        len(result.near_upper) + len(result.above_upper)
+    
+    # 排序
+    result.below_lower.sort(key=lambda x: x.distance_from_lower_pct)
+    result.near_lower.sort(key=lambda x: x.distance_from_lower_pct)
+    result.near_upper.sort(key=lambda x: x.distance_from_upper_pct, reverse=True)
+    result.above_upper.sort(key=lambda x: x.distance_from_upper_pct, reverse=True)
+    
+    return result
 
 
-def main():
-    """主函数"""
+def main(verbose: bool = False):
+    """主函数
+    
+    Args:
+        verbose: 是否显示详细进度信息
+    
+    Returns:
+        WatchlistBollFilterResult 结构化结果对象
+    """
     if not LONGBRIDGE_AVAILABLE:
         print("请先安装longbridge SDK: pip install longbridge")
-        return
+        return None
     
     try:
         # 初始化配置
@@ -215,107 +465,42 @@ def main():
         quote_ctx = QuoteContext(config)
         
         # 1. 获取自选列表
-        print("=" * 60)
-        print("获取自选列表...")
+        if verbose:
+            print("=" * 60)
+            print("获取自选列表...")
         symbols, symbol_to_name = get_watchlist_symbols(quote_ctx, exclude_options=True)
-        print(f"找到 {len(symbols)} 只股票（已排除期权）")
-        print("=" * 60)
-        print()
+        if verbose:
+            print(f"找到 {len(symbols)} 只股票（已排除期权）")
+            print("=" * 60)
+            print()
         
         # 2. 分析所有股票
-        results = analyze_all_stocks(
+        result = analyze_all_stocks(
             quote_ctx,
             symbols,
             symbol_to_name,
             period=22,
             k=2.0,
-            threshold=0.10,  # 10%
-            exclude_options=True
+            threshold=0.02,  # 2%
+            exclude_options=True,
+            verbose=verbose
         )
         
-        # 3. 输出结果（分组显示）
-        print()
-        print("=" * 80)
-        total_found = len(results["below_lower"]) + len(results["near_lower"]) + \
-                     len(results["near_upper"]) + len(results["above_upper"])
-        print(f"筛选结果：找到 {total_found} 只需要关注的股票")
-        print("=" * 80)
-        
-        # 3.1 低于下轨的股票（超卖区域）
-        if results["below_lower"]:
-            results["below_lower"].sort(key=lambda x: x["distance_from_lower_pct"])
-            print(f"\n🔴 【低于下轨 - 超卖区域】({len(results['below_lower'])} 只)")
-            print("=" * 90)
-            print(f"{'股票名称':<25} {'当前价格':<12} {'下轨':<12} {'中轨':<12} {'上轨':<12} {'距离下轨':<12}")
-            print("-" * 90)
-            for result in results["below_lower"]:
-                display_name = result['display_name'][:24] if len(result['display_name']) > 24 else result['display_name']
-                print(f"{display_name:<25} "
-                      f"${result['current_price']:<11.2f} "
-                      f"${result['lower_band']:<11.4f} "
-                      f"${result['mid_band']:<11.4f} "
-                      f"${result['upper_band']:<11.4f} "
-                      f"{result['distance_from_lower_pct']:>10.2f}% ⚠️")
-        
-        # 3.2 接近下轨的股票
-        if results["near_lower"]:
-            results["near_lower"].sort(key=lambda x: x["distance_from_lower_pct"])
-            print(f"\n🟡 【接近下轨】(10%以内) ({len(results['near_lower'])} 只)")
-            print("=" * 90)
-            print(f"{'股票名称':<25} {'当前价格':<12} {'下轨':<12} {'中轨':<12} {'上轨':<12} {'距离下轨':<12}")
-            print("-" * 90)
-            for result in results["near_lower"]:
-                display_name = result['display_name'][:24] if len(result['display_name']) > 24 else result['display_name']
-                print(f"{display_name:<25} "
-                      f"${result['current_price']:<11.2f} "
-                      f"${result['lower_band']:<11.4f} "
-                      f"${result['mid_band']:<11.4f} "
-                      f"${result['upper_band']:<11.4f} "
-                      f"{result['distance_from_lower_pct']:>10.2f}%")
-        
-        # 3.3 接近上轨的股票
-        if results["near_upper"]:
-            results["near_upper"].sort(key=lambda x: x["distance_from_upper_pct"], reverse=True)
-            print(f"\n🟠 【接近上轨】(10%以内) ({len(results['near_upper'])} 只)")
-            print("=" * 90)
-            print(f"{'股票名称':<25} {'当前价格':<12} {'下轨':<12} {'中轨':<12} {'上轨':<12} {'距离上轨':<12}")
-            print("-" * 90)
-            for result in results["near_upper"]:
-                distance_str = f"{abs(result['distance_from_upper_pct']):.2f}%"
-                display_name = result['display_name'][:24] if len(result['display_name']) > 24 else result['display_name']
-                print(f"{display_name:<25} "
-                      f"${result['current_price']:<11.2f} "
-                      f"${result['lower_band']:<11.4f} "
-                      f"${result['mid_band']:<11.4f} "
-                      f"${result['upper_band']:<11.4f} "
-                      f"{distance_str:>10}")
-        
-        # 3.4 超出上轨的股票（超买区域）
-        if results["above_upper"]:
-            results["above_upper"].sort(key=lambda x: x["distance_from_upper_pct"], reverse=True)
-            print(f"\n🔵 【超出上轨 - 超买区域】({len(results['above_upper'])} 只)")
-            print("=" * 90)
-            print(f"{'股票名称':<25} {'当前价格':<12} {'下轨':<12} {'中轨':<12} {'上轨':<12} {'距离上轨':<12}")
-            print("-" * 90)
-            for result in results["above_upper"]:
-                display_name = result['display_name'][:24] if len(result['display_name']) > 24 else result['display_name']
-                print(f"{display_name:<25} "
-                      f"${result['current_price']:<11.2f} "
-                      f"${result['lower_band']:<11.4f} "
-                      f"${result['mid_band']:<11.4f} "
-                      f"${result['upper_band']:<11.4f} "
-                      f"{result['distance_from_upper_pct']:>10.2f}% ⚠️")
-        
-        if total_found == 0:
-            print("\n未找到符合条件的股票")
-        
-        print(f"\n更新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        return result
         
     except Exception as e:
         print(f"执行失败: {e}")
         import traceback
         traceback.print_exc()
+        return None
 
 
 if __name__ == "__main__":
-    main()
+    # 执行分析并获取结构化结果对象
+    result = main(verbose=True)
+    
+    if result is None:
+        print("分析失败")
+    else:
+        # 打印详细结果表格
+        result.print_detailed_results()
