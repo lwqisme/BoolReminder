@@ -1,115 +1,142 @@
-# BoolReminder - BOLL指标查询工具
+# BoolReminder - BOLL指标筛选系统
 
-这个项目用于查询股票的BOLL（布林带）指标数据。
+自动分析自选列表中的股票BOLL指标，筛选接近上下轨的股票，并通过邮件和Web界面提供通知。
 
-## 📋 关于LongBridge API和BOLL指标
+## 功能特性
 
-### 结论
+- 📊 **自动分析**: 每天北京时间11:00自动分析自选列表中的股票
+- 📧 **邮件通知**: 自动发送HTML格式的分析报告
+- 🌐 **Web界面**: 查看最新结果、更新token、手动触发分析
+- 🔄 **Token管理**: 通过Web界面方便地更新LongBridge token
+- 🐳 **Docker部署**: 一键部署，易于维护
 
-**LongBridge OpenAPI 目前没有直接提供 BOLL 指标的接口**，但可以通过以下方式组合获取：
+## 快速开始
 
-1. 使用 `candlesticks` 接口获取历史K线数据
-2. 提取收盘价数据
-3. 本地计算BOLL指标（中轨、上轨、下轨）
+### 本地开发
 
-## 🚀 使用方法
+1. **安装依赖**:
+   ```bash
+   # 安装Rust（如果需要）
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+   source "$HOME/.cargo/env"
+   
+   # 安装Python依赖
+   RUSTFLAGS="-A dependency_on_unit_never_type_fallback" pip install -r requirements.txt
+   ```
 
-### 1. 安装依赖
+2. **配置设置**:
+   ```bash
+   cp config/config.yaml.example config/config.yaml
+   # 编辑 config/config.yaml 填写配置
+   ```
 
-**重要：** `longbridge` 包需要 Rust 编译器来构建。如果遇到编译错误，请按以下步骤操作：
+3. **运行**:
+   ```bash
+   python run.py
+   ```
 
-#### 步骤1：安装 Rust（如果还没有安装）
+### Docker部署
+
+详细部署说明请参考 [DEPLOYMENT.md](DEPLOYMENT.md)
+
+**快速部署**:
+```bash
+# 1. 配置
+cp config/config.yaml.example config/config.yaml
+nano config/config.yaml
+
+# 2. 构建和启动
+docker-compose up -d
+
+# 3. 查看日志
+docker-compose logs -f
+```
+
+## 配置说明
+
+配置文件: `config/config.yaml`
+
+主要配置项：
+- **longbridge**: LongBridge API配置（app_key, app_secret, access_token）
+- **email**: SMTP邮件配置
+- **web**: Web服务配置（端口、密钥、更新密码）
+- **schedule**: 定时任务配置（时区、执行时间）
+
+详细配置说明请参考 `config/config.yaml.example`
+
+## Web界面
+
+启动后访问: `http://localhost:5000`
+
+功能：
+- **首页**: 查看最新分析结果
+- **更新Token**: `/update-token` - 更新LongBridge access_token
+- **手动触发**: 点击"手动触发分析"按钮
+
+## 定时任务
+
+- 默认执行时间: 每天北京时间11:00
+- 自动生成HTML报告
+- 自动发送邮件通知
+
+## 邮件通知
+
+- 格式: HTML表格
+- 内容: 完整的BOLL分析结果
+- 收件人: 配置文件中指定的邮箱列表
+
+## 项目结构
+
+```
+BoolReminder/
+├── config/              # 配置管理
+│   ├── config_manager.py
+│   └── config.yaml.example
+├── report/              # HTML报告生成
+│   └── html_generator.py
+├── notify/              # 邮件通知
+│   └── email_sender.py
+├── web/                 # Flask Web应用
+│   └── app.py
+├── scheduler/           # 定时任务
+│   └── task_scheduler.py
+├── watchlist_boll_filter.py  # 主分析逻辑
+├── run.py              # 启动脚本
+├── Dockerfile          # Docker镜像
+├── docker-compose.yml  # Docker Compose配置
+└── deploy.sh          # 部署脚本
+```
+
+## 更新部署
+
+使用Git部署到远程服务器：
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-source "$HOME/.cargo/env"
+# 在服务器上执行
+./deploy.sh
 ```
 
-#### 步骤2：安装 longbridge
-
-由于 Python 3.13 的兼容性问题，需要使用以下命令安装：
-
+或手动：
 ```bash
-# 激活虚拟环境
-source .venv/bin/activate  # Linux/Mac
-# 或
-.venv\Scripts\activate  # Windows
-
-# 设置RUSTFLAGS环境变量并安装
-RUSTFLAGS="-A dependency_on_unit_never_type_fallback" pip install longbridge
+git pull
+docker-compose build
+docker-compose down
+docker-compose up -d
 ```
 
-或者使用 requirements.txt：
+## 依赖
 
-```bash
-RUSTFLAGS="-A dependency_on_unit_never_type_fallback" pip install -r requirements.txt
-```
+- Python 3.13+
+- Rust工具链（用于编译longbridge）
+- Docker和Docker Compose（用于部署）
 
-### 2. 配置LongBridge API
+Python包依赖见 `requirements.txt`
 
-你需要：
-- 在 [LongBridge开放平台](https://open.longbridge.com) 注册账号
-- 创建应用获取 `app_key` 和 `app_secret`
-- 获取 `access_token`
+## 文档
 
-配置方式（二选一）：
+- [部署文档](DEPLOYMENT.md) - 详细的部署和使用说明
+- [配置模板](config/config.yaml.example) - 配置文件示例
 
-**方式1：使用配置文件**
-创建 `config.json`:
-```json
-{
-  "app_key": "your_app_key",
-  "app_secret": "your_app_secret",
-  "access_token": "your_access_token"
-}
-```
+## 许可证
 
-**方式2：使用环境变量**
-```bash
-export LONGBRIDGE_APP_KEY="your_app_key"
-export LONGBRIDGE_APP_SECRET="your_app_secret"
-export LONGBRIDGE_ACCESS_TOKEN="your_access_token"
-```
-
-### 3. 使用示例
-
-```python
-from longbridge_boll_example import get_stock_boll_daily
-
-# 获取某只股票的BOLL指标
-result = get_stock_boll_daily("700.HK", period=20, k=2.0)
-
-if result:
-    print(f"上轨: {result['upper']}")
-    print(f"中轨: {result['mid']}")
-    print(f"下轨: {result['lower']}")
-```
-
-## 📊 BOLL指标说明
-
-布林带（Bollinger Bands）由三条线组成：
-
-- **上轨（Upper Band）** = 中轨 + k × 标准差
-- **中轨（Middle Band）** = N日简单移动平均线（SMA）
-- **下轨（Lower Band）** = 中轨 - k × 标准差
-
-**参数说明：**
-- `period`（周期N）：通常为20，表示20日移动平均
-- `k`（倍数）：通常为2.0，表示2倍标准差
-
-**应用：**
-- 价格接近上轨：可能超买，考虑卖出
-- 价格接近下轨：可能超卖，考虑买入
-- 价格在中轨附近：正常波动
-
-## 📁 文件说明
-
-- `boll_calculator.py`: BOLL指标计算器核心类
-- `longbridge_boll_example.py`: 完整的LongBridge API集成示例
-- `main.py`: 项目入口文件
-
-## 🔗 相关链接
-
-- [LongBridge OpenAPI 文档](https://open.longbridge.com)
-- [K线数据接口文档](https://open.longbridge.com/docs/quote/pull/candlestick)
-- [计算指标接口文档](https://open.longbridge.com/docs/quote/pull/calc-index)
+MIT License

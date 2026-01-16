@@ -1,0 +1,28 @@
+# LongBridge API配置
+longbridge:
+  app_key: ""  # 从LongBridge开放平台获取
+  app_secret: ""  # 从LongBridge开放平台获取
+  access_token: ""  # 从LongBridge开放平台获取，可通过Web UI更新
+
+# 邮件通知配置
+email:
+  smtp_host: "smtp.gmail.com"  # SMTP服务器地址
+  smtp_port: 587  # SMTP端口
+  smtp_user: ""  # SMTP用户名
+  smtp_password: ""  # SMTP密码（建议使用应用专用密码）
+  from_email: ""  # 发件人邮箱
+  to_emails:  # 收件人邮箱列表
+    - "your-email@example.com"
+
+# Web服务配置
+web:
+  host: "0.0.0.0"  # 监听地址
+  port: 5000  # 监听端口
+  secret_key: ""  # Flask session密钥（随机字符串，用于安全）
+  update_password: ""  # Token更新页面密码
+
+# 定时任务配置
+schedule:
+  timezone: "Asia/Shanghai"  # 时区
+  hour: 11  # 执行小时（北京时间）
+  minute: 0  # 执行分钟

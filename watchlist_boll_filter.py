@@ -8,6 +8,7 @@
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple, Any
 from dataclasses import dataclass, field
+from pathlib import Path
 
 try:
     from longbridge.openapi import QuoteContext, Config, Period, AdjustType  # type: ignore
@@ -441,11 +442,12 @@ def analyze_all_stocks(
     return result
 
 
-def main(verbose: bool = False):
+def main(verbose: bool = False, config_manager=None):
     """主函数
     
     Args:
         verbose: 是否显示详细进度信息
+        config_manager: 配置管理器实例，如果为None则自动创建
     
     Returns:
         WatchlistBollFilterResult 结构化结果对象
@@ -454,12 +456,24 @@ def main(verbose: bool = False):
         print("请先安装longbridge SDK: pip install longbridge")
         return None
     
+    # 导入配置管理器（避免循环导入）
+    if config_manager is None:
+        from config.config_manager import ConfigManager
+        config_manager = ConfigManager()
+    
     try:
+        # 从配置管理器获取LongBridge配置
+        lb_config = config_manager.get_longbridge_config()
+        
+        if not lb_config.get("app_key") or not lb_config.get("app_secret") or not lb_config.get("access_token"):
+            print("错误: LongBridge配置不完整，请检查config/config.yaml")
+            return None
+        
         # 初始化配置
         config = Config(
-            app_key="c4c4c413297059590cec25e0610439d1",
-            app_secret="dec4555478e52c467ed8d0edc5832922579d17870ea34826ed06d338e7ee2b9d",
-            access_token="m_eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJsb25nYnJpZGdlIiwic3ViIjoiYWNjZXNzX3Rva2VuIiwiZXhwIjoxNzc2MjQyNTU1LCJpYXQiOjE3Njg0NjY1NTUsImFrIjoiYzRjNGM0MTMyOTcwNTk1OTBjZWMyNWUwNjEwNDM5ZDEiLCJhYWlkIjoyMDQ1MjAwOSwiYWMiOiJsYiIsIm1pZCI6MTUwODM1NTEsInNpZCI6Inc0MzJ4VjV6eVN0aWo0dndNUEg3YUE9PSIsImJsIjozLCJ1bCI6MCwiaWsiOiJsYl8yMDQ1MjAwOSJ9.u6wCZE6H9aK6OV-tVbeiUuG1l5mq0vbZNGjAJqBzZMuaGTZUuN154IcFCLY7Cgk1y21O6hHKq9ltwTcru7MxcCKE-qZEZ8W0PlVDsoTvI3oaA8v07JpKFkkwV8KS_yTQSggoCz6Tsn0GZqO5SviQU_PHxfoz5CiLpXu-1EBiUj9kS2gaqx2Ibyy7JSAvQnjn-vFPCRwHt50tE8VfwxMwxFI2thl9ydQ-xCwJtWRCKhw25vA8UFOBjYu2A3BnfDo--2nYp-Nxw9HCFqa4Pgacl4J_7IGyDLFiOqvKJvy7M1E2mpl7NFDZLFpXKZLdal59Lz08ELZiLjDMK1Irct32GhkFdaw4H9aSEGuCOCd8jaqbM2FWiIhu-EeWkg2EXo7h6Xv6NV0gYVxRzL1FwedX9zm7cn_fHiRdSUe6DGqZxJwpV6F9ob09V9MXkuqTKuUdV9sMwq64f4NPaK1lDZWzh2iPxvU4czTJUwxUwk_3X7xA4EPfxRIbbNTIDLNccwEa9oGW2dsdwUbYcu8C10gG_8IFjxSTgCDe4_Q_HOrfLX0xExDA5NnaZHLi-vy3py7BaPDKzXkzz3iPxHZgtPGrMGZ_2ROmz49kxlEFVeDpMVEO4k7TQTh3RXTdf7cZApDAhtHR-BNLRAGgAZNyFmCexd5dmlnrwXXEehBUNHtb3-I"
+            app_key=lb_config["app_key"],
+            app_secret=lb_config["app_secret"],
+            access_token=lb_config["access_token"]
         )
         
         quote_ctx = QuoteContext(config)
@@ -493,6 +507,62 @@ def main(verbose: bool = False):
         import traceback
         traceback.print_exc()
         return None
+
+
+def run_analysis_and_notify(config_manager=None, send_email: bool = True, save_html: bool = False):
+    """
+    运行分析并发送通知
+    
+    Args:
+        config_manager: 配置管理器实例
+        send_email: 是否发送邮件
+        save_html: 是否保存HTML报告到文件
+    
+    Returns:
+        WatchlistBollFilterResult 对象
+    """
+    # 执行分析
+    result = main(verbose=False, config_manager=config_manager)
+    
+    if result is None:
+        print("分析失败")
+        return None
+    
+    # 导入必要的模块
+    from report.html_generator import save_html_report
+    from notify.email_sender import EmailSender
+    
+    # 保存HTML报告
+    if save_html:
+        output_path = f"report/boll_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        save_html_report(result, output_path)
+        print(f"HTML报告已保存到: {output_path}")
+    
+    # 发送邮件
+    if send_email:
+        if config_manager is None:
+            from config.config_manager import ConfigManager
+            config_manager = ConfigManager()
+        
+        email_config = config_manager.get_email_config()
+        
+        if email_config.get("smtp_host") and email_config.get("to_emails"):
+            try:
+                sender = EmailSender(
+                    smtp_host=email_config["smtp_host"],
+                    smtp_port=email_config["smtp_port"],
+                    smtp_user=email_config["smtp_user"],
+                    smtp_password=email_config["smtp_password"],
+                    from_email=email_config["from_email"]
+                )
+                sender.send_report(result, email_config["to_emails"])
+            except Exception as e:
+                print(f"发送邮件失败: {e}")
+        else:
+            print("邮件配置不完整，跳过邮件发送")
+    
+    return result
 
 
 if __name__ == "__main__":

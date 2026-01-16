@@ -48,9 +48,9 @@ def get_stock_boll_daily(symbol: str, period: int = 22, k: float = 2.0):
         
         # 方式2: 从环境变量读取
         config = Config(
-            app_key="c4c4c413297059590cec25e0610439d1",
-            app_secret="dec4555478e52c467ed8d0edc5832922579d17870ea34826ed06d338e7ee2b9d",
-            access_token="m_eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJsb25nYnJpZGdlIiwic3ViIjoiYWNjZXNzX3Rva2VuIiwiZXhwIjoxNzc2MjQyNTU1LCJpYXQiOjE3Njg0NjY1NTUsImFrIjoiYzRjNGM0MTMyOTcwNTk1OTBjZWMyNWUwNjEwNDM5ZDEiLCJhYWlkIjoyMDQ1MjAwOSwiYWMiOiJsYiIsIm1pZCI6MTUwODM1NTEsInNpZCI6Inc0MzJ4VjV6eVN0aWo0dndNUEg3YUE9PSIsImJsIjozLCJ1bCI6MCwiaWsiOiJsYl8yMDQ1MjAwOSJ9.u6wCZE6H9aK6OV-tVbeiUuG1l5mq0vbZNGjAJqBzZMuaGTZUuN154IcFCLY7Cgk1y21O6hHKq9ltwTcru7MxcCKE-qZEZ8W0PlVDsoTvI3oaA8v07JpKFkkwV8KS_yTQSggoCz6Tsn0GZqO5SviQU_PHxfoz5CiLpXu-1EBiUj9kS2gaqx2Ibyy7JSAvQnjn-vFPCRwHt50tE8VfwxMwxFI2thl9ydQ-xCwJtWRCKhw25vA8UFOBjYu2A3BnfDo--2nYp-Nxw9HCFqa4Pgacl4J_7IGyDLFiOqvKJvy7M1E2mpl7NFDZLFpXKZLdal59Lz08ELZiLjDMK1Irct32GhkFdaw4H9aSEGuCOCd8jaqbM2FWiIhu-EeWkg2EXo7h6Xv6NV0gYVxRzL1FwedX9zm7cn_fHiRdSUe6DGqZxJwpV6F9ob09V9MXkuqTKuUdV9sMwq64f4NPaK1lDZWzh2iPxvU4czTJUwxUwk_3X7xA4EPfxRIbbNTIDLNccwEa9oGW2dsdwUbYcu8C10gG_8IFjxSTgCDe4_Q_HOrfLX0xExDA5NnaZHLi-vy3py7BaPDKzXkzz3iPxHZgtPGrMGZ_2ROmz49kxlEFVeDpMVEO4k7TQTh3RXTdf7cZApDAhtHR-BNLRAGgAZNyFmCexd5dmlnrwXXEehBUNHtb3-I"
+            app_key="",
+            app_secret="",
+            access_token=""
         )
         
         # 创建QuoteContext
