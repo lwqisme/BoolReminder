@@ -12,6 +12,7 @@ from pathlib import Path
 from config.config_manager import ConfigManager
 from web.app import app, init_app
 from scheduler.task_scheduler import TaskScheduler
+from scheduler import set_scheduler
 
 # 配置日志
 logging.basicConfig(
@@ -26,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 
 scheduler = None  # 全局调度器变量
+
+def get_scheduler():
+    """获取全局调度器实例，供web应用使用"""
+    return scheduler
 
 def signal_handler(sig, frame):
     """处理退出信号"""
@@ -78,10 +83,20 @@ def main():
     # 启动定时任务调度器
     scheduler = TaskScheduler(config_manager)
     scheduler.start()
+    # 设置全局scheduler实例，供web应用使用
+    set_scheduler(scheduler)
     
     next_run = scheduler.get_next_run_time()
     if next_run:
-        logger.info(f"下次分析时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')} (北京时间)")
+        # 如果next_run是UTC时间，需要转换为北京时间显示
+        import pytz
+        if next_run.tzinfo is None or next_run.tzinfo.utcoffset(next_run).total_seconds() == 0:
+            # 如果是UTC时间，转换为北京时间
+            beijing_tz = pytz.timezone('Asia/Shanghai')
+            next_run_beijing = next_run.replace(tzinfo=pytz.UTC).astimezone(beijing_tz)
+            logger.info(f"下次分析时间: {next_run_beijing.strftime('%Y-%m-%d %H:%M:%S')} (北京时间)")
+        else:
+            logger.info(f"下次分析时间: {next_run.strftime('%Y-%m-%d %H:%M:%S')} (北京时间)")
     
     # 注册信号处理
     signal.signal(signal.SIGINT, signal_handler)

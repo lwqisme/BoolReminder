@@ -4,6 +4,7 @@
 """
 
 import smtplib
+import ssl
 import sys
 from pathlib import Path
 from email.mime.text import MIMEText
@@ -69,10 +70,26 @@ class EmailSender:
             msg.attach(html_part)
             
             # 发送邮件
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                server.starttls()  # 启用TLS加密
-                server.login(self.smtp_user, self.smtp_password)
-                server.send_message(msg)
+            # 根据端口选择使用SSL还是STARTTLS
+            if self.smtp_port == 465:
+                # 使用SSL
+                context = ssl.create_default_context()
+                server = smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, context=context)
+                try:
+                    server.login(self.smtp_user, self.smtp_password)
+                    server.sendmail(self.from_email, to_emails, msg.as_string())
+                finally:
+                    server.quit()
+            else:
+                # 使用STARTTLS（默认587端口）
+                context = ssl.create_default_context()
+                server = smtplib.SMTP(self.smtp_host, self.smtp_port)
+                try:
+                    server.starttls(context=context)  # 启用TLS加密
+                    server.login(self.smtp_user, self.smtp_password)
+                    server.sendmail(self.from_email, to_emails, msg.as_string())
+                finally:
+                    server.quit()
             
             print(f"邮件已成功发送到: {', '.join(to_emails)}")
             return True
@@ -82,9 +99,13 @@ class EmailSender:
             return False
         except smtplib.SMTPException as e:
             print(f"错误: SMTP发送失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
         except Exception as e:
             print(f"错误: 发送邮件时发生异常: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def test_connection(self) -> bool:
@@ -95,9 +116,24 @@ class EmailSender:
             连接是否成功
         """
         try:
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                server.starttls()
-                server.login(self.smtp_user, self.smtp_password)
+            # 根据端口选择使用SSL还是STARTTLS
+            if self.smtp_port == 465:
+                # 使用SSL
+                context = ssl.create_default_context()
+                server = smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, context=context)
+                try:
+                    server.login(self.smtp_user, self.smtp_password)
+                finally:
+                    server.quit()
+            else:
+                # 使用STARTTLS（默认587端口）
+                context = ssl.create_default_context()
+                server = smtplib.SMTP(self.smtp_host, self.smtp_port)
+                try:
+                    server.starttls(context=context)
+                    server.login(self.smtp_user, self.smtp_password)
+                finally:
+                    server.quit()
             print("SMTP连接测试成功")
             return True
         except Exception as e:

@@ -5,10 +5,13 @@
 - 上轨：价格高于上轨 或 价格差10%就到上轨
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple, Any
 from dataclasses import dataclass, field
 from pathlib import Path
+import time
+import json
+import pytz
 
 try:
     from longbridge.openapi import QuoteContext, Config, Period, AdjustType  # type: ignore
@@ -123,8 +126,40 @@ class WatchlistBollFilterResult:
             "upper_band": stock.upper_band,
             "distance_from_lower_pct": stock.distance_from_lower_pct,
             "distance_from_upper_pct": stock.distance_from_upper_pct,
-            "position_pct": stock.position_pct
+            "position_pct": stock.position_pct,
+            "currency_symbol": stock.currency_symbol,
+            "currency_code": stock.currency_code
         }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'WatchlistBollFilterResult':
+        """从字典创建WatchlistBollFilterResult对象"""
+        result = cls()
+        
+        # 基本配置
+        if "config" in data:
+            result.period = data["config"].get("period", 22)
+            result.k = data["config"].get("k", 2.0)
+            result.threshold = data["config"].get("threshold", 0.10)
+        
+        # 汇总信息
+        if "summary" in data:
+            result.total_analyzed = data["summary"].get("total_analyzed", 0)
+            result.total_found = data["summary"].get("total_found", 0)
+            result.update_time = data["summary"].get("update_time", "")
+        
+        # 股票列表
+        if "results" in data:
+            result.below_lower = [StockInfo(**s) for s in data["results"].get("below_lower", [])]
+            result.near_lower = [StockInfo(**s) for s in data["results"].get("near_lower", [])]
+            result.near_upper = [StockInfo(**s) for s in data["results"].get("near_upper", [])]
+            result.above_upper = [StockInfo(**s) for s in data["results"].get("above_upper", [])]
+        
+        # 所有股票代码和名称映射
+        result.all_symbols = data.get("all_symbols", [])
+        result.symbol_to_name = data.get("symbol_to_name", {})
+        
+        return result
     
     def print_summary(self) -> None:
         """打印汇总信息"""
@@ -355,7 +390,7 @@ def analyze_all_stocks(
         threshold=threshold,
         all_symbols=symbols.copy(),
         symbol_to_name=symbol_to_name.copy(),
-        update_time=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        update_time=datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')
     )
     
     total = len(symbols)
@@ -532,12 +567,30 @@ def run_analysis_and_notify(config_manager=None, send_email: bool = True, save_h
     from report.html_generator import save_html_report
     from notify.email_sender import EmailSender
     
-    # 保存HTML报告
+    # 保存HTML报告和JSON结果
     if save_html:
-        output_path = f"report/boll_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+        timestamp = datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y%m%d_%H%M%S')
+        output_path = f"report/boll_report_{timestamp}.html"
+        json_path = f"report/boll_report_{timestamp}.json"
+        
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        
+        # 保存HTML报告
         save_html_report(result, output_path)
         print(f"HTML报告已保存到: {output_path}")
+        
+        # 保存JSON结果（用于启动时恢复）
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(result.to_dict(), f, ensure_ascii=False, indent=2)
+        print(f"JSON结果已保存到: {json_path}")
+        
+        # 保存最新结果到latest.json（用于快速加载）
+        latest_json_path = "report/latest_result.json"
+        with open(latest_json_path, 'w', encoding='utf-8') as f:
+            json.dump(result.to_dict(), f, ensure_ascii=False, indent=2)
+        
+        # 清理旧报告
+        _cleanup_old_reports(config_manager)
     
     # 发送邮件
     if send_email:
@@ -563,6 +616,101 @@ def run_analysis_and_notify(config_manager=None, send_email: bool = True, save_h
             print("邮件配置不完整，跳过邮件发送")
     
     return result
+
+
+def _cleanup_old_reports(config_manager=None):
+    """
+    清理旧的HTML报告和JSON文件
+    
+    Args:
+        config_manager: 配置管理器实例
+    """
+    if config_manager is None:
+        from config.config_manager import ConfigManager
+        config_manager = ConfigManager()
+    
+    cleanup_config = config_manager.get_report_cleanup_config()
+    
+    # 如果未启用清理，直接返回
+    if not cleanup_config.get("enabled", True):
+        return
+    
+    report_dir = Path("report")
+    if not report_dir.exists():
+        return
+    
+    # 获取所有HTML和JSON报告文件（排除latest_result.json）
+    html_files = list(report_dir.glob("boll_report_*.html"))
+    json_files = list(report_dir.glob("boll_report_*.json"))
+    
+    if not html_files:
+        return
+    
+    # 按修改时间排序（最新的在前）
+    html_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+    
+    keep_days = cleanup_config.get("keep_days", 30)
+    keep_count = cleanup_config.get("keep_count", 100)
+    
+    deleted_count = 0
+    current_time = time.time()
+    
+    for i, html_file in enumerate(html_files):
+        should_delete = False
+        
+        # 按数量清理：保留最新的N个
+        if keep_count > 0 and i >= keep_count:
+            should_delete = True
+        
+        # 按天数清理：删除超过N天的报告
+        if keep_days > 0:
+            file_age_days = (current_time - html_file.stat().st_mtime) / (24 * 3600)
+            if file_age_days > keep_days:
+                should_delete = True
+        
+        if should_delete:
+            try:
+                # 删除HTML文件
+                html_file.unlink()
+                deleted_count += 1
+                print(f"已删除旧报告: {html_file.name}")
+                
+                # 同时删除对应的JSON文件
+                json_file = report_dir / html_file.name.replace('.html', '.json')
+                if json_file.exists():
+                    json_file.unlink()
+            except Exception as e:
+                print(f"删除报告失败 {html_file.name}: {e}")
+    
+    if deleted_count > 0:
+        print(f"报告清理完成: 删除了 {deleted_count} 个旧报告")
+
+
+def load_latest_result() -> Optional['WatchlistBollFilterResult']:
+    """
+    加载最新的分析结果
+    
+    Returns:
+        WatchlistBollFilterResult对象，如果不存在则返回None
+    """
+    latest_json_path = Path("report/latest_result.json")
+    
+    if not latest_json_path.exists():
+        # 如果没有latest_result.json，尝试从最新的HTML报告对应的JSON加载
+        report_dir = Path("report")
+        json_files = sorted(report_dir.glob("boll_report_*.json"), reverse=True)
+        if json_files:
+            latest_json_path = json_files[0]
+        else:
+            return None
+    
+    try:
+        with open(latest_json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return WatchlistBollFilterResult.from_dict(data)
+    except Exception as e:
+        print(f"加载最新结果失败: {e}")
+        return None
 
 
 if __name__ == "__main__":

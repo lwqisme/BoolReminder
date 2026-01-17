@@ -198,3 +198,37 @@ class ConfigManager:
             "hour": schedule_config.get("hour", 11),
             "minute": schedule_config.get("minute", 0)
         }
+    
+    def get_report_cleanup_config(self) -> Dict[str, Any]:
+        """获取报告清理配置"""
+        cleanup_config = self.get("report_cleanup", {})
+        return {
+            "enabled": cleanup_config.get("enabled", True),
+            "keep_days": cleanup_config.get("keep_days", 30),
+            "keep_count": cleanup_config.get("keep_count", 100)
+        }
+    
+    def update_schedule_config(self, hour: int, minute: int, timezone: str = "Asia/Shanghai") -> bool:
+        """
+        更新定时任务配置
+        
+        Args:
+            hour: 执行小时（0-23）
+            minute: 执行分钟（0-59）
+            timezone: 时区，默认Asia/Shanghai
+        
+        Returns:
+            是否更新成功
+        """
+        try:
+            if "schedule" not in self.config:
+                self.config["schedule"] = {}
+            
+            self.config["schedule"]["hour"] = hour
+            self.config["schedule"]["minute"] = minute
+            self.config["schedule"]["timezone"] = timezone
+            self.save_config()
+            return True
+        except Exception as e:
+            print(f"更新定时任务配置失败: {e}")
+            return False

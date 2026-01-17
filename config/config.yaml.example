@@ -20,9 +20,3 @@ web:
   port: 5000  # 监听端口
   secret_key: ""  # Flask session密钥（随机字符串，用于安全）
   update_password: ""  # Token更新页面密码
-
-# 定时任务配置
-schedule:
-  timezone: "Asia/Shanghai"  # 时区
-  hour: 11  # 执行小时（北京时间）
-  minute: 0  # 执行分钟

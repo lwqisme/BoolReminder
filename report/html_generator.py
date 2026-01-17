@@ -7,6 +7,7 @@ from typing import Optional
 from datetime import datetime
 import sys
 from pathlib import Path
+import pytz
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -281,7 +282,7 @@ def generate_html_report(result: WatchlistBollFilterResult, title: str = "BOLL�
         
         <div class="footer">
             <p>本报告由BOLL指标筛选系统自动生成</p>
-            <p>生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            <p>生成时间: {datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')}</p>
         </div>
     </div>
 </body>
