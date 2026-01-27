@@ -278,13 +278,13 @@ class WatchlistBollFilterResult:
         return "\n".join(lines)
 
 
-def get_watchlist_symbols(quote_ctx: QuoteContext, exclude_options: bool = True) -> Tuple[List[str], Dict[str, str]]:
+def get_watchlist_symbols(quote_ctx: QuoteContext, exclude_options: bool = False) -> Tuple[List[str], Dict[str, str]]:
     """
     获取自选列表中的所有股票代码和名称映射
     
     Args:
         quote_ctx: QuoteContext实例
-        exclude_options: 是否排除期权（默认True，只保留股票）
+        exclude_options: 是否排除期权（默认False，不排除）
         
     Returns:
         (股票代码列表, 股票代码到名称的映射字典)
@@ -331,7 +331,7 @@ def get_stock_boll_data(quote_ctx: QuoteContext, symbol: str, period: int = 22, 
         if len(candlesticks) < period:
             return None
         
-        # 2. 提取收盘价列表
+        # 2. 提取历史收盘价列表（用于BOLL计算）
         closes = [float(c.close) for c in candlesticks]
         
         # 3. 计算BOLL指标
@@ -341,7 +341,7 @@ def get_stock_boll_data(quote_ctx: QuoteContext, symbol: str, period: int = 22, 
         if not boll_result:
             return None
         
-        # 4. 获取当前价格
+        # 4. 获取当天最新价（实时价格）
         quotes = quote_ctx.quote([symbol])
         current_price = float(quotes[0].last_done) if quotes else None
         
@@ -366,7 +366,7 @@ def analyze_all_stocks(
     period: int = 22,
     k: float = 2.0,
     threshold: float = 0.10,
-    exclude_options: bool = True,
+    exclude_options: bool = False,
     verbose: bool = False
 ) -> WatchlistBollFilterResult:
     """
@@ -378,7 +378,7 @@ def analyze_all_stocks(
         period: BOLL计算周期
         k: 标准差倍数
         threshold: 接近上下轨的阈值（10% = 0.10）
-        exclude_options: 是否排除期权
+        exclude_options: 是否排除期权（当前函数内未使用）
         verbose: 是否打印详细进度信息
         
     Returns:
@@ -517,7 +517,7 @@ def main(verbose: bool = False, config_manager=None):
         if verbose:
             print("=" * 60)
             print("获取自选列表...")
-        symbols, symbol_to_name = get_watchlist_symbols(quote_ctx, exclude_options=True)
+        symbols, symbol_to_name = get_watchlist_symbols(quote_ctx, exclude_options=False)
         if verbose:
             print(f"找到 {len(symbols)} 只股票（已排除期权）")
             print("=" * 60)
@@ -531,7 +531,6 @@ def main(verbose: bool = False, config_manager=None):
             period=22,
             k=2.0,
             threshold=0.02,  # 2%
-            exclude_options=True,
             verbose=verbose
         )
         
