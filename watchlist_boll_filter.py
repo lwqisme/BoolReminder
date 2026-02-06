@@ -687,29 +687,66 @@ def _cleanup_old_reports(config_manager=None):
 
 def load_latest_result() -> Optional['WatchlistBollFilterResult']:
     """
-    加载最新的分析结果
+    加载最新的分析结果（包括手动触发和定时任务触发的）
+    
+    会检查所有JSON文件（latest_result.json和带时间戳的JSON文件），
+    找出update_time最新的记录。
     
     Returns:
         WatchlistBollFilterResult对象，如果不存在则返回None
     """
-    latest_json_path = Path("report/latest_result.json")
+    report_dir = Path("report")
     
-    if not latest_json_path.exists():
-        # 如果没有latest_result.json，尝试从最新的HTML报告对应的JSON加载
-        report_dir = Path("report")
-        json_files = sorted(report_dir.glob("boll_report_*.json"), reverse=True)
-        if json_files:
-            latest_json_path = json_files[0]
-        else:
-            return None
+    # 收集所有JSON文件
+    json_files = []
     
-    try:
-        with open(latest_json_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        return WatchlistBollFilterResult.from_dict(data)
-    except Exception as e:
-        print(f"加载最新结果失败: {e}")
+    # 添加latest_result.json（如果存在）
+    latest_json_path = report_dir / "latest_result.json"
+    if latest_json_path.exists():
+        json_files.append(latest_json_path)
+    
+    # 添加所有带时间戳的JSON文件
+    json_files.extend(report_dir.glob("boll_report_*.json"))
+    
+    if not json_files:
         return None
+    
+    # 遍历所有JSON文件，找出update_time最新的
+    latest_result = None
+    latest_time = None
+    
+    for json_path in json_files:
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # 获取update_time
+            update_time_str = data.get("summary", {}).get("update_time", "")
+            if not update_time_str:
+                # 如果没有update_time，使用文件修改时间作为fallback
+                update_time_str = datetime.fromtimestamp(json_path.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+            
+            # 解析时间字符串进行比较
+            try:
+                update_time = datetime.strptime(update_time_str, '%Y-%m-%d %H:%M:%S')
+                
+                # 如果这是第一个文件，或者时间更新，则更新latest_result
+                if latest_time is None or update_time > latest_time:
+                    latest_time = update_time
+                    latest_result = WatchlistBollFilterResult.from_dict(data)
+            except ValueError:
+                # 如果时间格式解析失败，使用文件修改时间
+                file_time = datetime.fromtimestamp(json_path.stat().st_mtime)
+                if latest_time is None or file_time > latest_time:
+                    latest_time = file_time
+                    latest_result = WatchlistBollFilterResult.from_dict(data)
+                    
+        except Exception as e:
+            # 如果某个文件加载失败，继续处理下一个
+            print(f"加载文件 {json_path} 失败: {e}")
+            continue
+    
+    return latest_result
 
 
 if __name__ == "__main__":

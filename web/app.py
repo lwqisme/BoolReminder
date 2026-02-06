@@ -370,7 +370,7 @@ UPDATE_TOKEN_TEMPLATE = """
 def index():
     """首页：显示最新分析结果"""
     global latest_result
-    
+
     # 每次访问都重新加载最新结果，确保显示定时任务触发的最新结果
     try:
         from watchlist_boll_filter import load_latest_result
@@ -380,19 +380,24 @@ def index():
     except Exception as e:
         # 如果加载失败，使用全局变量作为fallback
         print(f"加载最新结果失败: {e}")
-    
+
     result_html = ""
     if latest_result:
         result_html = generate_html_report(latest_result)
-    
-    return render_template_string(INDEX_TEMPLATE, result=latest_result, result_html=result_html)
+
+    response = app.make_response(render_template_string(INDEX_TEMPLATE, result=latest_result, result_html=result_html))
+    # 禁用浏览器缓存，确保每次都显示最新报告
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 
 @app.route('/api/result')
 def api_result():
     """获取最新结果（JSON格式）"""
     global latest_result
-    
+
     # 每次访问都重新加载最新结果
     try:
         from watchlist_boll_filter import load_latest_result
@@ -402,14 +407,19 @@ def api_result():
     except Exception as e:
         # 如果加载失败，使用全局变量作为fallback
         print(f"加载最新结果失败: {e}")
-    
+
     if latest_result is None:
         return jsonify({"success": False, "message": "暂无分析结果"}), 404
-    
-    return jsonify({
+
+    response = jsonify({
         "success": True,
         "result": latest_result.to_dict()
     })
+    # 禁用浏览器缓存
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 
 @app.route('/update-token')
