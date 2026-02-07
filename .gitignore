@@ -47,6 +47,8 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+._*
+*.tmp.*
 
 # Docker
 .dockerignore

@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.config_manager import ConfigManager
 from watchlist_boll_filter import main, run_analysis_and_notify, WatchlistBollFilterResult
 from report.html_generator import generate_html_report
+from option_quote import OptionQuoteService
 
 # 全局变量
 app = Flask(__name__)
@@ -666,6 +667,82 @@ def api_schedule():
                 return jsonify({"success": False, "message": "更新定时任务失败"}), 500
         else:
             return jsonify({"success": False, "message": "调度器未初始化"}), 500
+
+
+@app.route('/api/option-quote', methods=['POST'])
+def api_option_quote():
+    """
+    期权价格查询接口（需要密码验证）
+
+    请求格式：
+    {
+        "password": "密码",
+        "symbol": "期权代码"
+    }
+
+    返回格式：
+    {
+        "success": true,
+        "data": {
+            "symbol": "期权代码",
+            "last_done": 最新成交价,
+            "open": 开盘价,
+            "high": 最高价,
+            "low": 最低价,
+            "volume": 成交量,
+            "turnover": 成交额,
+            "timestamp": 时间戳
+        }
+    }
+    """
+    global config_manager
+
+    if config_manager is None:
+        return jsonify({"success": False, "message": "配置管理器未初始化"}), 500
+
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"success": False, "message": "请求数据格式错误"}), 400
+
+        password = data.get("password", "")
+        symbol = data.get("symbol", "")
+
+        # 验证密码
+        web_config = config_manager.get_web_config()
+        api_password = web_config.get("update_password", "")
+
+        if not api_password:
+            return jsonify({"success": False, "message": "API密码未配置"}), 500
+
+        if password != api_password:
+            return jsonify({"success": False, "message": "密码错误"}), 401
+
+        # 验证期权代码
+        if not symbol:
+            return jsonify({"success": False, "message": "期权代码不能为空"}), 400
+
+        # 获取Polygon.io配置
+        polygon_config = config_manager.get_polygon_config()
+        api_key = polygon_config.get("api_key")
+
+        if not api_key:
+            return jsonify({"success": False, "message": "Polygon.io API Key未配置"}), 500
+
+        # 查询期权价格
+        option_service = OptionQuoteService(api_key)
+        quote_data = option_service.get_option_quote(symbol)
+
+        if quote_data:
+            return jsonify({
+                "success": True,
+                "data": quote_data
+            })
+        else:
+            return jsonify({"success": False, "message": f"未找到期权 {symbol} 的报价"}), 404
+
+    except Exception as e:
+        return jsonify({"success": False, "message": f"查询失败: {str(e)}"}), 500
 
 
 if __name__ == '__main__':

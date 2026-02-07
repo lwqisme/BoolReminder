@@ -167,7 +167,14 @@ class ConfigManager:
             "app_secret": lb_config.get("app_secret", ""),
             "access_token": lb_config.get("access_token", "")
         }
-    
+
+    def get_polygon_config(self) -> Dict[str, str]:
+        """获取Polygon.io配置"""
+        polygon_config = self.get("polygon", {})
+        return {
+            "api_key": polygon_config.get("api_key", "")
+        }
+
     def get_email_config(self) -> Dict[str, Any]:
         """获取邮件配置"""
         email_config = self.get("email", {})
