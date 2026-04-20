@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Generate a draft drawdown visualization from a TSV or xlsx export.
 
-This script reads either:
-1. A legacy TSV export with price and buy/sell markers, or
-2. An xlsx export that contains both the price series and the buy/sell logs.
+Supported workflows:
+1. Legacy TSV export with price and buy/sell markers.
+2. Embedded xlsx export containing both price series and buy/sell blocks.
+3. Operations-only xlsx export, with prices fetched from Longbridge.
 
-It then exports an interactive HTML chart. It also supports an optional CSV file
-with extra trade amounts or share counts so later overlays can be added without
-changing the code.
+The output is a single interactive HTML chart.
 """
 
 from __future__ import annotations
@@ -17,9 +16,11 @@ import csv
 import json
 import math
 import re
+import sys
+from bisect import bisect_right
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Iterable
 from xml.etree import ElementTree as ET
@@ -27,6 +28,11 @@ from zipfile import ZipFile
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
+ROOT_DIR = SCRIPT_DIR.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+DEFAULT_INPUT = Path.home() / "Documents" / "TSLATradingLogs.xlsx"
 DATE_KEYS = ("date", "trade_date", "buy_date")
 AMOUNT_KEYS = ("amount", "add_amount", "trade_amount", "cash")
 SHARE_KEYS = ("shares", "qty", "quantity")
@@ -36,6 +42,70 @@ NS_BOOK = {
     "a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
     "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
 }
+MARKET_SUFFIXES = (".US", ".HK", ".SH", ".SZ", ".SI", ".T")
+TRADE_TABLE_SCAN_ROWS = 30
+LONGBRIDGE_MAX_BARS = 1000
+LONGBRIDGE_SHORT_RANGE_DAYS = 900
+DATE_HEADER_CANDIDATES = (
+    "date",
+    "trade date",
+    "trade_date",
+    "日期",
+    "交易日期",
+    "成交日期",
+    "时间",
+    "买入日期",
+    "卖出日期",
+)
+AMOUNT_HEADER_CANDIDATES = (
+    "amount",
+    "trade amount",
+    "cash",
+    "金额",
+    "成交金额",
+    "买入金额",
+    "卖出金额",
+)
+SHARE_HEADER_CANDIDATES = (
+    "shares",
+    "share",
+    "qty",
+    "quantity",
+    "股数",
+    "数量",
+    "成交数量",
+    "买入股数",
+    "卖出股数",
+)
+PRICE_HEADER_CANDIDATES = (
+    "price",
+    "trade price",
+    "成交价",
+    "成交价格",
+    "买入价格",
+    "卖出价格",
+    "买入股价",
+    "卖出股价",
+    "真实卖出价格",
+)
+TYPE_HEADER_CANDIDATES = (
+    "type",
+    "side",
+    "action",
+    "买卖",
+    "方向",
+    "操作",
+    "交易方向",
+)
+SYMBOL_HEADER_CANDIDATES = (
+    "symbol",
+    "ticker",
+    "stock code",
+    "code",
+    "股票代码",
+    "证券代码",
+    "代码",
+)
 
 
 @dataclass
@@ -65,7 +135,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--input",
-        default=str(Path.home() / "Documents" / "TSLATradingLogs.xlsx"),
+        default=str(DEFAULT_INPUT),
         help="Path to the current TSV/xlsx export. Default: %(default)s",
     )
     parser.add_argument(
@@ -77,14 +147,40 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--output",
-        help="Output HTML path. Default: drawdown/output/<ticker>_drawdown_draft.html",
+        help="Output HTML path. Default: drawdown/output/<ticker>_drawdown[_longbridge].html",
+    )
+    parser.add_argument(
+        "--price-source",
+        choices=("auto", "embedded", "longbridge"),
+        default="auto",
+        help=(
+            "Where price history comes from for xlsx inputs. "
+            "'auto' prefers embedded prices and falls back to Longbridge."
+        ),
+    )
+    parser.add_argument(
+        "--symbol",
+        help=(
+            "Ticker or Longbridge symbol to render, for example MSFT or MSFT.US. "
+            "Required when the workbook contains multiple symbols and does not embed prices."
+        ),
+    )
+    parser.add_argument(
+        "--sheet",
+        help="Optional xlsx sheet name. Defaults to the first sheet or auto-detected trade sheet.",
     )
     return parser.parse_args()
 
 
 def parse_date(value: str) -> datetime:
     value = value.strip()
-    for fmt in ("%Y/%m/%d", "%Y-%m-%d"):
+    for fmt in (
+        "%Y/%m/%d",
+        "%Y-%m-%d",
+        "%Y.%m.%d",
+        "%m/%d/%Y",
+        "%m-%d-%Y",
+    ):
         try:
             return datetime.strptime(value, fmt)
         except ValueError:
@@ -92,9 +188,39 @@ def parse_date(value: str) -> datetime:
     raise ValueError(f"Unsupported date format: {value}")
 
 
+def parse_excelish_date(value: str) -> datetime:
+    raw = str(value).strip()
+    if not raw:
+        raise ValueError("Missing date value")
+    if re.fullmatch(r"-?\d+(?:\.\d+)?", raw):
+        return excel_serial_to_datetime(raw)
+    return parse_date(raw)
+
+
 def excel_serial_to_datetime(value: str) -> datetime:
     base = datetime(1899, 12, 30)
     return base + timedelta(days=float(value))
+
+
+def normalize_header(value: str) -> str:
+    return re.sub(r"[\s_\-]+", "", value.strip().lower())
+
+
+def normalize_symbol_token(value: str) -> str:
+    return re.sub(r"\s+", "", value.strip().upper())
+
+
+def symbol_base(value: str) -> str:
+    return normalize_symbol_token(value).split(".", 1)[0]
+
+
+def normalize_longbridge_symbol(value: str) -> str:
+    symbol = normalize_symbol_token(value)
+    if not symbol:
+        raise ValueError("Ticker/symbol is empty.")
+    if any(symbol.endswith(suffix) for suffix in MARKET_SUFFIXES):
+        return symbol
+    return f"{symbol}.US"
 
 
 def find_key(fieldnames: Iterable[str], candidates: Iterable[str]) -> str | None:
@@ -102,6 +228,24 @@ def find_key(fieldnames: Iterable[str], candidates: Iterable[str]) -> str | None
     for candidate in candidates:
         if candidate in lowered:
             return lowered[candidate]
+    return None
+
+
+def header_matches(header_value: str, candidates: Iterable[str]) -> bool:
+    normalized = normalize_header(header_value)
+    for candidate in candidates:
+        candidate_normalized = normalize_header(candidate)
+        if normalized == candidate_normalized or candidate_normalized in normalized:
+            return True
+    return False
+
+
+def find_header_column(
+    header_cells: dict[str, str], candidates: Iterable[str]
+) -> str | None:
+    for column, value in header_cells.items():
+        if value and header_matches(value, candidates):
+            return column
     return None
 
 
@@ -123,23 +267,27 @@ def load_shared_strings(book: ZipFile) -> list[str]:
     return strings
 
 
-def first_sheet_xml_path(book: ZipFile) -> str:
+def workbook_sheet_targets(book: ZipFile) -> list[tuple[str, str]]:
     workbook = ET.fromstring(book.read("xl/workbook.xml"))
     rels = ET.fromstring(book.read("xl/_rels/workbook.xml.rels"))
     rel_map = {rel.attrib["Id"]: rel.attrib["Target"] for rel in rels}
-    first_sheet = workbook.find("a:sheets", NS_BOOK)[0]
-    rel_id = first_sheet.attrib[
-        "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
-    ]
-    return "xl/" + rel_map[rel_id]
+
+    targets: list[tuple[str, str]] = []
+    for sheet in workbook.find("a:sheets", NS_BOOK):
+        rel_id = sheet.attrib[
+            "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+        ]
+        target = rel_map[rel_id].lstrip("/")
+        if not target.startswith("xl/"):
+            target = f"xl/{target.lstrip('./')}"
+        targets.append((sheet.attrib.get("name", ""), target))
+    return targets
 
 
-def read_xlsx_rows(path: Path) -> dict[int, dict[str, str]]:
-    with ZipFile(path) as book:
-        shared_strings = load_shared_strings(book)
-        sheet_path = first_sheet_xml_path(book)
-        root = ET.fromstring(book.read(sheet_path))
-
+def read_sheet_rows_from_book(
+    book: ZipFile, shared_strings: list[str], sheet_xml_path: str
+) -> dict[int, dict[str, str]]:
+    root = ET.fromstring(book.read(sheet_xml_path))
     rows: dict[int, dict[str, str]] = {}
     for row in root.findall(".//a:sheetData/a:row", NS_MAIN):
         row_idx = int(row.attrib["r"])
@@ -147,60 +295,84 @@ def read_xlsx_rows(path: Path) -> dict[int, dict[str, str]]:
         for cell in row.findall("a:c", NS_MAIN):
             ref = cell.attrib["r"]
             col = col_letters(ref)
-            value_node = cell.find("a:v", NS_MAIN)
-            value = value_node.text if value_node is not None else ""
-            if cell.attrib.get("t") == "s" and value:
-                value = shared_strings[int(value)]
+            cell_type = cell.attrib.get("t")
+            if cell_type == "inlineStr":
+                value = "".join((t.text or "") for t in cell.iterfind(".//a:t", NS_MAIN))
+            else:
+                value_node = cell.find("a:v", NS_MAIN)
+                value = value_node.text if value_node is not None else ""
+                if cell_type == "s" and value:
+                    value = shared_strings[int(value)]
             cells[col] = value
         rows[row_idx] = cells
     return rows
 
 
-def load_xlsx_dataset(path: Path) -> tuple[list[PricePoint], list[TradeOverlay], str]:
-    rows = read_xlsx_rows(path)
-    ticker = rows.get(2, {}).get("I", "") or path.stem
-    buy_dates = {
-        excel_serial_to_datetime(row["F"]).date()
-        for row_idx, row in rows.items()
-        if row_idx >= 3 and row.get("F") and row.get("G") and row.get("H")
-    }
-    sell_dates = {
-        excel_serial_to_datetime(row["K"]).date()
-        for row_idx, row in rows.items()
-        if row_idx >= 3 and row.get("K") and row.get("L") and row.get("M")
-    }
+def list_xlsx_sheet_names(path: Path) -> list[str]:
+    with ZipFile(path) as book:
+        return [name for name, _ in workbook_sheet_targets(book)]
+
+
+def read_xlsx_rows(path: Path, sheet_name: str | None = None) -> tuple[dict[int, dict[str, str]], str]:
+    with ZipFile(path) as book:
+        shared_strings = load_shared_strings(book)
+        sheet_targets = workbook_sheet_targets(book)
+        if not sheet_targets:
+            raise ValueError(f"{path} does not contain any sheets.")
+
+        if sheet_name:
+            for actual_sheet_name, target in sheet_targets:
+                if actual_sheet_name == sheet_name:
+                    return read_sheet_rows_from_book(book, shared_strings, target), actual_sheet_name
+            available = ", ".join(name for name, _ in sheet_targets)
+            raise ValueError(f"Sheet '{sheet_name}' was not found in {path}. Available: {available}")
+
+        actual_sheet_name, target = sheet_targets[0]
+        return read_sheet_rows_from_book(book, shared_strings, target), actual_sheet_name
+
+
+def infer_ticker_from_rows(rows: dict[int, dict[str, str]], fallback: str) -> str:
+    ticker = rows.get(2, {}).get("I", "").strip()
+    if ticker and ticker not in {"股票代码", "Symbol", "Ticker"}:
+        return symbol_base(ticker)
+    return symbol_base(fallback) or fallback
+
+
+def build_price_points_from_series(series: list[tuple[datetime, float]]) -> list[PricePoint]:
+    if not series:
+        return []
 
     points: list[PricePoint] = []
     rolling_peak = -math.inf
-    overlays: list[TradeOverlay] = []
+    for point_date, close in sorted(series, key=lambda item: item[0]):
+        rolling_peak = max(rolling_peak, close)
+        drawdown_ath = close / rolling_peak - 1.0
+        points.append(
+            PricePoint(
+                date=point_date,
+                close=close,
+                is_buy=False,
+                is_sell=False,
+                rolling_peak=rolling_peak,
+                drawdown_ath=drawdown_ath,
+            )
+        )
+    return points
 
+
+def extract_legacy_trade_overlays(rows: dict[int, dict[str, str]]) -> list[TradeOverlay]:
+    overlays: list[TradeOverlay] = []
     for row_idx in sorted(rows):
-        row = rows[row_idx]
         if row_idx < 3:
             continue
-
-        if row.get("A") and row.get("B"):
-            date = excel_serial_to_datetime(row["A"])
-            close = float(row["B"])
-            rolling_peak = max(rolling_peak, close)
-            drawdown_ath = close / rolling_peak - 1.0
-            points.append(
-                PricePoint(
-                    date=date,
-                    close=close,
-                    is_buy=date.date() in buy_dates,
-                    is_sell=date.date() in sell_dates,
-                    rolling_peak=rolling_peak,
-                    drawdown_ath=drawdown_ath,
-                )
-            )
+        row = rows[row_idx]
 
         if row.get("F") and row.get("G") and row.get("H"):
             shares = float(row["G"])
             price = float(row["H"])
             overlays.append(
                 TradeOverlay(
-                    date=excel_serial_to_datetime(row["F"]),
+                    date=parse_excelish_date(row["F"]),
                     amount=shares * price,
                     shares=shares,
                     event_type="buy",
@@ -212,17 +384,203 @@ def load_xlsx_dataset(path: Path) -> tuple[list[PricePoint], list[TradeOverlay],
             price = float(row["M"])
             overlays.append(
                 TradeOverlay(
-                    date=excel_serial_to_datetime(row["K"]),
+                    date=parse_excelish_date(row["K"]),
                     amount=shares * price,
                     shares=shares,
                     event_type="sell",
                 )
             )
+    return overlays
 
+
+def load_embedded_xlsx_dataset(
+    path: Path, sheet_name: str | None = None
+) -> tuple[list[PricePoint], list[TradeOverlay], str]:
+    rows, actual_sheet_name = read_xlsx_rows(path, sheet_name)
+    ticker = infer_ticker_from_rows(rows, path.stem.replace("TradingLogs", "") or path.stem)
+    series: list[tuple[datetime, float]] = []
+    buy_dates = {
+        parse_excelish_date(row["F"]).date()
+        for row_idx, row in rows.items()
+        if row_idx >= 3 and row.get("F") and row.get("G") and row.get("H")
+    }
+    sell_dates = {
+        parse_excelish_date(row["K"]).date()
+        for row_idx, row in rows.items()
+        if row_idx >= 3 and row.get("K") and row.get("L") and row.get("M")
+    }
+
+    for row_idx in sorted(rows):
+        row = rows[row_idx]
+        if row_idx < 3 or not row.get("A") or not row.get("B"):
+            continue
+        try:
+            point_date = parse_excelish_date(row["A"])
+            close = float(row["B"])
+        except ValueError:
+            continue
+        series.append((point_date, close))
+
+    points = build_price_points_from_series(series)
     if not points:
-        raise ValueError(f"No price rows were parsed from {path}.")
+        raise ValueError(f"No embedded price rows were parsed from {path} ({actual_sheet_name}).")
+
+    overlays = extract_legacy_trade_overlays(rows)
+    for point in points:
+        if point.date.date() in buy_dates:
+            point.is_buy = True
+        if point.date.date() in sell_dates:
+            point.is_sell = True
 
     return points, overlays, ticker
+
+
+def detect_trade_table_header(
+    rows: dict[int, dict[str, str]]
+) -> tuple[int | None, dict[str, str]]:
+    for row_idx in sorted(rows):
+        if row_idx > TRADE_TABLE_SCAN_ROWS:
+            break
+        row = rows[row_idx]
+        header_cells = {
+            column: str(value).strip()
+            for column, value in row.items()
+            if str(value).strip()
+        }
+        if not header_cells:
+            continue
+
+        date_col = find_header_column(header_cells, DATE_HEADER_CANDIDATES)
+        signal_cols = [
+            find_header_column(header_cells, TYPE_HEADER_CANDIDATES),
+            find_header_column(header_cells, AMOUNT_HEADER_CANDIDATES),
+            find_header_column(header_cells, SHARE_HEADER_CANDIDATES),
+            find_header_column(header_cells, PRICE_HEADER_CANDIDATES),
+        ]
+        if date_col and any(signal_cols):
+            return row_idx, header_cells
+
+    return None, {}
+
+
+def infer_default_event_type(header_cells: dict[str, str]) -> str | None:
+    header_text = " ".join(header_cells.values())
+    if "买" in header_text or "buy" in header_text.lower():
+        return "buy"
+    if "卖" in header_text or "sell" in header_text.lower():
+        return "sell"
+    return None
+
+
+def parse_event_type(value: str | None, default_type: str | None = None) -> str | None:
+    raw = (value or "").strip().lower()
+    if not raw:
+        return default_type
+    if any(token in raw for token in ("buy", "add", "long", "b")) or "买" in raw:
+        return "buy"
+    if any(token in raw for token in ("sell", "trim", "reduce", "s")) or "卖" in raw:
+        return "sell"
+    return default_type
+
+
+def extract_generic_trade_overlays(
+    rows: dict[int, dict[str, str]], symbol_filter: str | None
+) -> tuple[list[TradeOverlay], set[str]]:
+    header_row_idx, header_cells = detect_trade_table_header(rows)
+    if header_row_idx is None:
+        return [], set()
+
+    date_col = find_header_column(header_cells, DATE_HEADER_CANDIDATES)
+    amount_col = find_header_column(header_cells, AMOUNT_HEADER_CANDIDATES)
+    share_col = find_header_column(header_cells, SHARE_HEADER_CANDIDATES)
+    price_col = find_header_column(header_cells, PRICE_HEADER_CANDIDATES)
+    type_col = find_header_column(header_cells, TYPE_HEADER_CANDIDATES)
+    symbol_col = find_header_column(header_cells, SYMBOL_HEADER_CANDIDATES)
+    default_type = infer_default_event_type(header_cells)
+
+    if not date_col or not (amount_col or share_col or price_col):
+        return [], set()
+
+    overlays: list[TradeOverlay] = []
+    seen_symbols: set[str] = set()
+    requested_base = symbol_base(symbol_filter or "")
+
+    for row_idx in sorted(rows):
+        if row_idx <= header_row_idx:
+            continue
+        row = rows[row_idx]
+        raw_date = (row.get(date_col) or "").strip()
+        if not raw_date:
+            continue
+
+        current_symbol = normalize_symbol_token(row.get(symbol_col, "")) if symbol_col else ""
+        if current_symbol:
+            seen_symbols.add(current_symbol)
+            if requested_base and symbol_base(current_symbol) != requested_base:
+                continue
+        elif requested_base and symbol_col:
+            continue
+
+        event_type = parse_event_type(row.get(type_col), default_type)
+        if not event_type:
+            continue
+
+        shares = parse_optional_float(row.get(share_col)) if share_col else None
+        price = parse_optional_float(row.get(price_col)) if price_col else None
+        amount = parse_optional_float(row.get(amount_col)) if amount_col else None
+        if amount is None and shares is not None and price is not None:
+            amount = shares * price
+
+        overlays.append(
+            TradeOverlay(
+                date=parse_excelish_date(raw_date),
+                amount=amount,
+                shares=shares,
+                event_type=event_type,
+            )
+        )
+
+    return overlays, seen_symbols
+
+
+def load_trade_overlays_from_xlsx(
+    path: Path, sheet_name: str | None = None, symbol_filter: str | None = None
+) -> tuple[list[TradeOverlay], str]:
+    candidate_sheets = [sheet_name] if sheet_name else list_xlsx_sheet_names(path)
+    requested_base = symbol_base(symbol_filter or "")
+    all_seen_symbols: set[str] = set()
+
+    for candidate_sheet in candidate_sheets:
+        rows, _ = read_xlsx_rows(path, candidate_sheet)
+
+        legacy_overlays = extract_legacy_trade_overlays(rows)
+        if legacy_overlays:
+            ticker = infer_ticker_from_rows(rows, symbol_filter or path.stem)
+            if requested_base and symbol_base(ticker) != requested_base:
+                continue
+            return legacy_overlays, ticker
+
+        overlays, seen_symbols = extract_generic_trade_overlays(rows, symbol_filter)
+        all_seen_symbols.update(seen_symbols)
+        if overlays:
+            if symbol_filter:
+                return overlays, symbol_base(symbol_filter)
+            if len(seen_symbols) == 1:
+                return overlays, symbol_base(next(iter(seen_symbols)))
+            if len(seen_symbols) > 1:
+                raise ValueError(
+                    f"{path} contains multiple symbols ({', '.join(sorted(seen_symbols))}). "
+                    "Use --symbol to choose one."
+                )
+            return overlays, symbol_base(path.stem.replace("TradingLogs", "") or path.stem)
+
+    if all_seen_symbols and not symbol_filter:
+        raise ValueError(
+            f"{path} contains multiple symbols ({', '.join(sorted(all_seen_symbols))}). "
+            "Use --symbol to choose one."
+        )
+
+    raise ValueError(f"No trade overlays were parsed from {path}.")
 
 
 def load_price_points(path: Path) -> list[PricePoint]:
@@ -239,7 +597,7 @@ def load_price_points(path: Path) -> list[PricePoint]:
         if len(row) < 4 or not row[0].strip() or not row[1].strip():
             continue
 
-        date = parse_date(row[0])
+        point_date = parse_date(row[0])
         close = float(row[1])
         is_buy = bool(row[2].strip())
         is_sell = bool(row[3].strip())
@@ -248,7 +606,7 @@ def load_price_points(path: Path) -> list[PricePoint]:
 
         points.append(
             PricePoint(
-                date=date,
+                date=point_date,
                 close=close,
                 is_buy=is_buy,
                 is_sell=is_sell,
@@ -285,7 +643,7 @@ def load_trade_overlays(path: Path) -> list[TradeOverlay]:
             if not raw_date:
                 continue
 
-            event_type = (row.get(type_key) or "buy").strip().lower()
+            event_type = parse_event_type(row.get(type_key), "buy") or "buy"
             amount = parse_optional_float(row.get(amount_key)) if amount_key else None
             shares = parse_optional_float(row.get(share_key)) if share_key else None
 
@@ -294,7 +652,7 @@ def load_trade_overlays(path: Path) -> list[TradeOverlay]:
                     date=parse_date(raw_date),
                     amount=amount,
                     shares=shares,
-                    event_type=event_type or "buy",
+                    event_type=event_type,
                 )
             )
 
@@ -310,10 +668,30 @@ def parse_optional_float(value: str | None) -> float | None:
     return float(value)
 
 
+def align_trade_date(
+    overlay_date: datetime, point_dates: list[str]
+) -> tuple[str | None, str | None]:
+    if not point_dates:
+        return None, None
+
+    overlay_key = overlay_date.strftime("%Y-%m-%d")
+    if overlay_key in point_dates:
+        return overlay_key, None
+
+    position = bisect_right(point_dates, overlay_key)
+    if position > 0:
+        aligned = point_dates[position - 1]
+        return aligned, f"{overlay_key} 对齐到最近交易日 {aligned}"
+
+    aligned = point_dates[0]
+    return aligned, f"{overlay_key} 早于价格序列起点，已对齐到 {aligned}"
+
+
 def build_trade_summary(
     points: list[PricePoint], overlays: list[TradeOverlay]
 ) -> tuple[dict[str, dict[str, float]], list[str]]:
-    point_dates = {point.date.strftime("%Y-%m-%d") for point in points}
+    point_dates = [point.date.strftime("%Y-%m-%d") for point in points]
+    point_map = {point.date.strftime("%Y-%m-%d"): point for point in points}
     by_date: dict[str, dict[str, float]] = defaultdict(
         lambda: {
             "buy_amount": 0.0,
@@ -324,28 +702,34 @@ def build_trade_summary(
             "sell_count": 0.0,
         }
     )
-    unmatched_dates: list[str] = []
+    warnings: list[str] = []
 
     for overlay in overlays:
-        date_key = overlay.date.strftime("%Y-%m-%d")
-        if date_key not in point_dates:
-            unmatched_dates.append(date_key)
+        aligned_date, warning = align_trade_date(overlay.date, point_dates)
+        if not aligned_date:
+            warnings.append(f"{overlay.date.strftime('%Y-%m-%d')} 未匹配到价格序列，已跳过")
             continue
-        summary = by_date[date_key]
+        if warning:
+            warnings.append(warning)
+
+        summary = by_date[aligned_date]
+        point = point_map[aligned_date]
         if overlay.event_type in {"buy", "add", "buy_more"}:
+            point.is_buy = True
             summary["buy_count"] += 1.0
             if overlay.amount is not None:
                 summary["buy_amount"] += overlay.amount
             if overlay.shares is not None:
                 summary["buy_shares"] += overlay.shares
         elif overlay.event_type in {"sell", "trim"}:
+            point.is_sell = True
             summary["sell_count"] += 1.0
             if overlay.amount is not None:
                 summary["sell_amount"] += overlay.amount
             if overlay.shares is not None:
                 summary["sell_shares"] += overlay.shares
 
-    return dict(by_date), sorted(set(unmatched_dates))
+    return dict(by_date), sorted(set(warnings))
 
 
 def marker_sizes(values: list[float], default_size: float) -> list[float]:
@@ -595,12 +979,14 @@ def format_bar_label(
     return "<br>".join(lines)
 
 
-def render_html(payload: dict[str, object], warnings: list[str], ticker: str) -> str:
+def render_html(
+    payload: dict[str, object], warnings: list[str], ticker: str, price_source_label: str
+) -> str:
     title_suffix = "已接入交易金额/股数" if payload["uses_trade_amounts"] else "金额待补充"
     warning_html = ""
     if warnings:
         warning_html = (
-            "<div class='warning'>以下交易日期未匹配到价格序列，已跳过: "
+            "<div class='warning'>以下日期已自动对齐或跳过: "
             + ", ".join(warnings)
             + "</div>"
         )
@@ -736,7 +1122,7 @@ def render_html(payload: dict[str, object], warnings: list[str], ticker: str) ->
       <div class="eyebrow">{ticker} / Drawdown Draft</div>
       <h1>回撤水位和加仓动作放在同一条时间轴里看</h1>
       <div class="sub">
-        当前版本基于 {ticker} 的收盘价序列和主表里的买卖标记生成。状态: {title_suffix}。
+        当前版本基于 {ticker} 的收盘价序列和交易日志生成。价格源: {price_source_label}。状态: {title_suffix}。
         上图看价格与峰值，下图提供 All-time High 与 Rolling 120d High 两套回撤口径，可在按钮里切换或共同显示。
       </div>
     </div>
@@ -769,8 +1155,9 @@ def render_html(payload: dict[str, object], warnings: list[str], ticker: str) ->
     {warning_html}
     <div id="chart"></div>
     <div class="footnote">
-      如果你补一份 CSV，例如字段为 <code>date,amount,shares,type</code>，脚本会按日期合并；
-      买点圆点会按金额或股数缩放，底部会增加对应柱状层。当前默认模式为 <code>Both</code>。
+      价格源支持内嵌 xlsx 时序和 Longbridge 日线两种模式。当前默认模式为 <code>Both</code>。
+      如果你再补一份 CSV，例如字段为 <code>date,amount,shares,type</code>，脚本会按日期合并；
+      买点圆点会按金额或股数缩放，底部会增加对应柱状层。
     </div>
   </div>
   <script>
@@ -818,7 +1205,7 @@ def render_html(payload: dict[str, object], warnings: list[str], ticker: str) ->
       y: payload.buy_prices,
       type: "scatter",
       mode: "markers",
-      name: usesTradeAmounts ? "Buy" : "Buy",
+      name: "Buy",
       marker: {{
         color: "#d95d39",
         size: payload.buy_sizes,
@@ -1124,41 +1511,202 @@ def render_html(payload: dict[str, object], warnings: list[str], ticker: str) ->
 """
 
 
+def normalize_candle_datetime(value: object) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, time.min)
+    if isinstance(value, str):
+        try:
+            return parse_date(value)
+        except ValueError:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+    raise TypeError(f"Unsupported candle timestamp type: {type(value)}")
+
+
+def candle_datetime(candle: object) -> datetime:
+    for attribute in ("timestamp", "time", "datetime", "date"):
+        value = getattr(candle, attribute, None)
+        if value is not None:
+            return normalize_candle_datetime(value)
+    raise AttributeError("Candlestick is missing a datetime-like field.")
+
+
+def build_longbridge_quote_context():
+    try:
+        from longbridge.openapi import Config, OAuthBuilder, QuoteContext  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError("longbridge SDK 未安装，请先执行 pip install longbridge。") from exc
+
+    from config.config_manager import ConfigManager
+
+    config_manager = ConfigManager()
+    lb_config = config_manager.get_longbridge_config()
+    oauth_client_id = (lb_config.get("oauth_client_id") or "").strip()
+
+    if oauth_client_id:
+        oauth = OAuthBuilder(oauth_client_id).build(
+            lambda url: (_ for _ in ()).throw(
+                RuntimeError(f"Longbridge token 已过期，需要重新授权: {url}")
+            )
+        )
+        config = Config.from_oauth(oauth)
+    elif (
+        lb_config.get("app_key")
+        and lb_config.get("app_secret")
+        and lb_config.get("access_token")
+    ):
+        config = Config(
+            app_key=lb_config["app_key"],
+            app_secret=lb_config["app_secret"],
+            access_token=lb_config["access_token"],
+        )
+    else:
+        raise RuntimeError("未找到可用的 Longbridge 配置。")
+
+    return QuoteContext(config)
+
+
+def fetch_longbridge_daily_candles(
+    quote_ctx: object, symbol: str, start_date: date, end_date: date
+) -> list[object]:
+    from longbridge.openapi import AdjustType, Period  # type: ignore
+
+    if (end_date - start_date).days <= LONGBRIDGE_SHORT_RANGE_DAYS:
+        candles = quote_ctx.history_candlesticks_by_date(
+            symbol,
+            Period.Day,
+            AdjustType.NoAdjust,
+            start_date,
+            end_date,
+        )
+        return list(candles)
+
+    candles_by_day: dict[date, object] = {}
+    cursor = datetime.combine(end_date, time.min)
+
+    while True:
+        chunk = list(
+            quote_ctx.history_candlesticks_by_offset(
+                symbol, Period.Day, AdjustType.NoAdjust, False, LONGBRIDGE_MAX_BARS, cursor
+            )
+        )
+        if not chunk:
+            break
+
+        ordered_chunk = sorted(chunk, key=candle_datetime)
+        earliest_in_chunk = candle_datetime(ordered_chunk[0]).date()
+
+        for candle in ordered_chunk:
+            candle_day = candle_datetime(candle).date()
+            if start_date <= candle_day <= end_date:
+                candles_by_day[candle_day] = candle
+
+        if earliest_in_chunk <= start_date:
+            break
+
+        cursor = datetime.combine(earliest_in_chunk - timedelta(days=1), time.min)
+
+    return [candles_by_day[day] for day in sorted(candles_by_day)]
+
+
+def load_longbridge_price_points(
+    ticker: str, overlays: list[TradeOverlay], symbol_override: str | None = None
+) -> tuple[list[PricePoint], str]:
+    quote_ctx = build_longbridge_quote_context()
+    symbol = normalize_longbridge_symbol(symbol_override or ticker)
+
+    if overlays:
+        earliest_trade = min(overlay.date.date() for overlay in overlays)
+        start_date = earliest_trade - timedelta(days=370)
+    else:
+        start_date = datetime.now().date() - timedelta(days=365 * 5)
+    end_date = datetime.now().date()
+
+    candles = fetch_longbridge_daily_candles(quote_ctx, symbol, start_date, end_date)
+    if not candles:
+        raise RuntimeError(f"Longbridge 没有返回 {symbol} 的历史日线。")
+
+    series = [
+        (candle_datetime(candle).replace(tzinfo=None), float(candle.close))
+        for candle in candles
+    ]
+    points = build_price_points_from_series(series)
+    if not points:
+        raise RuntimeError(f"无法从 Longbridge 构建 {symbol} 的价格序列。")
+
+    return points, symbol
+
+
+def default_output_path(ticker: str, price_source: str) -> Path:
+    suffix = "_drawdown_longbridge.html" if price_source == "longbridge" else "_drawdown_draft.html"
+    return SCRIPT_DIR / "output" / f"{ticker.lower()}{suffix}"
+
+
 def main() -> None:
     args = parse_args()
     input_path = Path(args.input).expanduser()
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input file was not found: {input_path}")
 
     overlays: list[TradeOverlay] = []
     warnings: list[str] = []
-    ticker = input_path.stem.replace("TradingLogs", "") or input_path.stem
+    ticker = symbol_base(args.symbol or input_path.stem.replace("TradingLogs", "") or input_path.stem)
+    price_source_used = "embedded"
 
     if input_path.suffix.lower() == ".xlsx":
-        points, overlays, ticker = load_xlsx_dataset(input_path)
+        if args.price_source == "embedded":
+            points, overlays, ticker = load_embedded_xlsx_dataset(input_path, args.sheet)
+            price_source_used = "embedded"
+        elif args.price_source == "longbridge":
+            overlays, inferred_ticker = load_trade_overlays_from_xlsx(
+                input_path, args.sheet, args.symbol
+            )
+            ticker = symbol_base(args.symbol or inferred_ticker or ticker)
+            points, resolved_symbol = load_longbridge_price_points(ticker, overlays, args.symbol)
+            price_source_used = "longbridge"
+        else:
+            try:
+                points, overlays, ticker = load_embedded_xlsx_dataset(input_path, args.sheet)
+                price_source_used = "embedded"
+            except ValueError:
+                overlays, inferred_ticker = load_trade_overlays_from_xlsx(
+                    input_path, args.sheet, args.symbol
+                )
+                ticker = symbol_base(args.symbol or inferred_ticker or ticker)
+                points, resolved_symbol = load_longbridge_price_points(ticker, overlays, args.symbol)
+                price_source_used = "longbridge"
     else:
+        if args.price_source == "longbridge":
+            raise ValueError("--price-source longbridge 目前只支持 xlsx 输入。")
         points = load_price_points(input_path)
+        price_source_used = "tsv"
 
     if args.trades:
         overlays.extend(load_trade_overlays(Path(args.trades).expanduser()))
 
-    trade_summary, unmatched_dates = build_trade_summary(points, overlays)
-    if unmatched_dates:
-        warnings.extend(unmatched_dates)
+    trade_summary, trade_warnings = build_trade_summary(points, overlays)
+    warnings.extend(trade_warnings)
 
     payload = build_chart_payload(points, trade_summary)
-    output_path = (
-        Path(args.output).expanduser()
-        if args.output
-        else SCRIPT_DIR / "output" / f"{ticker.lower()}_drawdown_draft.html"
-    )
+    output_path = Path(args.output).expanduser() if args.output else default_output_path(ticker, price_source_used)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    html = render_html(payload, warnings, ticker)
+    price_source_label = {
+        "embedded": "Embedded xlsx",
+        "longbridge": "Longbridge Daily",
+        "tsv": "Legacy TSV",
+    }[price_source_used]
+    html = render_html(payload, sorted(set(warnings)), ticker, price_source_label)
     output_path.write_text(html, encoding="utf-8")
 
     print(f"Wrote draft chart to {output_path}")
+    print(f"Price source: {price_source_label}")
     if args.trades:
-        print(f"Loaded {len(overlays)} trade rows from {args.trades}")
-    if unmatched_dates:
-        print("Skipped unmatched trade dates:", ", ".join(unmatched_dates))
+        print(f"Loaded {len(overlays)} trade rows including {args.trades}")
+    if warnings:
+        print("Warnings:")
+        for warning in sorted(set(warnings)):
+            print(f" - {warning}")
 
 
 if __name__ == "__main__":
