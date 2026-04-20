@@ -32,6 +32,8 @@ config/config.yaml
 # 报告文件
 report/*.html
 report/*.json
+report/drawdown/
+data/
 
 # 日志文件
 *.log
@@ -60,4 +62,5 @@ node_modules/
 
 # 其他
 *.bak
+*.bak_*
 *.tmp
