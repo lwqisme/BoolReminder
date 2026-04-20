@@ -332,7 +332,7 @@ def read_xlsx_rows(path: Path, sheet_name: str | None = None) -> tuple[dict[int,
 
 
 def infer_ticker_from_rows(rows: dict[int, dict[str, str]], fallback: str) -> str:
-    ticker = rows.get(2, {}).get("I", "").strip()
+    ticker = str(rows.get(2, {}).get("I", "") or "").strip()
     if ticker and ticker not in {"股票代码", "Symbol", "Ticker"}:
         return symbol_base(ticker)
     return symbol_base(fallback) or fallback
@@ -782,10 +782,14 @@ def build_chart_payload(
     buy_amounts: list[float] = []
     buy_shares: list[float] = []
     buy_labels: list[str] = []
+    buy_drawdown_labels: list[str] = []
 
     sell_dates: list[str] = []
     sell_prices: list[float] = []
+    sell_drawdowns_ath: list[float] = []
+    sell_drawdowns_120: list[float] = []
     sell_labels: list[str] = []
+    sell_drawdown_labels: list[str] = []
 
     buy_bar_dates: list[str] = []
     buy_bar_values: list[float] = []
@@ -837,6 +841,14 @@ def build_chart_payload(
                         summary["buy_shares"],
                     )
                 )
+                buy_drawdown_labels.append(
+                    format_drawdown_marker_label(
+                        "买入",
+                        point.close,
+                        summary["buy_amount"],
+                        summary["buy_shares"],
+                    )
+                )
             else:
                 buy_labels.append(
                     "<br>".join(
@@ -848,15 +860,26 @@ def build_chart_payload(
                         ]
                     )
                 )
+                buy_drawdown_labels.append(f"买入价: {point.close:.2f}")
 
         if point.is_sell:
             sell_dates.append(date_key)
             sell_prices.append(point.close)
+            sell_drawdowns_ath.append(drawdowns_ath[index])
+            sell_drawdowns_120.append(drawdowns_120[index])
             sell_labels.append(
                 format_sell_label(
                     point.close,
                     point.drawdown_ath,
                     drawdown_120_raw,
+                    summary["sell_amount"],
+                    summary["sell_shares"],
+                )
+            )
+            sell_drawdown_labels.append(
+                format_drawdown_marker_label(
+                    "卖出",
+                    point.close,
                     summary["sell_amount"],
                     summary["sell_shares"],
                 )
@@ -916,15 +939,20 @@ def build_chart_payload(
         "buy_shares": buy_shares,
         "buy_sizes": sizes,
         "buy_labels": buy_labels,
+        "buy_drawdown_labels": buy_drawdown_labels,
         "sell_dates": sell_dates,
         "sell_prices": sell_prices,
+        "sell_drawdowns_ath": sell_drawdowns_ath,
+        "sell_drawdowns_120": sell_drawdowns_120,
         "sell_labels": sell_labels,
+        "sell_drawdown_labels": sell_drawdown_labels,
         "buy_bar_dates": buy_bar_dates,
         "buy_bar_values": buy_bar_values,
         "buy_bar_labels": buy_bar_labels,
         "sell_bar_dates": sell_bar_dates,
         "sell_bar_values": sell_bar_values,
         "sell_bar_labels": sell_bar_labels,
+        "bar_width_ms": 1000 * 60 * 60 * 24 * 4,
         "bar_unit_label": "Trade Amount" if use_amount_bars else "Trade Shares",
         "uses_trade_amounts": uses_trade_amounts,
         "max_drawdown_ath_date": dates[max_drawdown_ath_index],
@@ -979,6 +1007,17 @@ def format_bar_label(
     return "<br>".join(lines)
 
 
+def format_drawdown_marker_label(
+    action: str, close: float, amount: float, shares: float
+) -> str:
+    lines = [f"{action}价: {close:.2f}"]
+    if amount > 0:
+        lines.append(f"{action}金额: {amount:,.2f}")
+    if shares > 0:
+        lines.append(f"{action}股数: {shares:,.4f}")
+    return "<br>".join(lines)
+
+
 def render_html(
     payload: dict[str, object], warnings: list[str], ticker: str, price_source_label: str
 ) -> str:
@@ -996,7 +1035,7 @@ def render_html(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{ticker} 回撤与交易初稿</title>
+  <title>{ticker} 回撤与交易可视化</title>
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
   <style>
     :root {{
@@ -1108,18 +1147,62 @@ def render_html(
       box-shadow: 0 24px 60px rgba(23, 33, 33, 0.12);
     }}
 
-    .footnote {{
+    .controls {{
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 8px 0 14px;
+    }}
+
+    .toggle {{
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: var(--card);
+      border: 1px solid rgba(23, 33, 33, 0.08);
+      color: var(--ink);
+      font-size: 14px;
+      cursor: pointer;
+      user-select: none;
+    }}
+
+    .toggle input {{
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+    }}
+
+    .hint-box {{
       margin-top: 14px;
+      padding: 16px 18px;
+      border-radius: 16px;
+      background: rgba(255, 250, 243, 0.88);
+      border: 1px solid rgba(23, 33, 33, 0.08);
       color: var(--muted);
       font-size: 13px;
-      line-height: 1.5;
+      line-height: 1.6;
+    }}
+
+    .hint-title {{
+      margin: 0 0 8px;
+      color: var(--ink);
+      font-size: 14px;
+      font-weight: 700;
+    }}
+
+    .hint-box p {{
+      margin: 6px 0;
     }}
   </style>
 </head>
 <body>
   <div class="shell">
     <div class="header">
-      <div class="eyebrow">{ticker} / Drawdown Draft</div>
+      <div class="eyebrow">{ticker} / Drawdown View</div>
       <h1>回撤水位和加仓动作放在同一条时间轴里看</h1>
       <div class="sub">
         当前版本基于 {ticker} 的收盘价序列和交易日志生成。价格源: {price_source_label}。状态: {title_suffix}。
@@ -1153,12 +1236,18 @@ def render_html(
       </div>
     </div>
     {warning_html}
+    <div class="controls">
+      <label class="toggle" for="crosshair-toggle">
+        <input id="crosshair-toggle" type="checkbox">
+        <span>十字线</span>
+      </label>
+    </div>
     <div id="chart"></div>
-    <div class="footnote">
-      价格源支持内嵌 xlsx 时序和 Longbridge 日线两种模式。当前默认模式为 <code>Both</code>。
-      Longbridge 模式下当前会从首笔交易日前大约 370 天开始拉取到今天，所以这里的 <code>All-time</code> 是当前加载窗口内的历史高点，不是上市以来全历史高点。
-      如果你再补一份 CSV，例如字段为 <code>date,amount,shares,type</code>，脚本会按日期合并；
-      买点圆点会按金额或股数缩放，底部会增加对应柱状层。
+    <div class="hint-box">
+      <div class="hint-title">图表说明</div>
+      <p>价格源支持内嵌 xlsx 时序和 Longbridge 日线两种模式。当前默认显示 <code>Both</code>，也就是 All-time 与 Rolling 120d 两套回撤口径同时显示。</p>
+      <p>Longbridge 模式下当前会从首笔交易日前约 370 天开始拉取到今天，因此这里的 <code>All-time</code> 指当前加载窗口内的历史高点，不是上市以来全历史高点。</p>
+      <p>如果后续补充规范交易文件，建议字段使用 <code>date,amount,shares,type</code>。脚本会按日期自动合并，买卖点圆点按金额或股数缩放，底部成交柱同步展示买入和卖出。</p>
     </div>
   </div>
   <script>
@@ -1275,8 +1364,8 @@ def render_html(
         line: {{ color: "#fff7ee", width: 1.2 }},
         opacity: 0.95
       }},
-      text: payload.buy_labels,
-      hovertemplate: "日期: %{{x}}<br>%{{text}}<extra></extra>",
+      text: payload.buy_drawdown_labels,
+      hovertemplate: "日期: %{{x}}<br>ATH 回撤: %{{y:.2f}}%<br>%{{text}}<extra></extra>",
       xaxis: "x2",
       yaxis: "y2",
       showlegend: false
@@ -1295,8 +1384,46 @@ def render_html(
         line: {{ color: "#1f6f78", width: 1.8 }},
         opacity: 0.95
       }},
-      text: payload.buy_labels,
-      hovertemplate: "日期: %{{x}}<br>%{{text}}<extra></extra>",
+      text: payload.buy_drawdown_labels,
+      hovertemplate: "日期: %{{x}}<br>120d 回撤: %{{y:.2f}}%<br>%{{text}}<extra></extra>",
+      xaxis: "x2",
+      yaxis: "y2",
+      showlegend: false
+    }};
+
+    const sellDrawdownAthTrace = {{
+      x: payload.sell_dates,
+      y: payload.sell_drawdowns_ath,
+      type: "scatter",
+      mode: "markers",
+      name: "卖点 / ATH 回撤",
+      marker: {{
+        color: "#243b53",
+        symbol: "diamond",
+        size: 13,
+        line: {{ color: "#fff7ee", width: 1.2 }}
+      }},
+      text: payload.sell_drawdown_labels,
+      hovertemplate: "日期: %{{x}}<br>ATH 回撤: %{{y:.2f}}%<br>%{{text}}<extra></extra>",
+      xaxis: "x2",
+      yaxis: "y2",
+      showlegend: false
+    }};
+
+    const sellDrawdown120Trace = {{
+      x: payload.sell_dates,
+      y: payload.sell_drawdowns_120,
+      type: "scatter",
+      mode: "markers",
+      name: "卖点 / 120d 回撤",
+      marker: {{
+        color: "#243b53",
+        symbol: "diamond-open",
+        size: 13,
+        line: {{ color: "#243b53", width: 1.8 }}
+      }},
+      text: payload.sell_drawdown_labels,
+      hovertemplate: "日期: %{{x}}<br>120d 回撤: %{{y:.2f}}%<br>%{{text}}<extra></extra>",
       xaxis: "x2",
       yaxis: "y2",
       showlegend: false
@@ -1311,7 +1438,9 @@ def render_html(
       drawdownAthTrace,
       drawdown120Trace,
       buyDrawdownAthTrace,
-      buyDrawdown120Trace
+      buyDrawdown120Trace,
+      sellDrawdownAthTrace,
+      sellDrawdown120Trace
     ];
 
     if (usesTradeAmounts && payload.buy_bar_dates.length > 0) {{
@@ -1324,6 +1453,7 @@ def render_html(
           color: "#1f6f78",
           opacity: 0.82
         }},
+        width: payload.buy_bar_dates.map(() => payload.bar_width_ms),
         text: payload.buy_bar_labels,
         hovertemplate: "日期: %{{x}}<br>%{{text}}<extra></extra>",
         xaxis: "x3",
@@ -1341,6 +1471,7 @@ def render_html(
           color: "#243b53",
           opacity: 0.78
         }},
+        width: payload.sell_bar_dates.map(() => payload.bar_width_ms),
         text: payload.sell_bar_labels,
         hovertemplate: "日期: %{{x}}<br>%{{text}}<extra></extra>",
         xaxis: "x3",
@@ -1361,6 +1492,8 @@ def render_html(
         mode !== "rolling",
         mode !== "alltime",
         mode !== "rolling",
+        mode !== "alltime",
+        mode !== "rolling",
         mode !== "alltime"
       ];
 
@@ -1378,20 +1511,20 @@ def render_html(
     const layout = {{
       paper_bgcolor: "rgba(255,255,255,0)",
       plot_bgcolor: "rgba(255,255,255,0)",
-      margin: {{ l: 70, r: 30, t: 126, b: 56 }},
+      margin: {{ l: 70, r: 170, t: 126, b: 56 }},
       legend: {{
-        orientation: "h",
-        yanchor: "bottom",
-        y: 1.03,
+        orientation: "v",
+        yanchor: "top",
+        y: 1,
         xanchor: "left",
-        x: 0,
-        entrywidthmode: "pixels",
-        entrywidth: 86,
+        x: 1.02,
         bgcolor: "rgba(255, 250, 243, 0.88)",
         bordercolor: "rgba(23, 33, 33, 0.08)",
-        borderwidth: 1
+        borderwidth: 1,
+        tracegroupgap: 8
       }},
       hovermode: "closest",
+      bargap: 0.1,
       updatemenus: [
         {{
           type: "buttons",
@@ -1426,6 +1559,11 @@ def render_html(
         showgrid: true,
         gridcolor: "rgba(23, 33, 33, 0.12)",
         zeroline: false,
+        showspikes: false,
+        spikecolor: "rgba(23, 33, 33, 0.42)",
+        spikemode: "across",
+        spikesnap: "cursor",
+        spikethickness: 1,
         showticklabels: false
       }},
       yaxis: {{
@@ -1433,7 +1571,12 @@ def render_html(
         title: "Price",
         showgrid: true,
         gridcolor: "rgba(23, 33, 33, 0.12)",
-        zeroline: false
+        zeroline: false,
+        showspikes: false,
+        spikecolor: "rgba(23, 33, 33, 0.32)",
+        spikemode: "across",
+        spikesnap: "cursor",
+        spikethickness: 1
       }},
       xaxis2: {{
         domain: [0, 1],
@@ -1442,6 +1585,11 @@ def render_html(
         showgrid: true,
         gridcolor: "rgba(23, 33, 33, 0.12)",
         zeroline: false,
+        showspikes: false,
+        spikecolor: "rgba(23, 33, 33, 0.42)",
+        spikemode: "across",
+        spikesnap: "cursor",
+        spikethickness: 1,
         showticklabels: !usesTradeAmounts
       }},
       yaxis2: {{
@@ -1449,7 +1597,12 @@ def render_html(
         title: "Drawdown %",
         showgrid: true,
         gridcolor: "rgba(23, 33, 33, 0.12)",
-        zeroline: false
+        zeroline: false,
+        showspikes: false,
+        spikecolor: "rgba(23, 33, 33, 0.32)",
+        spikemode: "across",
+        spikesnap: "cursor",
+        spikethickness: 1
       }},
       annotations: [
         {{
@@ -1480,14 +1633,24 @@ def render_html(
         matches: "x",
         showgrid: true,
         gridcolor: "rgba(23, 33, 33, 0.12)",
-        zeroline: false
+        zeroline: false,
+        showspikes: false,
+        spikecolor: "rgba(23, 33, 33, 0.42)",
+        spikemode: "across",
+        spikesnap: "cursor",
+        spikethickness: 1
       }};
       layout.yaxis3 = {{
         domain: [0.0, 0.16],
         title: payload.bar_unit_label,
         showgrid: true,
         gridcolor: "rgba(23, 33, 33, 0.12)",
-        zeroline: false
+        zeroline: false,
+        showspikes: false,
+        spikecolor: "rgba(23, 33, 33, 0.32)",
+        spikemode: "across",
+        spikesnap: "cursor",
+        spikethickness: 1
       }};
       layout.annotations.push({{
         xref: "paper",
@@ -1500,11 +1663,30 @@ def render_html(
       }});
     }}
 
+    function crosshairRelayout(enabled) {{
+      const relayout = {{
+        hovermode: enabled ? "x" : "closest",
+        "xaxis.showspikes": enabled,
+        "yaxis.showspikes": enabled,
+        "xaxis2.showspikes": enabled,
+        "yaxis2.showspikes": enabled
+      }};
+      if (usesTradeAmounts) {{
+        relayout["xaxis3.showspikes"] = enabled;
+        relayout["yaxis3.showspikes"] = enabled;
+      }}
+      return relayout;
+    }}
+
     Plotly.newPlot("chart", traces, layout, {{
       responsive: true,
       displaylogo: false
     }}).then((plot) => {{
       Plotly.restyle(plot, {{ visible: visibilityFor("both") }});
+      const crosshairToggle = document.getElementById("crosshair-toggle");
+      const applyCrosshair = () => Plotly.relayout(plot, crosshairRelayout(crosshairToggle.checked));
+      crosshairToggle.addEventListener("change", applyCrosshair);
+      applyCrosshair();
     }});
   </script>
 </body>
