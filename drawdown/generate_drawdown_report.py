@@ -1430,7 +1430,7 @@ def render_html(
   <div class="shell">
     <div class="header">
       <div class="eyebrow">{ticker} / Drawdown View</div>
-      <h1>回撤水位和加仓动作放在同一条时间轴里看</h1>
+      <h1>回撤与交易叠加视图</h1>
       <div class="sub">
         当前版本基于 {ticker} 的收盘价序列和交易日志生成。价格源: {price_source_label}。状态: {title_suffix}。
         上图看价格与峰值，下图提供窗口内 All-time High 与 Rolling 120d High 两套回撤口径，可在按钮里切换或共同显示。
@@ -1497,7 +1497,7 @@ def render_html(
     <div class="hint-box">
       <div class="hint-title">图表说明</div>
       <p>价格源支持内嵌 xlsx 时序和 Longbridge 日线两种模式。当前默认显示 <code>Both</code>，也就是 All-time 与 Rolling 120d 两套回撤口径同时显示。</p>
-      <p>Longbridge 模式下当前会从首笔交易日前约 370 天开始拉取到今天，因此这里的 <code>All-time</code> 指当前加载窗口内的历史高点，不是上市以来全历史高点。</p>
+      <p>Longbridge 模式当前使用前复权日线，这样股票拆分不会制造假性暴跌；同时这里的 <code>All-time</code> 仍然只指当前加载窗口内的历史高点，不是上市以来全历史高点。</p>
       <p>如果后续补充规范交易文件，建议字段使用 <code>date,amount,shares,type</code>。脚本会按日期自动合并，买卖点圆点按金额或股数缩放，底部成交柱同步展示买入和卖出。</p>
     </div>
   </div>
@@ -2335,7 +2335,7 @@ def fetch_longbridge_daily_candles(
         candles = quote_ctx.history_candlesticks_by_date(
             symbol,
             Period.Day,
-            AdjustType.NoAdjust,
+            AdjustType.ForwardAdjust,
             start_date,
             end_date,
         )
@@ -2347,7 +2347,7 @@ def fetch_longbridge_daily_candles(
     while True:
         chunk = list(
             quote_ctx.history_candlesticks_by_offset(
-                symbol, Period.Day, AdjustType.NoAdjust, False, LONGBRIDGE_MAX_BARS, cursor
+                symbol, Period.Day, AdjustType.ForwardAdjust, False, LONGBRIDGE_MAX_BARS, cursor
             )
         )
         if not chunk:
@@ -2408,7 +2408,7 @@ def render_longbridge_drawdown_from_overlays(
     points, resolved_symbol = load_longbridge_price_points(ticker, overlays, symbol_override)
     trade_summary, warnings = build_trade_summary(points, overlays)
     payload = build_chart_payload(points, trade_summary)
-    html = render_html(payload, warnings, ticker, "Longbridge Daily")
+    html = render_html(payload, warnings, ticker, "Longbridge Daily (Forward Adjusted)")
     return html, warnings, resolved_symbol
 
 
@@ -2462,7 +2462,7 @@ def main() -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     price_source_label = {
         "embedded": "Embedded xlsx",
-        "longbridge": "Longbridge Daily",
+        "longbridge": "Longbridge Daily (Forward Adjusted)",
         "tsv": "Legacy TSV",
     }[price_source_used]
     html = render_html(payload, sorted(set(warnings)), ticker, price_source_label)
