@@ -797,6 +797,12 @@ def build_chart_payload(
     sell_bar_dates: list[str] = []
     sell_bar_values: list[float] = []
     sell_bar_labels: list[str] = []
+    daily_buy_amounts: list[float] = []
+    daily_buy_shares: list[float] = []
+    daily_buy_counts: list[float] = []
+    daily_sell_amounts: list[float] = []
+    daily_sell_shares: list[float] = []
+    daily_sell_counts: list[float] = []
     uses_trade_amounts = any(
         summary["buy_amount"] > 0
         or summary["buy_shares"] > 0
@@ -823,6 +829,12 @@ def build_chart_payload(
             },
         )
         drawdown_120_raw = drawdowns_120_raw[index]
+        daily_buy_amounts.append(summary["buy_amount"])
+        daily_buy_shares.append(summary["buy_shares"])
+        daily_buy_counts.append(summary["buy_count"])
+        daily_sell_amounts.append(summary["sell_amount"])
+        daily_sell_shares.append(summary["sell_shares"])
+        daily_sell_counts.append(summary["sell_count"])
 
         if point.is_buy:
             buy_dates.append(date_key)
@@ -952,6 +964,12 @@ def build_chart_payload(
         "sell_bar_dates": sell_bar_dates,
         "sell_bar_values": sell_bar_values,
         "sell_bar_labels": sell_bar_labels,
+        "daily_buy_amounts": daily_buy_amounts,
+        "daily_buy_shares": daily_buy_shares,
+        "daily_buy_counts": daily_buy_counts,
+        "daily_sell_amounts": daily_sell_amounts,
+        "daily_sell_shares": daily_sell_shares,
+        "daily_sell_counts": daily_sell_counts,
         "bar_width_ms": 1000 * 60 * 60 * 24 * 4,
         "bar_unit_label": "Trade Amount" if use_amount_bars else "Trade Shares",
         "uses_trade_amounts": uses_trade_amounts,
@@ -1197,6 +1215,129 @@ def render_html(
     .hint-box p {{
       margin: 6px 0;
     }}
+
+    .chart-stage {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 300px;
+      gap: 18px;
+      align-items: start;
+    }}
+
+    .chart-stack {{
+      position: relative;
+      min-width: 0;
+    }}
+
+    .crosshair-overlay {{
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 120ms ease;
+    }}
+
+    .crosshair-overlay.is-active {{
+      opacity: 1;
+    }}
+
+    .crosshair-line {{
+      position: absolute;
+      display: none;
+    }}
+
+    .crosshair-line.is-active {{
+      display: block;
+    }}
+
+    .crosshair-line--v {{
+      width: 0;
+      border-left: 2px dashed rgba(31, 111, 120, 0.75);
+    }}
+
+    .crosshair-line--h {{
+      height: 0;
+      border-top: 2px dashed rgba(31, 111, 120, 0.45);
+    }}
+
+    .hover-card {{
+      position: sticky;
+      top: 24px;
+      padding: 16px 18px;
+      border-radius: 18px;
+      background: rgba(255, 250, 243, 0.96);
+      border: 1px solid rgba(23, 33, 33, 0.08);
+      box-shadow: 0 18px 38px rgba(23, 33, 33, 0.1);
+      min-height: 180px;
+    }}
+
+    .hover-card-label {{
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }}
+
+    .hover-card-empty {{
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }}
+
+    .hover-card-body {{
+      display: grid;
+      gap: 12px;
+    }}
+
+    .hover-card-body[hidden] {{
+      display: none;
+    }}
+
+    .hover-section {{
+      display: grid;
+      gap: 6px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(23, 33, 33, 0.08);
+    }}
+
+    .hover-section:first-child {{
+      padding-top: 0;
+      border-top: 0;
+    }}
+
+    .hover-section-title {{
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 700;
+    }}
+
+    .hover-row {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
+      line-height: 1.4;
+    }}
+
+    .hover-row span:first-child {{
+      color: var(--muted);
+    }}
+
+    .hover-row span:last-child {{
+      color: var(--ink);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }}
+
+    @media (max-width: 1180px) {{
+      .chart-stage {{
+        grid-template-columns: 1fr;
+      }}
+
+      .hover-card {{
+        position: static;
+      }}
+    }}
   </style>
 </head>
 <body>
@@ -1242,7 +1383,22 @@ def render_html(
         <span>十字线</span>
       </label>
     </div>
-    <div id="chart"></div>
+    <div class="chart-stage">
+      <div class="chart-stack">
+        <div id="chart"></div>
+        <div id="crosshair-overlay" class="crosshair-overlay">
+          <div id="crosshair-v" class="crosshair-line crosshair-line--v"></div>
+          <div id="crosshair-h" class="crosshair-line crosshair-line--h"></div>
+        </div>
+      </div>
+      <aside id="hover-card" class="hover-card">
+        <div class="hover-card-label">Cursor Snapshot</div>
+        <div id="hover-card-empty" class="hover-card-empty">
+          打开十字线后，把鼠标移到图表区域内。系统会自动吸附到最近交易日，并在这里展示价格、回撤和当日买卖信息。
+        </div>
+        <div id="hover-card-body" class="hover-card-body" hidden></div>
+      </aside>
+    </div>
     <div class="hint-box">
       <div class="hint-title">图表说明</div>
       <p>价格源支持内嵌 xlsx 时序和 Longbridge 日线两种模式。当前默认显示 <code>Both</code>，也就是 All-time 与 Rolling 120d 两套回撤口径同时显示。</p>
@@ -1253,6 +1409,64 @@ def render_html(
   <script>
     const payload = {json.dumps(payload, ensure_ascii=False)};
     const usesTradeAmounts = payload.uses_trade_amounts;
+    const dateTimestamps = payload.dates.map((value) => Date.parse(`${{value}}T00:00:00Z`));
+    const currencyFormatter = new Intl.NumberFormat("en-US", {{
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }});
+    const shareFormatter = new Intl.NumberFormat("en-US", {{
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 4
+    }});
+
+    function formatPrice(value) {{
+      return value == null ? " -" : currencyFormatter.format(value);
+    }}
+
+    function formatPercent(value) {{
+      return value == null ? " -" : `${{value.toFixed(2)}}%`;
+    }}
+
+    function formatAmount(value) {{
+      return value > 0 ? currencyFormatter.format(value) : " -";
+    }}
+
+    function formatShares(value) {{
+      return value > 0 ? shareFormatter.format(value) : " -";
+    }}
+
+    function formatCount(value) {{
+      return value > 0 ? `${{Math.round(value)}}` : " -";
+    }}
+
+    function renderHoverCard(index) {{
+      const hoverCardBody = document.getElementById("hover-card-body");
+      const hoverCardEmpty = document.getElementById("hover-card-empty");
+      hoverCardEmpty.hidden = true;
+      hoverCardBody.hidden = false;
+      hoverCardBody.innerHTML = `
+        <div class="hover-section">
+          <div class="hover-section-title">${{payload.dates[index]}}</div>
+          <div class="hover-row"><span>收盘价</span><span>${{formatPrice(payload.closes[index])}}</span></div>
+          <div class="hover-row"><span>ATH 回撤</span><span>${{formatPercent(payload.drawdowns_ath[index])}}</span></div>
+          <div class="hover-row"><span>120d 回撤</span><span>${{formatPercent(payload.drawdowns_120[index])}}</span></div>
+          <div class="hover-row"><span>ATH Peak</span><span>${{formatPrice(payload.peaks[index])}}</span></div>
+          <div class="hover-row"><span>120d Peak</span><span>${{formatPrice(payload.rolling_120_peaks[index])}}</span></div>
+        </div>
+        <div class="hover-section">
+          <div class="hover-section-title">买入</div>
+          <div class="hover-row"><span>笔数</span><span>${{formatCount(payload.daily_buy_counts[index])}}</span></div>
+          <div class="hover-row"><span>金额</span><span>${{formatAmount(payload.daily_buy_amounts[index])}}</span></div>
+          <div class="hover-row"><span>股数</span><span>${{formatShares(payload.daily_buy_shares[index])}}</span></div>
+        </div>
+        <div class="hover-section">
+          <div class="hover-section-title">卖出</div>
+          <div class="hover-row"><span>笔数</span><span>${{formatCount(payload.daily_sell_counts[index])}}</span></div>
+          <div class="hover-row"><span>金额</span><span>${{formatAmount(payload.daily_sell_amounts[index])}}</span></div>
+          <div class="hover-row"><span>股数</span><span>${{formatShares(payload.daily_sell_shares[index])}}</span></div>
+        </div>
+      `;
+    }}
 
     const priceTrace = {{
       x: payload.dates,
@@ -1511,7 +1725,7 @@ def render_html(
     const layout = {{
       paper_bgcolor: "rgba(255,255,255,0)",
       plot_bgcolor: "rgba(255,255,255,0)",
-      margin: {{ l: 70, r: 170, t: 126, b: 56 }},
+      margin: {{ l: 70, r: 124, t: 126, b: 56 }},
       legend: {{
         orientation: "v",
         yanchor: "top",
@@ -1665,17 +1879,122 @@ def render_html(
 
     function crosshairRelayout(enabled) {{
       const relayout = {{
-        hovermode: enabled ? "x" : "closest",
-        "xaxis.showspikes": enabled,
-        "yaxis.showspikes": enabled,
-        "xaxis2.showspikes": enabled,
-        "yaxis2.showspikes": enabled
+        hovermode: enabled ? false : "closest",
+        "xaxis.showspikes": false,
+        "yaxis.showspikes": false,
+        "xaxis2.showspikes": false,
+        "yaxis2.showspikes": false
       }};
       if (usesTradeAmounts) {{
-        relayout["xaxis3.showspikes"] = enabled;
-        relayout["yaxis3.showspikes"] = enabled;
+        relayout["xaxis3.showspikes"] = false;
+        relayout["yaxis3.showspikes"] = false;
       }}
       return relayout;
+    }}
+
+    function resetHoverCard() {{
+      document.getElementById("hover-card-empty").hidden = false;
+      document.getElementById("hover-card-body").hidden = true;
+    }}
+
+    function hideCrosshair() {{
+      document.getElementById("crosshair-overlay").classList.remove("is-active");
+      document.getElementById("crosshair-v").classList.remove("is-active");
+      document.getElementById("crosshair-h").classList.remove("is-active");
+    }}
+
+    function getPanels(plot) {{
+      const full = plot._fullLayout;
+      const panels = [
+        {{ key: "price", axis: full.yaxis }},
+        {{ key: "drawdown", axis: full.yaxis2 }}
+      ];
+      if (usesTradeAmounts && full.yaxis3) {{
+        panels.push({{ key: "amount", axis: full.yaxis3 }});
+      }}
+      return panels.map((panel) => ({{
+        key: panel.key,
+        top: panel.axis._offset,
+        bottom: panel.axis._offset + panel.axis._length
+      }}));
+    }}
+
+    function getPlotArea(plot) {{
+      const full = plot._fullLayout;
+      const panels = getPanels(plot);
+      return {{
+        left: full.xaxis._offset,
+        right: full.xaxis._offset + full.xaxis._length,
+        top: Math.min(...panels.map((panel) => panel.top)),
+        bottom: Math.max(...panels.map((panel) => panel.bottom)),
+        panels
+      }};
+    }}
+
+    function nearestIndexByTimestamp(timestamp) {{
+      let low = 0;
+      let high = dateTimestamps.length - 1;
+      while (low < high) {{
+        const mid = Math.floor((low + high) / 2);
+        if (dateTimestamps[mid] < timestamp) {{
+          low = mid + 1;
+        }} else {{
+          high = mid;
+        }}
+      }}
+      if (low === 0) {{
+        return 0;
+      }}
+      const prev = low - 1;
+      return Math.abs(dateTimestamps[low] - timestamp) < Math.abs(dateTimestamps[prev] - timestamp)
+        ? low
+        : prev;
+    }}
+
+    function xPixelForIndex(index, plotArea, plot) {{
+      const range = plot._fullLayout.xaxis.range || [payload.dates[0], payload.dates[payload.dates.length - 1]];
+      const start = Date.parse(range[0]);
+      const end = Date.parse(range[1]);
+      const clampedSpan = Math.max(end - start, 1);
+      return plotArea.left + ((dateTimestamps[index] - start) / clampedSpan) * (plotArea.right - plotArea.left);
+    }}
+
+    function panelForY(plotY, plotArea) {{
+      return plotArea.panels.find((panel) => plotY >= panel.top && plotY <= panel.bottom) || null;
+    }}
+
+    function updateCrosshairDisplay(plot, mouseX, mouseY) {{
+      const overlay = document.getElementById("crosshair-overlay");
+      const vertical = document.getElementById("crosshair-v");
+      const horizontal = document.getElementById("crosshair-h");
+      const plotArea = getPlotArea(plot);
+      const activePanel = panelForY(mouseY, plotArea);
+      if (mouseX < plotArea.left || mouseX > plotArea.right || !activePanel) {{
+        hideCrosshair();
+        resetHoverCard();
+        return;
+      }}
+
+      const range = plot._fullLayout.xaxis.range || [payload.dates[0], payload.dates[payload.dates.length - 1]];
+      const start = Date.parse(range[0]);
+      const end = Date.parse(range[1]);
+      const clampedSpan = Math.max(end - start, 1);
+      const ratio = (mouseX - plotArea.left) / (plotArea.right - plotArea.left);
+      const targetTimestamp = start + ratio * clampedSpan;
+      const index = nearestIndexByTimestamp(targetTimestamp);
+      const snappedX = xPixelForIndex(index, plotArea, plot);
+
+      overlay.classList.add("is-active");
+      vertical.classList.add("is-active");
+      horizontal.classList.add("is-active");
+      vertical.style.left = `${{snappedX}}px`;
+      vertical.style.top = `${{plotArea.top}}px`;
+      vertical.style.height = `${{plotArea.bottom - plotArea.top}}px`;
+      horizontal.style.left = `${{plotArea.left}}px`;
+      horizontal.style.top = `${{mouseY}}px`;
+      horizontal.style.width = `${{plotArea.right - plotArea.left}}px`;
+
+      renderHoverCard(index);
     }}
 
     Plotly.newPlot("chart", traces, layout, {{
@@ -1684,8 +2003,28 @@ def render_html(
     }}).then((plot) => {{
       Plotly.restyle(plot, {{ visible: visibilityFor("both") }});
       const crosshairToggle = document.getElementById("crosshair-toggle");
-      const applyCrosshair = () => Plotly.relayout(plot, crosshairRelayout(crosshairToggle.checked));
+      const applyCrosshair = () => {{
+        Plotly.relayout(plot, crosshairRelayout(crosshairToggle.checked));
+        if (!crosshairToggle.checked) {{
+          hideCrosshair();
+          resetHoverCard();
+        }}
+      }};
       crosshairToggle.addEventListener("change", applyCrosshair);
+      plot.addEventListener("mousemove", (event) => {{
+        if (!crosshairToggle.checked) {{
+          return;
+        }}
+        const rect = plot.getBoundingClientRect();
+        updateCrosshairDisplay(plot, event.clientX - rect.left, event.clientY - rect.top);
+      }});
+      plot.addEventListener("mouseleave", () => {{
+        if (!crosshairToggle.checked) {{
+          return;
+        }}
+        hideCrosshair();
+        resetHoverCard();
+      }});
       applyCrosshair();
     }});
   </script>
