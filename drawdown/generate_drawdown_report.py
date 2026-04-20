@@ -1268,12 +1268,25 @@ def render_html(
     }}
 
     .hover-card {{
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      z-index: 12;
+      width: min(260px, calc(100% - 24px));
       padding: 12px 14px;
       border-radius: 16px;
       background: rgba(255, 250, 243, 0.96);
       border: 1px solid rgba(23, 33, 33, 0.08);
       box-shadow: 0 18px 38px rgba(23, 33, 33, 0.1);
       min-height: 132px;
+      pointer-events: none;
+      opacity: 0;
+      transform: translate3d(0, 0, 0);
+      transition: opacity 120ms ease;
+    }}
+
+    .hover-card.is-visible {{
+      opacity: 1;
     }}
 
     .mode-switch {{
@@ -1408,6 +1421,7 @@ def render_html(
       }}
 
       .hover-card {{
+        width: min(220px, calc(100% - 20px));
         padding: 10px 12px;
       }}
     }}
@@ -1456,9 +1470,9 @@ def render_html(
           <input id="crosshair-toggle" type="checkbox" checked>
           <span>十字线</span>
         </label>
-        <label class="toggle" for="legend-toggle">
-          <input id="legend-toggle" type="checkbox" checked>
-          <span>图例</span>
+        <label class="toggle" for="snapshot-toggle">
+          <input id="snapshot-toggle" type="checkbox" checked>
+          <span>悬浮窗</span>
         </label>
         <div class="mode-switch" aria-label="Drawdown modes">
           <button class="mode-button" data-mode="alltime" type="button">All-time</button>
@@ -1472,14 +1486,14 @@ def render_html(
           <div id="crosshair-v" class="crosshair-line crosshair-line--v"></div>
           <div id="crosshair-h" class="crosshair-line crosshair-line--h"></div>
         </div>
+        <aside id="hover-card" class="hover-card">
+          <div class="hover-card-label">Cursor Snapshot</div>
+          <div id="hover-card-empty" class="hover-card-empty">
+            鼠标或手指移动到图表内时，这里会跟随显示最近交易日的价格、回撤和买卖信息。
+          </div>
+          <div id="hover-card-body" class="hover-card-body" hidden></div>
+        </aside>
       </div>
-      <aside id="hover-card" class="hover-card">
-        <div class="hover-card-label">Cursor Snapshot</div>
-        <div id="hover-card-empty" class="hover-card-empty">
-          打开十字线后，把鼠标移到图表区域内。系统会自动吸附到最近交易日，并在这里展示价格、回撤和当日买卖信息。
-        </div>
-        <div id="hover-card-body" class="hover-card-body" hidden></div>
-      </aside>
     </div>
     <div class="hint-box">
       <div class="hint-title">图表说明</div>
@@ -1812,9 +1826,9 @@ def render_html(
       legend: {{
         orientation: "v",
         yanchor: "top",
-        y: 0.76,
+        y: 0.73,
         xanchor: "left",
-        x: 0.77,
+        x: 0.79,
         bgcolor: "rgba(255, 250, 243, 0.94)",
         bordercolor: "rgba(23, 33, 33, 0.08)",
         borderwidth: 1,
@@ -1922,8 +1936,7 @@ def render_html(
     }}
 
     function resetHoverCard() {{
-      document.getElementById("hover-card-empty").hidden = false;
-      document.getElementById("hover-card-body").hidden = true;
+      setHoverCardVisible(false);
     }}
 
     function hideCrosshair() {{
@@ -2001,13 +2014,13 @@ def render_html(
         "margin.t": mobile ? 118 : 90,
         "margin.b": mobile ? 40 : 56,
         "legend.orientation": mobile ? "h" : "v",
-        "legend.x": mobile ? 0.02 : 0.77,
-        "legend.y": mobile ? 0.98 : 0.76,
+        "legend.x": mobile ? 0.02 : 0.79,
+        "legend.y": mobile ? 0.98 : 0.73,
         "legend.xanchor": "left",
         "legend.yanchor": "top",
         "legend.font.size": mobile ? 10 : 11,
         "legend.tracegroupgap": 4,
-        "showlegend": document.getElementById("legend-toggle")?.checked ?? true
+        "showlegend": true
       }};
       return relayout;
     }}
@@ -2020,11 +2033,34 @@ def render_html(
       }});
     }}
 
-    function applyLegend(plot, enabled) {{
-      Plotly.relayout(plot, {{
-        ...responsiveRelayout(),
-        showlegend: enabled
-      }});
+    function setHoverCardVisible(visible) {{
+      document.getElementById("hover-card").classList.toggle("is-visible", visible);
+      if (!visible) {{
+        document.getElementById("hover-card-empty").hidden = false;
+        document.getElementById("hover-card-body").hidden = true;
+      }}
+    }}
+
+    function placeHoverCard(pointerX, pointerY, plotArea) {{
+      const hoverCard = document.getElementById("hover-card");
+      const padding = 14;
+      const cardWidth = hoverCard.offsetWidth || 240;
+      const cardHeight = hoverCard.offsetHeight || 164;
+      const maxLeft = Math.max(plotArea.left + 8, plotArea.right - cardWidth - 8);
+      const maxTop = Math.max(plotArea.top + 8, plotArea.bottom - cardHeight - 8);
+
+      let left = pointerX + 16;
+      if (left > maxLeft) {{
+        left = Math.max(plotArea.left + 8, pointerX - cardWidth - 16);
+      }}
+
+      let top = pointerY + 16;
+      if (top > maxTop) {{
+        top = Math.max(plotArea.top + 8, pointerY - cardHeight - 16);
+      }}
+
+      hoverCard.style.left = `${{Math.max(plotArea.left + 8, Math.min(left, maxLeft))}}px`;
+      hoverCard.style.top = `${{Math.max(plotArea.top + 8, Math.min(top, maxTop))}}px`;
     }}
 
     function panelForY(plotY, plotArea) {{
@@ -2036,9 +2072,13 @@ def render_html(
       const vertical = document.getElementById("crosshair-v");
       const horizontal = document.getElementById("crosshair-h");
       const plotArea = getPlotArea(plot);
+      const snapshotToggle = document.getElementById("snapshot-toggle");
+      const crosshairToggle = document.getElementById("crosshair-toggle");
       const activePanel = panelForY(mouseY, plotArea);
       if (mouseX < plotArea.left || mouseX > plotArea.right || !activePanel) {{
-        hideCrosshair();
+        if (crosshairToggle.checked) {{
+          hideCrosshair();
+        }}
         resetHoverCard();
         return;
       }}
@@ -2052,17 +2092,25 @@ def render_html(
       const index = nearestIndexByTimestamp(targetTimestamp);
       const snappedX = xPixelForIndex(index, plotArea, plot);
 
-      overlay.classList.add("is-active");
-      vertical.classList.add("is-active");
-      horizontal.classList.add("is-active");
-      vertical.style.left = `${{snappedX}}px`;
-      vertical.style.top = `${{plotArea.top}}px`;
-      vertical.style.height = `${{plotArea.bottom - plotArea.top}}px`;
-      horizontal.style.left = `${{plotArea.left}}px`;
-      horizontal.style.top = `${{mouseY}}px`;
-      horizontal.style.width = `${{plotArea.right - plotArea.left}}px`;
+      if (crosshairToggle.checked) {{
+        overlay.classList.add("is-active");
+        vertical.classList.add("is-active");
+        horizontal.classList.add("is-active");
+        vertical.style.left = `${{snappedX}}px`;
+        vertical.style.top = `${{plotArea.top}}px`;
+        vertical.style.height = `${{plotArea.bottom - plotArea.top}}px`;
+        horizontal.style.left = `${{plotArea.left}}px`;
+        horizontal.style.top = `${{mouseY}}px`;
+        horizontal.style.width = `${{plotArea.right - plotArea.left}}px`;
+      }}
 
-      renderHoverCard(index);
+      if (snapshotToggle.checked) {{
+        renderHoverCard(index);
+        setHoverCardVisible(true);
+        placeHoverCard(mouseX, mouseY, plotArea);
+      }} else {{
+        resetHoverCard();
+      }}
     }}
 
     function pointerPositionFromTouch(event, plot) {{
@@ -2086,7 +2134,7 @@ def render_html(
     }}).then((plot) => {{
       applyMode(plot, currentMode);
       const crosshairToggle = document.getElementById("crosshair-toggle");
-      const legendToggle = document.getElementById("legend-toggle");
+      const snapshotToggle = document.getElementById("snapshot-toggle");
       document.querySelectorAll(".mode-button").forEach((button) => {{
         button.addEventListener("click", () => {{
           applyMode(plot, button.dataset.mode || "both");
@@ -2103,25 +2151,27 @@ def render_html(
         }}
       }};
       crosshairToggle.addEventListener("change", applyCrosshair);
-      legendToggle.addEventListener("change", () => {{
-        applyLegend(plot, legendToggle.checked);
+      snapshotToggle.addEventListener("change", () => {{
+        if (!snapshotToggle.checked) {{
+          resetHoverCard();
+        }}
       }});
       plot.addEventListener("mousemove", (event) => {{
-        if (!crosshairToggle.checked) {{
+        if (!crosshairToggle.checked && !snapshotToggle.checked) {{
           return;
         }}
         const rect = plot.getBoundingClientRect();
         updateCrosshairDisplay(plot, event.clientX - rect.left, event.clientY - rect.top);
       }});
       plot.addEventListener("click", (event) => {{
-        if (!crosshairToggle.checked) {{
+        if (!crosshairToggle.checked && !snapshotToggle.checked) {{
           return;
         }}
         const rect = plot.getBoundingClientRect();
         updateCrosshairDisplay(plot, event.clientX - rect.left, event.clientY - rect.top);
       }});
       plot.addEventListener("touchstart", (event) => {{
-        if (!crosshairToggle.checked) {{
+        if (!crosshairToggle.checked && !snapshotToggle.checked) {{
           return;
         }}
         const point = pointerPositionFromTouch(event, plot);
@@ -2131,7 +2181,7 @@ def render_html(
         updateCrosshairDisplay(plot, point.x, point.y);
       }}, {{ passive: true }});
       plot.addEventListener("touchmove", (event) => {{
-        if (!crosshairToggle.checked) {{
+        if (!crosshairToggle.checked && !snapshotToggle.checked) {{
           return;
         }}
         const point = pointerPositionFromTouch(event, plot);
@@ -2144,10 +2194,9 @@ def render_html(
         updateCrosshairDisplay(plot, point.x, point.y);
       }}, {{ passive: false }});
       plot.addEventListener("mouseleave", () => {{
-        if (!crosshairToggle.checked) {{
-          return;
+        if (crosshairToggle.checked) {{
+          hideCrosshair();
         }}
-        hideCrosshair();
         resetHoverCard();
       }});
       window.addEventListener("resize", () => {{
