@@ -1218,8 +1218,8 @@ def render_html(
 
     .chart-stage {{
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 300px;
-      gap: 18px;
+      grid-template-columns: minmax(0, 1fr) 248px;
+      gap: 14px;
       align-items: start;
     }}
 
@@ -1262,31 +1262,31 @@ def render_html(
     .hover-card {{
       position: sticky;
       top: 24px;
-      padding: 16px 18px;
-      border-radius: 18px;
+      padding: 12px 14px;
+      border-radius: 16px;
       background: rgba(255, 250, 243, 0.96);
       border: 1px solid rgba(23, 33, 33, 0.08);
       box-shadow: 0 18px 38px rgba(23, 33, 33, 0.1);
-      min-height: 180px;
+      min-height: 132px;
     }}
 
     .hover-card-label {{
-      margin: 0 0 10px;
+      margin: 0 0 8px;
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }}
 
     .hover-card-empty {{
       color: var(--muted);
-      font-size: 14px;
-      line-height: 1.6;
+      font-size: 12px;
+      line-height: 1.5;
     }}
 
     .hover-card-body {{
       display: grid;
-      gap: 12px;
+      gap: 8px;
     }}
 
     .hover-card-body[hidden] {{
@@ -1295,8 +1295,8 @@ def render_html(
 
     .hover-section {{
       display: grid;
-      gap: 6px;
-      padding-top: 12px;
+      gap: 4px;
+      padding-top: 8px;
       border-top: 1px solid rgba(23, 33, 33, 0.08);
     }}
 
@@ -1307,16 +1307,16 @@ def render_html(
 
     .hover-section-title {{
       color: var(--ink);
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 700;
     }}
 
     .hover-row {{
       display: flex;
       justify-content: space-between;
-      gap: 12px;
-      font-size: 13px;
-      line-height: 1.4;
+      gap: 8px;
+      font-size: 12px;
+      line-height: 1.35;
     }}
 
     .hover-row span:first-child {{
@@ -1336,6 +1336,44 @@ def render_html(
 
       .hover-card {{
         position: static;
+      }}
+    }}
+
+    @media (max-width: 820px) {{
+      .shell {{
+        padding: 20px 12px 28px;
+      }}
+
+      .stats {{
+        gap: 8px;
+      }}
+
+      .stat {{
+        min-width: 132px;
+        padding: 10px 12px;
+      }}
+
+      #chart {{
+        height: 760px;
+      }}
+
+      .controls {{
+        margin: 6px 0 10px;
+      }}
+
+      .toggle {{
+        padding: 8px 12px;
+        font-size: 13px;
+      }}
+    }}
+
+    @media (max-width: 560px) {{
+      #chart {{
+        height: 700px;
+      }}
+
+      .hover-card {{
+        padding: 10px 12px;
       }}
     }}
   </style>
@@ -1379,7 +1417,7 @@ def render_html(
     {warning_html}
     <div class="controls">
       <label class="toggle" for="crosshair-toggle">
-        <input id="crosshair-toggle" type="checkbox">
+        <input id="crosshair-toggle" type="checkbox" checked>
         <span>十字线</span>
       </label>
     </div>
@@ -1959,6 +1997,40 @@ def render_html(
       return plotArea.left + ((dateTimestamps[index] - start) / clampedSpan) * (plotArea.right - plotArea.left);
     }}
 
+    function isMobileViewport() {{
+      return window.matchMedia("(max-width: 820px)").matches;
+    }}
+
+    function responsiveRelayout() {{
+      const mobile = isMobileViewport();
+      const relayout = {{
+        height: mobile ? 760 : 860,
+        "margin.l": mobile ? 52 : 70,
+        "margin.r": mobile ? 16 : 124,
+        "margin.t": mobile ? 168 : 126,
+        "margin.b": mobile ? 40 : 56,
+        "legend.orientation": mobile ? "h" : "v",
+        "legend.x": mobile ? 0 : 1.02,
+        "legend.y": mobile ? 1.15 : 1,
+        "legend.xanchor": "left",
+        "legend.yanchor": mobile ? "bottom" : "top",
+        "legend.font.size": mobile ? 10 : 12,
+        "legend.tracegroupgap": mobile ? 4 : 8,
+        "updatemenus[0].x": 0,
+        "updatemenus[0].y": mobile ? 1.27 : 1.15,
+        "updatemenus[0].direction": "right",
+        "annotations[0].y": mobile ? 1.30 : 1.17,
+        "annotations[0].font.size": mobile ? 11 : 12,
+        "annotations[1].y": mobile ? (usesTradeAmounts ? 0.47 : 0.36) : (usesTradeAmounts ? 0.45 : 0.35),
+        "annotations[1].font.size": mobile ? 11 : 12
+      }};
+      if (usesTradeAmounts) {{
+        relayout["annotations[2].y"] = mobile ? 0.20 : 0.19;
+        relayout["annotations[2].font.size"] = mobile ? 11 : 12;
+      }}
+      return relayout;
+    }}
+
     function panelForY(plotY, plotArea) {{
       return plotArea.panels.find((panel) => plotY >= panel.top && plotY <= panel.bottom) || null;
     }}
@@ -1997,6 +2069,18 @@ def render_html(
       renderHoverCard(index);
     }}
 
+    function pointerPositionFromTouch(event, plot) {{
+      const touch = event.touches[0] || event.changedTouches[0];
+      if (!touch) {{
+        return null;
+      }}
+      const rect = plot.getBoundingClientRect();
+      return {{
+        x: touch.clientX - rect.left,
+        y: touch.clientY - rect.top
+      }};
+    }}
+
     Plotly.newPlot("chart", traces, layout, {{
       responsive: true,
       displaylogo: false
@@ -2004,7 +2088,10 @@ def render_html(
       Plotly.restyle(plot, {{ visible: visibilityFor("both") }});
       const crosshairToggle = document.getElementById("crosshair-toggle");
       const applyCrosshair = () => {{
-        Plotly.relayout(plot, crosshairRelayout(crosshairToggle.checked));
+        Plotly.relayout(plot, {{
+          ...responsiveRelayout(),
+          ...crosshairRelayout(crosshairToggle.checked)
+        }});
         if (!crosshairToggle.checked) {{
           hideCrosshair();
           resetHoverCard();
@@ -2018,12 +2105,45 @@ def render_html(
         const rect = plot.getBoundingClientRect();
         updateCrosshairDisplay(plot, event.clientX - rect.left, event.clientY - rect.top);
       }});
+      plot.addEventListener("click", (event) => {{
+        if (!crosshairToggle.checked) {{
+          return;
+        }}
+        const rect = plot.getBoundingClientRect();
+        updateCrosshairDisplay(plot, event.clientX - rect.left, event.clientY - rect.top);
+      }});
+      plot.addEventListener("touchstart", (event) => {{
+        if (!crosshairToggle.checked) {{
+          return;
+        }}
+        const point = pointerPositionFromTouch(event, plot);
+        if (!point) {{
+          return;
+        }}
+        updateCrosshairDisplay(plot, point.x, point.y);
+      }}, {{ passive: true }});
+      plot.addEventListener("touchmove", (event) => {{
+        if (!crosshairToggle.checked) {{
+          return;
+        }}
+        const point = pointerPositionFromTouch(event, plot);
+        if (!point) {{
+          return;
+        }}
+        if (event.cancelable) {{
+          event.preventDefault();
+        }}
+        updateCrosshairDisplay(plot, point.x, point.y);
+      }}, {{ passive: false }});
       plot.addEventListener("mouseleave", () => {{
         if (!crosshairToggle.checked) {{
           return;
         }}
         hideCrosshair();
         resetHoverCard();
+      }});
+      window.addEventListener("resize", () => {{
+        Plotly.relayout(plot, responsiveRelayout());
       }});
       applyCrosshair();
     }});
