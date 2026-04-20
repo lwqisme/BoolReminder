@@ -173,6 +173,12 @@ INDEX_TEMPLATE = """
         body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
         .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .hero-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 20px; }
+        .hero-card { display: block; padding: 18px; border-radius: 8px; text-decoration: none; color: white; background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); }
+        .hero-card strong { display: block; font-size: 18px; margin-bottom: 6px; }
+        .hero-card span { font-size: 14px; opacity: 0.92; }
+        .hero-card.drawdown { background: linear-gradient(135deg, #0891b2 0%, #2563eb 100%); }
+        .hero-card.portal { background: linear-gradient(135deg, #475569 0%, #0f172a 100%); }
         .btn { padding: 10px 20px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; }
         .btn:hover { background: #5568d3; }
         .btn-secondary { background: #6c757d; }
@@ -198,6 +204,17 @@ INDEX_TEMPLATE = """
         </div>
         
         <div id="status"></div>
+
+        <div class="hero-grid">
+            <a href="/drawdown" class="hero-card drawdown">
+                <strong>Drawdown 图表</strong>
+                <span>查看单股票回撤、加仓与卖出图层</span>
+            </a>
+            <a href="http://aqcloud.ltd" class="hero-card portal" target="_blank">
+                <strong>AQCloud 首页</strong>
+                <span>返回总站首页查看其他服务入口</span>
+            </a>
+        </div>
         
         <div id="content">
             {% if result %}
@@ -253,6 +270,7 @@ DRAWDOWN_TEMPLATE = """
         body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
         .container { max-width: 960px; margin: 0 auto; background: white; padding: 24px; border-radius: 8px; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
         .btn { padding: 10px 16px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; }
         .btn:hover { background: #5568d3; }
         .btn-secondary { background: #6c757d; }
@@ -270,7 +288,10 @@ DRAWDOWN_TEMPLATE = """
     <div class="container">
         <div class="header">
             <h1>Drawdown</h1>
-            <a href="/" class="btn btn-secondary">返回首页</a>
+            <div class="header-actions">
+                <a href="/" class="btn btn-secondary">BOLL 首页</a>
+                <a href="http://aqcloud.ltd" class="btn btn-secondary" target="_blank">AQCloud 首页</a>
+            </div>
         </div>
 
         <div class="panel">
@@ -280,7 +301,7 @@ DRAWDOWN_TEMPLATE = """
                     <label><input id="force" type="checkbox"> 强制刷新</label>
                     <button type="submit" class="btn">打开图表</button>
                 </div>
-                <div class="hint">Google Sheets 同步后，图表会在首次打开时按需生成并缓存。</div>
+                <div class="hint">Google Sheets 同步后，图表会在首次打开时按需生成并缓存。All 当前指的是已加载价格窗口内的峰值，不是 IPO 以来绝对全历史。</div>
             </form>
         </div>
 

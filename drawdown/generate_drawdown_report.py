@@ -1123,7 +1123,7 @@ def render_html(
       <h1>回撤水位和加仓动作放在同一条时间轴里看</h1>
       <div class="sub">
         当前版本基于 {ticker} 的收盘价序列和交易日志生成。价格源: {price_source_label}。状态: {title_suffix}。
-        上图看价格与峰值，下图提供 All-time High 与 Rolling 120d High 两套回撤口径，可在按钮里切换或共同显示。
+        上图看价格与峰值，下图提供窗口内 All-time High 与 Rolling 120d High 两套回撤口径，可在按钮里切换或共同显示。
       </div>
     </div>
     <div class="stats">
@@ -1156,6 +1156,7 @@ def render_html(
     <div id="chart"></div>
     <div class="footnote">
       价格源支持内嵌 xlsx 时序和 Longbridge 日线两种模式。当前默认模式为 <code>Both</code>。
+      Longbridge 模式下当前会从首笔交易日前大约 370 天开始拉取到今天，所以这里的 <code>All-time</code> 是当前加载窗口内的历史高点，不是上市以来全历史高点。
       如果你再补一份 CSV，例如字段为 <code>date,amount,shares,type</code>，脚本会按日期合并；
       买点圆点会按金额或股数缩放，底部会增加对应柱状层。
     </div>
