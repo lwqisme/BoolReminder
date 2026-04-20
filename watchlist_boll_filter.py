@@ -5,8 +5,9 @@
 - 上轨：价格高于上轨 或 价格差10%就到上轨
 """
 
+from __future__ import annotations
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Dict, Optional, Tuple, Any, TYPE_CHECKING
 from dataclasses import dataclass, field
 from pathlib import Path
 import time
@@ -14,7 +15,7 @@ import json
 import pytz
 
 try:
-    from longbridge.openapi import QuoteContext, Config, Period, AdjustType  # type: ignore
+    from longbridge.openapi import QuoteContext, Config, OAuthBuilder, Period, AdjustType  # type: ignore
     LONGBRIDGE_AVAILABLE = True
 except ImportError:
     LONGBRIDGE_AVAILABLE = False
@@ -278,31 +279,58 @@ class WatchlistBollFilterResult:
         return "\n".join(lines)
 
 
+def is_option_symbol(symbol: str) -> bool:
+    """
+    判断是否为期权代码
+
+    Args:
+        symbol: 股票/期权代码
+
+    Returns:
+        是否为期权
+    """
+    # 期权格式通常为: TICKER + YYMMDD + C/P + STRIKE + .US/.HK
+    # 例如: MSFT270115C480000.US
+    if not ('.US' in symbol or '.HK' in symbol):
+        return False
+
+    # 检查是否包含日期格式（6位数字）和C/P标识
+    has_date_pattern = False
+    for i in range(len(symbol) - 6):
+        if symbol[i:i+6].isdigit():
+            # 检查后面是否紧跟C或P
+            if i + 6 < len(symbol) and symbol[i+6] in ['C', 'P']:
+                has_date_pattern = True
+                break
+
+    return has_date_pattern
+
+
 def get_watchlist_symbols(quote_ctx: QuoteContext, exclude_options: bool = False) -> Tuple[List[str], Dict[str, str]]:
     """
     获取自选列表中的所有股票代码和名称映射
-    
+
     Args:
         quote_ctx: QuoteContext实例
         exclude_options: 是否排除期权（默认False，不排除）
-        
+
     Returns:
         (股票代码列表, 股票代码到名称的映射字典)
     """
     watchlist_groups = quote_ctx.watchlist()
     symbols = []
     symbol_to_name = {}
-    
+
     for group in watchlist_groups:
         for security in group.securities:
             symbol = security.symbol
-            # 排除期权（通常包含日期和C/P标识）
-            if exclude_options and ('C' in symbol or 'P' in symbol) and any(char.isdigit() for char in symbol):
+            # 排除期权
+            if exclude_options and is_option_symbol(symbol):
                 continue
             if symbol not in symbols:
                 symbols.append(symbol)
                 symbol_to_name[symbol] = security.name
-    
+
     return symbols, symbol_to_name
 
 
@@ -359,6 +387,50 @@ def get_stock_boll_data(quote_ctx: QuoteContext, symbol: str, period: int = 22, 
         return None
 
 
+def get_option_boll_data(option_service, symbol: str, period: int = 22, k: float = 2.0) -> Optional[Dict]:
+    """
+    获取单个期权的BOLL指标数据（使用Polygon.io API历史数据）
+
+    Args:
+        option_service: OptionQuoteService实例
+        symbol: 期权代码
+        period: BOLL计算周期
+        k: 标准差倍数
+
+    Returns:
+        包含BOLL指标和当前价格的字典，如果失败返回None
+    """
+    try:
+        # 获取期权历史数据
+        history = option_service.get_option_history(symbol, days=period + 10)
+
+        if not history or len(history) < period:
+            return None
+
+        # 提取收盘价列表
+        closes = [float(bar["close"]) for bar in history]
+
+        # 使用 BOLL 计算器计算指标
+        calculator = BOLLCalculator(period=period, k=k)
+        boll_result = calculator.calculate_boll(closes)
+
+        if not boll_result:
+            return None
+
+        # 获取最新价格（最后一个收盘价）
+        current_price = closes[-1]
+
+        return {
+            "symbol": symbol,
+            "current_price": current_price,
+            **boll_result
+        }
+
+    except Exception as e:
+        print(f"  获取期权 {symbol} 数据失败: {e}")
+        return None
+
+
 def analyze_all_stocks(
     quote_ctx: QuoteContext,
     symbols: List[str],
@@ -367,20 +439,25 @@ def analyze_all_stocks(
     k: float = 2.0,
     threshold: float = 0.10,
     exclude_options: bool = False,
-    verbose: bool = False
+    verbose: bool = False,
+    option_service=None,
+    option_delay: bool = False
 ) -> WatchlistBollFilterResult:
     """
-    分析所有股票，按位置分类
-    
+    分析所有股票和期权，按位置分类
+
     Args:
         quote_ctx: QuoteContext实例
-        symbols: 股票代码列表
+        symbols: 股票/期权代码列表
+        symbol_to_name: 代码到名称的映射
         period: BOLL计算周期
         k: 标准差倍数
         threshold: 接近上下轨的阈值（10% = 0.10）
         exclude_options: 是否排除期权（当前函数内未使用）
         verbose: 是否打印详细进度信息
-        
+        option_service: OptionQuoteService实例，用于获取期权数据
+        option_delay: 是否在期权请求之间添加延迟（避免API限流）
+
     Returns:
         WatchlistBollFilterResult 结构化结果对象
     """
@@ -401,10 +478,26 @@ def analyze_all_stocks(
     for idx, symbol in enumerate(symbols, 1):
         if verbose:
             print(f"[{idx}/{total}] 正在分析 {symbol}...", end=" ")
-        
+
+        # 判断是否为期权
+        is_option = is_option_symbol(symbol)
+
         # 获取BOLL数据
-        boll_data = get_stock_boll_data(quote_ctx, symbol, period, k)
-        
+        if is_option and option_service:
+            # 如果启用了期权延迟，在请求前等待
+            if option_delay:
+                if verbose:
+                    print("(期权，延迟12秒)", end=" ")
+                time.sleep(12)  # 等待12秒避免API限流（免费版每分钟5次）
+
+            # 使用期权服务获取数据
+            boll_data = get_option_boll_data(option_service, symbol, period, k)
+            if verbose and boll_data and not option_delay:
+                print("(期权)", end=" ")
+        else:
+            # 使用股票服务获取数据
+            boll_data = get_stock_boll_data(quote_ctx, symbol, period, k)
+
         if not boll_data:
             if verbose:
                 print("数据不足，跳过")
@@ -477,13 +570,14 @@ def analyze_all_stocks(
     return result
 
 
-def main(verbose: bool = False, config_manager=None):
+def main(verbose: bool = False, config_manager=None, option_delay: bool = False):
     """主函数
-    
+
     Args:
         verbose: 是否显示详细进度信息
         config_manager: 配置管理器实例，如果为None则自动创建
-    
+        option_delay: 是否在期权请求之间添加延迟（避免API限流）
+
     Returns:
         WatchlistBollFilterResult 结构化结果对象
     """
@@ -500,30 +594,34 @@ def main(verbose: bool = False, config_manager=None):
         # 从配置管理器获取LongBridge配置
         lb_config = config_manager.get_longbridge_config()
         
-        if not lb_config.get("app_key") or not lb_config.get("app_secret") or not lb_config.get("access_token"):
-            print("错误: LongBridge配置不完整，请检查config/config.yaml")
-            return None
-        
-        # 初始化配置
-        config = Config(
-            app_key=lb_config["app_key"],
-            app_secret=lb_config["app_secret"],
-            access_token=lb_config["access_token"]
-        )
+        # 使用 OAuth，SDK 自动从 token 文件读取并复用（token 文件由 token_refresher 维护）
+        oauth_client_id = lb_config.get("oauth_client_id", "")
+        oauth = OAuthBuilder(oauth_client_id).build(lambda url: (_ for _ in ()).throw(RuntimeError(f"Token expired, needs re-auth: {url}")))
+        config = Config.from_oauth(oauth)
         
         quote_ctx = QuoteContext(config)
-        
-        # 1. 获取自选列表
+
+        # 初始化期权服务
+        option_service = None
+        polygon_config = config_manager.get_polygon_config()
+        if polygon_config.get("api_key"):
+            from option_quote import OptionQuoteService
+            option_service = OptionQuoteService(polygon_config["api_key"])
+            if verbose:
+                print("期权服务已启用（使用 Polygon.io API）")
+
+        # 1. 获取自选列表（排除期权）
         if verbose:
             print("=" * 60)
             print("获取自选列表...")
-        symbols, symbol_to_name = get_watchlist_symbols(quote_ctx, exclude_options=False)
+        symbols, symbol_to_name = get_watchlist_symbols(quote_ctx, exclude_options=True)
+
         if verbose:
             print(f"找到 {len(symbols)} 只股票（已排除期权）")
             print("=" * 60)
             print()
-        
-        # 2. 分析所有股票
+
+        # 2. 分析所有股票和期权
         result = analyze_all_stocks(
             quote_ctx,
             symbols,
@@ -531,7 +629,9 @@ def main(verbose: bool = False, config_manager=None):
             period=22,
             k=2.0,
             threshold=0.02,  # 2%
-            verbose=verbose
+            verbose=verbose,
+            option_service=option_service,
+            option_delay=option_delay
         )
         
         return result
@@ -543,20 +643,21 @@ def main(verbose: bool = False, config_manager=None):
         return None
 
 
-def run_analysis_and_notify(config_manager=None, send_email: bool = True, save_html: bool = False):
+def run_analysis_and_notify(config_manager=None, send_email: bool = True, save_html: bool = False, option_delay: bool = False):
     """
     运行分析并发送通知
-    
+
     Args:
         config_manager: 配置管理器实例
         send_email: 是否发送邮件
         save_html: 是否保存HTML报告到文件
-    
+        option_delay: 是否在期权请求之间添加延迟（避免API限流）
+
     Returns:
         WatchlistBollFilterResult 对象
     """
     # 执行分析
-    result = main(verbose=False, config_manager=config_manager)
+    result = main(verbose=False, config_manager=config_manager, option_delay=option_delay)
     
     if result is None:
         print("分析失败")

@@ -165,7 +165,8 @@ class ConfigManager:
         return {
             "app_key": lb_config.get("app_key", ""),
             "app_secret": lb_config.get("app_secret", ""),
-            "access_token": lb_config.get("access_token", "")
+            "access_token": lb_config.get("access_token", ""),
+            "oauth_client_id": lb_config.get("oauth_client_id", ""),
         }
 
     def get_polygon_config(self) -> Dict[str, str]:

@@ -14,6 +14,7 @@ import pytz
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.config_manager import ConfigManager
 from watchlist_boll_filter import run_analysis_and_notify
+from scheduler.token_refresher import refresh_longbridge_token
 
 # 配置日志
 logging.basicConfig(
@@ -60,12 +61,19 @@ class TaskScheduler:
     def _run_analysis_job(self):
         """执行分析任务"""
         logger.info("开始执行定时分析任务...")
-        
+
+        lb_config = self.config_manager.get_longbridge_config()
+        client_id = lb_config.get("oauth_client_id", "")
+        if client_id:
+            if not refresh_longbridge_token(client_id):
+                logger.warning("Token refresh failed, proceeding anyway")
+
         try:
             result = run_analysis_and_notify(
                 config_manager=self.config_manager,
                 send_email=True,  # 定时任务自动发送邮件
-                save_html=True
+                save_html=True,
+                option_delay=True  # 定时任务启用期权延迟，避免API限流
             )
             
             if result:

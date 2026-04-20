@@ -53,6 +53,11 @@ Thumbs.db
 # Docker
 .dockerignore
 
+# Runtime secrets / local artifacts
+.longbridge_tokens/
+node_modules/
+*.whl
+
 # 其他
 *.bak
 *.tmp

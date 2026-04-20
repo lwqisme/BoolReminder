@@ -41,8 +41,8 @@ class BOLLCalculator:
         # 计算中轨（简单移动平均）
         mid = sum(recent_closes) / self.period
         
-        # 计算标准差
-        sd = statistics.stdev(recent_closes)
+        # 计算标准差（使用总体标准差，与LongBridge/同花顺一致）
+        sd = statistics.pstdev(recent_closes)
         
         # 计算上轨和下轨
         upper = mid + self.k * sd

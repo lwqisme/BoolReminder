@@ -120,6 +120,65 @@ def generate_html_report(result: WatchlistBollFilterResult, title: str = "BOLL�
             font-weight: bold;
             color: #333;
         }}
+
+        .tab-nav {{
+            display: flex;
+            gap: 12px;
+            padding: 14px 30px;
+            border-bottom: 1px solid #e0e0e0;
+            background: #fff;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }}
+
+        .tab-btn {{
+            border: 1px solid #d8dee4;
+            background: #f8f9fa;
+            color: #495057;
+            border-radius: 999px;
+            padding: 8px 14px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            white-space: nowrap;
+            text-decoration: none;
+            display: inline-block;
+        }}
+
+        .tab-btn .count {{
+            margin-left: 6px;
+            opacity: 0.8;
+            font-weight: 700;
+        }}
+
+        .tab-btn.active {{
+            color: #fff;
+            border-color: transparent;
+        }}
+
+        .tab-btn.below.active {{
+            background: #e74c3c;
+        }}
+
+        .tab-btn.above.active {{
+            background: #3498db;
+        }}
+
+        .tab-btn.near-lower.active {{
+            background: #f39c12;
+        }}
+
+        .tab-btn.near-upper.active {{
+            background: #e67e22;
+        }}
+
+        body.tabs-enabled .section {{
+            display: none;
+        }}
+
+        body.tabs-enabled .section.active {{
+            display: block;
+        }}
         
         .section {{
             padding: 30px;
@@ -214,11 +273,76 @@ def generate_html_report(result: WatchlistBollFilterResult, title: str = "BOLL�
         
         @media (max-width: 768px) {{
             body {{
-                padding: 10px;
+                padding: 6px;
             }}
             
+            .container {{
+                border-radius: 0;
+                box-shadow: none;
+            }}
+
+            .header {{
+                padding: 16px 12px;
+            }}
+
             .header h1 {{
-                font-size: 22px;
+                font-size: 20px;
+                margin-bottom: 6px;
+            }}
+
+            .header .meta {{
+                font-size: 12px;
+                line-height: 1.5;
+            }}
+
+            .summary {{
+                padding: 14px 12px;
+            }}
+
+            .summary h2 {{
+                font-size: 18px;
+            }}
+
+            .summary-grid {{
+                gap: 10px;
+                margin-top: 12px;
+            }}
+
+            .summary-card {{
+                padding: 12px;
+            }}
+
+            .summary-card h3 {{
+                font-size: 13px;
+                margin-bottom: 6px;
+            }}
+
+            .summary-card .count {{
+                font-size: 26px;
+            }}
+
+            .tab-nav {{
+                padding: 10px 10px;
+                gap: 8px;
+            }}
+
+            .tab-btn {{
+                padding: 7px 11px;
+                font-size: 12px;
+            }}
+
+            .section {{
+                padding: 14px 10px;
+            }}
+
+            .section-title {{
+                font-size: 17px;
+                margin-bottom: 10px;
+                gap: 8px;
+            }}
+
+            .section-title .icon {{
+                font-size: 20px;
             }}
             
             .summary-grid {{
@@ -226,15 +350,21 @@ def generate_html_report(result: WatchlistBollFilterResult, title: str = "BOLL�
             }}
             
             table {{
+                display: block;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                white-space: nowrap;
                 font-size: 12px;
+                margin-top: 12px;
             }}
             
             th, td {{
-                padding: 8px 4px;
+                padding: 7px 8px;
             }}
             
-            .container {{
-                border-radius: 0;
+            .footer {{
+                padding: 12px 10px;
+                font-size: 11px;
             }}
         }}
     </style>
@@ -257,6 +387,10 @@ def generate_html_report(result: WatchlistBollFilterResult, title: str = "BOLL�
                     <h3>🔴 低于下轨（超卖）</h3>
                     <div class="count">{len(result.below_lower)}</div>
                 </div>
+                <div class="summary-card above">
+                    <h3>🔵 超出上轨（超买）</h3>
+                    <div class="count">{len(result.above_upper)}</div>
+                </div>
                 <div class="summary-card near-lower">
                     <h3>🟡 接近下轨</h3>
                     <div class="count">{len(result.near_lower)}</div>
@@ -265,26 +399,75 @@ def generate_html_report(result: WatchlistBollFilterResult, title: str = "BOLL�
                     <h3>🟠 接近上轨</h3>
                     <div class="count">{len(result.near_upper)}</div>
                 </div>
-                <div class="summary-card above">
-                    <h3>🔵 超出上轨（超买）</h3>
-                    <div class="count">{len(result.above_upper)}</div>
-                </div>
             </div>
             <div style="margin-top: 20px; color: #666; font-size: 14px;">
                 配置参数: 周期={result.period}, k={result.k}, 阈值={result.threshold * 100}%
             </div>
         </div>
+
+        <div class="tab-nav" role="tablist" aria-label="分类切换">
+            <a class="tab-btn below" data-tab="below" href="#section-below">🔴 低于下轨<span class="count">{len(result.below_lower)}</span></a>
+            <a class="tab-btn above" data-tab="above" href="#section-above">🔵 超出上轨<span class="count">{len(result.above_upper)}</span></a>
+            <a class="tab-btn near-lower" data-tab="near-lower" href="#section-near-lower">🟡 接近下轨<span class="count">{len(result.near_lower)}</span></a>
+            <a class="tab-btn near-upper" data-tab="near-upper" href="#section-near-upper">🟠 接近上轨<span class="count">{len(result.near_upper)}</span></a>
+        </div>
         
-        {_generate_section_html("below", "低于下轨 - 超卖区域", result.below_lower, "distance_from_lower_pct", True) if result.below_lower else ""}
-        {_generate_section_html("near-lower", "接近下轨", result.near_lower, "distance_from_lower_pct", False) if result.near_lower else ""}
-        {_generate_section_html("near-upper", "接近上轨", result.near_upper, "distance_from_upper_pct", False) if result.near_upper else ""}
-        {_generate_section_html("above", "超出上轨 - 超买区域", result.above_upper, "distance_from_upper_pct", True) if result.above_upper else ""}
+        {_generate_section_html("below", "低于下轨 - 超卖区域", result.below_lower, "distance_from_lower_pct", True)}
+        {_generate_section_html("above", "超出上轨 - 超买区域", result.above_upper, "distance_from_upper_pct", True)}
+        {_generate_section_html("near-lower", "接近下轨", result.near_lower, "distance_from_lower_pct", False)}
+        {_generate_section_html("near-upper", "接近上轨", result.near_upper, "distance_from_upper_pct", False)}
         
         <div class="footer">
             <p>本报告由BOLL指标筛选系统自动生成</p>
             <p>生成时间: {datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y-%m-%d %H:%M:%S')}</p>
         </div>
     </div>
+    <script>
+        (function() {{
+            const tabButtons = document.querySelectorAll('.tab-btn');
+            const sections = document.querySelectorAll('.section');
+            if (!tabButtons.length || !sections.length) {{
+                return;
+            }}
+
+            document.body.classList.add('tabs-enabled');
+
+            function activateTab(tabName) {{
+                tabButtons.forEach((button) => {{
+                    button.classList.toggle('active', button.dataset.tab === tabName);
+                }});
+                sections.forEach((section) => {{
+                    section.classList.toggle('active', section.dataset.tab === tabName);
+                }});
+            }}
+
+            tabButtons.forEach((button) => {{
+                button.addEventListener('click', (event) => {{
+                    event.preventDefault();
+                    const tabName = button.dataset.tab;
+                    activateTab(tabName);
+                    const targetId = button.getAttribute('href');
+                    if (targetId && window.history && window.history.replaceState) {{
+                        window.history.replaceState(null, '', targetId);
+                    }}
+                }});
+            }});
+
+            const hashTabMap = {{
+                '#section-below': 'below',
+                '#section-above': 'above',
+                '#section-near-lower': 'near-lower',
+                '#section-near-upper': 'near-upper'
+            }};
+            const tabFromHash = hashTabMap[window.location.hash] || '';
+            const firstTabWithData = Array.from(tabButtons).find((button) => {{
+                const countNode = button.querySelector('.count');
+                const count = countNode ? Number(countNode.textContent) : 0;
+                return count > 0;
+            }});
+            activateTab(tabFromHash || (firstTabWithData || tabButtons[0]).dataset.tab);
+        }})();
+    </script>
 </body>
 </html>"""
     
@@ -293,9 +476,6 @@ def generate_html_report(result: WatchlistBollFilterResult, title: str = "BOLL�
 
 def _generate_section_html(section_class: str, title: str, stocks: list, distance_field: str, is_extreme: bool) -> str:
     """生成单个分类的HTML"""
-    if not stocks:
-        return ""
-    
     icon_map = {
         "below": "🔴",
         "near-lower": "🟡",
@@ -306,20 +486,30 @@ def _generate_section_html(section_class: str, title: str, stocks: list, distanc
     icon = icon_map.get(section_class, "📊")
     
     html = f"""
-        <div class="section {section_class}">
+        <div class="section {section_class}" data-tab="{section_class}" id="section-{section_class}">
             <div class="section-title">
                 <span class="icon">{icon}</span>
                 <span>{title} ({len(stocks)} 只)</span>
             </div>
+    """
+
+    if not stocks:
+        html += """
+            <div class="empty">暂无符合条件的股票</div>
+        </div>
+    """
+        return html
+
+    html += """
             <table>
                 <thead>
                     <tr>
                         <th>股票名称</th>
                         <th>当前价格</th>
+                        <th>距离</th>
                         <th>下轨</th>
                         <th>中轨</th>
                         <th>上轨</th>
-                        <th>距离</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -341,10 +531,10 @@ def _generate_section_html(section_class: str, title: str, stocks: list, distanc
                     <tr>
                         <td><strong>{display_name}</strong></td>
                         <td>{stock.currency_symbol}{stock.current_price:.2f}</td>
+                        <td>{distance_str} {warning_badge}</td>
                         <td>{stock.currency_symbol}{stock.lower_band:.4f}</td>
                         <td>{stock.currency_symbol}{stock.mid_band:.4f}</td>
                         <td>{stock.currency_symbol}{stock.upper_band:.4f}</td>
-                        <td>{distance_str} {warning_badge}</td>
                     </tr>
         """
     

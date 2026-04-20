@@ -13,11 +13,8 @@ services:
       - ./report:/app/report
       # 挂载日志目录
       - ./logs:/app/logs
-    # 可以通过环境变量覆盖配置（可选）
-    # environment:
-    #   - LONGBRIDGE_APP_KEY=${LONGBRIDGE_APP_KEY}
-    #   - LONGBRIDGE_APP_SECRET=${LONGBRIDGE_APP_SECRET}
-    #   - LONGBRIDGE_ACCESS_TOKEN=${LONGBRIDGE_ACCESS_TOKEN}
+      # 挂载 Longbridge OAuth token（SDK 自动续期）
+      - ./.longbridge_tokens:/root/.longbridge/openapi/tokens
     restart: unless-stopped
     networks:
       - boll-network

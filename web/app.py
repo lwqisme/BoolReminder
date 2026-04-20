@@ -92,7 +92,8 @@ INDEX_TEMPLATE = """
                 <a href="/history" class="btn btn-secondary">历史报告</a>
                 <a href="/schedule" class="btn btn-secondary">定时任务</a>
                 <a href="/update-token" class="btn btn-secondary">更新Token</a>
-                <button onclick="triggerAnalysis()" class="btn">手动触发分析</button>
+                <button onclick="triggerAnalysis(false)" class="btn">快速分析（无期权延迟）</button>
+                <button onclick="triggerAnalysis(true)" class="btn" style="background: #48bb78;">完整分析（含期权延迟）</button>
             </div>
         </div>
         
@@ -108,10 +109,23 @@ INDEX_TEMPLATE = """
     </div>
     
     <script>
-        function triggerAnalysis() {
-            document.getElementById('status').innerHTML = '<div class="status info">正在分析，请稍候...</div>';
-            fetch('/api/trigger', { method: 'POST' })
-                .then(response => response.json())
+        function triggerAnalysis(optionDelay) {
+            const message = optionDelay ? '正在完整分析（含期权延迟），请耐心等待...' : '正在快速分析，请稍候...';
+            document.getElementById('status').innerHTML = '<div class="status info">' + message + '</div>';
+
+            fetch('/api/trigger', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ option_delay: optionDelay })
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('HTTP ' + response.status);
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     if (data.success) {
                         location.reload();
@@ -465,17 +479,22 @@ def api_update_token():
 def api_trigger():
     """手动触发分析"""
     global latest_result
-    
+
     if config_manager is None:
         return jsonify({"success": False, "message": "配置管理器未初始化"}), 500
-    
+
     try:
+        # 获取请求参数
+        data = request.get_json() or {}
+        option_delay = data.get('option_delay', False)
+
         result = run_analysis_and_notify(
             config_manager=config_manager,
             send_email=True,  # 手动触发也发送邮件
-            save_html=True
+            save_html=True,
+            option_delay=option_delay
         )
-        
+
         if result:
             latest_result = result
             return jsonify({"success": True, "message": "分析完成"})

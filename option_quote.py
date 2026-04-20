@@ -131,3 +131,68 @@ class OptionQuoteService:
         except Exception as e:
             logger.error(f"获取期权报价失败: {str(e)}")
             return None
+
+    def get_option_history(self, symbol: str, days: int = 30) -> Optional[list]:
+        """
+        获取期权历史K线数据
+
+        Args:
+            symbol: 期权代码，例如 "MSFT270115C480000.US"
+            days: 获取天数
+
+        Returns:
+            历史K线数据列表，每个元素包含 open, high, low, close
+        """
+        try:
+            # 转换为Polygon格式
+            polygon_symbol = self._convert_symbol_to_polygon_format(symbol)
+
+            # 计算日期范围
+            from datetime import datetime, timedelta
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days)
+
+            # 使用聚合数据API获取历史数据
+            url = f"{self.base_url}/v2/aggs/ticker/{polygon_symbol}/range/1/day/{start_date.strftime('%Y-%m-%d')}/{end_date.strftime('%Y-%m-%d')}"
+            params = {
+                "apiKey": self.api_key,
+                "adjusted": "true"
+            }
+
+            logger.info(f"请求期权历史数据: {url}")
+
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+
+            data = response.json()
+
+            if data.get("status") not in ["OK", "DELAYED"]:
+                logger.warning(f"API返回状态异常: {data.get('status')}")
+                return None
+
+            results = data.get("results", [])
+            if not results:
+                logger.warning(f"未找到期权 {symbol} 的历史数据")
+                return None
+
+            # 转换为标准格式
+            history = []
+            for bar in results:
+                history.append({
+                    "open": bar.get("o"),
+                    "high": bar.get("h"),
+                    "low": bar.get("l"),
+                    "close": bar.get("c"),
+                    "volume": bar.get("v"),
+                    "timestamp": bar.get("t")
+                })
+
+            logger.info(f"成功获取期权 {symbol} 的 {len(history)} 天历史数据")
+            return history
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"API请求失败: {str(e)}")
+            return None
+        except Exception as e:
+            logger.error(f"获取期权历史数据失败: {str(e)}")
+            return None

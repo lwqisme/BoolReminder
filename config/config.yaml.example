@@ -4,6 +4,10 @@ longbridge:
   app_secret: ""  # 从LongBridge开放平台获取
   access_token: ""  # 从LongBridge开放平台获取，可通过Web UI更新
 
+# Polygon.io API配置（用于期权数据）
+polygon:
+  api_key: ""  # 从 https://polygon.io 获取，用于查询期权价格
+
 # 邮件通知配置
 email:
   smtp_host: "smtp.gmail.com"  # SMTP服务器地址
