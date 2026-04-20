@@ -1456,6 +1456,10 @@ def render_html(
           <input id="crosshair-toggle" type="checkbox" checked>
           <span>十字线</span>
         </label>
+        <label class="toggle" for="legend-toggle">
+          <input id="legend-toggle" type="checkbox" checked>
+          <span>图例</span>
+        </label>
         <div class="mode-switch" aria-label="Drawdown modes">
           <button class="mode-button" data-mode="alltime" type="button">All-time</button>
           <button class="mode-button" data-mode="rolling" type="button">Rolling 120d</button>
@@ -1806,18 +1810,18 @@ def render_html(
       plot_bgcolor: "rgba(255,255,255,0)",
       margin: {{ l: 70, r: 26, t: 90, b: 56 }},
       legend: {{
-        orientation: "h",
-        yanchor: "bottom",
-        y: 1.08,
+        orientation: "v",
+        yanchor: "top",
+        y: 0.76,
         xanchor: "left",
-        x: 0,
-        bgcolor: "rgba(255, 250, 243, 0.88)",
+        x: 0.77,
+        bgcolor: "rgba(255, 250, 243, 0.94)",
         bordercolor: "rgba(23, 33, 33, 0.08)",
         borderwidth: 1,
-        tracegroupgap: 8,
-        entrywidthmode: "pixels",
-        entrywidth: 94
+        tracegroupgap: 4,
+        font: {{ size: 11 }}
       }},
+      showlegend: true,
       hovermode: "closest",
       dragmode: false,
       bargap: 0.1,
@@ -1996,14 +2000,14 @@ def render_html(
         "margin.r": mobile ? 16 : 26,
         "margin.t": mobile ? 118 : 90,
         "margin.b": mobile ? 40 : 56,
-        "legend.orientation": "h",
-        "legend.x": 0,
-        "legend.y": mobile ? 1.02 : 1.08,
+        "legend.orientation": mobile ? "h" : "v",
+        "legend.x": mobile ? 0.02 : 0.77,
+        "legend.y": mobile ? 0.98 : 0.76,
         "legend.xanchor": "left",
-        "legend.yanchor": "bottom",
-        "legend.font.size": mobile ? 10 : 12,
-        "legend.tracegroupgap": mobile ? 4 : 8,
-        "legend.entrywidth": mobile ? 72 : 94
+        "legend.yanchor": "top",
+        "legend.font.size": mobile ? 10 : 11,
+        "legend.tracegroupgap": 4,
+        "showlegend": document.getElementById("legend-toggle")?.checked ?? true
       }};
       return relayout;
     }}
@@ -2013,6 +2017,13 @@ def render_html(
       Plotly.restyle(plot, {{ visible: visibilityFor(mode) }});
       document.querySelectorAll(".mode-button").forEach((button) => {{
         button.classList.toggle("is-active", button.dataset.mode === mode);
+      }});
+    }}
+
+    function applyLegend(plot, enabled) {{
+      Plotly.relayout(plot, {{
+        ...responsiveRelayout(),
+        showlegend: enabled
       }});
     }}
 
@@ -2075,6 +2086,7 @@ def render_html(
     }}).then((plot) => {{
       applyMode(plot, currentMode);
       const crosshairToggle = document.getElementById("crosshair-toggle");
+      const legendToggle = document.getElementById("legend-toggle");
       document.querySelectorAll(".mode-button").forEach((button) => {{
         button.addEventListener("click", () => {{
           applyMode(plot, button.dataset.mode || "both");
@@ -2091,6 +2103,9 @@ def render_html(
         }}
       }};
       crosshairToggle.addEventListener("change", applyCrosshair);
+      legendToggle.addEventListener("change", () => {{
+        applyLegend(plot, legendToggle.checked);
+      }});
       plot.addEventListener("mousemove", (event) => {{
         if (!crosshairToggle.checked) {{
           return;
