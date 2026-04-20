@@ -1160,6 +1160,7 @@ def render_html(
       height: 860px;
       border-radius: 22px;
       overflow: hidden;
+      touch-action: none;
       background: var(--card);
       border: 1px solid rgba(23, 33, 33, 0.08);
       box-shadow: 0 24px 60px rgba(23, 33, 33, 0.12);
@@ -1218,9 +1219,16 @@ def render_html(
 
     .chart-stage {{
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 248px;
-      gap: 14px;
+      gap: 12px;
       align-items: start;
+    }}
+
+    .chart-toolbar {{
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
     }}
 
     .chart-stack {{
@@ -1260,14 +1268,37 @@ def render_html(
     }}
 
     .hover-card {{
-      position: sticky;
-      top: 24px;
       padding: 12px 14px;
       border-radius: 16px;
       background: rgba(255, 250, 243, 0.96);
       border: 1px solid rgba(23, 33, 33, 0.08);
       box-shadow: 0 18px 38px rgba(23, 33, 33, 0.1);
       min-height: 132px;
+    }}
+
+    .mode-switch {{
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }}
+
+    .mode-button {{
+      appearance: none;
+      border: 1px solid rgba(23, 33, 33, 0.12);
+      background: rgba(255, 250, 243, 0.88);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+    }}
+
+    .mode-button.is-active {{
+      background: var(--accent);
+      color: #fffaf3;
+      border-color: var(--accent);
     }}
 
     .hover-card-label {{
@@ -1329,16 +1360,6 @@ def render_html(
       font-variant-numeric: tabular-nums;
     }}
 
-    @media (max-width: 1180px) {{
-      .chart-stage {{
-        grid-template-columns: 1fr;
-      }}
-
-      .hover-card {{
-        position: static;
-      }}
-    }}
-
     @media (max-width: 820px) {{
       .shell {{
         padding: 20px 12px 28px;
@@ -1364,6 +1385,20 @@ def render_html(
       .toggle {{
         padding: 8px 12px;
         font-size: 13px;
+      }}
+
+      .chart-toolbar {{
+        gap: 10px;
+        margin-bottom: 6px;
+      }}
+
+      .mode-switch {{
+        gap: 6px;
+      }}
+
+      .mode-button {{
+        padding: 7px 10px;
+        font-size: 12px;
       }}
     }}
 
@@ -1415,13 +1450,18 @@ def render_html(
       </div>
     </div>
     {warning_html}
-    <div class="controls">
-      <label class="toggle" for="crosshair-toggle">
-        <input id="crosshair-toggle" type="checkbox" checked>
-        <span>十字线</span>
-      </label>
-    </div>
     <div class="chart-stage">
+      <div class="chart-toolbar">
+        <label class="toggle" for="crosshair-toggle">
+          <input id="crosshair-toggle" type="checkbox" checked>
+          <span>十字线</span>
+        </label>
+        <div class="mode-switch" aria-label="Drawdown modes">
+          <button class="mode-button" data-mode="alltime" type="button">All-time</button>
+          <button class="mode-button" data-mode="rolling" type="button">Rolling 120d</button>
+          <button class="mode-button is-active" data-mode="both" type="button">Both</button>
+        </div>
+      </div>
       <div class="chart-stack">
         <div id="chart"></div>
         <div id="crosshair-overlay" class="crosshair-overlay">
@@ -1733,6 +1773,7 @@ def render_html(
 
     const hasBuyBarTrace = usesTradeAmounts && payload.buy_bar_dates.length > 0;
     const hasSellBarTrace = usesTradeAmounts && payload.sell_bar_dates.length > 0;
+    let currentMode = "both";
 
     function visibilityFor(mode) {{
       const visible = [
@@ -1763,48 +1804,23 @@ def render_html(
     const layout = {{
       paper_bgcolor: "rgba(255,255,255,0)",
       plot_bgcolor: "rgba(255,255,255,0)",
-      margin: {{ l: 70, r: 124, t: 126, b: 56 }},
+      margin: {{ l: 70, r: 26, t: 90, b: 56 }},
       legend: {{
-        orientation: "v",
-        yanchor: "top",
-        y: 1,
+        orientation: "h",
+        yanchor: "bottom",
+        y: 1.08,
         xanchor: "left",
-        x: 1.02,
+        x: 0,
         bgcolor: "rgba(255, 250, 243, 0.88)",
         bordercolor: "rgba(23, 33, 33, 0.08)",
         borderwidth: 1,
-        tracegroupgap: 8
+        tracegroupgap: 8,
+        entrywidthmode: "pixels",
+        entrywidth: 94
       }},
       hovermode: "closest",
+      dragmode: false,
       bargap: 0.1,
-      updatemenus: [
-        {{
-          type: "buttons",
-          direction: "right",
-          x: 0,
-          y: 1.15,
-          xanchor: "left",
-          yanchor: "top",
-          showactive: true,
-          buttons: [
-            {{
-              label: "All-time",
-              method: "update",
-              args: [{{ visible: visibilityFor("alltime") }}]
-            }},
-            {{
-              label: "Rolling 120d",
-              method: "update",
-              args: [{{ visible: visibilityFor("rolling") }}]
-            }},
-            {{
-              label: "Both",
-              method: "update",
-              args: [{{ visible: visibilityFor("both") }}]
-            }}
-          ]
-        }}
-      ],
       xaxis: {{
         domain: [0, 1],
         anchor: "y",
@@ -1855,27 +1871,7 @@ def render_html(
         spikemode: "across",
         spikesnap: "cursor",
         spikethickness: 1
-      }},
-      annotations: [
-        {{
-          xref: "paper",
-          yref: "paper",
-          x: 0.01,
-          y: 1.17,
-          text: "Price + Buy/Sell Markers",
-          showarrow: false,
-          font: {{ size: 12, color: "#5c605f" }}
-        }},
-        {{
-          xref: "paper",
-          yref: "paper",
-          x: 0.01,
-          y: usesTradeAmounts ? 0.45 : 0.35,
-          text: "Drawdown Modes",
-          showarrow: false,
-          font: {{ size: 12, color: "#5c605f" }}
-        }}
-      ]
+      }}
     }};
 
     if (usesTradeAmounts) {{
@@ -1904,15 +1900,6 @@ def render_html(
         spikesnap: "cursor",
         spikethickness: 1
       }};
-      layout.annotations.push({{
-        xref: "paper",
-        yref: "paper",
-        x: 0.01,
-        y: 0.19,
-        text: payload.bar_unit_label,
-        showarrow: false,
-        font: {{ size: 12, color: "#5c605f" }}
-      }});
     }}
 
     function crosshairRelayout(enabled) {{
@@ -2006,29 +1993,27 @@ def render_html(
       const relayout = {{
         height: mobile ? 760 : 860,
         "margin.l": mobile ? 52 : 70,
-        "margin.r": mobile ? 16 : 124,
-        "margin.t": mobile ? 168 : 126,
+        "margin.r": mobile ? 16 : 26,
+        "margin.t": mobile ? 118 : 90,
         "margin.b": mobile ? 40 : 56,
-        "legend.orientation": mobile ? "h" : "v",
-        "legend.x": mobile ? 0 : 1.02,
-        "legend.y": mobile ? 1.15 : 1,
+        "legend.orientation": "h",
+        "legend.x": 0,
+        "legend.y": mobile ? 1.02 : 1.08,
         "legend.xanchor": "left",
-        "legend.yanchor": mobile ? "bottom" : "top",
+        "legend.yanchor": "bottom",
         "legend.font.size": mobile ? 10 : 12,
         "legend.tracegroupgap": mobile ? 4 : 8,
-        "updatemenus[0].x": 0,
-        "updatemenus[0].y": mobile ? 1.27 : 1.15,
-        "updatemenus[0].direction": "right",
-        "annotations[0].y": mobile ? 1.30 : 1.17,
-        "annotations[0].font.size": mobile ? 11 : 12,
-        "annotations[1].y": mobile ? (usesTradeAmounts ? 0.47 : 0.36) : (usesTradeAmounts ? 0.45 : 0.35),
-        "annotations[1].font.size": mobile ? 11 : 12
+        "legend.entrywidth": mobile ? 72 : 94
       }};
-      if (usesTradeAmounts) {{
-        relayout["annotations[2].y"] = mobile ? 0.20 : 0.19;
-        relayout["annotations[2].font.size"] = mobile ? 11 : 12;
-      }}
       return relayout;
+    }}
+
+    function applyMode(plot, mode) {{
+      currentMode = mode;
+      Plotly.restyle(plot, {{ visible: visibilityFor(mode) }});
+      document.querySelectorAll(".mode-button").forEach((button) => {{
+        button.classList.toggle("is-active", button.dataset.mode === mode);
+      }});
     }}
 
     function panelForY(plotY, plotArea) {{
@@ -2083,10 +2068,18 @@ def render_html(
 
     Plotly.newPlot("chart", traces, layout, {{
       responsive: true,
-      displaylogo: false
+      displaylogo: false,
+      displayModeBar: false,
+      scrollZoom: false,
+      doubleClick: false
     }}).then((plot) => {{
-      Plotly.restyle(plot, {{ visible: visibilityFor("both") }});
+      applyMode(plot, currentMode);
       const crosshairToggle = document.getElementById("crosshair-toggle");
+      document.querySelectorAll(".mode-button").forEach((button) => {{
+        button.addEventListener("click", () => {{
+          applyMode(plot, button.dataset.mode || "both");
+        }});
+      }});
       const applyCrosshair = () => {{
         Plotly.relayout(plot, {{
           ...responsiveRelayout(),
