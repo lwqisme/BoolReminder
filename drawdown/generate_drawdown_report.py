@@ -1278,7 +1278,6 @@ def render_html(
       background: rgba(255, 250, 243, 0.96);
       border: 1px solid rgba(23, 33, 33, 0.08);
       box-shadow: 0 18px 38px rgba(23, 33, 33, 0.1);
-      min-height: 132px;
       pointer-events: none;
       opacity: 0;
       transform: translate3d(0, 0, 0);
@@ -1535,12 +1534,77 @@ def render_html(
       return value > 0 ? `${{Math.round(value)}}` : " -";
     }}
 
+    function hasTradeData(side, index) {{
+      if (index < 0 || index >= payload.dates.length) {{
+        return false;
+      }}
+      return (
+        payload[`daily_${{side}}_counts`][index] > 0 ||
+        payload[`daily_${{side}}_amounts`][index] > 0 ||
+        payload[`daily_${{side}}_shares`][index] > 0
+      );
+    }}
+
+    function findNearestTrade(side, index, maxOffset = 2) {{
+      if (hasTradeData(side, index)) {{
+        return {{ index, offset: 0 }};
+      }}
+      for (let distance = 1; distance <= maxOffset; distance += 1) {{
+        const candidates = [index - distance, index + distance];
+        for (const candidate of candidates) {{
+          if (hasTradeData(side, candidate)) {{
+            return {{ index: candidate, offset: candidate - index }};
+          }}
+        }}
+      }}
+      return null;
+    }}
+
+    function formatTradeOffset(offset) {{
+      if (offset === 0) {{
+        return "当前交易日";
+      }}
+      return offset < 0
+        ? `前${{Math.abs(offset)}}个交易日`
+        : `后${{Math.abs(offset)}}个交易日`;
+    }}
+
+    function renderTradeSection(side, anchorIndex) {{
+      const match = findNearestTrade(side, anchorIndex, 2);
+      if (!match) {{
+        return "";
+      }}
+      const prefix = side === "buy" ? "买入" : "卖出";
+      const tradeIndex = match.index;
+      const rows = [
+        `<div class="hover-row"><span>交易日期</span><span>${{payload.dates[tradeIndex]}}</span></div>`,
+        `<div class="hover-row"><span>位置</span><span>${{formatTradeOffset(match.offset)}}</span></div>`,
+        `<div class="hover-row"><span>笔数</span><span>${{formatCount(payload[`daily_${{side}}_counts`][tradeIndex])}}</span></div>`
+      ];
+      if (payload[`daily_${{side}}_amounts`][tradeIndex] > 0) {{
+        rows.push(
+          `<div class="hover-row"><span>金额</span><span>${{formatAmount(payload[`daily_${{side}}_amounts`][tradeIndex])}}</span></div>`
+        );
+      }}
+      if (payload[`daily_${{side}}_shares`][tradeIndex] > 0) {{
+        rows.push(
+          `<div class="hover-row"><span>股数</span><span>${{formatShares(payload[`daily_${{side}}_shares`][tradeIndex])}}</span></div>`
+        );
+      }}
+      return `
+        <div class="hover-section">
+          <div class="hover-section-title">${{prefix}}</div>
+          ${{rows.join("")}}
+        </div>
+      `;
+    }}
+
     function renderHoverCard(index) {{
       const hoverCardBody = document.getElementById("hover-card-body");
       const hoverCardEmpty = document.getElementById("hover-card-empty");
       hoverCardEmpty.hidden = true;
       hoverCardBody.hidden = false;
-      hoverCardBody.innerHTML = `
+      const sections = [`
         <div class="hover-section">
           <div class="hover-section-title">${{payload.dates[index]}}</div>
           <div class="hover-row"><span>收盘价</span><span>${{formatPrice(payload.closes[index])}}</span></div>
@@ -1549,19 +1613,16 @@ def render_html(
           <div class="hover-row"><span>ATH Peak</span><span>${{formatPrice(payload.peaks[index])}}</span></div>
           <div class="hover-row"><span>120d Peak</span><span>${{formatPrice(payload.rolling_120_peaks[index])}}</span></div>
         </div>
-        <div class="hover-section">
-          <div class="hover-section-title">买入</div>
-          <div class="hover-row"><span>笔数</span><span>${{formatCount(payload.daily_buy_counts[index])}}</span></div>
-          <div class="hover-row"><span>金额</span><span>${{formatAmount(payload.daily_buy_amounts[index])}}</span></div>
-          <div class="hover-row"><span>股数</span><span>${{formatShares(payload.daily_buy_shares[index])}}</span></div>
-        </div>
-        <div class="hover-section">
-          <div class="hover-section-title">卖出</div>
-          <div class="hover-row"><span>笔数</span><span>${{formatCount(payload.daily_sell_counts[index])}}</span></div>
-          <div class="hover-row"><span>金额</span><span>${{formatAmount(payload.daily_sell_amounts[index])}}</span></div>
-          <div class="hover-row"><span>股数</span><span>${{formatShares(payload.daily_sell_shares[index])}}</span></div>
-        </div>
-      `;
+      `];
+      const buySection = renderTradeSection("buy", index);
+      const sellSection = renderTradeSection("sell", index);
+      if (buySection) {{
+        sections.push(buySection);
+      }}
+      if (sellSection) {{
+        sections.push(sellSection);
+      }}
+      hoverCardBody.innerHTML = sections.join("");
     }}
 
     const priceTrace = {{
