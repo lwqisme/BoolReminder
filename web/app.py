@@ -8,11 +8,21 @@ import sys
 from pathlib import Path
 from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.config_manager import ConfigManager
+from drawdown.generate_drawdown_report import TradeOverlay, render_longbridge_drawdown_from_overlays
+from trade_sync.normalize import canonical_symbol, normalize_trade_rows
+from trade_sync.store import (
+    drawdown_html_path,
+    is_drawdown_stale,
+    list_synced_symbols,
+    load_symbol_snapshot,
+    save_drawdown_meta,
+    save_sync_payload,
+)
 from watchlist_boll_filter import main, run_analysis_and_notify, WatchlistBollFilterResult
 from report.html_generator import generate_html_report
 from option_quote import OptionQuoteService
@@ -62,6 +72,87 @@ def init_app():
     app.secret_key = secret_key
 
 
+def _json_error(message: str, status_code: int):
+    return jsonify({"success": False, "message": message}), status_code
+
+
+def _get_trade_sync_config() -> dict:
+    global config_manager
+    if config_manager is None:
+        config_manager = ConfigManager()
+    return config_manager.get_trade_sync_config()
+
+
+def _check_trade_sync_auth() -> tuple[bool, str]:
+    trade_sync_config = _get_trade_sync_config()
+    if not trade_sync_config.get("enabled", True):
+        return False, "Trade sync is disabled"
+
+    expected_token = trade_sync_config.get("bearer_token", "").strip()
+    if not expected_token:
+        return False, "Trade sync bearer token is not configured"
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return False, "Missing bearer token"
+
+    actual_token = auth_header.split(" ", 1)[1].strip()
+    if actual_token != expected_token:
+        return False, "Invalid bearer token"
+
+    return True, ""
+
+
+def _build_trade_overlays(snapshot: dict) -> list[TradeOverlay]:
+    overlays: list[TradeOverlay] = []
+    for row in snapshot.get("rows", []):
+        overlays.append(
+            TradeOverlay(
+                date=datetime.strptime(row["trade_date"], "%Y-%m-%d"),
+                amount=row.get("amount"),
+                shares=row.get("shares"),
+                event_type=row["side"],
+            )
+        )
+    return overlays
+
+
+def _ensure_drawdown_report(symbol: str, force: bool = False) -> tuple[Path, dict]:
+    snapshot = load_symbol_snapshot(symbol)
+    if not snapshot:
+        raise FileNotFoundError(f"No synced trades were found for {symbol}.")
+
+    trade_sync_config = _get_trade_sync_config()
+    source_version = snapshot.get("sync_version", "")
+    if is_drawdown_stale(
+        symbol,
+        source_version=source_version,
+        cache_ttl_minutes=int(trade_sync_config.get("cache_ttl_minutes", 30)),
+        force=force,
+    ):
+        overlays = _build_trade_overlays(snapshot)
+        html, warnings, resolved_symbol = render_longbridge_drawdown_from_overlays(
+            snapshot["symbol"],
+            overlays,
+            snapshot.get("longbridge_symbol"),
+        )
+        output_path = drawdown_html_path(symbol)
+        output_path.write_text(html, encoding="utf-8")
+        save_drawdown_meta(
+            symbol,
+            {
+                "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+                "source_version": source_version,
+                "symbol": snapshot["symbol"],
+                "longbridge_symbol": resolved_symbol,
+                "warning_count": len(warnings),
+                "trade_count": snapshot.get("trade_count", len(snapshot.get("rows", []))),
+            },
+        )
+
+    return drawdown_html_path(symbol), snapshot
+
+
 # HTML模板
 INDEX_TEMPLATE = """
 <!DOCTYPE html>
@@ -90,6 +181,7 @@ INDEX_TEMPLATE = """
             <h1>BOLL指标筛选系统</h1>
             <div>
                 <a href="/history" class="btn btn-secondary">历史报告</a>
+                <a href="/drawdown" class="btn btn-secondary">Drawdown</a>
                 <a href="/schedule" class="btn btn-secondary">定时任务</a>
                 <a href="/update-token" class="btn btn-secondary">更新Token</a>
                 <button onclick="triggerAnalysis(false)" class="btn">快速分析（无期权延迟）</button>
@@ -136,6 +228,81 @@ INDEX_TEMPLATE = """
                 .catch(error => {
                     document.getElementById('status').innerHTML = '<div class="status error">请求失败: ' + error + '</div>';
                 });
+        }
+    </script>
+</body>
+</html>
+"""
+
+DRAWDOWN_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drawdown - BoolReminder</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 960px; margin: 0 auto; background: white; padding: 24px; border-radius: 8px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .btn { padding: 10px 16px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; }
+        .btn:hover { background: #5568d3; }
+        .btn-secondary { background: #6c757d; }
+        .btn-secondary:hover { background: #5a6268; }
+        .panel { background: #fafafa; border: 1px solid #ddd; border-radius: 6px; padding: 16px; margin-bottom: 18px; }
+        .field-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+        .field-row input[type="text"] { flex: 1; min-width: 180px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        .symbols { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+        .symbol-chip { display: inline-block; padding: 8px 10px; background: #eef2ff; color: #334155; border-radius: 999px; text-decoration: none; }
+        .hint { color: #666; font-size: 14px; margin-top: 8px; }
+        .empty { color: #999; padding: 12px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Drawdown</h1>
+            <a href="/" class="btn btn-secondary">返回首页</a>
+        </div>
+
+        <div class="panel">
+            <form onsubmit="openDrawdown(event)">
+                <div class="field-row">
+                    <input id="symbol" type="text" placeholder="输入股票代码，例如 MSFT / TSLA" value="{{ default_symbol }}">
+                    <label><input id="force" type="checkbox"> 强制刷新</label>
+                    <button type="submit" class="btn">打开图表</button>
+                </div>
+                <div class="hint">Google Sheets 同步后，图表会在首次打开时按需生成并缓存。</div>
+            </form>
+        </div>
+
+        <div class="panel">
+            <div><strong>已同步股票</strong></div>
+            {% if symbols %}
+                <div class="symbols">
+                    {% for symbol in symbols %}
+                        <a class="symbol-chip" href="/drawdown/{{ symbol }}" target="_blank">{{ symbol }}</a>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="empty">还没有收到任何 Google Sheets 交易同步。</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        function openDrawdown(event) {
+            event.preventDefault();
+            const symbol = document.getElementById('symbol').value.trim().toUpperCase();
+            const force = document.getElementById('force').checked;
+            if (!symbol) {
+                return;
+            }
+            let url = '/drawdown/' + encodeURIComponent(symbol);
+            if (force) {
+                url += '?force=1';
+            }
+            window.open(url, '_blank');
         }
     </script>
 </body>
@@ -502,6 +669,100 @@ def api_trigger():
             return jsonify({"success": False, "message": "分析失败"}), 500
     except Exception as e:
         return jsonify({"success": False, "message": f"分析出错: {str(e)}"}), 500
+
+
+@app.route('/api/trade-sync', methods=['POST'])
+def api_trade_sync():
+    """接收 Google Sheets 交易日志推送。"""
+    is_allowed, message = _check_trade_sync_auth()
+    if not is_allowed:
+        status_code = 401 if "token" in message.lower() else 403
+        return _json_error(message, status_code)
+
+    payload = request.get_json(silent=True)
+    if not payload:
+        return _json_error("请求体必须是 JSON", 400)
+
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        return _json_error("rows 必须是数组", 400)
+
+    trade_sync_config = _get_trade_sync_config()
+    max_sync_rows = int(trade_sync_config.get("max_sync_rows", 20000))
+    if len(rows) > max_sync_rows:
+        return _json_error(f"rows 超过上限 {max_sync_rows}", 400)
+
+    allowed_spreadsheet_ids = trade_sync_config.get("allowed_spreadsheet_ids", [])
+    spreadsheet_id = str(payload.get("spreadsheet_id", "")).strip()
+    if allowed_spreadsheet_ids and spreadsheet_id not in allowed_spreadsheet_ids:
+        return _json_error("spreadsheet_id 不在允许列表中", 403)
+
+    normalized_rows = normalize_trade_rows(rows)
+    if not normalized_rows:
+        return _json_error("没有解析出有效交易行", 400)
+
+    result = save_sync_payload(payload, normalized_rows)
+    return jsonify(result)
+
+
+@app.route('/drawdown')
+def drawdown_home():
+    """Drawdown 控制台页面。"""
+    default_symbol = ""
+    symbols = list_synced_symbols()
+    if symbols:
+        default_symbol = symbols[0]
+    return render_template_string(
+        DRAWDOWN_TEMPLATE,
+        default_symbol=default_symbol,
+        symbols=symbols,
+    )
+
+
+@app.route('/drawdown/<symbol>')
+def drawdown_symbol(symbol: str):
+    """按需生成并返回某只股票的回撤图。"""
+    try:
+        canonical = canonical_symbol(symbol)
+        force = request.args.get("force", "0") in {"1", "true", "True"}
+        html_path, _snapshot = _ensure_drawdown_report(canonical, force=force)
+        return html_path.read_text(encoding="utf-8")
+    except FileNotFoundError as exc:
+        return str(exc), 404
+    except Exception as exc:
+        return f"生成图表失败: {exc}", 500
+
+
+@app.route('/api/drawdown/generate', methods=['POST'])
+def api_drawdown_generate():
+    """手动触发某只股票图表生成。"""
+    payload = request.get_json(silent=True) or {}
+    symbol = payload.get("symbol", "")
+    if not symbol:
+        return _json_error("缺少 symbol", 400)
+
+    web_config = config_manager.get_web_config() if config_manager else {}
+    configured_password = web_config.get("update_password", "")
+    if configured_password:
+        if payload.get("password", "") != configured_password:
+            return _json_error("密码错误", 401)
+
+    try:
+        canonical = canonical_symbol(symbol)
+        force = bool(payload.get("force", False))
+        html_path, snapshot = _ensure_drawdown_report(canonical, force=force)
+        return jsonify(
+            {
+                "success": True,
+                "symbol": snapshot["symbol"],
+                "url": f"/drawdown/{snapshot['symbol']}",
+                "report_path": str(html_path),
+            }
+        )
+    except FileNotFoundError as exc:
+        return _json_error(str(exc), 404)
+    except Exception as exc:
+        return _json_error(f"生成图表失败: {exc}", 500)
 
 
 @app.route('/history')

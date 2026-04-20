@@ -11,6 +11,8 @@ services:
       - ./config:/app/config
       # 挂载报告输出目录
       - ./report:/app/report
+      # 挂载交易同步数据和缓存
+      - ./data:/app/data
       # 挂载日志目录
       - ./logs:/app/logs
       # 挂载 Longbridge OAuth token（SDK 自动续期）

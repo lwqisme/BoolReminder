@@ -1643,6 +1643,16 @@ def default_output_path(ticker: str, price_source: str) -> Path:
     return SCRIPT_DIR / "output" / f"{ticker.lower()}{suffix}"
 
 
+def render_longbridge_drawdown_from_overlays(
+    ticker: str, overlays: list[TradeOverlay], symbol_override: str | None = None
+) -> tuple[str, list[str], str]:
+    points, resolved_symbol = load_longbridge_price_points(ticker, overlays, symbol_override)
+    trade_summary, warnings = build_trade_summary(points, overlays)
+    payload = build_chart_payload(points, trade_summary)
+    html = render_html(payload, warnings, ticker, "Longbridge Daily")
+    return html, warnings, resolved_symbol
+
+
 def main() -> None:
     args = parse_args()
     input_path = Path(args.input).expanduser()

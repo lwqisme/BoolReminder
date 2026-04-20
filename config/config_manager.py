@@ -64,6 +64,14 @@ class ConfigManager:
                 "secret_key": "",
                 "update_password": ""
             },
+            "trade_sync": {
+                "enabled": True,
+                "bearer_token": "",
+                "allowed_spreadsheet_ids": [],
+                "default_sheet_name": "main",
+                "cache_ttl_minutes": 30,
+                "max_sync_rows": 20000
+            },
             "schedule": {
                 "timezone": "Asia/Shanghai",
                 "hour": 11,
@@ -104,6 +112,21 @@ class ConfigManager:
             self.config.setdefault("web", {})["secret_key"] = os.getenv("WEB_SECRET_KEY")
         if os.getenv("UPDATE_PASSWORD"):
             self.config.setdefault("web", {})["update_password"] = os.getenv("UPDATE_PASSWORD")
+        
+        # Trade sync配置
+        if os.getenv("TRADE_SYNC_BEARER_TOKEN"):
+            self.config.setdefault("trade_sync", {})["bearer_token"] = os.getenv("TRADE_SYNC_BEARER_TOKEN")
+        if os.getenv("TRADE_SYNC_ALLOWED_SPREADSHEET_IDS"):
+            spreadsheet_ids = [
+                item.strip()
+                for item in os.getenv("TRADE_SYNC_ALLOWED_SPREADSHEET_IDS", "").split(",")
+                if item.strip()
+            ]
+            self.config.setdefault("trade_sync", {})["allowed_spreadsheet_ids"] = spreadsheet_ids
+        if os.getenv("TRADE_SYNC_CACHE_TTL_MINUTES"):
+            self.config.setdefault("trade_sync", {})["cache_ttl_minutes"] = int(
+                os.getenv("TRADE_SYNC_CACHE_TTL_MINUTES")
+            )
     
     def get(self, key_path: str, default: Any = None) -> Any:
         """
@@ -205,6 +228,18 @@ class ConfigManager:
             "timezone": schedule_config.get("timezone", "Asia/Shanghai"),
             "hour": schedule_config.get("hour", 11),
             "minute": schedule_config.get("minute", 0)
+        }
+
+    def get_trade_sync_config(self) -> Dict[str, Any]:
+        """获取Trade Sync配置"""
+        trade_sync_config = self.get("trade_sync", {})
+        return {
+            "enabled": trade_sync_config.get("enabled", True),
+            "bearer_token": trade_sync_config.get("bearer_token", ""),
+            "allowed_spreadsheet_ids": trade_sync_config.get("allowed_spreadsheet_ids", []),
+            "default_sheet_name": trade_sync_config.get("default_sheet_name", "main"),
+            "cache_ttl_minutes": trade_sync_config.get("cache_ttl_minutes", 30),
+            "max_sync_rows": trade_sync_config.get("max_sync_rows", 20000),
         }
     
     def get_report_cleanup_config(self) -> Dict[str, Any]:

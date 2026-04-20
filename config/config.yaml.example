@@ -24,3 +24,12 @@ web:
   port: 5000  # 监听端口
   secret_key: ""  # Flask session密钥（随机字符串，用于安全）
   update_password: ""  # Token更新页面密码
+
+# Google Sheets -> BoolReminder 交易同步
+trade_sync:
+  enabled: true
+  bearer_token: "replace-with-a-random-secret"
+  allowed_spreadsheet_ids: []  # 可选：限制允许推送的 Google Sheets ID
+  default_sheet_name: "main"
+  cache_ttl_minutes: 30
+  max_sync_rows: 20000

@@ -15,7 +15,7 @@ RUN RUSTFLAGS="-A dependency_on_unit_never_type_fallback" pip install --no-cache
 
 COPY . .
 
-RUN mkdir -p config report notify web scheduler logs
+RUN mkdir -p config report report/drawdown notify web scheduler logs data trade_sync
 
 EXPOSE 5000
 
