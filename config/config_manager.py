@@ -72,6 +72,12 @@ class ConfigManager:
                 "cache_ttl_minutes": 30,
                 "max_sync_rows": 20000
             },
+            "trade_sync_cleanup": {
+                "enabled": True,
+                "raw_keep_days": 14,
+                "raw_keep_count": 400,
+                "drawdown_keep_days": 30,
+            },
             "schedule": {
                 "timezone": "Asia/Shanghai",
                 "hour": 11,
@@ -126,6 +132,18 @@ class ConfigManager:
         if os.getenv("TRADE_SYNC_CACHE_TTL_MINUTES"):
             self.config.setdefault("trade_sync", {})["cache_ttl_minutes"] = int(
                 os.getenv("TRADE_SYNC_CACHE_TTL_MINUTES")
+            )
+        if os.getenv("TRADE_SYNC_RAW_KEEP_DAYS"):
+            self.config.setdefault("trade_sync_cleanup", {})["raw_keep_days"] = int(
+                os.getenv("TRADE_SYNC_RAW_KEEP_DAYS")
+            )
+        if os.getenv("TRADE_SYNC_RAW_KEEP_COUNT"):
+            self.config.setdefault("trade_sync_cleanup", {})["raw_keep_count"] = int(
+                os.getenv("TRADE_SYNC_RAW_KEEP_COUNT")
+            )
+        if os.getenv("TRADE_SYNC_DRAWDOWN_KEEP_DAYS"):
+            self.config.setdefault("trade_sync_cleanup", {})["drawdown_keep_days"] = int(
+                os.getenv("TRADE_SYNC_DRAWDOWN_KEEP_DAYS")
             )
     
     def get(self, key_path: str, default: Any = None) -> Any:
@@ -240,6 +258,16 @@ class ConfigManager:
             "default_sheet_name": trade_sync_config.get("default_sheet_name", "main"),
             "cache_ttl_minutes": trade_sync_config.get("cache_ttl_minutes", 30),
             "max_sync_rows": trade_sync_config.get("max_sync_rows", 20000),
+        }
+
+    def get_trade_sync_cleanup_config(self) -> Dict[str, Any]:
+        """获取Trade Sync清理配置"""
+        cleanup_config = self.get("trade_sync_cleanup", {})
+        return {
+            "enabled": cleanup_config.get("enabled", True),
+            "raw_keep_days": cleanup_config.get("raw_keep_days", 14),
+            "raw_keep_count": cleanup_config.get("raw_keep_count", 400),
+            "drawdown_keep_days": cleanup_config.get("drawdown_keep_days", 30),
         }
     
     def get_report_cleanup_config(self) -> Dict[str, Any]:

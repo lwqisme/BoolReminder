@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.config_manager import ConfigManager
 from drawdown.generate_drawdown_report import TradeOverlay, render_longbridge_drawdown_from_overlays
+from trade_sync.cleanup import run_trade_sync_cleanup
 from trade_sync.normalize import canonical_symbol, normalize_trade_rows
 from trade_sync.store import (
     drawdown_html_path,
@@ -81,6 +82,13 @@ def _get_trade_sync_config() -> dict:
     if config_manager is None:
         config_manager = ConfigManager()
     return config_manager.get_trade_sync_config()
+
+
+def _get_trade_sync_cleanup_config() -> dict:
+    global config_manager
+    if config_manager is None:
+        config_manager = ConfigManager()
+    return config_manager.get_trade_sync_cleanup_config()
 
 
 def _check_trade_sync_auth() -> tuple[bool, str]:
@@ -702,6 +710,8 @@ def api_trade_sync():
         return _json_error("没有解析出有效交易行", 400)
 
     result = save_sync_payload(payload, normalized_rows)
+    cleanup_summary = run_trade_sync_cleanup(_get_trade_sync_cleanup_config())
+    result["cleanup"] = cleanup_summary
     return jsonify(result)
 
 

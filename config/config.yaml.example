@@ -33,3 +33,9 @@ trade_sync:
   default_sheet_name: "main"
   cache_ttl_minutes: 30
   max_sync_rows: 20000
+
+trade_sync_cleanup:
+  enabled: true
+  raw_keep_days: 14
+  raw_keep_count: 400
+  drawdown_keep_days: 30
