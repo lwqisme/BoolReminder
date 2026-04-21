@@ -862,7 +862,29 @@ def index():
 
     result_html = ""
     if latest_result:
-        result_html = generate_html_report(latest_result)
+        drawdown_snapshots = {}
+        try:
+            from drawdown.snapshot import collect_drawdown_snapshots
+
+            symbols = []
+            for bucket in (
+                latest_result.below_lower,
+                latest_result.near_lower,
+                latest_result.near_upper,
+                latest_result.above_upper,
+            ):
+                symbols.extend(stock.symbol for stock in bucket)
+            symbols = list(dict.fromkeys(symbols))
+            if symbols:
+                drawdown_snapshots, drawdown_errors = collect_drawdown_snapshots(symbols)
+                if drawdown_errors:
+                    print(
+                        "首页加载回撤快照时以下股票失败，将显示为 --: "
+                        + ", ".join(sorted(drawdown_errors))
+                    )
+        except Exception as e:
+            print(f"首页加载回撤快照失败: {e}")
+        result_html = generate_html_report(latest_result, drawdown_snapshots=drawdown_snapshots)
 
     response = app.make_response(render_template_string(INDEX_TEMPLATE, result=latest_result, result_html=result_html))
     # 禁用浏览器缓存，确保每次都显示最新报告
