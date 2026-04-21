@@ -2289,11 +2289,32 @@ def render_html(
 
     function placeHoverCard(pointerX, pointerY, plotArea) {{
       const hoverCard = document.getElementById("hover-card");
-      const padding = 14;
       const cardWidth = hoverCard.offsetWidth || 240;
       const cardHeight = hoverCard.offsetHeight || 164;
       const maxLeft = Math.max(plotArea.left + 8, plotArea.right - cardWidth - 8);
       const maxTop = Math.max(plotArea.top + 8, plotArea.bottom - cardHeight - 8);
+      const mobile = isMobileViewport();
+
+      if (mobile) {{
+        const side = pointerX <= (plotArea.left + plotArea.right) / 2 ? "right" : "left";
+        const horizontalInset = 8;
+        const verticalGap = 96;
+        let left = side === "right"
+          ? plotArea.right - cardWidth - horizontalInset
+          : plotArea.left + horizontalInset;
+        let top = pointerY - cardHeight - verticalGap;
+
+        if (top < plotArea.top + 8) {{
+          top = pointerY + verticalGap;
+        }}
+        if (top > maxTop) {{
+          top = plotArea.top + 8;
+        }}
+
+        hoverCard.style.left = `${{Math.max(plotArea.left + 8, Math.min(left, maxLeft))}}px`;
+        hoverCard.style.top = `${{Math.max(plotArea.top + 8, Math.min(top, maxTop))}}px`;
+        return;
+      }}
 
       let left = pointerX + 16;
       if (left > maxLeft) {{
