@@ -360,6 +360,26 @@ def build_price_points_from_series(series: list[tuple[datetime, float]]) -> list
     return points
 
 
+def filter_price_points_by_date_range(
+    points: list[PricePoint],
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> list[PricePoint]:
+    if start_date and end_date and start_date > end_date:
+        raise ValueError("开始日期不能晚于结束日期。")
+
+    filtered_series = [
+        (point.date, point.close)
+        for point in points
+        if (start_date is None or point.date.date() >= start_date)
+        and (end_date is None or point.date.date() <= end_date)
+    ]
+    if not filtered_series:
+        raise ValueError("所选时间范围内没有可用价格数据。")
+
+    return build_price_points_from_series(filtered_series)
+
+
 def extract_legacy_trade_overlays(rows: dict[int, dict[str, str]]) -> list[TradeOverlay]:
     overlays: list[TradeOverlay] = []
     for row_idx in sorted(rows):
@@ -973,6 +993,9 @@ def build_chart_payload(
         "bar_width_ms": 1000 * 60 * 60 * 24 * 4,
         "bar_unit_label": "Trade Amount" if use_amount_bars else "Trade Shares",
         "uses_trade_amounts": uses_trade_amounts,
+        "range_start_date": dates[0],
+        "range_end_date": dates[-1],
+        "point_count": len(dates),
         "max_drawdown_ath_date": dates[max_drawdown_ath_index],
         "max_drawdown_ath_value": max_drawdown_ath,
         "max_drawdown_120_date": dates[max_drawdown_120_index],
@@ -1037,9 +1060,16 @@ def format_drawdown_marker_label(
 
 
 def render_html(
-    payload: dict[str, object], warnings: list[str], ticker: str, price_source_label: str
+    payload: dict[str, object],
+    warnings: list[str],
+    ticker: str,
+    price_source_label: str,
+    requested_start_date: date | None = None,
+    requested_end_date: date | None = None,
 ) -> str:
     title_suffix = "已接入交易金额/股数" if payload["uses_trade_amounts"] else "金额待补充"
+    requested_start_value = requested_start_date.isoformat() if requested_start_date else ""
+    requested_end_value = requested_end_date.isoformat() if requested_end_date else ""
     warning_html = ""
     if warnings:
         warning_html = (
@@ -1229,6 +1259,72 @@ def render_html(
       align-items: center;
       gap: 12px;
       margin-bottom: 8px;
+    }}
+
+    .range-toolbar {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: end;
+      margin: 8px 0 16px;
+      padding: 14px 16px;
+      border-radius: 18px;
+      background: var(--card);
+      border: 1px solid rgba(23, 33, 33, 0.08);
+      box-shadow: 0 12px 30px rgba(23, 33, 33, 0.06);
+    }}
+
+    .range-group {{
+      display: grid;
+      gap: 6px;
+      min-width: 160px;
+    }}
+
+    .range-label {{
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }}
+
+    .range-input {{
+      appearance: none;
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(23, 33, 33, 0.12);
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--ink);
+      font: inherit;
+    }}
+
+    .range-actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }}
+
+    .range-button {{
+      appearance: none;
+      border: 1px solid rgba(23, 33, 33, 0.12);
+      background: rgba(255, 250, 243, 0.92);
+      color: var(--ink);
+      border-radius: 999px;
+      padding: 9px 14px;
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+    }}
+
+    .range-button--primary {{
+      background: var(--accent);
+      color: #fffaf3;
+      border-color: var(--accent);
+    }}
+
+    .range-button--muted {{
+      color: var(--muted);
     }}
 
     .chart-stack {{
@@ -1433,10 +1529,37 @@ def render_html(
       <h1>回撤与交易叠加视图</h1>
       <div class="sub">
         当前版本基于 {ticker} 的收盘价序列和交易日志生成。价格源: {price_source_label}。状态: {title_suffix}。
+        当前展示区间: {payload["range_start_date"]} 至 {payload["range_end_date"]}。
         上图看价格与峰值，下图提供窗口内 All-time High 与 Rolling 120d High 两套回撤口径，可在按钮里切换或共同显示。
       </div>
     </div>
+    <div class="range-toolbar">
+      <div class="range-group">
+        <label class="range-label" for="range-start">开始日期</label>
+        <input id="range-start" class="range-input" type="date" value="{requested_start_value}">
+      </div>
+      <div class="range-group">
+        <label class="range-label" for="range-end">结束日期</label>
+        <input id="range-end" class="range-input" type="date" value="{requested_end_value}">
+      </div>
+      <label class="toggle" for="range-force-toggle">
+        <input id="range-force-toggle" type="checkbox">
+        <span>强制刷新</span>
+      </label>
+      <div class="range-actions">
+        <button class="range-button range-button--primary" id="apply-range" type="button">应用范围</button>
+        <button class="range-button" data-preset="3m" type="button">3M</button>
+        <button class="range-button" data-preset="6m" type="button">6M</button>
+        <button class="range-button" data-preset="1y" type="button">1Y</button>
+        <button class="range-button" data-preset="ytd" type="button">YTD</button>
+        <button class="range-button range-button--muted" data-preset="all" type="button">All</button>
+      </div>
+    </div>
     <div class="stats">
+      <div class="stat">
+        <div class="label">当前范围</div>
+        <div class="value">{payload["range_start_date"]} - {payload["range_end_date"]}</div>
+      </div>
       <div class="stat">
         <div class="label">ATH 最大回撤</div>
         <div class="value">{payload["max_drawdown_ath_value"]:.2f}%</div>
@@ -1460,6 +1583,10 @@ def render_html(
       <div class="stat">
         <div class="label">卖点数</div>
         <div class="value">{len(payload["sell_dates"])}</div>
+      </div>
+      <div class="stat">
+        <div class="label">交易日数</div>
+        <div class="value">{payload["point_count"]}</div>
       </div>
     </div>
     {warning_html}
@@ -1496,6 +1623,7 @@ def render_html(
     </div>
     <div class="hint-box">
       <div class="hint-title">图表说明</div>
+      <p>开始日期和结束日期会直接参与回撤重算。也就是说，切换范围后，ATH 与 Rolling 120d 都会基于当前所选时间窗口重新计算。</p>
       <p>价格源支持内嵌 xlsx 时序和 Longbridge 日线两种模式。当前默认显示 <code>Both</code>，也就是 All-time 与 Rolling 120d 两套回撤口径同时显示。</p>
       <p>Longbridge 模式当前使用前复权日线，这样股票拆分不会制造假性暴跌；同时这里的 <code>All-time</code> 仍然只指当前加载窗口内的历史高点，不是上市以来全历史高点。</p>
       <p>如果后续补充规范交易文件，建议字段使用 <code>date,amount,shares,type</code>。脚本会按日期自动合并，买卖点圆点按金额或股数缩放，底部成交柱同步展示买入和卖出。</p>
@@ -1504,6 +1632,7 @@ def render_html(
   </div>
   <script>
     const payload = {json.dumps(payload, ensure_ascii=False)};
+    const drawdownSymbol = {json.dumps(ticker, ensure_ascii=False)};
     const usesTradeAmounts = payload.uses_trade_amounts;
     const dateTimestamps = payload.dates.map((value) => Date.parse(`${{value}}T00:00:00Z`));
     const currencyFormatter = new Intl.NumberFormat("en-US", {{
@@ -1533,6 +1662,62 @@ def render_html(
 
     function formatCount(value) {{
       return value > 0 ? `${{Math.round(value)}}` : " -";
+    }}
+
+    function formatDateInput(dateValue) {{
+      const year = dateValue.getFullYear();
+      const month = String(dateValue.getMonth() + 1).padStart(2, "0");
+      const day = String(dateValue.getDate()).padStart(2, "0");
+      return `${{year}}-${{month}}-${{day}}`;
+    }}
+
+    function buildDrawdownUrl() {{
+      const drawdownBaseUrl = "/drawdown/" + encodeURIComponent(drawdownSymbol);
+      const start = document.getElementById("range-start").value;
+      const end = document.getElementById("range-end").value;
+      const force = document.getElementById("range-force-toggle").checked;
+      const params = new URLSearchParams();
+      if (start) {{
+        params.set("start", start);
+      }}
+      if (end) {{
+        params.set("end", end);
+      }}
+      if (force) {{
+        params.set("force", "1");
+      }}
+      const query = params.toString();
+      return query ? `${{drawdownBaseUrl}}?${{query}}` : drawdownBaseUrl;
+    }}
+
+    function navigateWithCurrentRange() {{
+      window.location.assign(buildDrawdownUrl());
+    }}
+
+    function applyRangePreset(preset) {{
+      const startInput = document.getElementById("range-start");
+      const endInput = document.getElementById("range-end");
+      const today = new Date();
+      if (preset === "all") {{
+        startInput.value = "";
+        endInput.value = "";
+        return;
+      }}
+
+      const end = new Date(today);
+      let start = new Date(today);
+      if (preset === "3m") {{
+        start.setMonth(start.getMonth() - 3);
+      }} else if (preset === "6m") {{
+        start.setMonth(start.getMonth() - 6);
+      }} else if (preset === "1y") {{
+        start.setFullYear(start.getFullYear() - 1);
+      }} else if (preset === "ytd") {{
+        start.setMonth(0, 1);
+      }}
+
+      startInput.value = formatDateInput(start);
+      endInput.value = formatDateInput(end);
     }}
 
     function hasTradeData(side, index) {{
@@ -2236,6 +2421,15 @@ def render_html(
           applyMode(plot, button.dataset.mode || "both");
         }});
       }});
+      document.getElementById("apply-range").addEventListener("click", () => {{
+        navigateWithCurrentRange();
+      }});
+      document.querySelectorAll("[data-preset]").forEach((button) => {{
+        button.addEventListener("click", () => {{
+          applyRangePreset(button.dataset.preset || "all");
+          navigateWithCurrentRange();
+        }});
+      }});
       const applyCrosshair = () => {{
         Plotly.relayout(plot, {{
           ...responsiveRelayout(),
@@ -2495,12 +2689,24 @@ def default_output_path(ticker: str, price_source: str) -> Path:
 
 
 def render_longbridge_drawdown_from_overlays(
-    ticker: str, overlays: list[TradeOverlay], symbol_override: str | None = None
+    ticker: str,
+    overlays: list[TradeOverlay],
+    symbol_override: str | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> tuple[str, list[str], str]:
     points, resolved_symbol = load_longbridge_price_points(ticker, overlays, symbol_override)
+    points = filter_price_points_by_date_range(points, start_date, end_date)
     trade_summary, warnings = build_trade_summary(points, overlays)
     payload = build_chart_payload(points, trade_summary)
-    html = render_html(payload, warnings, ticker, "Longbridge Daily (Forward Adjusted)")
+    html = render_html(
+        payload,
+        warnings,
+        ticker,
+        "Longbridge Daily (Forward Adjusted)",
+        requested_start_date=start_date,
+        requested_end_date=end_date,
+    )
     return html, warnings, resolved_symbol
 
 

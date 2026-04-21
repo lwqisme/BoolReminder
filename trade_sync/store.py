@@ -132,42 +132,82 @@ def list_synced_symbols() -> list[str]:
     return sorted(path.stem.upper() for path in BY_SYMBOL_DIR.glob("*.json"))
 
 
-def drawdown_html_path(symbol: str) -> Path:
+def _drawdown_range_key(start_date: str | None = None, end_date: str | None = None) -> str | None:
+    if not start_date and not end_date:
+        return None
+    return f"{start_date or 'open'}_to_{end_date or 'open'}"
+
+
+def drawdown_html_path(
+    symbol: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> Path:
     ensure_storage_dirs()
-    return REPORT_DRAWDOWN_DIR / f"{symbol.lower()}_drawdown_longbridge.html"
+    range_key = _drawdown_range_key(start_date, end_date)
+    if not range_key:
+        return REPORT_DRAWDOWN_DIR / f"{symbol.lower()}_drawdown_longbridge.html"
+    return REPORT_DRAWDOWN_DIR / f"{symbol.lower()}_drawdown_longbridge__{range_key}.html"
 
 
-def drawdown_meta_path(symbol: str) -> Path:
+def drawdown_meta_path(
+    symbol: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> Path:
     ensure_storage_dirs()
-    return DRAWDOWN_CACHE_DIR / f"{symbol.upper()}.meta.json"
+    range_key = _drawdown_range_key(start_date, end_date)
+    if not range_key:
+        return DRAWDOWN_CACHE_DIR / f"{symbol.upper()}.meta.json"
+    return DRAWDOWN_CACHE_DIR / f"{symbol.upper()}__{range_key}.meta.json"
 
 
-def load_drawdown_meta(symbol: str) -> dict[str, Any] | None:
-    path = drawdown_meta_path(symbol)
+def load_drawdown_meta(
+    symbol: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any] | None:
+    path = drawdown_meta_path(symbol, start_date, end_date)
     if not path.exists():
         return None
     return _read_json(path)
 
 
-def save_drawdown_meta(symbol: str, payload: dict[str, Any]) -> None:
-    _write_json(drawdown_meta_path(symbol), payload)
+def save_drawdown_meta(
+    symbol: str,
+    payload: dict[str, Any],
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> None:
+    _write_json(drawdown_meta_path(symbol, start_date, end_date), payload)
 
 
 def is_drawdown_stale(
-    symbol: str, source_version: str, cache_ttl_minutes: int, force: bool = False
+    symbol: str,
+    source_version: str,
+    cache_ttl_minutes: int,
+    force: bool = False,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> bool:
     if force:
         return True
 
-    html_path = drawdown_html_path(symbol)
+    html_path = drawdown_html_path(symbol, start_date, end_date)
     if not html_path.exists():
         return True
 
-    meta = load_drawdown_meta(symbol)
+    meta = load_drawdown_meta(symbol, start_date, end_date)
     if not meta:
         return True
 
     if meta.get("source_version") != source_version:
+        return True
+
+    if meta.get("requested_start_date") != start_date:
+        return True
+
+    if meta.get("requested_end_date") != end_date:
         return True
 
     generated_at = meta.get("generated_at")

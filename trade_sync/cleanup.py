@@ -25,6 +25,29 @@ def _safe_unlink(path: Path) -> bool:
     return True
 
 
+def _html_path_for_drawdown_meta(meta_path: Path) -> Path | None:
+    if not meta_path.name.endswith(".meta.json"):
+        return None
+
+    cache_key = meta_path.name[: -len(".meta.json")]
+    if "__" in cache_key:
+        symbol, range_key = cache_key.split("__", 1)
+        return REPORT_DRAWDOWN_DIR / f"{symbol.lower()}_drawdown_longbridge__{range_key}.html"
+    return REPORT_DRAWDOWN_DIR / f"{cache_key.lower()}_drawdown_longbridge.html"
+
+
+def _meta_path_for_drawdown_html(html_path: Path) -> Path:
+    stem = html_path.stem
+    range_key = None
+    if "__" in stem:
+        stem, range_key = stem.split("__", 1)
+
+    symbol = stem.replace("_drawdown_longbridge", "").upper()
+    if range_key:
+        return DRAWDOWN_CACHE_DIR / f"{symbol}__{range_key}.meta.json"
+    return DRAWDOWN_CACHE_DIR / f"{symbol}.meta.json"
+
+
 def cleanup_trade_sync_raw(*, keep_days: int, keep_count: int) -> dict[str, Any]:
     ensure_storage_dirs()
     now = datetime.now(timezone.utc)
@@ -68,15 +91,14 @@ def cleanup_drawdown_cache(*, keep_days: int) -> dict[str, Any]:
         if keep_days >= 0 and meta_dt >= now - timedelta(days=keep_days):
             continue
 
-        symbol = meta_path.stem.upper()
-        html_path = REPORT_DRAWDOWN_DIR / f"{symbol.lower()}_drawdown_longbridge.html"
+        html_path = _html_path_for_drawdown_meta(meta_path)
         if _safe_unlink(meta_path):
             deleted_meta.append(meta_path.name)
-        if _safe_unlink(html_path):
+        if html_path and _safe_unlink(html_path):
             deleted_html.append(html_path.name)
 
     for html_path in sorted(REPORT_DRAWDOWN_DIR.glob("*.html")):
-        sibling_meta = DRAWDOWN_CACHE_DIR / f"{html_path.stem.replace('_drawdown_longbridge', '').upper()}.json"
+        sibling_meta = _meta_path_for_drawdown_html(html_path)
         if sibling_meta.exists():
             continue
         html_dt = datetime.fromtimestamp(html_path.stat().st_mtime, tz=timezone.utc)

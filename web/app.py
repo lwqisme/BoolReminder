@@ -8,7 +8,8 @@ import sys
 from pathlib import Path
 from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for
 from typing import Optional
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from urllib.parse import urlencode
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -125,26 +126,75 @@ def _build_trade_overlays(snapshot: dict) -> list[TradeOverlay]:
     return overlays
 
 
-def _ensure_drawdown_report(symbol: str, force: bool = False) -> tuple[Path, dict]:
+def _parse_drawdown_date(raw_value: str | None, field_name: str) -> date | None:
+    value = (raw_value or "").strip()
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} 必须是 YYYY-MM-DD 格式。") from exc
+
+
+def _parse_drawdown_range(
+    start_raw: str | None,
+    end_raw: str | None,
+) -> tuple[date | None, date | None]:
+    start_date = _parse_drawdown_date(start_raw, "start")
+    end_date = _parse_drawdown_date(end_raw, "end")
+    if start_date and end_date and start_date > end_date:
+        raise ValueError("开始日期不能晚于结束日期。")
+    return start_date, end_date
+
+
+def _build_drawdown_url(
+    symbol: str,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    force: bool = False,
+) -> str:
+    params: dict[str, str] = {}
+    if start_date:
+        params["start"] = start_date.isoformat()
+    if end_date:
+        params["end"] = end_date.isoformat()
+    if force:
+        params["force"] = "1"
+    query = urlencode(params)
+    return f"/drawdown/{symbol}" + (f"?{query}" if query else "")
+
+
+def _ensure_drawdown_report(
+    symbol: str,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    force: bool = False,
+) -> tuple[Path, dict]:
     snapshot = load_symbol_snapshot(symbol)
     if not snapshot:
         raise FileNotFoundError(f"No synced trades were found for {symbol}.")
 
     trade_sync_config = _get_trade_sync_config()
     source_version = snapshot.get("sync_version", "")
+    start_token = start_date.isoformat() if start_date else None
+    end_token = end_date.isoformat() if end_date else None
+    output_path = drawdown_html_path(symbol, start_token, end_token)
     if is_drawdown_stale(
         symbol,
         source_version=source_version,
         cache_ttl_minutes=int(trade_sync_config.get("cache_ttl_minutes", 30)),
         force=force,
+        start_date=start_token,
+        end_date=end_token,
     ):
         overlays = _build_trade_overlays(snapshot)
         html, warnings, resolved_symbol = render_longbridge_drawdown_from_overlays(
             snapshot["symbol"],
             overlays,
             snapshot.get("longbridge_symbol"),
+            start_date=start_date,
+            end_date=end_date,
         )
-        output_path = drawdown_html_path(symbol)
         output_path.write_text(html, encoding="utf-8")
         save_drawdown_meta(
             symbol,
@@ -153,12 +203,16 @@ def _ensure_drawdown_report(symbol: str, force: bool = False) -> tuple[Path, dic
                 "source_version": source_version,
                 "symbol": snapshot["symbol"],
                 "longbridge_symbol": resolved_symbol,
+                "requested_start_date": start_token,
+                "requested_end_date": end_token,
                 "warning_count": len(warnings),
                 "trade_count": snapshot.get("trade_count", len(snapshot.get("rows", []))),
             },
+            start_token,
+            end_token,
         )
 
-    return drawdown_html_path(symbol), snapshot
+    return output_path, snapshot
 
 
 # HTML模板
@@ -278,6 +332,10 @@ DRAWDOWN_TEMPLATE = """
         .panel { background: #fafafa; border: 1px solid #ddd; border-radius: 6px; padding: 16px; margin-bottom: 18px; }
         .field-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
         .field-row input[type="text"] { flex: 1; min-width: 180px; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        .field-row input[type="date"] { padding: 10px; border: 1px solid #ccc; border-radius: 4px; min-width: 160px; }
+        .preset-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+        .preset-btn { padding: 8px 12px; background: #e2e8f0; color: #334155; border: none; border-radius: 999px; cursor: pointer; }
+        .preset-btn:hover { background: #cbd5e1; }
         .symbols { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
         .symbol-chip { display: inline-block; padding: 8px 10px; background: #eef2ff; color: #334155; border-radius: 999px; text-decoration: none; }
         .hint { color: #666; font-size: 14px; margin-top: 8px; }
@@ -298,10 +356,19 @@ DRAWDOWN_TEMPLATE = """
             <form onsubmit="openDrawdown(event)">
                 <div class="field-row">
                     <input id="symbol" type="text" placeholder="输入股票代码，例如 MSFT / TSLA" value="{{ default_symbol }}">
+                    <input id="start" type="date" value="{{ selected_start }}">
+                    <input id="end" type="date" value="{{ selected_end }}">
                     <label><input id="force" type="checkbox"> 强制刷新</label>
                     <button type="submit" class="btn">打开图表</button>
                 </div>
-                <div class="hint">Google Sheets 同步后，图表会在首次打开时按需生成并缓存。All 当前指的是已加载价格窗口内的峰值，不是 IPO 以来绝对全历史。</div>
+                <div class="preset-row">
+                    <button class="preset-btn" type="button" data-preset="3m">3M</button>
+                    <button class="preset-btn" type="button" data-preset="6m">6M</button>
+                    <button class="preset-btn" type="button" data-preset="1y">1Y</button>
+                    <button class="preset-btn" type="button" data-preset="ytd">YTD</button>
+                    <button class="preset-btn" type="button" data-preset="all">All</button>
+                </div>
+                <div class="hint">时间范围会参与回撤重算。也就是说，起止日期变了，ATH 和 Rolling 120d 的回撤统计都会按新范围重新生成并缓存。</div>
             </form>
         </div>
 
@@ -310,7 +377,7 @@ DRAWDOWN_TEMPLATE = """
             {% if symbols %}
                 <div class="symbols">
                     {% for symbol in symbols %}
-                        <a class="symbol-chip" href="/drawdown/{{ symbol }}" target="_blank">{{ symbol }}</a>
+                        <a class="symbol-chip" href="/drawdown/{{ symbol }}" data-symbol="{{ symbol }}" target="_blank">{{ symbol }}</a>
                     {% endfor %}
                 </div>
             {% else %}
@@ -320,19 +387,76 @@ DRAWDOWN_TEMPLATE = """
     </div>
 
     <script>
+        function formatDateInput(date) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        function applyPresetRange(preset) {
+            const startInput = document.getElementById('start');
+            const endInput = document.getElementById('end');
+            const today = new Date();
+            if (preset === 'all') {
+                startInput.value = '';
+                endInput.value = '';
+                return;
+            }
+
+            const end = new Date(today);
+            const start = new Date(today);
+            if (preset === '3m') {
+                start.setMonth(start.getMonth() - 3);
+            } else if (preset === '6m') {
+                start.setMonth(start.getMonth() - 6);
+            } else if (preset === '1y') {
+                start.setFullYear(start.getFullYear() - 1);
+            } else if (preset === 'ytd') {
+                start.setMonth(0, 1);
+            }
+
+            startInput.value = formatDateInput(start);
+            endInput.value = formatDateInput(end);
+        }
+
+        function buildDrawdownUrl(symbol) {
+            const start = document.getElementById('start').value;
+            const end = document.getElementById('end').value;
+            const force = document.getElementById('force').checked;
+            const params = new URLSearchParams();
+            if (start) {
+                params.set('start', start);
+            }
+            if (end) {
+                params.set('end', end);
+            }
+            if (force) {
+                params.set('force', '1');
+            }
+            const query = params.toString();
+            return '/drawdown/' + encodeURIComponent(symbol) + (query ? '?' + query : '');
+        }
+
         function openDrawdown(event) {
             event.preventDefault();
             const symbol = document.getElementById('symbol').value.trim().toUpperCase();
-            const force = document.getElementById('force').checked;
             if (!symbol) {
                 return;
             }
-            let url = '/drawdown/' + encodeURIComponent(symbol);
-            if (force) {
-                url += '?force=1';
-            }
-            window.open(url, '_blank');
+            window.open(buildDrawdownUrl(symbol), '_blank');
         }
+
+        document.querySelectorAll('[data-preset]').forEach((button) => {
+            button.addEventListener('click', () => applyPresetRange(button.dataset.preset || 'all'));
+        });
+
+        document.querySelectorAll('.symbol-chip[data-symbol]').forEach((link) => {
+            link.addEventListener('click', (event) => {
+                event.preventDefault();
+                window.open(buildDrawdownUrl(link.dataset.symbol || ''), '_blank');
+            });
+        });
     </script>
 </body>
 </html>
@@ -746,6 +870,8 @@ def drawdown_home():
     return render_template_string(
         DRAWDOWN_TEMPLATE,
         default_symbol=default_symbol,
+        selected_start=(request.args.get("start") or "").strip(),
+        selected_end=(request.args.get("end") or "").strip(),
         symbols=symbols,
     )
 
@@ -755,11 +881,22 @@ def drawdown_symbol(symbol: str):
     """按需生成并返回某只股票的回撤图。"""
     try:
         canonical = canonical_symbol(symbol)
+        start_date, end_date = _parse_drawdown_range(
+            request.args.get("start"),
+            request.args.get("end"),
+        )
         force = request.args.get("force", "0") in {"1", "true", "True"}
-        html_path, _snapshot = _ensure_drawdown_report(canonical, force=force)
+        html_path, _snapshot = _ensure_drawdown_report(
+            canonical,
+            start_date=start_date,
+            end_date=end_date,
+            force=force,
+        )
         return html_path.read_text(encoding="utf-8")
     except FileNotFoundError as exc:
         return str(exc), 404
+    except ValueError as exc:
+        return str(exc), 400
     except Exception as exc:
         return f"生成图表失败: {exc}", 500
 
@@ -780,16 +917,27 @@ def api_drawdown_generate():
 
     try:
         canonical = canonical_symbol(symbol)
+        start_date, end_date = _parse_drawdown_range(
+            payload.get("start"),
+            payload.get("end"),
+        )
         force = bool(payload.get("force", False))
-        html_path, snapshot = _ensure_drawdown_report(canonical, force=force)
+        html_path, snapshot = _ensure_drawdown_report(
+            canonical,
+            start_date=start_date,
+            end_date=end_date,
+            force=force,
+        )
         return jsonify(
             {
                 "success": True,
                 "symbol": snapshot["symbol"],
-                "url": f"/drawdown/{snapshot['symbol']}",
+                "url": _build_drawdown_url(snapshot["symbol"], start_date, end_date),
                 "report_path": str(html_path),
             }
         )
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
     except FileNotFoundError as exc:
         return _json_error(str(exc), 404)
     except Exception as exc:
