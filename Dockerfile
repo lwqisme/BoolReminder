@@ -12,8 +12,9 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
 COPY requirements.txt .
-RUN RUSTFLAGS="-A dependency_on_unit_never_type_fallback" pip install --no-cache-dir --index-url https://pypi.org/simple -r requirements.txt \
-    || RUSTFLAGS="-A dependency_on_unit_never_type_fallback" pip install --no-cache-dir --index-url https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+RUN RUSTFLAGS="-A dependency_on_unit_never_type_fallback" pip install --no-cache-dir --index-url https://mirrors.cloud.tencent.com/pypi/simple -r requirements.txt \
+    || RUSTFLAGS="-A dependency_on_unit_never_type_fallback" pip install --no-cache-dir --index-url https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt \
+    || RUSTFLAGS="-A dependency_on_unit_never_type_fallback" pip install --no-cache-dir --index-url https://mirrors.aliyun.com/pypi/simple -r requirements.txt
 
 COPY . .
 
