@@ -1546,7 +1546,7 @@ def render_html(
       );
     }}
 
-    function findNearestTrade(side, index, maxOffset = 2) {{
+    function findNearestTrade(side, index, maxOffset = 5) {{
       if (hasTradeData(side, index)) {{
         return {{ index, offset: 0 }};
       }}
@@ -1571,7 +1571,7 @@ def render_html(
     }}
 
     function renderTradeSection(side, anchorIndex) {{
-      const match = findNearestTrade(side, anchorIndex, 2);
+      const match = findNearestTrade(side, anchorIndex, 5);
       if (!match) {{
         return "";
       }}
