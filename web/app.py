@@ -267,49 +267,61 @@ def _ensure_drawdown_report(
     end_date: date | None = None,
     force: bool = False,
 ) -> tuple[Path, dict]:
-    snapshot = load_symbol_snapshot(symbol)
+    requested_symbol = canonical_symbol(symbol)
+    snapshot = load_symbol_snapshot(requested_symbol)
     if not snapshot:
-        raise FileNotFoundError(f"No synced trades were found for {symbol}.")
+        snapshot = load_symbol_snapshot(_base_symbol(requested_symbol))
 
     trade_sync_config = _get_trade_sync_config()
-    source_version = snapshot.get("sync_version", "")
+    source_symbol = snapshot["symbol"] if snapshot else requested_symbol
+    longbridge_symbol = snapshot.get("longbridge_symbol") if snapshot else requested_symbol
+    source_version = snapshot.get("sync_version", "") if snapshot else f"longbridge-only:{requested_symbol}"
     start_token = start_date.isoformat() if start_date else None
     end_token = end_date.isoformat() if end_date else None
-    output_path = drawdown_html_path(symbol, start_token, end_token)
+    output_path = drawdown_html_path(source_symbol, start_token, end_token)
     if is_drawdown_stale(
-        symbol,
+        source_symbol,
         source_version=source_version,
         cache_ttl_minutes=int(trade_sync_config.get("cache_ttl_minutes", 30)),
         force=force,
         start_date=start_token,
         end_date=end_token,
     ):
-        overlays = _build_trade_overlays(snapshot)
+        overlays = _build_trade_overlays(snapshot) if snapshot else []
         html, warnings, resolved_symbol = render_longbridge_drawdown_from_overlays(
-            snapshot["symbol"],
+            source_symbol,
             overlays,
-            snapshot.get("longbridge_symbol"),
+            longbridge_symbol,
             start_date=start_date,
             end_date=end_date,
         )
         output_path.write_text(html, encoding="utf-8")
         save_drawdown_meta(
-            symbol,
+            source_symbol,
             {
                 "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
                 "source_version": source_version,
-                "symbol": snapshot["symbol"],
+                "symbol": source_symbol,
                 "longbridge_symbol": resolved_symbol,
                 "requested_start_date": start_token,
                 "requested_end_date": end_token,
                 "warning_count": len(warnings),
-                "trade_count": snapshot.get("trade_count", len(snapshot.get("rows", []))),
+                "trade_count": snapshot.get("trade_count", len(snapshot.get("rows", []))) if snapshot else 0,
+                "has_synced_trades": bool(snapshot),
             },
             start_token,
             end_token,
         )
 
-    return output_path, snapshot
+    if snapshot:
+        return output_path, snapshot
+
+    return output_path, {
+        "symbol": source_symbol,
+        "longbridge_symbol": longbridge_symbol,
+        "trade_count": 0,
+        "rows": [],
+    }
 
 
 # HTML模板
@@ -434,9 +446,10 @@ DRAWDOWN_TEMPLATE = """
         .preset-btn { padding: 8px 12px; background: #e2e8f0; color: #334155; border: none; border-radius: 999px; cursor: pointer; }
         .preset-btn:hover { background: #cbd5e1; }
         .symbols { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-        .symbol-chip { display: inline-block; padding: 8px 10px; background: #eef2ff; color: #334155; border-radius: 999px; text-decoration: none; }
+        .symbol-chip { display: inline-block; padding: 8px 10px; background: #eef2ff; color: #334155; border-radius: 999px; text-decoration: none; cursor: pointer; }
+        .symbol-chip:hover { filter: brightness(0.97); }
         .symbol-chip.secondary { background: #ecfeff; color: #155e75; }
-        .symbol-chip.muted { background: #f1f5f9; color: #475569; cursor: default; }
+        .symbol-chip.muted { background: #f1f5f9; color: #475569; }
         .panel-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
         .panel-title strong { font-size: 16px; }
         .panel-count { color: #64748b; font-size: 13px; }
@@ -501,7 +514,7 @@ DRAWDOWN_TEMPLATE = """
             {% elif remaining_watchlist_symbols %}
                 <div class="symbols">
                     {% for item in remaining_watchlist_symbols %}
-                        <span class="symbol-chip secondary" title="{{ item.name }}">{{ item.symbol }}</span>
+                        <a class="symbol-chip secondary" href="/drawdown/{{ item.symbol }}" data-symbol="{{ item.symbol }}" title="{{ item.name }}" target="_blank">{{ item.symbol }}</a>
                     {% endfor %}
                 </div>
                 <div class="hint">这些股票已经在 Longbridge 自选里，但还没有出现在当前 Google Sheets 交易同步数据中。</div>

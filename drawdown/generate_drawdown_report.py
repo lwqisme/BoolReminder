@@ -785,6 +785,23 @@ def rolling_window_drawdowns(closes: list[float], window_size: int) -> tuple[lis
     return peaks, drawdowns
 
 
+def collect_missing_calendar_dates(points: list[PricePoint]) -> list[str]:
+    if len(points) < 2:
+        return []
+
+    missing_dates: list[str] = []
+    previous_day = points[0].date.date()
+    for point in points[1:]:
+        current_day = point.date.date()
+        cursor = previous_day + timedelta(days=1)
+        while cursor < current_day:
+            missing_dates.append(cursor.isoformat())
+            cursor += timedelta(days=1)
+        previous_day = current_day
+
+    return missing_dates
+
+
 def build_chart_payload(
     points: list[PricePoint], trade_summary: dict[str, dict[str, float]]
 ) -> dict[str, object]:
@@ -958,6 +975,7 @@ def build_chart_payload(
 
     return {
         "dates": dates,
+        "missing_dates": collect_missing_calendar_dates(points),
         "closes": closes,
         "peaks": peaks,
         "rolling_120_peaks": rolling_120_peaks,
@@ -1641,6 +1659,7 @@ def render_html(
     const drawdownSymbol = {json.dumps(ticker, ensure_ascii=False)};
     const usesTradeAmounts = payload.uses_trade_amounts;
     const dateTimestamps = payload.dates.map((value) => Date.parse(`${{value}}T00:00:00Z`));
+    const rangeBreaks = payload.missing_dates.length ? [{{ values: payload.missing_dates }}] : [];
     const currencyFormatter = new Intl.NumberFormat("en-US", {{
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
@@ -2094,6 +2113,8 @@ def render_html(
       xaxis: {{
         domain: [0, 1],
         anchor: "y",
+        type: "date",
+        rangebreaks: rangeBreaks,
         showgrid: true,
         gridcolor: "rgba(23, 33, 33, 0.12)",
         zeroline: false,
@@ -2120,6 +2141,8 @@ def render_html(
         domain: [0, 1],
         anchor: "y2",
         matches: "x",
+        type: "date",
+        rangebreaks: rangeBreaks,
         showgrid: true,
         gridcolor: "rgba(23, 33, 33, 0.12)",
         zeroline: false,
@@ -2149,6 +2172,8 @@ def render_html(
         domain: [0, 1],
         anchor: "y3",
         matches: "x",
+        type: "date",
+        rangebreaks: rangeBreaks,
         showgrid: true,
         gridcolor: "rgba(23, 33, 33, 0.12)",
         zeroline: false,
@@ -2245,12 +2270,67 @@ def render_html(
         : prev;
     }}
 
-    function xPixelForIndex(index, plotArea, plot) {{
+    function lowerBoundTimestamp(timestamp) {{
+      let low = 0;
+      let high = dateTimestamps.length;
+      while (low < high) {{
+        const mid = Math.floor((low + high) / 2);
+        if (dateTimestamps[mid] < timestamp) {{
+          low = mid + 1;
+        }} else {{
+          high = mid;
+        }}
+      }}
+      return low;
+    }}
+
+    function upperBoundTimestamp(timestamp) {{
+      let low = 0;
+      let high = dateTimestamps.length;
+      while (low < high) {{
+        const mid = Math.floor((low + high) / 2);
+        if (dateTimestamps[mid] <= timestamp) {{
+          low = mid + 1;
+        }} else {{
+          high = mid;
+        }}
+      }}
+      return low;
+    }}
+
+    function visibleIndexWindow(plot) {{
       const range = plot._fullLayout.xaxis.range || [payload.dates[0], payload.dates[payload.dates.length - 1]];
       const start = Date.parse(range[0]);
       const end = Date.parse(range[1]);
-      const clampedSpan = Math.max(end - start, 1);
-      return plotArea.left + ((dateTimestamps[index] - start) / clampedSpan) * (plotArea.right - plotArea.left);
+      let startIndex = lowerBoundTimestamp(start);
+      let endIndex = upperBoundTimestamp(end) - 1;
+
+      startIndex = Math.max(0, Math.min(startIndex, dateTimestamps.length - 1));
+      endIndex = Math.max(0, Math.min(endIndex, dateTimestamps.length - 1));
+
+      if (endIndex < startIndex) {{
+        const nearest = nearestIndexByTimestamp((start + end) / 2);
+        return {{
+          startIndex: nearest,
+          endIndex: nearest,
+          span: 1
+        }};
+      }}
+
+      return {{
+        startIndex,
+        endIndex,
+        span: Math.max(endIndex - startIndex, 1)
+      }};
+    }}
+
+    function xPixelForIndex(index, plotArea, plot, visibleWindow = null) {{
+      const windowState = visibleWindow || visibleIndexWindow(plot);
+      if (windowState.endIndex <= windowState.startIndex) {{
+        return plotArea.left + (plotArea.right - plotArea.left) / 2;
+      }}
+      const ratio = (index - windowState.startIndex) / windowState.span;
+      return plotArea.left + ratio * (plotArea.right - plotArea.left);
     }}
 
     function isMobileViewport() {{
@@ -2356,14 +2436,14 @@ def render_html(
         return;
       }}
 
-      const range = plot._fullLayout.xaxis.range || [payload.dates[0], payload.dates[payload.dates.length - 1]];
-      const start = Date.parse(range[0]);
-      const end = Date.parse(range[1]);
-      const clampedSpan = Math.max(end - start, 1);
-      const ratio = (mouseX - plotArea.left) / (plotArea.right - plotArea.left);
-      const targetTimestamp = start + ratio * clampedSpan;
-      const index = nearestIndexByTimestamp(targetTimestamp);
-      const snappedX = xPixelForIndex(index, plotArea, plot);
+      const visibleWindow = visibleIndexWindow(plot);
+      const ratio = Math.max(0, Math.min(1, (mouseX - plotArea.left) / (plotArea.right - plotArea.left)));
+      const targetIndex = visibleWindow.startIndex + ratio * visibleWindow.span;
+      const index = Math.max(
+        visibleWindow.startIndex,
+        Math.min(visibleWindow.endIndex, Math.round(targetIndex))
+      );
+      const snappedX = xPixelForIndex(index, plotArea, plot, visibleWindow);
 
       if (crosshairToggle.checked) {{
         overlay.classList.add("is-active");
