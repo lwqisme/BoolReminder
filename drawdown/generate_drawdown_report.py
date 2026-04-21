@@ -1191,6 +1191,9 @@ def render_html(
       border-radius: 22px;
       overflow: hidden;
       touch-action: pan-y;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
       background: var(--card);
       border: 1px solid rgba(23, 33, 33, 0.08);
       box-shadow: 0 24px 60px rgba(23, 33, 33, 0.12);
@@ -1330,6 +1333,9 @@ def render_html(
     .chart-stack {{
       position: relative;
       min-width: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
     }}
 
     .crosshair-overlay {{
@@ -2465,6 +2471,16 @@ def render_html(
       snapshotToggle.addEventListener("change", () => {{
         if (!snapshotToggle.checked) {{
           resetHoverCard();
+        }}
+      }});
+      plot.addEventListener("contextmenu", (event) => {{
+        if (isMobileViewport()) {{
+          event.preventDefault();
+        }}
+      }});
+      plot.addEventListener("selectstart", (event) => {{
+        if (isMobileViewport()) {{
+          event.preventDefault();
         }}
       }});
       plot.addEventListener("mousemove", (event) => {{
