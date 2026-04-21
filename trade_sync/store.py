@@ -15,6 +15,7 @@ RAW_DIR = TRADE_SYNC_DIR / "raw"
 LATEST_DIR = TRADE_SYNC_DIR / "latest"
 BY_SYMBOL_DIR = TRADE_SYNC_DIR / "by_symbol"
 DRAWDOWN_CACHE_DIR = DATA_DIR / "drawdown_cache"
+DRAWDOWN_SNAPSHOT_CACHE_DIR = DATA_DIR / "drawdown_snapshot_cache"
 REPORT_DRAWDOWN_DIR = ROOT_DIR / "report" / "drawdown"
 
 
@@ -26,6 +27,7 @@ def ensure_storage_dirs() -> None:
         LATEST_DIR,
         BY_SYMBOL_DIR,
         DRAWDOWN_CACHE_DIR,
+        DRAWDOWN_SNAPSHOT_CACHE_DIR,
         REPORT_DRAWDOWN_DIR,
     ):
         directory.mkdir(parents=True, exist_ok=True)
@@ -221,3 +223,19 @@ def is_drawdown_stale(
 
     expires_at = generated_dt + timedelta(minutes=cache_ttl_minutes)
     return expires_at < datetime.now(timezone.utc)
+
+
+def drawdown_snapshot_cache_path(symbol: str) -> Path:
+    ensure_storage_dirs()
+    return DRAWDOWN_SNAPSHOT_CACHE_DIR / f"{symbol.upper()}.json"
+
+
+def load_drawdown_snapshot_cache(symbol: str) -> dict[str, Any] | None:
+    path = drawdown_snapshot_cache_path(symbol)
+    if not path.exists():
+        return None
+    return _read_json(path)
+
+
+def save_drawdown_snapshot_cache(symbol: str, payload: dict[str, Any]) -> None:
+    _write_json(drawdown_snapshot_cache_path(symbol), payload)

@@ -13,6 +13,7 @@ from typing import List, Optional
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from drawdown.snapshot import DrawdownSnapshot
 from report.html_generator import generate_html_report
 from watchlist_boll_filter import WatchlistBollFilterResult
 
@@ -38,8 +39,13 @@ class EmailSender:
         self.smtp_password = smtp_password
         self.from_email = from_email
     
-    def send_report(self, result: WatchlistBollFilterResult, 
-                   to_emails: List[str], subject: Optional[str] = None) -> bool:
+    def send_report(
+        self,
+        result: WatchlistBollFilterResult,
+        to_emails: List[str],
+        subject: Optional[str] = None,
+        drawdown_snapshots: Optional[dict[str, DrawdownSnapshot]] = None,
+    ) -> bool:
         """
         发送HTML格式的报告邮件
         
@@ -57,7 +63,11 @@ class EmailSender:
         
         try:
             # 生成HTML报告
-            html_content = generate_html_report(result, "BOLL指标筛选报告")
+            html_content = generate_html_report(
+                result,
+                "BOLL指标筛选报告",
+                drawdown_snapshots=drawdown_snapshots,
+            )
             
             # 创建邮件
             msg = MIMEMultipart('alternative')

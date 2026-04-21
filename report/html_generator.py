@@ -11,10 +11,15 @@ import pytz
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
+from drawdown.snapshot import DrawdownSnapshot
 from watchlist_boll_filter import WatchlistBollFilterResult, StockInfo
 
 
-def generate_html_report(result: WatchlistBollFilterResult, title: str = "BOLL指标筛选报告") -> str:
+def generate_html_report(
+    result: WatchlistBollFilterResult,
+    title: str = "BOLL指标筛选报告",
+    drawdown_snapshots: Optional[dict[str, DrawdownSnapshot]] = None,
+) -> str:
     """
     生成HTML格式的报告
     
@@ -412,10 +417,10 @@ def generate_html_report(result: WatchlistBollFilterResult, title: str = "BOLL�
             <a class="tab-btn near-upper" data-tab="near-upper" href="#section-near-upper">🟠 接近上轨<span class="count">{len(result.near_upper)}</span></a>
         </div>
         
-        {_generate_section_html("below", "低于下轨 - 超卖区域", result.below_lower, "distance_from_lower_pct", True)}
-        {_generate_section_html("above", "超出上轨 - 超买区域", result.above_upper, "distance_from_upper_pct", True)}
-        {_generate_section_html("near-lower", "接近下轨", result.near_lower, "distance_from_lower_pct", False)}
-        {_generate_section_html("near-upper", "接近上轨", result.near_upper, "distance_from_upper_pct", False)}
+        {_generate_section_html("below", "低于下轨 - 超卖区域", result.below_lower, "distance_from_lower_pct", True, drawdown_snapshots)}
+        {_generate_section_html("above", "超出上轨 - 超买区域", result.above_upper, "distance_from_upper_pct", True, drawdown_snapshots)}
+        {_generate_section_html("near-lower", "接近下轨", result.near_lower, "distance_from_lower_pct", False, drawdown_snapshots)}
+        {_generate_section_html("near-upper", "接近上轨", result.near_upper, "distance_from_upper_pct", False, drawdown_snapshots)}
         
         <div class="footer">
             <p>本报告由BOLL指标筛选系统自动生成</p>
@@ -474,7 +479,20 @@ def generate_html_report(result: WatchlistBollFilterResult, title: str = "BOLL�
     return html
 
 
-def _generate_section_html(section_class: str, title: str, stocks: list, distance_field: str, is_extreme: bool) -> str:
+def _format_drawdown_percent(value: float | None) -> str:
+    if value is None:
+        return "--"
+    return f"{value:.2f}%"
+
+
+def _generate_section_html(
+    section_class: str,
+    title: str,
+    stocks: list,
+    distance_field: str,
+    is_extreme: bool,
+    drawdown_snapshots: Optional[dict[str, DrawdownSnapshot]] = None,
+) -> str:
     """生成单个分类的HTML"""
     icon_map = {
         "below": "🔴",
@@ -507,6 +525,8 @@ def _generate_section_html(section_class: str, title: str, stocks: list, distanc
                         <th>股票名称</th>
                         <th>当前价格</th>
                         <th>距离</th>
+                        <th>ATH回撤</th>
+                        <th>120d回撤</th>
                         <th>下轨</th>
                         <th>中轨</th>
                         <th>上轨</th>
@@ -517,6 +537,7 @@ def _generate_section_html(section_class: str, title: str, stocks: list, distanc
     
     for stock in stocks:
         display_name = stock.display_name[:30] if len(stock.display_name) > 30 else stock.display_name
+        snapshot = (drawdown_snapshots or {}).get(stock.symbol)
         
         if distance_field == "distance_from_lower_pct":
             distance = stock.distance_from_lower_pct
@@ -532,6 +553,8 @@ def _generate_section_html(section_class: str, title: str, stocks: list, distanc
                         <td><strong>{display_name}</strong></td>
                         <td>{stock.currency_symbol}{stock.current_price:.2f}</td>
                         <td>{distance_str} {warning_badge}</td>
+                        <td>{_format_drawdown_percent(snapshot.drawdown_ath_pct if snapshot else None)}</td>
+                        <td>{_format_drawdown_percent(snapshot.drawdown_120_pct if snapshot else None)}</td>
                         <td>{stock.currency_symbol}{stock.lower_band:.4f}</td>
                         <td>{stock.currency_symbol}{stock.mid_band:.4f}</td>
                         <td>{stock.currency_symbol}{stock.upper_band:.4f}</td>
@@ -547,7 +570,12 @@ def _generate_section_html(section_class: str, title: str, stocks: list, distanc
     return html
 
 
-def save_html_report(result: WatchlistBollFilterResult, output_path: str, title: str = "BOLL指标筛选报告") -> None:
+def save_html_report(
+    result: WatchlistBollFilterResult,
+    output_path: str,
+    title: str = "BOLL指标筛选报告",
+    drawdown_snapshots: Optional[dict[str, DrawdownSnapshot]] = None,
+) -> None:
     """
     生成并保存HTML报告到文件
     
@@ -556,7 +584,7 @@ def save_html_report(result: WatchlistBollFilterResult, output_path: str, title:
         output_path: 输出文件路径
         title: 报告标题
     """
-    html = generate_html_report(result, title)
+    html = generate_html_report(result, title, drawdown_snapshots=drawdown_snapshots)
     
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(html)

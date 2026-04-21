@@ -664,8 +664,27 @@ def run_analysis_and_notify(config_manager=None, send_email: bool = True, save_h
         return None
     
     # 导入必要的模块
+    from drawdown.snapshot import collect_drawdown_snapshots
     from report.html_generator import save_html_report
     from notify.email_sender import EmailSender
+
+    drawdown_snapshots = {}
+    drawdown_errors = {}
+    needs_drawdown_snapshots = save_html or send_email
+    if needs_drawdown_snapshots:
+        symbols_for_email = [
+            stock.symbol
+            for stock in (
+                result.below_lower + result.near_lower + result.near_upper + result.above_upper
+            )
+        ]
+        if symbols_for_email:
+            drawdown_snapshots, drawdown_errors = collect_drawdown_snapshots(symbols_for_email)
+            if drawdown_errors:
+                print(
+                    "以下股票的回撤快照获取失败，将在邮件中显示为 --: "
+                    + ", ".join(sorted(drawdown_errors))
+                )
     
     # 保存HTML报告和JSON结果
     if save_html:
@@ -676,7 +695,7 @@ def run_analysis_and_notify(config_manager=None, send_email: bool = True, save_h
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         
         # 保存HTML报告
-        save_html_report(result, output_path)
+        save_html_report(result, output_path, drawdown_snapshots=drawdown_snapshots)
         print(f"HTML报告已保存到: {output_path}")
         
         # 保存JSON结果（用于启动时恢复）
@@ -709,7 +728,11 @@ def run_analysis_and_notify(config_manager=None, send_email: bool = True, save_h
                     smtp_password=email_config["smtp_password"],
                     from_email=email_config["from_email"]
                 )
-                sender.send_report(result, email_config["to_emails"])
+                sender.send_report(
+                    result,
+                    email_config["to_emails"],
+                    drawdown_snapshots=drawdown_snapshots,
+                )
             except Exception as e:
                 print(f"发送邮件失败: {e}")
         else:
