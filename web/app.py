@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for
 from typing import Optional
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 # 添加项目根目录到路径
@@ -25,6 +25,7 @@ from trade_sync.store import (
     save_drawdown_meta,
     save_sync_payload,
 )
+import watchlist_boll_filter
 from watchlist_boll_filter import main, run_analysis_and_notify, WatchlistBollFilterResult
 from report.html_generator import generate_html_report
 from option_quote import OptionQuoteService
@@ -34,6 +35,12 @@ app = Flask(__name__)
 config_manager: Optional[ConfigManager] = None
 latest_result: Optional[WatchlistBollFilterResult] = None
 scheduler_instance = None  # 全局调度器实例，用于动态更新
+watchlist_cache: dict[str, object] = {
+    "expires_at": None,
+    "symbols": [],
+    "symbol_to_name": {},
+    "error": None,
+}
 
 # 初始化配置管理器（模块级别）
 try:
@@ -110,6 +117,96 @@ def _check_trade_sync_auth() -> tuple[bool, str]:
         return False, "Invalid bearer token"
 
     return True, ""
+
+
+def _watchlist_cache_valid(now: datetime) -> bool:
+    expires_at = watchlist_cache.get("expires_at")
+    return isinstance(expires_at, datetime) and expires_at > now
+
+
+def _load_watchlist_snapshot() -> tuple[list[str], dict[str, str], str | None]:
+    now = datetime.now(timezone.utc)
+    if _watchlist_cache_valid(now):
+        return (
+            list(watchlist_cache.get("symbols", [])),
+            dict(watchlist_cache.get("symbol_to_name", {})),
+            watchlist_cache.get("error"),
+        )
+
+    if not watchlist_boll_filter.LONGBRIDGE_AVAILABLE:
+        error = "Longbridge SDK 不可用，无法加载自选列表。"
+        watchlist_cache.update(
+            {
+                "expires_at": now + timedelta(minutes=5),
+                "symbols": [],
+                "symbol_to_name": {},
+                "error": error,
+            }
+        )
+        return [], {}, error
+
+    global config_manager
+    if config_manager is None:
+        config_manager = ConfigManager()
+
+    try:
+        lb_config = config_manager.get_longbridge_config()
+        oauth_client_id = lb_config.get("oauth_client_id", "")
+        oauth = watchlist_boll_filter.OAuthBuilder(oauth_client_id).build(
+            lambda url: (_ for _ in ()).throw(RuntimeError(f"Token expired, needs re-auth: {url}"))
+        )
+        lb_config_obj = watchlist_boll_filter.Config.from_oauth(oauth)
+        quote_ctx = watchlist_boll_filter.QuoteContext(lb_config_obj)
+        symbols, symbol_to_name = watchlist_boll_filter.get_watchlist_symbols(
+            quote_ctx,
+            exclude_options=True,
+        )
+        watchlist_cache.update(
+            {
+                "expires_at": now + timedelta(minutes=5),
+                "symbols": list(symbols),
+                "symbol_to_name": dict(symbol_to_name),
+                "error": None,
+            }
+        )
+        return symbols, symbol_to_name, None
+    except Exception as exc:
+        error = f"加载 Longbridge 自选列表失败: {exc}"
+        watchlist_cache.update(
+            {
+                "expires_at": now + timedelta(minutes=2),
+                "symbols": [],
+                "symbol_to_name": {},
+                "error": error,
+            }
+        )
+        return [], {}, error
+
+
+def _base_symbol(symbol: str) -> str:
+    return canonical_symbol(symbol).split(".", 1)[0]
+
+
+def _build_watchlist_overview(
+    synced_symbols: list[str],
+) -> tuple[list[dict[str, str]], list[dict[str, str]], str | None]:
+    watchlist_symbols, symbol_to_name, watchlist_error = _load_watchlist_snapshot()
+    synced_bases = {_base_symbol(symbol) for symbol in synced_symbols}
+
+    synced_watchlist_items: list[dict[str, str]] = []
+    remaining_watchlist_items: list[dict[str, str]] = []
+    for symbol in watchlist_symbols:
+        item = {
+            "symbol": symbol,
+            "name": symbol_to_name.get(symbol, symbol),
+            "base_symbol": _base_symbol(symbol),
+        }
+        if item["base_symbol"] in synced_bases:
+            synced_watchlist_items.append(item)
+        else:
+            remaining_watchlist_items.append(item)
+
+    return synced_watchlist_items, remaining_watchlist_items, watchlist_error
 
 
 def _build_trade_overlays(snapshot: dict) -> list[TradeOverlay]:
@@ -338,8 +435,14 @@ DRAWDOWN_TEMPLATE = """
         .preset-btn:hover { background: #cbd5e1; }
         .symbols { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
         .symbol-chip { display: inline-block; padding: 8px 10px; background: #eef2ff; color: #334155; border-radius: 999px; text-decoration: none; }
+        .symbol-chip.secondary { background: #ecfeff; color: #155e75; }
+        .symbol-chip.muted { background: #f1f5f9; color: #475569; cursor: default; }
+        .panel-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+        .panel-title strong { font-size: 16px; }
+        .panel-count { color: #64748b; font-size: 13px; }
         .hint { color: #666; font-size: 14px; margin-top: 8px; }
         .empty { color: #999; padding: 12px 0; }
+        .error { color: #b91c1c; font-size: 14px; padding: 12px 0; }
     </style>
 </head>
 <body>
@@ -373,7 +476,10 @@ DRAWDOWN_TEMPLATE = """
         </div>
 
         <div class="panel">
-            <div><strong>已同步股票</strong></div>
+            <div class="panel-title">
+                <strong>已同步股票</strong>
+                <span class="panel-count">{{ symbols|length }} 只</span>
+            </div>
             {% if symbols %}
                 <div class="symbols">
                     {% for symbol in symbols %}
@@ -382,6 +488,44 @@ DRAWDOWN_TEMPLATE = """
                 </div>
             {% else %}
                 <div class="empty">还没有收到任何 Google Sheets 交易同步。</div>
+            {% endif %}
+        </div>
+
+        <div class="panel">
+            <div class="panel-title">
+                <strong>自选但未同步</strong>
+                <span class="panel-count">{{ remaining_watchlist_symbols|length }} 只</span>
+            </div>
+            {% if watchlist_error %}
+                <div class="error">{{ watchlist_error }}</div>
+            {% elif remaining_watchlist_symbols %}
+                <div class="symbols">
+                    {% for item in remaining_watchlist_symbols %}
+                        <span class="symbol-chip secondary" title="{{ item.name }}">{{ item.symbol }}</span>
+                    {% endfor %}
+                </div>
+                <div class="hint">这些股票已经在 Longbridge 自选里，但还没有出现在当前 Google Sheets 交易同步数据中。</div>
+            {% else %}
+                <div class="empty">当前自选列表里的股票都已经同步到交易列表，或者暂时没有可展示的剩余股票。</div>
+            {% endif %}
+        </div>
+
+        <div class="panel">
+            <div class="panel-title">
+                <strong>自选且已同步</strong>
+                <span class="panel-count">{{ synced_watchlist_symbols|length }} 只</span>
+            </div>
+            {% if watchlist_error %}
+                <div class="empty">未能加载 Longbridge 自选列表，因此这里暂时无法按自选交集展示。</div>
+            {% elif synced_watchlist_symbols %}
+                <div class="symbols">
+                    {% for item in synced_watchlist_symbols %}
+                        <a class="symbol-chip muted" href="/drawdown/{{ item.base_symbol }}" data-symbol="{{ item.base_symbol }}" title="{{ item.name }}" target="_blank">{{ item.symbol }}</a>
+                    {% endfor %}
+                </div>
+                <div class="hint">这里展示“Longbridge 自选列表”和“已同步交易股票”的交集，方便区分你关注且已经实际交易过的标的。</div>
+            {% else %}
+                <div class="empty">当前还没有 Longbridge 自选与交易同步的交集。</div>
             {% endif %}
         </div>
     </div>
@@ -865,11 +1009,15 @@ def drawdown_home():
     """Drawdown 控制台页面。"""
     default_symbol = ""
     symbols = list_synced_symbols()
+    synced_watchlist_symbols, remaining_watchlist_symbols, watchlist_error = _build_watchlist_overview(symbols)
     if symbols:
         default_symbol = symbols[0]
     return render_template_string(
         DRAWDOWN_TEMPLATE,
         default_symbol=default_symbol,
+        synced_watchlist_symbols=synced_watchlist_symbols,
+        remaining_watchlist_symbols=remaining_watchlist_symbols,
+        watchlist_error=watchlist_error,
         selected_start=(request.args.get("start") or "").strip(),
         selected_end=(request.args.get("end") or "").strip(),
         symbols=symbols,
