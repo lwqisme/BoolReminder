@@ -1084,7 +1084,7 @@ def render_html(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{ticker} 回撤与交易可视化</title>
-  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <script src="/static/vendor/plotly-2.35.2.min.js"></script>
   <style>
     :root {{
       --bg: #f5f0e8;
