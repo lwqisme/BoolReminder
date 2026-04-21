@@ -1160,7 +1160,7 @@ def render_html(
       height: 860px;
       border-radius: 22px;
       overflow: hidden;
-      touch-action: none;
+      touch-action: pan-y;
       background: var(--card);
       border: 1px solid rgba(23, 33, 33, 0.08);
       box-shadow: 0 24px 60px rgba(23, 33, 33, 0.12);
@@ -1499,6 +1499,7 @@ def render_html(
       <p>价格源支持内嵌 xlsx 时序和 Longbridge 日线两种模式。当前默认显示 <code>Both</code>，也就是 All-time 与 Rolling 120d 两套回撤口径同时显示。</p>
       <p>Longbridge 模式当前使用前复权日线，这样股票拆分不会制造假性暴跌；同时这里的 <code>All-time</code> 仍然只指当前加载窗口内的历史高点，不是上市以来全历史高点。</p>
       <p>如果后续补充规范交易文件，建议字段使用 <code>date,amount,shares,type</code>。脚本会按日期自动合并，买卖点圆点按金额或股数缩放，底部成交柱同步展示买入和卖出。</p>
+      <p>移动端默认保持页面滚动，长按图表后才进入十字线检查模式；松手或改为纵向拖动会退出检查模式。</p>
     </div>
   </div>
   <script>
@@ -2195,6 +2196,41 @@ def render_html(
       applyMode(plot, currentMode);
       const crosshairToggle = document.getElementById("crosshair-toggle");
       const snapshotToggle = document.getElementById("snapshot-toggle");
+      const LONG_PRESS_MS = 320;
+      const TOUCH_MOVE_TOLERANCE = 10;
+      const TOUCH_EXIT_VERTICAL_PX = 28;
+      const TOUCH_EXIT_BIAS_PX = 8;
+      let longPressTimer = null;
+      let inspectMode = false;
+      let touchStartPoint = null;
+      let inspectStartPoint = null;
+      let pendingTouchPoint = null;
+
+      function clearLongPressTimer() {{
+        if (longPressTimer != null) {{
+          window.clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }}
+      }}
+
+      function exitInspectMode() {{
+        inspectMode = false;
+        inspectStartPoint = null;
+        if (crosshairToggle.checked) {{
+          hideCrosshair();
+        }}
+        resetHoverCard();
+      }}
+
+      function activateInspectMode(point) {{
+        if (!point || (!crosshairToggle.checked && !snapshotToggle.checked)) {{
+          return;
+        }}
+        inspectMode = true;
+        inspectStartPoint = point;
+        updateCrosshairDisplay(plot, point.x, point.y);
+      }}
+
       document.querySelectorAll(".mode-button").forEach((button) => {{
         button.addEventListener("click", () => {{
           applyMode(plot, button.dataset.mode || "both");
@@ -2224,6 +2260,9 @@ def render_html(
         updateCrosshairDisplay(plot, event.clientX - rect.left, event.clientY - rect.top);
       }});
       plot.addEventListener("click", (event) => {{
+        if (isMobileViewport()) {{
+          return;
+        }}
         if (!crosshairToggle.checked && !snapshotToggle.checked) {{
           return;
         }}
@@ -2238,7 +2277,18 @@ def render_html(
         if (!point) {{
           return;
         }}
-        updateCrosshairDisplay(plot, point.x, point.y);
+        pendingTouchPoint = point;
+        touchStartPoint = point;
+        inspectStartPoint = null;
+        clearLongPressTimer();
+        if (!isMobileViewport()) {{
+          updateCrosshairDisplay(plot, point.x, point.y);
+          return;
+        }}
+        longPressTimer = window.setTimeout(() => {{
+          longPressTimer = null;
+          activateInspectMode(pendingTouchPoint || touchStartPoint);
+        }}, LONG_PRESS_MS);
       }}, {{ passive: true }});
       plot.addEventListener("touchmove", (event) => {{
         if (!crosshairToggle.checked && !snapshotToggle.checked) {{
@@ -2248,11 +2298,53 @@ def render_html(
         if (!point) {{
           return;
         }}
+        pendingTouchPoint = point;
+        if (!isMobileViewport()) {{
+          if (event.cancelable) {{
+            event.preventDefault();
+          }}
+          updateCrosshairDisplay(plot, point.x, point.y);
+          return;
+        }}
+        if (!inspectMode) {{
+          if (touchStartPoint) {{
+            const deltaX = point.x - touchStartPoint.x;
+            const deltaY = point.y - touchStartPoint.y;
+            if (Math.hypot(deltaX, deltaY) > TOUCH_MOVE_TOLERANCE) {{
+              clearLongPressTimer();
+            }}
+          }}
+          return;
+        }}
+        if (inspectStartPoint) {{
+          const verticalDrift = Math.abs(point.y - inspectStartPoint.y);
+          const horizontalDrift = Math.abs(point.x - inspectStartPoint.x);
+          if (verticalDrift > TOUCH_EXIT_VERTICAL_PX && verticalDrift > horizontalDrift + TOUCH_EXIT_BIAS_PX) {{
+            exitInspectMode();
+            return;
+          }}
+        }}
         if (event.cancelable) {{
           event.preventDefault();
         }}
         updateCrosshairDisplay(plot, point.x, point.y);
       }}, {{ passive: false }});
+      plot.addEventListener("touchend", () => {{
+        clearLongPressTimer();
+        pendingTouchPoint = null;
+        touchStartPoint = null;
+        if (inspectMode) {{
+          exitInspectMode();
+        }}
+      }}, {{ passive: true }});
+      plot.addEventListener("touchcancel", () => {{
+        clearLongPressTimer();
+        pendingTouchPoint = null;
+        touchStartPoint = null;
+        if (inspectMode) {{
+          exitInspectMode();
+        }}
+      }}, {{ passive: true }});
       plot.addEventListener("mouseleave", () => {{
         if (crosshairToggle.checked) {{
           hideCrosshair();
