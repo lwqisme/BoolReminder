@@ -187,6 +187,19 @@ def _base_symbol(symbol: str) -> str:
     return canonical_symbol(symbol).split(".", 1)[0]
 
 
+def _drawdown_watchlist_label(symbol: str, name: str) -> str:
+    normalized_symbol = canonical_symbol(symbol)
+    normalized_name = (name or "").strip()
+    if "." not in normalized_symbol:
+        return normalized_symbol
+
+    market_suffix = normalized_symbol.rsplit(".", 1)[-1]
+    if market_suffix in {"HK", "SH", "SZ"} and normalized_name and normalized_name != normalized_symbol:
+        return f"{normalized_name} · {normalized_symbol}"
+
+    return normalized_symbol
+
+
 def _build_watchlist_overview(
     synced_symbols: list[str],
 ) -> tuple[list[dict[str, str]], list[dict[str, str]], str | None]:
@@ -200,6 +213,7 @@ def _build_watchlist_overview(
             "symbol": symbol,
             "name": symbol_to_name.get(symbol, symbol),
             "base_symbol": _base_symbol(symbol),
+            "display_label": _drawdown_watchlist_label(symbol, symbol_to_name.get(symbol, symbol)),
         }
         if item["base_symbol"] in synced_bases:
             synced_watchlist_items.append(item)
@@ -514,7 +528,7 @@ DRAWDOWN_TEMPLATE = """
             {% elif remaining_watchlist_symbols %}
                 <div class="symbols">
                     {% for item in remaining_watchlist_symbols %}
-                        <a class="symbol-chip secondary" href="/drawdown/{{ item.symbol }}" data-symbol="{{ item.symbol }}" title="{{ item.name }}" target="_blank">{{ item.symbol }}</a>
+                        <a class="symbol-chip secondary" href="/drawdown/{{ item.symbol }}" data-symbol="{{ item.symbol }}" title="{{ item.name }}" target="_blank">{{ item.display_label }}</a>
                     {% endfor %}
                 </div>
                 <div class="hint">这些股票已经在 Longbridge 自选里，但还没有出现在当前 Google Sheets 交易同步数据中。</div>
@@ -533,7 +547,7 @@ DRAWDOWN_TEMPLATE = """
             {% elif synced_watchlist_symbols %}
                 <div class="symbols">
                     {% for item in synced_watchlist_symbols %}
-                        <a class="symbol-chip muted" href="/drawdown/{{ item.base_symbol }}" data-symbol="{{ item.base_symbol }}" title="{{ item.name }}" target="_blank">{{ item.symbol }}</a>
+                        <a class="symbol-chip muted" href="/drawdown/{{ item.base_symbol }}" data-symbol="{{ item.base_symbol }}" title="{{ item.name }}" target="_blank">{{ item.display_label }}</a>
                     {% endfor %}
                 </div>
                 <div class="hint">这里展示“Longbridge 自选列表”和“已同步交易股票”的交集，方便区分你关注且已经实际交易过的标的。</div>
