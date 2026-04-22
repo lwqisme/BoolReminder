@@ -2839,7 +2839,46 @@ def render_html(
       }};
     }}
 
+    function axisValueToTimestamp(value) {{
+      if (value == null) {{
+        return null;
+      }}
+      if (typeof value === "number") {{
+        return value;
+      }}
+      if (value instanceof Date) {{
+        return value.getTime();
+      }}
+      const parsed = Date.parse(value);
+      return Number.isNaN(parsed) ? null : parsed;
+    }}
+
+    function indexForMouseX(plot, mouseX) {{
+      const xAxis = plot._fullLayout.xaxis;
+      if (xAxis && typeof xAxis.p2d === "function") {{
+        const axisValue = xAxis.p2d(mouseX - xAxis._offset);
+        const timestamp = axisValueToTimestamp(axisValue);
+        if (timestamp != null) {{
+          return nearestIndexByTimestamp(timestamp);
+        }}
+      }}
+
+      const plotArea = getPlotArea(plot);
+      const visibleWindow = visibleIndexWindow(plot);
+      const ratio = Math.max(0, Math.min(1, (mouseX - plotArea.left) / (plotArea.right - plotArea.left)));
+      const targetIndex = visibleWindow.startIndex + ratio * visibleWindow.span;
+      return Math.max(
+        visibleWindow.startIndex,
+        Math.min(visibleWindow.endIndex, Math.round(targetIndex))
+      );
+    }}
+
     function xPixelForIndex(index, plotArea, plot, visibleWindow = null) {{
+      const xAxis = plot._fullLayout.xaxis;
+      if (xAxis && typeof xAxis.d2p === "function") {{
+        return xAxis._offset + xAxis.d2p(payload.dates[index]);
+      }}
+
       const windowState = visibleWindow || visibleIndexWindow(plot);
       if (windowState.endIndex <= windowState.startIndex) {{
         return plotArea.left + (plotArea.right - plotArea.left) / 2;
@@ -2952,12 +2991,7 @@ def render_html(
       }}
 
       const visibleWindow = visibleIndexWindow(plot);
-      const ratio = Math.max(0, Math.min(1, (mouseX - plotArea.left) / (plotArea.right - plotArea.left)));
-      const targetIndex = visibleWindow.startIndex + ratio * visibleWindow.span;
-      const index = Math.max(
-        visibleWindow.startIndex,
-        Math.min(visibleWindow.endIndex, Math.round(targetIndex))
-      );
+      const index = indexForMouseX(plot, mouseX);
       const snappedX = xPixelForIndex(index, plotArea, plot, visibleWindow);
 
       if (crosshairToggle.checked) {{
