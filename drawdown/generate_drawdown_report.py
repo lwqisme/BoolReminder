@@ -2018,6 +2018,23 @@ def render_html(
       yaxis: "y"
     }};
 
+    const buyHaloTrace = {{
+      x: payload.buy_dates,
+      y: payload.buy_prices,
+      type: "scatter",
+      mode: "markers",
+      name: "Buy Halo",
+      marker: {{
+        color: "rgba(255, 247, 238, 0.92)",
+        size: payload.buy_sizes.map(size => size + 7),
+        line: {{ color: "rgba(255, 247, 238, 0.98)", width: 0 }}
+      }},
+      hoverinfo: "skip",
+      showlegend: false,
+      xaxis: "x",
+      yaxis: "y"
+    }};
+
     const buyTrace = {{
       x: payload.buy_dates,
       y: payload.buy_prices,
@@ -2032,6 +2049,24 @@ def render_html(
       }},
       text: payload.buy_labels,
       hovertemplate: "日期: %{{x}}<br>%{{text}}<extra></extra>",
+      xaxis: "x",
+      yaxis: "y"
+    }};
+
+    const sellHaloTrace = {{
+      x: payload.sell_dates,
+      y: payload.sell_prices,
+      type: "scatter",
+      mode: "markers",
+      name: "Sell Halo",
+      marker: {{
+        color: "rgba(255, 247, 238, 0.94)",
+        symbol: "diamond",
+        size: 19,
+        line: {{ color: "rgba(255, 247, 238, 0.98)", width: 0 }}
+      }},
+      hoverinfo: "skip",
+      showlegend: false,
       xaxis: "x",
       yaxis: "y"
     }};
@@ -2161,6 +2196,8 @@ def render_html(
       priceTrace,
       peakTrace,
       rolling120PeakTrace,
+      buyHaloTrace,
+      sellHaloTrace,
       buyTrace,
       sellTrace,
       drawdownAthTrace,
@@ -2217,6 +2254,8 @@ def render_html(
         true,
         mode !== "rolling",
         mode !== "alltime",
+        true,
+        true,
         true,
         true,
         mode !== "rolling",
