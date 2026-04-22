@@ -40,6 +40,7 @@ watchlist_cache: dict[str, object] = {
     "symbols": [],
     "symbol_to_name": {},
     "error": None,
+    "last_success_at": None,
 }
 
 # 初始化配置管理器（模块级别）
@@ -124,6 +125,37 @@ def _watchlist_cache_valid(now: datetime) -> bool:
     return isinstance(expires_at, datetime) and expires_at > now
 
 
+def _watchlist_cache_has_snapshot() -> bool:
+    symbols = watchlist_cache.get("symbols", [])
+    symbol_to_name = watchlist_cache.get("symbol_to_name", {})
+    return bool(symbols) and isinstance(symbol_to_name, dict)
+
+
+def _watchlist_last_success_label() -> str | None:
+    last_success_at = watchlist_cache.get("last_success_at")
+    if not isinstance(last_success_at, datetime):
+        return None
+    return last_success_at.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _fetch_watchlist_from_longbridge() -> tuple[list[str], dict[str, str]]:
+    global config_manager
+    if config_manager is None:
+        config_manager = ConfigManager()
+
+    lb_config = config_manager.get_longbridge_config()
+    oauth_client_id = lb_config.get("oauth_client_id", "")
+    oauth = watchlist_boll_filter.OAuthBuilder(oauth_client_id).build(
+        lambda url: (_ for _ in ()).throw(RuntimeError(f"Token expired, needs re-auth: {url}"))
+    )
+    lb_config_obj = watchlist_boll_filter.Config.from_oauth(oauth)
+    quote_ctx = watchlist_boll_filter.QuoteContext(lb_config_obj)
+    return watchlist_boll_filter.get_watchlist_symbols(
+        quote_ctx,
+        exclude_options=True,
+    )
+
+
 def _load_watchlist_snapshot() -> tuple[list[str], dict[str, str], str | None]:
     now = datetime.now(timezone.utc)
     if _watchlist_cache_valid(now):
@@ -145,33 +177,45 @@ def _load_watchlist_snapshot() -> tuple[list[str], dict[str, str], str | None]:
         )
         return [], {}, error
 
-    global config_manager
-    if config_manager is None:
-        config_manager = ConfigManager()
-
     try:
-        lb_config = config_manager.get_longbridge_config()
-        oauth_client_id = lb_config.get("oauth_client_id", "")
-        oauth = watchlist_boll_filter.OAuthBuilder(oauth_client_id).build(
-            lambda url: (_ for _ in ()).throw(RuntimeError(f"Token expired, needs re-auth: {url}"))
-        )
-        lb_config_obj = watchlist_boll_filter.Config.from_oauth(oauth)
-        quote_ctx = watchlist_boll_filter.QuoteContext(lb_config_obj)
-        symbols, symbol_to_name = watchlist_boll_filter.get_watchlist_symbols(
-            quote_ctx,
-            exclude_options=True,
-        )
+        for attempt in range(1, 4):
+            try:
+                symbols, symbol_to_name = _fetch_watchlist_from_longbridge()
+                break
+            except Exception as exc:
+                if attempt >= 3:
+                    raise
+                watchlist_boll_filter.time.sleep(1.2 * attempt)
+
         watchlist_cache.update(
             {
                 "expires_at": now + timedelta(minutes=5),
                 "symbols": list(symbols),
                 "symbol_to_name": dict(symbol_to_name),
                 "error": None,
+                "last_success_at": now,
             }
         )
         return symbols, symbol_to_name, None
     except Exception as exc:
         error = f"加载 Longbridge 自选列表失败: {exc}"
+        if _watchlist_cache_has_snapshot():
+            success_label = _watchlist_last_success_label()
+            fallback_message = "Longbridge 自选列表加载超时，已回退到上一次成功缓存"
+            if success_label:
+                fallback_message += f"（{success_label}）"
+            fallback_message += f": {exc}"
+            watchlist_cache.update(
+                {
+                    "expires_at": now + timedelta(seconds=45),
+                    "error": fallback_message,
+                }
+            )
+            return (
+                list(watchlist_cache.get("symbols", [])),
+                dict(watchlist_cache.get("symbol_to_name", {})),
+                fallback_message,
+            )
         watchlist_cache.update(
             {
                 "expires_at": now + timedelta(minutes=2),
