@@ -156,6 +156,27 @@ def _fetch_watchlist_from_longbridge() -> tuple[list[str], dict[str, str]]:
     )
 
 
+def _format_watchlist_error_message(exc: Exception, using_cache: bool) -> str:
+    raw_message = str(exc)
+    lowered = raw_message.lower()
+    if "timeout" in lowered:
+        prefix = "Longbridge 网络请求超时"
+        if using_cache:
+            success_label = _watchlist_last_success_label()
+            message = f"{prefix}，已回退到上一次成功缓存"
+            if success_label:
+                message += f"（{success_label}）"
+            return f"{message}: {exc}"
+        return f"{prefix}，当前没有可用缓存: {exc}"
+    if using_cache:
+        success_label = _watchlist_last_success_label()
+        message = "加载 Longbridge 自选列表失败，已回退到上一次成功缓存"
+        if success_label:
+            message += f"（{success_label}）"
+        return f"{message}: {exc}"
+    return f"加载 Longbridge 自选列表失败: {exc}"
+
+
 def _load_watchlist_snapshot() -> tuple[list[str], dict[str, str], str | None]:
     now = datetime.now(timezone.utc)
     if _watchlist_cache_valid(now):
@@ -198,13 +219,9 @@ def _load_watchlist_snapshot() -> tuple[list[str], dict[str, str], str | None]:
         )
         return symbols, symbol_to_name, None
     except Exception as exc:
-        error = f"加载 Longbridge 自选列表失败: {exc}"
+        error = _format_watchlist_error_message(exc, using_cache=False)
         if _watchlist_cache_has_snapshot():
-            success_label = _watchlist_last_success_label()
-            fallback_message = "Longbridge 自选列表加载超时，已回退到上一次成功缓存"
-            if success_label:
-                fallback_message += f"（{success_label}）"
-            fallback_message += f": {exc}"
+            fallback_message = _format_watchlist_error_message(exc, using_cache=True)
             watchlist_cache.update(
                 {
                     "expires_at": now + timedelta(seconds=45),
