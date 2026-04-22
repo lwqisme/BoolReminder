@@ -231,6 +231,7 @@ def _build_trade_overlays(snapshot: dict) -> list[TradeOverlay]:
                 date=datetime.strptime(row["trade_date"], "%Y-%m-%d"),
                 amount=row.get("amount"),
                 shares=row.get("shares"),
+                price=row.get("price"),
                 event_type=row["side"],
             )
         )

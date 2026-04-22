@@ -123,6 +123,7 @@ class TradeOverlay:
     date: datetime
     amount: float | None
     shares: float | None
+    price: float | None
     event_type: str
 
 
@@ -395,6 +396,7 @@ def extract_legacy_trade_overlays(rows: dict[int, dict[str, str]]) -> list[Trade
                     date=parse_excelish_date(row["F"]),
                     amount=shares * price,
                     shares=shares,
+                    price=price,
                     event_type="buy",
                 )
             )
@@ -407,6 +409,7 @@ def extract_legacy_trade_overlays(rows: dict[int, dict[str, str]]) -> list[Trade
                     date=parse_excelish_date(row["K"]),
                     amount=shares * price,
                     shares=shares,
+                    price=price,
                     event_type="sell",
                 )
             )
@@ -556,6 +559,7 @@ def extract_generic_trade_overlays(
                 date=parse_excelish_date(raw_date),
                 amount=amount,
                 shares=shares,
+                price=price,
                 event_type=event_type,
             )
         )
@@ -672,6 +676,7 @@ def load_trade_overlays(path: Path) -> list[TradeOverlay]:
                     date=parse_date(raw_date),
                     amount=amount,
                     shares=shares,
+                    price=None,
                     event_type=event_type,
                 )
             )
@@ -706,6 +711,9 @@ def align_trade_date(
         return None, f"{overlay_key} 晚于当前图表时间范围，已跳过"
 
     position = bisect_right(point_dates, overlay_key)
+    if position < len(point_dates):
+        aligned = point_dates[position]
+        return aligned, f"{overlay_key} 顺延到下一个交易日 {aligned}"
     if position > 0:
         aligned = point_dates[position - 1]
         return aligned, f"{overlay_key} 对齐到最近交易日 {aligned}"
@@ -739,9 +747,13 @@ def build_trade_summary(
             "buy_amount": 0.0,
             "buy_shares": 0.0,
             "buy_count": 0.0,
+            "buy_price_value": 0.0,
+            "buy_price_weight": 0.0,
             "sell_amount": 0.0,
             "sell_shares": 0.0,
             "sell_count": 0.0,
+            "sell_price_value": 0.0,
+            "sell_price_weight": 0.0,
         }
     )
     warnings: list[str] = []
@@ -763,6 +775,10 @@ def build_trade_summary(
                 summary["buy_amount"] += overlay.amount
             if overlay.shares is not None:
                 summary["buy_shares"] += overlay.shares
+            if overlay.price is not None:
+                weight = overlay.shares if overlay.shares is not None and overlay.shares > 0 else 1.0
+                summary["buy_price_value"] += overlay.price * weight
+                summary["buy_price_weight"] += weight
         elif overlay.event_type in {"sell", "trim"}:
             point.is_sell = True
             summary["sell_count"] += 1.0
@@ -770,6 +786,10 @@ def build_trade_summary(
                 summary["sell_amount"] += overlay.amount
             if overlay.shares is not None:
                 summary["sell_shares"] += overlay.shares
+            if overlay.price is not None:
+                weight = overlay.shares if overlay.shares is not None and overlay.shares > 0 else 1.0
+                summary["sell_price_value"] += overlay.price * weight
+                summary["sell_price_weight"] += weight
 
     return dict(by_date), sorted(set(warnings))
 
@@ -882,12 +902,26 @@ def build_chart_payload(
                 "buy_amount": 0.0,
                 "buy_shares": 0.0,
                 "buy_count": 0.0,
+                "buy_price_value": 0.0,
+                "buy_price_weight": 0.0,
                 "sell_amount": 0.0,
                 "sell_shares": 0.0,
                 "sell_count": 0.0,
+                "sell_price_value": 0.0,
+                "sell_price_weight": 0.0,
             },
         )
         drawdown_120_raw = drawdowns_120_raw[index]
+        buy_marker_price = (
+            summary["buy_price_value"] / summary["buy_price_weight"]
+            if summary["buy_price_weight"] > 0
+            else point.close
+        )
+        sell_marker_price = (
+            summary["sell_price_value"] / summary["sell_price_weight"]
+            if summary["sell_price_weight"] > 0
+            else point.close
+        )
         daily_buy_amounts.append(summary["buy_amount"])
         daily_buy_shares.append(summary["buy_shares"])
         daily_buy_counts.append(summary["buy_count"])
@@ -897,7 +931,7 @@ def build_chart_payload(
 
         if point.is_buy:
             buy_dates.append(date_key)
-            buy_prices.append(point.close)
+            buy_prices.append(buy_marker_price)
             buy_drawdowns_ath.append(drawdowns_ath[index])
             buy_drawdowns_120.append(drawdowns_120[index])
             buy_amounts.append(summary["buy_amount"])
@@ -905,7 +939,7 @@ def build_chart_payload(
             if uses_trade_amounts:
                 buy_labels.append(
                     format_buy_label(
-                        point.close,
+                        buy_marker_price,
                         point.drawdown_ath,
                         drawdown_120_raw,
                         summary["buy_amount"],
@@ -915,7 +949,7 @@ def build_chart_payload(
                 buy_drawdown_labels.append(
                     format_drawdown_marker_label(
                         "买入",
-                        point.close,
+                        buy_marker_price,
                         summary["buy_amount"],
                         summary["buy_shares"],
                     )
@@ -931,16 +965,16 @@ def build_chart_payload(
                         ]
                     )
                 )
-                buy_drawdown_labels.append(f"买入价: {point.close:.2f}")
+                buy_drawdown_labels.append(f"买入价: {buy_marker_price:.2f}")
 
         if point.is_sell:
             sell_dates.append(date_key)
-            sell_prices.append(point.close)
+            sell_prices.append(sell_marker_price)
             sell_drawdowns_ath.append(drawdowns_ath[index])
             sell_drawdowns_120.append(drawdowns_120[index])
             sell_labels.append(
                 format_sell_label(
-                    point.close,
+                    sell_marker_price,
                     point.drawdown_ath,
                     drawdown_120_raw,
                     summary["sell_amount"],
@@ -950,7 +984,7 @@ def build_chart_payload(
             sell_drawdown_labels.append(
                 format_drawdown_marker_label(
                     "卖出",
-                    point.close,
+                    sell_marker_price,
                     summary["sell_amount"],
                     summary["sell_shares"],
                 )
