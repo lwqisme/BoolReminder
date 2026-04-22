@@ -1618,6 +1618,118 @@ def render_html(
       font-variant-numeric: tabular-nums;
     }}
 
+    .debug-panel {{
+      display: none;
+      margin-top: 16px;
+      background: rgba(255, 250, 243, 0.94);
+      border: 1px dashed rgba(23, 33, 33, 0.24);
+      border-radius: 22px;
+      padding: 18px 20px 20px;
+      box-shadow: 0 14px 32px rgba(23, 33, 33, 0.08);
+    }}
+
+    .debug-panel.is-visible {{
+      display: block;
+    }}
+
+    .debug-title {{
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #172121;
+    }}
+
+    .debug-subtitle {{
+      font-size: 12px;
+      color: rgba(23, 33, 33, 0.72);
+      margin-bottom: 14px;
+    }}
+
+    .debug-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 10px;
+      margin-bottom: 14px;
+    }}
+
+    .debug-stat {{
+      background: rgba(255, 255, 255, 0.76);
+      border: 1px solid rgba(23, 33, 33, 0.08);
+      border-radius: 16px;
+      padding: 10px 12px;
+    }}
+
+    .debug-stat-label {{
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(23, 33, 33, 0.58);
+      margin-bottom: 4px;
+    }}
+
+    .debug-stat-value {{
+      font-size: 13px;
+      font-weight: 700;
+      color: #172121;
+      word-break: break-word;
+    }}
+
+    .debug-block {{
+      margin-top: 12px;
+    }}
+
+    .debug-block-title {{
+      font-size: 13px;
+      font-weight: 700;
+      color: #172121;
+      margin-bottom: 8px;
+    }}
+
+    .debug-table-wrap {{
+      overflow-x: auto;
+      border-radius: 16px;
+      border: 1px solid rgba(23, 33, 33, 0.08);
+      background: rgba(255, 255, 255, 0.82);
+    }}
+
+    .debug-table {{
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 920px;
+      font-size: 12px;
+    }}
+
+    .debug-table th,
+    .debug-table td {{
+      padding: 9px 10px;
+      text-align: left;
+      border-bottom: 1px solid rgba(23, 33, 33, 0.08);
+      white-space: nowrap;
+    }}
+
+    .debug-table th {{
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: rgba(23, 33, 33, 0.58);
+      background: rgba(245, 240, 232, 0.92);
+    }}
+
+    .debug-table tr:last-child td {{
+      border-bottom: 0;
+    }}
+
+    .debug-pre {{
+      margin: 0;
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: rgba(23, 33, 33, 0.94);
+      color: #f5f0e8;
+      overflow-x: auto;
+      font-size: 12px;
+      line-height: 1.5;
+    }}
+
     @media (max-width: 820px) {{
       .shell {{
         padding: 20px 12px 28px;
@@ -1798,11 +1910,65 @@ def render_html(
       <p>如果后续补充规范交易文件，建议字段使用 <code>date,amount,shares,type</code>。脚本会按日期自动合并，买卖点圆点按金额或股数缩放，底部成交柱同步展示买入和卖出。</p>
       <p>移动端默认保持页面滚动，长按图表后才进入十字线检查模式；松手或改为纵向拖动会退出检查模式。</p>
     </div>
+    <section id="debug-panel" class="debug-panel" hidden>
+      <div class="debug-title">Debug: 时间轴与打点映射</div>
+      <div class="debug-subtitle">只在 URL 带 <code>debug=1</code> 时显示。这里列出价格曲线交易日轴，以及每个买卖点映射到的交易日索引和相邻交易日，便于判断是否存在时间轴错位。</div>
+      <div id="debug-grid" class="debug-grid"></div>
+      <div class="debug-block">
+        <div class="debug-block-title">价格轴摘要</div>
+        <pre id="debug-axis-summary" class="debug-pre"></pre>
+      </div>
+      <div class="debug-block">
+        <div class="debug-block-title">买点映射</div>
+        <div class="debug-table-wrap">
+          <table class="debug-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>打点日期</th>
+                <th>曲线索引</th>
+                <th>曲线日期</th>
+                <th>收盘价</th>
+                <th>打点价</th>
+                <th>价差</th>
+                <th>前一交易日</th>
+                <th>后一交易日</th>
+                <th>当日买入笔数</th>
+              </tr>
+            </thead>
+            <tbody id="debug-buy-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="debug-block">
+        <div class="debug-block-title">卖点映射</div>
+        <div class="debug-table-wrap">
+          <table class="debug-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>打点日期</th>
+                <th>曲线索引</th>
+                <th>曲线日期</th>
+                <th>收盘价</th>
+                <th>打点价</th>
+                <th>价差</th>
+                <th>前一交易日</th>
+                <th>后一交易日</th>
+                <th>当日卖出笔数</th>
+              </tr>
+            </thead>
+            <tbody id="debug-sell-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   </div>
   <script>
     const payload = {json.dumps(payload, ensure_ascii=False)};
     const drawdownSymbol = {json.dumps(ticker, ensure_ascii=False)};
     const usesTradeAmounts = payload.uses_trade_amounts;
+    const debugEnabled = new URLSearchParams(window.location.search).get("debug") === "1";
     const dateTimestamps = payload.dates.map((value) => Date.parse(`${{value}}T00:00:00Z`));
     const rangeBreaks = payload.missing_dates.length ? [{{ values: payload.missing_dates }}] : [];
     const DEFAULT_X_RANGE = [payload.dates[0], payload.dates[payload.dates.length - 1]];
@@ -1833,6 +1999,23 @@ def render_html(
 
     function formatCount(value) {{
       return value > 0 ? `${{Math.round(value)}}` : " -";
+    }}
+
+    function escapeHtml(value) {{
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }}
+
+    function formatSignedPriceDelta(value) {{
+      if (value == null || Number.isNaN(value)) {{
+        return " -";
+      }}
+      const sign = value > 0 ? "+" : "";
+      return `${{sign}}${{value.toFixed(2)}}`;
     }}
 
     function formatDateInput(dateValue) {{
@@ -1924,6 +2107,111 @@ def render_html(
       return offset < 0
         ? `前${{Math.abs(offset)}}个交易日`
         : `后${{Math.abs(offset)}}个交易日`;
+    }}
+
+    function renderDebugPanel() {{
+      if (!debugEnabled) {{
+        return;
+      }}
+
+      const panel = document.getElementById("debug-panel");
+      const grid = document.getElementById("debug-grid");
+      const axisSummary = document.getElementById("debug-axis-summary");
+      const buyBody = document.getElementById("debug-buy-body");
+      const sellBody = document.getElementById("debug-sell-body");
+      const dateIndexMap = new Map(payload.dates.map((dateValue, index) => [dateValue, index]));
+
+      function buildTradeRow(side, index) {{
+        const dates = side === "buy" ? payload.buy_dates : payload.sell_dates;
+        const prices = side === "buy" ? payload.buy_prices : payload.sell_prices;
+        const counts = side === "buy" ? payload.daily_buy_counts : payload.daily_sell_counts;
+        const markerDate = dates[index];
+        const curveIndex = dateIndexMap.has(markerDate) ? dateIndexMap.get(markerDate) : -1;
+        const curveDate = curveIndex >= 0 ? payload.dates[curveIndex] : "未命中";
+        const closePrice = curveIndex >= 0 ? payload.closes[curveIndex] : null;
+        const markerPrice = prices[index];
+        const priceDelta = closePrice == null ? null : markerPrice - closePrice;
+        const prevDate = curveIndex > 0 ? payload.dates[curveIndex - 1] : " -";
+        const nextDate = curveIndex >= 0 && curveIndex < payload.dates.length - 1 ? payload.dates[curveIndex + 1] : " -";
+        const dayCount = curveIndex >= 0 ? counts[curveIndex] : 0;
+        return {{
+          seq: index + 1,
+          markerDate,
+          curveIndex,
+          curveDate,
+          closePrice,
+          markerPrice,
+          priceDelta,
+          prevDate,
+          nextDate,
+          dayCount
+        }};
+      }}
+
+      function renderTradeRows(side) {{
+        const dates = side === "buy" ? payload.buy_dates : payload.sell_dates;
+        return dates.map((_, index) => buildTradeRow(side, index));
+      }}
+
+      function buildTableHtml(rows) {{
+        if (!rows.length) {{
+          return '<tr><td colspan="10">当前范围内没有交易点</td></tr>';
+        }}
+        return rows.map((row) => `
+          <tr>
+            <td>${{row.seq}}</td>
+            <td>${{escapeHtml(row.markerDate)}}</td>
+            <td>${{row.curveIndex >= 0 ? row.curveIndex : "未命中"}}</td>
+            <td>${{escapeHtml(row.curveDate)}}</td>
+            <td>${{row.closePrice == null ? " -" : escapeHtml(formatPrice(row.closePrice))}}</td>
+            <td>${{escapeHtml(formatPrice(row.markerPrice))}}</td>
+            <td>${{escapeHtml(formatSignedPriceDelta(row.priceDelta))}}</td>
+            <td>${{escapeHtml(row.prevDate)}}</td>
+            <td>${{escapeHtml(row.nextDate)}}</td>
+            <td>${{escapeHtml(formatCount(row.dayCount))}}</td>
+          </tr>
+        `).join("");
+      }}
+
+      const buyRows = renderTradeRows("buy");
+      const sellRows = renderTradeRows("sell");
+      const matchedBuyCount = buyRows.filter((row) => row.curveIndex >= 0).length;
+      const matchedSellCount = sellRows.filter((row) => row.curveIndex >= 0).length;
+
+      panel.hidden = false;
+      panel.classList.add("is-visible");
+      grid.innerHTML = [
+        ["价格轴起点", payload.dates[0]],
+        ["价格轴终点", payload.dates[payload.dates.length - 1]],
+        ["价格轴交易日数", `${{payload.dates.length}}`],
+        ["隐藏非交易日数", `${{payload.missing_dates.length}}`],
+        ["买点命中价格轴", `${{matchedBuyCount}} / ${{buyRows.length}}`],
+        ["卖点命中价格轴", `${{matchedSellCount}} / ${{sellRows.length}}`]
+      ].map(([label, value]) => `
+        <div class="debug-stat">
+          <div class="debug-stat-label">${{escapeHtml(label)}}</div>
+          <div class="debug-stat-value">${{escapeHtml(value)}}</div>
+        </div>
+      `).join("");
+
+      axisSummary.textContent = JSON.stringify(
+        {{
+          symbol: drawdownSymbol,
+          range_start: payload.range_start_date,
+          range_end: payload.range_end_date,
+          point_count: payload.point_count,
+          price_axis_first_12: payload.dates.slice(0, 12),
+          price_axis_last_12: payload.dates.slice(-12),
+          hidden_calendar_dates_first_24: payload.missing_dates.slice(0, 24),
+          hidden_calendar_dates_total: payload.missing_dates.length,
+          buy_dates: payload.buy_dates,
+          sell_dates: payload.sell_dates
+        }},
+        null,
+        2
+      );
+      buyBody.innerHTML = buildTableHtml(buyRows);
+      sellBody.innerHTML = buildTableHtml(sellRows);
     }}
 
     function renderTradeSection(side, anchorIndex) {{
@@ -2712,6 +3000,7 @@ def render_html(
       scrollZoom: false,
       doubleClick: "reset"
     }}).then((plot) => {{
+      renderDebugPanel();
       applyMode(plot, currentMode);
       const crosshairToggle = document.getElementById("crosshair-toggle");
       const snapshotToggle = document.getElementById("snapshot-toggle");
