@@ -698,13 +698,35 @@ def align_trade_date(
     if overlay_key in point_dates:
         return overlay_key, None
 
+    first_date = point_dates[0]
+    last_date = point_dates[-1]
+    if overlay_key < first_date:
+        return None, f"{overlay_key} 早于当前图表时间范围，已跳过"
+    if overlay_key > last_date:
+        return None, f"{overlay_key} 晚于当前图表时间范围，已跳过"
+
     position = bisect_right(point_dates, overlay_key)
     if position > 0:
         aligned = point_dates[position - 1]
         return aligned, f"{overlay_key} 对齐到最近交易日 {aligned}"
 
-    aligned = point_dates[0]
-    return aligned, f"{overlay_key} 早于价格序列起点，已对齐到 {aligned}"
+    return None, f"{overlay_key} 未匹配到当前图表时间范围，已跳过"
+
+
+def filter_trade_overlays_by_date_range(
+    overlays: list[TradeOverlay],
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> list[TradeOverlay]:
+    if start_date and end_date and start_date > end_date:
+        raise ValueError("开始日期不能晚于结束日期。")
+
+    return [
+        overlay
+        for overlay in overlays
+        if (start_date is None or overlay.date.date() >= start_date)
+        and (end_date is None or overlay.date.date() <= end_date)
+    ]
 
 
 def build_trade_summary(
@@ -2814,6 +2836,7 @@ def render_longbridge_drawdown_from_overlays(
 ) -> tuple[str, list[str], str]:
     points, resolved_symbol = load_longbridge_price_points(ticker, overlays, symbol_override)
     points = filter_price_points_by_date_range(points, start_date, end_date)
+    overlays = filter_trade_overlays_by_date_range(overlays, start_date, end_date)
     trade_summary, warnings = build_trade_summary(points, overlays)
     payload = build_chart_payload(points, trade_summary)
     html = render_html(
