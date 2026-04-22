@@ -1304,6 +1304,76 @@ def render_html(
       margin-bottom: 8px;
     }}
 
+    .interaction-cluster {{
+      display: inline-flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }}
+
+    .interaction-switch {{
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }}
+
+    .interaction-button {{
+      appearance: none;
+      border: 1px solid rgba(23, 33, 33, 0.12);
+      background: rgba(255, 250, 243, 0.88);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+      transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+    }}
+
+    .interaction-button.is-active {{
+      background: var(--ink);
+      color: #fffaf3;
+      border-color: var(--ink);
+    }}
+
+    .ghost-button {{
+      appearance: none;
+      border: 1px solid rgba(23, 33, 33, 0.1);
+      background: rgba(255, 250, 243, 0.7);
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 12px;
+      line-height: 1;
+      cursor: pointer;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(2px);
+      transition: opacity 120ms ease, transform 120ms ease;
+    }}
+
+    .ghost-button.is-visible {{
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }}
+
+    .interaction-hint {{
+      flex: 1 1 280px;
+      min-width: 220px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--muted);
+      text-align: right;
+    }}
+
+    .interaction-hint strong {{
+      color: var(--ink);
+      font-weight: 700;
+    }}
+
     .range-toolbar {{
       display: flex;
       flex-wrap: wrap;
@@ -1546,6 +1616,15 @@ def render_html(
         margin-bottom: 6px;
       }}
 
+      .interaction-cluster {{
+        width: 100%;
+      }}
+
+      .interaction-hint {{
+        flex-basis: 100%;
+        text-align: left;
+      }}
+
       .mode-switch {{
         gap: 6px;
       }}
@@ -1646,6 +1725,16 @@ def render_html(
           <input id="snapshot-toggle" type="checkbox" checked>
           <span>悬浮窗</span>
         </label>
+        <div class="interaction-cluster">
+          <div class="interaction-switch" aria-label="Chart interactions">
+            <button class="interaction-button is-active" data-interaction-mode="inspect" type="button">观察</button>
+            <button class="interaction-button" data-interaction-mode="zoom" type="button">缩放</button>
+          </div>
+          <button class="ghost-button" id="reset-zoom" type="button">重置视图</button>
+          <div class="interaction-hint" id="interaction-hint">
+            <strong>观察</strong>：移动查看细节；切到 <strong>缩放</strong> 后可框选放大，双击回到全局，底部导航条可细调时间窗。
+          </div>
+        </div>
         <div class="mode-switch" aria-label="Drawdown modes">
           <button class="mode-button" data-mode="alltime" type="button">All-time</button>
           <button class="mode-button" data-mode="rolling" type="button">Rolling 120d</button>
@@ -1682,6 +1771,7 @@ def render_html(
     const usesTradeAmounts = payload.uses_trade_amounts;
     const dateTimestamps = payload.dates.map((value) => Date.parse(`${{value}}T00:00:00Z`));
     const rangeBreaks = payload.missing_dates.length ? [{{ values: payload.missing_dates }}] : [];
+    const DEFAULT_X_RANGE = [payload.dates[0], payload.dates[payload.dates.length - 1]];
     const currencyFormatter = new Intl.NumberFormat("en-US", {{
       minimumFractionDigits: 2,
       maximumFractionDigits: 2
@@ -2086,6 +2176,7 @@ def render_html(
     const hasBuyBarTrace = usesTradeAmounts && payload.buy_bar_dates.length > 0;
     const hasSellBarTrace = usesTradeAmounts && payload.sell_bar_dates.length > 0;
     let currentMode = "both";
+    let interactionMode = "inspect";
 
     function visibilityFor(mode) {{
       const visible = [
@@ -2219,6 +2310,35 @@ def render_html(
       }};
     }}
 
+    function interactionRelayout(mode) {{
+      const zoomMode = mode === "zoom";
+      const sharedRangeSlider = {{
+        visible: zoomMode,
+        thickness: 0.12,
+        bgcolor: "rgba(255, 250, 243, 0.88)",
+        bordercolor: "rgba(23, 33, 33, 0.08)",
+        borderwidth: 1
+      }};
+      const relayout = {{
+        dragmode: zoomMode ? "zoom" : false,
+        hovermode: zoomMode ? false : "closest",
+        "xaxis.fixedrange": !zoomMode,
+        "yaxis.fixedrange": true,
+        "xaxis2.fixedrange": !zoomMode,
+        "yaxis2.fixedrange": true,
+        "xaxis.rangeslider.visible": sharedRangeSlider.visible,
+        "xaxis.rangeslider.thickness": sharedRangeSlider.thickness,
+        "xaxis.rangeslider.bgcolor": sharedRangeSlider.bgcolor,
+        "xaxis.rangeslider.bordercolor": sharedRangeSlider.bordercolor,
+        "xaxis.rangeslider.borderwidth": sharedRangeSlider.borderwidth
+      }};
+      if (usesTradeAmounts) {{
+        relayout["xaxis3.fixedrange"] = !zoomMode;
+        relayout["yaxis3.fixedrange"] = true;
+      }}
+      return relayout;
+    }}
+
     function crosshairRelayout(enabled) {{
       const relayout = {{
         hovermode: enabled ? false : "closest",
@@ -2232,6 +2352,18 @@ def render_html(
         relayout["yaxis3.showspikes"] = false;
       }}
       return relayout;
+    }}
+
+    function setInteractionHint(mode) {{
+      const hint = document.getElementById("interaction-hint");
+      const resetButton = document.getElementById("reset-zoom");
+      if (mode === "zoom") {{
+        hint.innerHTML = "<strong>缩放</strong>：桌面端可拖拽框选、双击回到全局；移动端可用底部导航条收窄或平移窗口。";
+        resetButton.classList.add("is-visible");
+      }} else {{
+        hint.innerHTML = "<strong>观察</strong>：移动查看细节；切到 <strong>缩放</strong> 后可框选放大，双击回到全局，底部导航条可细调时间窗。";
+        resetButton.classList.remove("is-visible");
+      }}
     }}
 
     function resetHoverCard() {{
@@ -2505,11 +2637,12 @@ def render_html(
       displaylogo: false,
       displayModeBar: false,
       scrollZoom: false,
-      doubleClick: false
+      doubleClick: "reset"
     }}).then((plot) => {{
       applyMode(plot, currentMode);
       const crosshairToggle = document.getElementById("crosshair-toggle");
       const snapshotToggle = document.getElementById("snapshot-toggle");
+      const resetZoomButton = document.getElementById("reset-zoom");
       const LONG_PRESS_MS = 320;
       const TOUCH_MOVE_TOLERANCE = 10;
       const TOUCH_EXIT_VERTICAL_PX = 28;
@@ -2545,10 +2678,57 @@ def render_html(
         updateCrosshairDisplay(plot, point.x, point.y);
       }}
 
+      function resetZoomView() {{
+        const relayout = {{
+          "xaxis.autorange": false,
+          "xaxis.range": DEFAULT_X_RANGE,
+          "xaxis2.range": DEFAULT_X_RANGE
+        }};
+        if (usesTradeAmounts) {{
+          relayout["xaxis3.range"] = DEFAULT_X_RANGE;
+        }}
+        Plotly.relayout(plot, relayout);
+      }}
+
+      function applyInteractionMode(mode) {{
+        interactionMode = mode;
+        document.querySelectorAll("[data-interaction-mode]").forEach((button) => {{
+          button.classList.toggle("is-active", button.dataset.interactionMode === mode);
+        }});
+        if (mode !== "inspect") {{
+          exitInspectMode();
+          hideCrosshair();
+          resetHoverCard();
+        }}
+        Plotly.relayout(plot, {{
+          ...responsiveRelayout(),
+          ...interactionRelayout(mode),
+          ...(mode === "inspect" ? crosshairRelayout(crosshairToggle.checked) : {{
+            "xaxis.showspikes": false,
+            "yaxis.showspikes": false,
+            "xaxis2.showspikes": false,
+            "yaxis2.showspikes": false,
+            ...(usesTradeAmounts ? {{
+              "xaxis3.showspikes": false,
+              "yaxis3.showspikes": false
+            }} : {{}})
+          }})
+        }});
+        setInteractionHint(mode);
+      }}
+
       document.querySelectorAll(".mode-button").forEach((button) => {{
         button.addEventListener("click", () => {{
           applyMode(plot, button.dataset.mode || "both");
         }});
+      }});
+      document.querySelectorAll("[data-interaction-mode]").forEach((button) => {{
+        button.addEventListener("click", () => {{
+          applyInteractionMode(button.dataset.interactionMode || "inspect");
+        }});
+      }});
+      resetZoomButton.addEventListener("click", () => {{
+        resetZoomView();
       }});
       document.getElementById("apply-range").addEventListener("click", () => {{
         navigateWithCurrentRange();
@@ -2562,7 +2742,17 @@ def render_html(
       const applyCrosshair = () => {{
         Plotly.relayout(plot, {{
           ...responsiveRelayout(),
-          ...crosshairRelayout(crosshairToggle.checked)
+          ...interactionRelayout(interactionMode),
+          ...(interactionMode === "inspect" ? crosshairRelayout(crosshairToggle.checked) : {{
+            "xaxis.showspikes": false,
+            "yaxis.showspikes": false,
+            "xaxis2.showspikes": false,
+            "yaxis2.showspikes": false,
+            ...(usesTradeAmounts ? {{
+              "xaxis3.showspikes": false,
+              "yaxis3.showspikes": false
+            }} : {{}})
+          }})
         }});
         if (!crosshairToggle.checked) {{
           hideCrosshair();
@@ -2586,6 +2776,9 @@ def render_html(
         }}
       }});
       plot.addEventListener("mousemove", (event) => {{
+        if (interactionMode !== "inspect") {{
+          return;
+        }}
         if (!crosshairToggle.checked && !snapshotToggle.checked) {{
           return;
         }}
@@ -2593,6 +2786,9 @@ def render_html(
         updateCrosshairDisplay(plot, event.clientX - rect.left, event.clientY - rect.top);
       }});
       plot.addEventListener("click", (event) => {{
+        if (interactionMode !== "inspect") {{
+          return;
+        }}
         if (isMobileViewport()) {{
           return;
         }}
@@ -2603,6 +2799,9 @@ def render_html(
         updateCrosshairDisplay(plot, event.clientX - rect.left, event.clientY - rect.top);
       }});
       plot.addEventListener("touchstart", (event) => {{
+        if (interactionMode !== "inspect") {{
+          return;
+        }}
         if (!crosshairToggle.checked && !snapshotToggle.checked) {{
           return;
         }}
@@ -2624,6 +2823,9 @@ def render_html(
         }}, LONG_PRESS_MS);
       }}, {{ passive: true }});
       plot.addEventListener("touchmove", (event) => {{
+        if (interactionMode !== "inspect") {{
+          return;
+        }}
         if (!crosshairToggle.checked && !snapshotToggle.checked) {{
           return;
         }}
@@ -2663,6 +2865,9 @@ def render_html(
         updateCrosshairDisplay(plot, point.x, point.y);
       }}, {{ passive: false }});
       plot.addEventListener("touchend", () => {{
+        if (interactionMode !== "inspect") {{
+          return;
+        }}
         clearLongPressTimer();
         pendingTouchPoint = null;
         touchStartPoint = null;
@@ -2671,6 +2876,9 @@ def render_html(
         }}
       }}, {{ passive: true }});
       plot.addEventListener("touchcancel", () => {{
+        if (interactionMode !== "inspect") {{
+          return;
+        }}
         clearLongPressTimer();
         pendingTouchPoint = null;
         touchStartPoint = null;
@@ -2679,14 +2887,21 @@ def render_html(
         }}
       }}, {{ passive: true }});
       plot.addEventListener("mouseleave", () => {{
+        if (interactionMode !== "inspect") {{
+          return;
+        }}
         if (crosshairToggle.checked) {{
           hideCrosshair();
         }}
         resetHoverCard();
       }});
       window.addEventListener("resize", () => {{
-        Plotly.relayout(plot, responsiveRelayout());
+        Plotly.relayout(plot, {{
+          ...responsiveRelayout(),
+          ...interactionRelayout(interactionMode)
+        }});
       }});
+      applyInteractionMode(interactionMode);
       applyCrosshair();
     }});
   </script>
