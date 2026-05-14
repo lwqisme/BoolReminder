@@ -36,7 +36,7 @@ class StrategyLabRobustTest(unittest.TestCase):
                     finalist_size=6,
                 )
 
-        self.assertEqual(len(result["tasks"]), 3)
+        self.assertEqual(len(result["tasks"]), 1)
         self.assertLessEqual(len(result["leaderboard"]), 5)
         self.assertGreater(result["candidate_counts"]["coarse"], 0)
         self.assertGreater(result["candidate_counts"]["fine"], 0)
@@ -45,7 +45,7 @@ class StrategyLabRobustTest(unittest.TestCase):
         self.assertIn("robust_score", top)
         self.assertGreaterEqual(top["top10_rate"], 0)
         self.assertGreaterEqual(top["bottom10_rate"], 0)
-        self.assertEqual(top["task_count"], 3)
+        self.assertEqual(top["task_count"], 1)
 
     def test_robust_leaderboard_includes_buy_parameter_candidates(self):
         def fake_fetch(_ctx, _symbol, _start, _end):
@@ -87,6 +87,28 @@ class StrategyLabRobustTest(unittest.TestCase):
         self.assertEqual(result["method"]["score_mode"], "return_drawdown")
         self.assertEqual(result["method"]["score_formula"], "80% return + 20% drawdown")
         self.assertLessEqual(len(result["leaderboard"]), 3)
+
+    def test_disabled_scorecard_periods_are_not_scored(self):
+        def fake_fetch(_ctx, _symbol, _start, _end):
+            return candles(100, 96, 90, 105, 116, 111, 125, 138)
+
+        with patch("drawdown.position_strategy.build_longbridge_quote_context", return_value=object()):
+            with patch("drawdown.position_strategy.fetch_longbridge_daily_candles", side_effect=fake_fetch):
+                result = run_longbridge_robust_leaderboard(
+                    StrategyInputs(initial_cash=1000, monthly_contribution=0, trade_fee=0, max_drawdown_pct=40),
+                    end_date=datetime(2021, 1, 8).date(),
+                    portfolio_keys=["tsla_100"],
+                    scorecard_periods=[
+                        {"key": "1y", "label": "启用", "start": "2021-01-01", "end": "2021-01-08", "enabled": True},
+                        {"key": "3y", "label": "关闭", "start": "2021-01-01", "end": "2021-01-08", "enabled": False},
+                    ],
+                    buy_strategies=["pyramid_3"],
+                    top_n=3,
+                    coarse_shortlist_size=3,
+                    finalist_size=4,
+                )
+
+        self.assertEqual([task["period_key"] for task in result["tasks"]], ["1y"])
 
 
 if __name__ == "__main__":

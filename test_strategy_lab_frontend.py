@@ -40,6 +40,27 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("强势命中率", html)
         self.assertIn("踩坑率", html)
 
+    def test_robust_top10_is_independent_and_shares_score_topics(self):
+        with app.test_client() as client:
+            html = client.get("/strategy-lab").get_data(as_text=True)
+
+        self.assertIn('data-tab="robust"', html)
+        self.assertIn('id="robustWorkspace"', html)
+        self.assertIn("共享题目矩阵", html)
+        self.assertIn("function syncScorecardTopic(changedInput)", html)
+        self.assertIn("function syncScorecardPeriod(changedInput)", html)
+        self.assertIn("function selectedScorecardPeriods()", html)
+        self.assertIn("enabled: !enabledEl || enabledEl.checked", html)
+        self.assertIn("当前勾选题目会同时影响稳健 Top10 与策略评分", html)
+
+        scan_panel = re.search(
+            r'<div id="scanWorkspace".*?<div id="robustWorkspace"',
+            html,
+            re.S,
+        )
+        self.assertIsNotNone(scan_panel)
+        self.assertNotIn("运行稳健 Top10", scan_panel.group(0))
+
     def test_salary_flow_dca_explanation_is_visible_in_strategy_reference(self):
         with app.test_client() as client:
             html = client.get("/strategy-lab").get_data(as_text=True)

@@ -1777,6 +1777,16 @@ STRATEGY_LAB_TEMPLATE = """
             border-radius: 14px;
             background: rgba(255, 255, 255, 0.58);
         }
+        .score-period-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 7px;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 900;
+        }
+        .score-period-toggle input { width: auto; min-height: 0; margin: 0; accent-color: var(--blue); }
         .score-period-name {
             width: 100%;
             min-height: 30px;
@@ -2610,6 +2620,7 @@ STRATEGY_LAB_TEMPLATE = """
                 <button class="active" type="button" data-tab="setup" data-short="配置" onclick="activateTab('setup')">实验配置</button>
                 <button type="button" data-tab="results" data-short="演算" onclick="activateTab('results')">组合演算</button>
                 <button type="button" data-tab="scorecard" data-short="评分" onclick="activateTab('scorecard')">策略评分</button>
+                <button type="button" data-tab="robust" data-short="Top10" onclick="activateTab('robust')">稳健 Top10</button>
                 <button type="button" data-tab="scan" data-short="扫描" onclick="activateTab('scan')">参数扫描</button>
                 <button type="button" data-tab="history" data-short="历史" onclick="activateTab('history')">运行历史</button>
             </nav>
@@ -2954,14 +2965,13 @@ STRATEGY_LAB_TEMPLATE = """
             <div class="tool-head">
                 <h2>卖出参数扫描</h2>
                 <div style="display:flex;align-items:center;gap:8px;">
-                    <span class="small">单参数扫描用于局部调参；稳健榜用分阶段搜索找跨题目 Top10。</span>
+                    <span class="small">单参数扫描用于局部调参。</span>
                     <button class="btn btn-secondary btn-small" type="button" onclick="runSellParameterScan()">运行扫描</button>
-                    <button class="btn btn-secondary btn-small" type="button" onclick="runRobustLeaderboard()">稳健 Top10</button>
                     <span class="code">SCAN</span>
                 </div>
             </div>
             <div class="tool-body">
-            <div class="hint">扫描用于优化阶梯修复卖出参数；稳健 Top10 会读取评分页勾选的股票/组合与时间阶段，先用代表性题目粗筛，再局部加密，最后对候选做全题验证。行情数据统一准备，避免每个候选重复请求外部 API。</div>
+            <div class="hint">扫描用于优化阶梯修复卖出参数；当前设置作为基准，点击热力格可把参数回填到实验配置。</div>
             <div class="scan-panel" aria-label="卖出参数扫描">
                 <div class="scan-controls">
                     <label>买入规则
@@ -2990,13 +3000,6 @@ STRATEGY_LAB_TEMPLATE = """
                 </div>
                 <div class="scan-actions">
                     <button class="btn btn-secondary btn-small" type="button" onclick="runSellParameterScan()">运行扫描</button>
-                    <button class="btn btn-secondary btn-small" type="button" onclick="runRobustLeaderboard()">运行稳健 Top10</button>
-                    <label class="scan-mode">稳健榜口径
-                        <select id="robustScoreMode">
-                            <option value="robust">稳健综合</option>
-                            <option value="return_drawdown">收益优先 80/20</option>
-                        </select>
-                    </label>
                     <label class="scan-mode">评分口径
                         <select id="scanScoreMode" onchange="rerenderSellScan()">
                             <option value="balanced" {% if default_config.default_scan_score_mode == 'balanced' %}selected{% endif %}>综合参数评分</option>
@@ -3025,10 +3028,68 @@ STRATEGY_LAB_TEMPLATE = """
                     </div>
                     <div class="scan-legend"><i></i><span id="scanLegendText">颜色按综合参数评分从低到高；蓝框是当前参数，绿框是本次扫描最佳。</span></div>
                 </div>
+            </div>
+            </div>
+        </div>
+
+        <div id="robustWorkspace" class="panel tab-hidden" data-tab-panel="robust">
+            <div class="tool-head">
+                <h2>稳健 Top10</h2>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span id="robustRange" class="small">读取下方共享题目矩阵，按勾选股票/组合与时间阶段评分。</span>
+                    <button class="btn btn-secondary btn-small" type="button" onclick="runRobustLeaderboard()">运行稳健 Top10</button>
+                    <span class="code">TOP10</span>
+                </div>
+            </div>
+            <div class="tool-body">
+            <div class="hint">稳健 Top10 独立于卖出参数扫描；它会读取下方共享题目矩阵，先用代表性题目粗筛，再局部加密，最后只对当前勾选题目做全题验证。行情数据统一准备，避免每个候选重复请求外部 API。</div>
+            <div class="score-topic-panel" aria-label="稳健 Top10 共享题目">
+                <div class="score-topic-title">共享题目矩阵 <span data-score-topic-summary></span></div>
+                <div>
+                    <div class="score-topic-options">
+                        {% for item in scorecard_portfolios %}
+                            <label class="score-topic-option">
+                                <input type="checkbox" name="scoreTopic" value="{{ item.key }}" onchange="syncScorecardTopic(this)" {% if item.key in default_scorecard_portfolio_keys %}checked{% endif %}>
+                                {{ item.short_label }}
+                            </label>
+                        {% endfor %}
+                    </div>
+                    <div class="score-period-grid">
+                        {% for period in scorecard_periods %}
+                            <div class="score-period-card">
+                                <label class="score-period-toggle">
+                                    <input type="checkbox" data-score-period="{{ period.key }}" data-period-field="enabled" onchange="syncScorecardPeriod(this)" {% if period.enabled %}checked{% endif %}>
+                                    启用阶段
+                                </label>
+                                <input class="score-period-name" type="text" value="{{ period.label }}" data-score-period="{{ period.key }}" data-period-field="label" oninput="syncScorecardPeriod(this)" aria-label="{{ period.label }} 名称">
+                                <div class="score-period-fields">
+                                    <label>开始
+                                        <input type="date" value="{{ period.start }}" data-score-period="{{ period.key }}" data-period-field="start" onchange="syncScorecardPeriod(this)">
+                                    </label>
+                                    <label>结束
+                                        <input type="date" value="{{ period.end }}" data-score-period="{{ period.key }}" data-period-field="end" onchange="syncScorecardPeriod(this)">
+                                    </label>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            <div class="scan-panel" aria-label="稳健 Top10 控制">
+                <div class="scan-actions">
+                    <button class="btn btn-primary btn-small" type="button" onclick="runRobustLeaderboard()">运行稳健 Top10</button>
+                    <label class="scan-mode">稳健榜口径
+                        <select id="robustScoreMode">
+                            <option value="robust">稳健综合</option>
+                            <option value="return_drawdown">收益优先 80/20</option>
+                        </select>
+                    </label>
+                    <span class="scan-note">当前勾选题目会同时影响稳健 Top10 与策略评分。</span>
+                </div>
                 <div id="robustBoard" class="robust-board">
                     <div class="summary-title">
-                        <h2>稳健 Top10</h2>
-                        <span id="robustRange" class="small"></span>
+                        <h2>稳健 Top10 结果</h2>
+                        <span id="robustResultMeta" class="small"></span>
                     </div>
                     <div id="robustStrip" class="robust-strip"></div>
                     <div class="table-wrap">
@@ -3164,12 +3225,12 @@ STRATEGY_LAB_TEMPLATE = """
                 <div class="score-weight-note">运行评分时读取当前权重；后端会按比例归一化，例如 80 / 20 与 4 / 1 等价。</div>
             </div>
             <div class="score-topic-panel" aria-label="评分题目">
-                <div class="score-topic-title">题目矩阵</div>
+                <div class="score-topic-title">共享题目矩阵 <span data-score-topic-summary></span></div>
                 <div>
                     <div class="score-topic-options">
                         {% for item in scorecard_portfolios %}
                             <label class="score-topic-option">
-                                <input type="checkbox" name="scoreTopic" value="{{ item.key }}" onchange="updateScorecardQuestionHint()" {% if item.key in default_scorecard_portfolio_keys %}checked{% endif %}>
+                                <input type="checkbox" name="scoreTopic" value="{{ item.key }}" onchange="syncScorecardTopic(this)" {% if item.key in default_scorecard_portfolio_keys %}checked{% endif %}>
                                 {{ item.short_label }}
                             </label>
                         {% endfor %}
@@ -3177,13 +3238,17 @@ STRATEGY_LAB_TEMPLATE = """
                     <div class="score-period-grid">
                         {% for period in scorecard_periods %}
                             <div class="score-period-card">
-                                <input class="score-period-name" type="text" value="{{ period.label }}" data-score-period="{{ period.key }}" data-period-field="label" aria-label="{{ period.label }} 名称">
+                                <label class="score-period-toggle">
+                                    <input type="checkbox" data-score-period="{{ period.key }}" data-period-field="enabled" onchange="syncScorecardPeriod(this)" {% if period.enabled %}checked{% endif %}>
+                                    启用阶段
+                                </label>
+                                <input class="score-period-name" type="text" value="{{ period.label }}" data-score-period="{{ period.key }}" data-period-field="label" oninput="syncScorecardPeriod(this)" aria-label="{{ period.label }} 名称">
                                 <div class="score-period-fields">
                                     <label>开始
-                                        <input type="date" value="{{ period.start }}" data-score-period="{{ period.key }}" data-period-field="start">
+                                        <input type="date" value="{{ period.start }}" data-score-period="{{ period.key }}" data-period-field="start" onchange="syncScorecardPeriod(this)">
                                     </label>
                                     <label>结束
-                                        <input type="date" value="{{ period.end }}" data-score-period="{{ period.key }}" data-period-field="end">
+                                        <input type="date" value="{{ period.end }}" data-score-period="{{ period.key }}" data-period-field="end" onchange="syncScorecardPeriod(this)">
                                     </label>
                                 </div>
                             </div>
@@ -3606,17 +3671,54 @@ STRATEGY_LAB_TEMPLATE = """
         }
 
         function selectedScorecardPortfolios() {
-            return Array.from(document.querySelectorAll('input[name="scoreTopic"]:checked'))
-                .map((input) => input.value);
+            return Array.from(new Set(
+                Array.from(document.querySelectorAll('input[name="scoreTopic"]:checked'))
+                    .map((input) => input.value)
+            ));
+        }
+
+        function syncScorecardTopic(changedInput) {
+            if (changedInput) {
+                document.querySelectorAll('input[name="scoreTopic"]').forEach((input) => {
+                    if (input.value === changedInput.value) {
+                        input.checked = changedInput.checked;
+                    }
+                });
+            }
+            updateScorecardQuestionHint();
+        }
+
+        function syncScorecardPeriod(changedInput) {
+            if (changedInput) {
+                const key = changedInput.dataset.scorePeriod;
+                const field = changedInput.dataset.periodField;
+                document.querySelectorAll(`[data-score-period="${key}"][data-period-field="${field}"]`).forEach((input) => {
+                    if (input !== changedInput && input.type === 'checkbox') {
+                        input.checked = changedInput.checked;
+                    } else if (input !== changedInput) {
+                        input.value = changedInput.value;
+                    }
+                });
+            }
+            updateScorecardQuestionHint();
+        }
+
+        function selectedScorecardPeriods() {
+            return scorecardPeriods.filter((period) => {
+                const enabledEl = document.querySelector(`[data-score-period="${period.key}"][data-period-field="enabled"]`);
+                return !enabledEl || enabledEl.checked;
+            });
         }
 
         function scorecardPeriodPayload() {
             return scorecardPeriods.map((period) => {
+                const enabledEl = document.querySelector(`[data-score-period="${period.key}"][data-period-field="enabled"]`);
                 const labelEl = document.querySelector(`[data-score-period="${period.key}"][data-period-field="label"]`);
                 const startEl = document.querySelector(`[data-score-period="${period.key}"][data-period-field="start"]`);
                 const endEl = document.querySelector(`[data-score-period="${period.key}"][data-period-field="end"]`);
                 return {
                     key: period.key,
+                    enabled: !enabledEl || enabledEl.checked,
                     label: labelEl && labelEl.value.trim() ? labelEl.value.trim() : period.label,
                     start: startEl ? startEl.value : '',
                     end: endEl ? endEl.value : ''
@@ -3626,8 +3728,15 @@ STRATEGY_LAB_TEMPLATE = """
 
         function updateScorecardQuestionHint() {
             const topicCount = selectedScorecardPortfolios().length;
-            const periodCount = scorecardPeriods.length;
-            document.getElementById('scorecardRange').textContent = `${topicCount * periodCount} 个题目：${topicCount} 个标的/组合 × ${periodCount} 档时间。未填写日期时使用默认 252 / 756 / 1260 个交易日。`;
+            const periodCount = selectedScorecardPeriods().length;
+            const summaryText = `${topicCount * periodCount} 个题目：${topicCount} 个标的/组合 × ${periodCount} 档时间`;
+            document.getElementById('scorecardRange').textContent = `${summaryText}。未填写日期时使用默认 252 / 756 / 1260 个交易日。`;
+            if (!lastRobustLeaderboard) {
+                document.getElementById('robustRange').textContent = `${summaryText}；稳健 Top10 将只读取这些共享题目。`;
+            }
+            document.querySelectorAll('[data-score-topic-summary]').forEach((node) => {
+                node.textContent = summaryText;
+            });
             updateCommandBar();
         }
 
@@ -3719,12 +3828,13 @@ STRATEGY_LAB_TEMPLATE = """
                 setup: '实验配置',
                 results: '组合演算',
                 scorecard: '策略评分',
+                robust: '稳健 Top10',
                 scan: '参数扫描',
                 history: '运行历史'
             };
             document.getElementById('workspaceMode').textContent = modeLabels[activeTabName] || '策略实验室';
             const topicCount = selectedScorecardPortfolios().length;
-            const periodCount = scorecardPeriods.length;
+            const periodCount = selectedScorecardPeriods().length;
             const chips = [
                 ['时间', `${document.getElementById('start').value || '--'} 至 ${document.getElementById('end').value || '--'}`],
                 ['组合', currentPortfolioSummary()],
@@ -3756,6 +3866,14 @@ STRATEGY_LAB_TEMPLATE = """
                     setFreshness('评分结果匹配当前参数。', 'synced');
                 } else {
                     setFreshness('参数已变更，当前评分结果可能不是最新。', 'stale');
+                }
+                return;
+            }
+            if (activeTabName === 'robust') {
+                if (!lastRobustLeaderboard) {
+                    setFreshness('尚未运行稳健 Top10。', 'idle');
+                } else {
+                    setFreshness('稳健 Top10 结果来自当前页面会话；应用策略后可回到评分页横向比较。', 'synced');
                 }
                 return;
             }
@@ -4063,11 +4181,25 @@ STRATEGY_LAB_TEMPLATE = """
                     return;
                 }
                 ['label', 'start', 'end'].forEach((field) => {
-                    const element = document.querySelector(`[data-score-period="${period.key}"][data-period-field="${field}"]`);
-                    if (element && period[field] !== undefined && period[field] !== null) {
-                        element.value = period[field] || '';
-                    }
+                    document.querySelectorAll(`[data-score-period="${period.key}"][data-period-field="${field}"]`).forEach((element) => {
+                        if (period[field] !== undefined && period[field] !== null) {
+                            element.value = period[field] || '';
+                        }
+                    });
                 });
+                document.querySelectorAll(`[data-score-period="${period.key}"][data-period-field="enabled"]`).forEach((element) => {
+                    element.checked = period.enabled !== false;
+                });
+            });
+        }
+
+        function applyScorecardPortfolioKeys(keys) {
+            if (!Array.isArray(keys)) {
+                return;
+            }
+            const selected = new Set(keys.map(String));
+            document.querySelectorAll('input[name="scoreTopic"]').forEach((input) => {
+                input.checked = selected.has(input.value);
             });
         }
 
@@ -4123,9 +4255,7 @@ STRATEGY_LAB_TEMPLATE = """
                 setFieldValue('scoreDrawdownWeight', Number(payload.drawdown_weight || 0) * 100);
             }
             if (Array.isArray(payload.scorecard_portfolio_keys)) {
-                document.querySelectorAll('input[name="scoreTopic"]').forEach((input) => {
-                    input.checked = payload.scorecard_portfolio_keys.includes(input.value);
-                });
+                applyScorecardPortfolioKeys(payload.scorecard_portfolio_keys);
             }
             applyScorecardPeriods(payload.scorecard_periods);
 
@@ -5235,7 +5365,9 @@ STRATEGY_LAB_TEMPLATE = """
             const counts = data.candidate_counts || {};
             const method = data.method || {};
             const modeLabel = method.score_mode === 'return_drawdown' ? '收益优先 80/20' : '稳健综合';
-            document.getElementById('robustRange').textContent = `${data.range.start} 至 ${data.range.end}；${tasks.length} 个题目；${modeLabel}`;
+            const rangeText = `${data.range.start} 至 ${data.range.end}；${tasks.length} 个题目；${modeLabel}`;
+            document.getElementById('robustRange').textContent = rangeText;
+            document.getElementById('robustResultMeta').textContent = rangeText;
             document.getElementById('robustStrip').innerHTML = `
                 <div class="robust-stat"><span>粗筛候选</span><strong>${number(counts.coarse)}</strong></div>
                 <div class="robust-stat"><span>局部加密候选</span><strong>${number(counts.fine)}</strong></div>
@@ -5571,7 +5703,7 @@ STRATEGY_LAB_TEMPLATE = """
                     pollDelay: 1200
                 });
                 renderRobustLeaderboard(data);
-                activateTab('scan');
+                activateTab('robust');
                 updateCommandBar();
                 addRunHistory(
                     'robust',
@@ -6237,6 +6369,7 @@ def strategy_lab_page():
             "label": str(getattr(override, "label", "") or period["label"]),
             "start": str(getattr(override, "start", "") or ""),
             "end": str(getattr(override, "end", "") or ""),
+            "enabled": bool(getattr(override, "enabled", True)),
         })
     default_portfolio = lab_config.portfolio_or_default()
     return render_template_string(

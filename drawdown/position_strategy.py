@@ -1541,6 +1541,7 @@ def _resolve_scorecard_periods(
     default_end_date: date,
     raw_periods: Iterable[dict[str, object]] | None = None,
 ) -> list[dict[str, object]]:
+    has_custom_periods = raw_periods is not None
     raw_by_key = {
         str(period.get("key", "")): period
         for period in (raw_periods or [])
@@ -1549,7 +1550,13 @@ def _resolve_scorecard_periods(
     resolved: list[dict[str, object]] = []
     for default_period in SCORECARD_PERIODS:
         key = str(default_period["key"])
-        raw = raw_by_key.get(key, {})
+        raw = raw_by_key.get(key)
+        if has_custom_periods:
+            if raw is None:
+                continue
+            if not _scorecard_period_enabled(raw):
+                continue
+        raw = raw or {}
         label = str(raw.get("label") or default_period["label"])
         start_raw = raw.get("start") or raw.get("start_date")
         end_raw = raw.get("end") or raw.get("end_date")
@@ -1583,7 +1590,18 @@ def _resolve_scorecard_periods(
                     "trading_days": int(default_period["trading_days"]),
                 }
             )
+    if not resolved:
+        raise ValueError("至少需要选择一个评分时间阶段。")
     return resolved
+
+
+def _scorecard_period_enabled(raw: dict[str, object]) -> bool:
+    value = raw.get("enabled", True)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off"}
+    return bool(value)
 
 
 def _scan_float_values(values: Iterable[object], label: str, maximum: float | None = None) -> list[float]:

@@ -72,13 +72,15 @@ class ScorecardPeriodConfig:
     label: str = ""
     start: str = ""
     end: str = ""
+    enabled: bool = True
 
-    def to_payload(self) -> dict[str, str]:
+    def to_payload(self) -> dict[str, object]:
         return {
             "key": self.key,
             "label": self.label,
             "start": self.start,
             "end": self.end,
+            "enabled": self.enabled,
         }
 
 
@@ -318,7 +320,7 @@ class StrategyLabConfig:
             max_trades_per_strategy=self.option_max_trades_per_strategy,
         )
 
-    def scorecard_period_payloads(self) -> list[dict[str, str]]:
+    def scorecard_period_payloads(self) -> list[dict[str, object]]:
         return [period.to_payload() for period in self.scorecard_periods]
 
     def selected_scorecard_keys(self) -> list[str]:
@@ -437,6 +439,7 @@ def _read_scorecard_periods(
                 label=str(item.get("label", "")),
                 start=str(item.get("start", "")),
                 end=str(item.get("end", "")),
+                enabled=_read_bool(item, "enabled", True),
             )
         )
     return periods
