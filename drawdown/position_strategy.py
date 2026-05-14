@@ -89,6 +89,7 @@ ROBUST_COARSE_SELL_MIN_PROFITS = [5, 10, 20]
 ROBUST_COARSE_REPAIR_COOLDOWNS = [0, 30, 60]
 ROBUST_COARSE_REPAIR_STAGE_SELLS = [8, 15, 25]
 ROBUST_NON_REPAIR_SELL_STRATEGIES = ("none", "grid_rebound", "cost_deleverage")
+LOT_SELL_BUY_STRATEGIES = {"pyramid_3"}
 ROBUST_BUY_STEP_VALUES = [2.5, 5.0, 10.0]
 ROBUST_EQUAL_SLICE_ALLOCATION_VALUES = [2.5, 5.0, 7.5, 10.0]
 ROBUST_SHORTLIST_SIZE = 12
@@ -948,6 +949,7 @@ def _repair_candidates(
             "repair_stage_sell_pct": float(stage),
         }
         for buy_strategy in buy_strategies
+        if buy_strategy in LOT_SELL_BUY_STRATEGIES
         for buy_params in _buy_param_variants(buy_strategy)
         for profit, cooldown, stage in params
     ]
@@ -1339,7 +1341,7 @@ def _simulate_strategy(
                     sell_strategy,
                 )
             if not bought_today:
-                _execute_sell_strategy(state, point, inputs, sell_strategy, trade_log, trade_index)
+                _execute_sell_strategy(state, point, inputs, strategy, sell_strategy, trade_log, trade_index)
 
         total_value = sum(state.cash + state.last_value for state in states.values())
         total_cash = sum(state.cash for state in states.values())
@@ -1981,6 +1983,7 @@ def _execute_sell_strategy(
     state: SymbolState,
     point: PricePoint,
     inputs: StrategyInputs,
+    buy_strategy: str,
     sell_strategy: str,
     trade_log: list[dict[str, object]],
     trade_index: int,
@@ -1989,11 +1992,21 @@ def _execute_sell_strategy(
         return
 
     if sell_strategy == "repair_step":
-        _execute_repair_step_sells(state, point, inputs, trade_log, trade_index)
+        if _uses_lot_level_sells(buy_strategy):
+            _execute_repair_step_sells(state, point, inputs, trade_log, trade_index)
+        else:
+            _execute_position_repair_step_sells(state, point, inputs, trade_log, trade_index)
     elif sell_strategy == "grid_rebound":
-        _execute_grid_rebound_sells(state, point, inputs, trade_log)
+        if _uses_lot_level_sells(buy_strategy):
+            _execute_grid_rebound_sells(state, point, inputs, trade_log)
+        else:
+            _execute_position_grid_rebound_sells(state, point, inputs, trade_log)
     elif sell_strategy == "cost_deleverage":
         _execute_cost_deleverage_sells(state, point, inputs, trade_log)
+
+
+def _uses_lot_level_sells(buy_strategy: str) -> bool:
+    return buy_strategy in LOT_SELL_BUY_STRATEGIES
 
 
 def _execute_repair_step_sells(
@@ -2042,6 +2055,47 @@ def _repair_stages_for_lot(lot: PositionLot) -> list[tuple[str, float, float]]:
     ]
 
 
+def _execute_position_repair_step_sells(
+    state: SymbolState,
+    point: PricePoint,
+    inputs: StrategyInputs,
+    trade_log: list[dict[str, object]],
+    trade_index: int,
+) -> None:
+    if state.shares <= 0:
+        return
+    if state.sell_marks is None:
+        state.sell_marks = set()
+    if (
+        inputs.repair_sell_cooldown_days > 0
+        and state.last_repair_sell_trade_index is not None
+        and trade_index - state.last_repair_sell_trade_index < inputs.repair_sell_cooldown_days
+    ):
+        return
+    avg_cost = _avg_cost_usd(state)
+    if avg_cost <= 0:
+        return
+    current_price_usd = _price_usd(state.symbol, point.close, inputs)
+    if current_price_usd < avg_cost * (1 + inputs.sell_min_profit_pct / 100.0):
+        return
+    drawdown_pct = _point_drawdown_pct(point, inputs)
+    avg_buy_drawdown = _avg_buy_drawdown_pct(state)
+    stages = [
+        ("repair_50", avg_buy_drawdown * 0.50),
+        ("repair_20", avg_buy_drawdown * 0.20),
+        ("repair_ath", 0.50),
+    ]
+    for mark, threshold in stages:
+        if mark in state.sell_marks or drawdown_pct > threshold + 1e-9:
+            continue
+        shares = state.shares * inputs.repair_stage_sell_pct / 100.0
+        if _sell_shares(state, point, shares, inputs, trade_log, "repair_step", threshold):
+            state.sell_marks.add(mark)
+            state.last_repair_sell_date = point.date.date()
+            state.last_repair_sell_trade_index = trade_index
+            return
+
+
 def _execute_grid_rebound_sells(
     state: SymbolState,
     point: PricePoint,
@@ -2069,6 +2123,36 @@ def _execute_grid_rebound_sells(
             shares = lot.remaining_shares
             if _sell_lot_shares(state, lot, point, shares, inputs, trade_log, "grid_rebound", second_threshold):
                 lot.second_grid_sell_done = True
+
+
+def _execute_position_grid_rebound_sells(
+    state: SymbolState,
+    point: PricePoint,
+    inputs: StrategyInputs,
+    trade_log: list[dict[str, object]],
+) -> None:
+    if state.shares <= 0:
+        return
+    if state.sell_marks is None:
+        state.sell_marks = set()
+    avg_cost = _avg_cost_usd(state)
+    if avg_cost <= 0:
+        return
+    current_price_usd = _price_usd(state.symbol, point.close, inputs)
+    if current_price_usd < avg_cost * (1 + inputs.sell_min_profit_pct / 100.0):
+        return
+    drawdown_pct = _point_drawdown_pct(point, inputs)
+    avg_buy_drawdown = _avg_buy_drawdown_pct(state)
+    stages = [
+        ("grid_1", max(0.0, avg_buy_drawdown - inputs.step_pct), 50.0),
+        ("grid_2", max(0.0, avg_buy_drawdown - inputs.step_pct * 2), 100.0),
+    ]
+    for mark, threshold, sell_pct in stages:
+        if mark in state.sell_marks or drawdown_pct > threshold + 1e-9:
+            continue
+        shares = state.shares * sell_pct / 100.0
+        if _sell_shares(state, point, shares, inputs, trade_log, "grid_rebound", threshold):
+            state.sell_marks.add(mark)
 
 
 def _execute_cost_deleverage_sells(
@@ -2233,6 +2317,14 @@ def _avg_cost_usd(state: SymbolState) -> float:
     total_cost = sum(lot.remaining_shares * lot.buy_price_usd for lot in state.lots)
     total_shares = sum(lot.remaining_shares for lot in state.lots)
     return total_cost / total_shares if total_shares > 0 else 0.0
+
+
+def _avg_buy_drawdown_pct(state: SymbolState) -> float:
+    if not state.lots or state.shares <= 0:
+        return 0.0
+    weighted_drawdown = sum(lot.remaining_shares * lot.buy_drawdown_pct for lot in state.lots)
+    total_shares = sum(lot.remaining_shares for lot in state.lots)
+    return weighted_drawdown / total_shares if total_shares > 0 else 0.0
 
 
 def _sellable_shares(state: SymbolState, requested_shares: float, inputs: StrategyInputs) -> float:

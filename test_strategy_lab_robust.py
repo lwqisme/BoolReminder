@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from drawdown.generate_drawdown_report import CachedDailyCandle
-from drawdown.position_strategy import StrategyInputs, run_longbridge_robust_leaderboard
+from drawdown.position_strategy import StrategyInputs, _repair_candidates, run_longbridge_robust_leaderboard
 
 
 def candles(*prices: float):
@@ -66,6 +66,13 @@ class StrategyLabRobustTest(unittest.TestCase):
         candidates = [row["candidate"] for row in result["leaderboard"]]
         self.assertTrue(any(candidate.get("step_pct") is not None for candidate in candidates))
         self.assertTrue(any(candidate.get("equal_slice_allocation_pct") is not None for candidate in candidates))
+        self.assertTrue(all(candidate.get("sell_strategy") != "repair_step" for candidate in candidates))
+
+    def test_repair_parameter_grid_is_only_generated_for_pyramid(self):
+        params = [(5, 0, 8)]
+
+        self.assertEqual(_repair_candidates(["equal_slice", "weekly_dca"], params), [])
+        self.assertEqual(len(_repair_candidates(["pyramid_3"], params)), 1)
 
     def test_return_drawdown_mode_is_supported(self):
         def fake_fetch(_ctx, _symbol, _start, _end):

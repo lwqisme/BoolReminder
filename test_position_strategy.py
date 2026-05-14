@@ -464,6 +464,31 @@ class PositionStrategyTest(unittest.TestCase):
             )
         )
 
+    def test_equal_slice_repair_step_sells_from_position_not_each_lot(self):
+        inputs = StrategyInputs(
+            initial_cash=10000,
+            max_drawdown_pct=50,
+            step_pct=5,
+            equal_slice_allocation_pct=5,
+            trade_fee=0,
+            reserve_position_pct=0,
+            sell_min_profit_pct=0,
+            repair_sell_cooldown_days=0,
+            repair_stage_sell_pct=25,
+        )
+        result = simulate_portfolio(
+            {"TSLA.US": points(100, 95, 90, 85, 80, 100, 105)},
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            inputs,
+            strategies=("equal_slice",),
+            sell_strategies=("repair_step",),
+        )
+
+        sells = [trade for trade in result["strategies"][0]["trades"] if trade["action"] == "sell"]
+        self.assertGreater(len(sells), 0)
+        self.assertTrue(all(trade.get("lot_buy_price_usd") is None for trade in sells))
+        self.assertGreater(min(trade["gross_amount"] for trade in sells), 400)
+
     def test_scorecard_weights_return_more_than_drawdown(self):
         scored = _score_question_strategies(
             [

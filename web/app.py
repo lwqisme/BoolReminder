@@ -2912,8 +2912,8 @@ STRATEGY_LAB_TEMPLATE = """
                 <div class="reference-item"><span class="tag">BUY</span><div><strong>每周定投</strong><p>在所选时间段内，每周第一个可交易日等额买入，把该标的预算平均分配到所有周，不依赖回撤触发。</p></div></div>
                 <div class="reference-item"><span class="tag">BUY</span><div><strong>工资流定投</strong><p>每周首个交易日按每月注入资金动态买入，并按余额加速吃现金。回撤越深，当周投入按 1.0x、1.4x、2.0x、3.0x、4.0x 放大；现金垫从 8% 逐步降到 0%，闲置现金会按 20%-90% 扫入。</p></div></div>
                 <div class="reference-item"><span class="tag">SELL</span><div><strong>不卖出</strong><p>只执行买入策略，不触发任何卖出，用来观察纯回撤加仓在所选时间段内的结果。</p></div></div>
-                <div class="reference-item"><span class="tag">SELL</span><div><strong>阶梯修复卖出</strong><p>每笔买入独立判断：该笔回撤修复到买入回撤的 50%、20% 以及接近 ATH 时分批卖出，默认每次卖 12%、冷却 30 天，并要求至少 10% 盈利。</p></div></div>
-                <div class="reference-item"><span class="tag">SELL</span><div><strong>网格回弹卖出</strong><p>每笔买入独立配对退出：回撤修复 1 个 step 卖该笔一半，修复 2 个 step 卖该笔剩余部分。</p></div></div>
+                <div class="reference-item"><span class="tag">SELL</span><div><strong>阶梯修复卖出</strong><p>三档金字塔按每笔买入 lot 独立修复；细切和定投按整只标的的平均成本、平均买入回撤触发，卖出量按整体持仓计算，避免碎卖。</p></div></div>
+                <div class="reference-item"><span class="tag">SELL</span><div><strong>网格回弹卖出</strong><p>三档金字塔仍按 lot 回弹退出；细切和定投改为整仓网格，回撤从平均买入回撤修复 1 个 / 2 个 step 时按整体仓位减仓。</p></div></div>
                 <div class="reference-item"><span class="tag">SELL</span><div><strong>成本区间去杠杆</strong><p>按整体持仓成本触发，价格高于平均成本 8%、15%、25% 时分批降仓，保留设定底仓。</p></div></div>
             </div>
             <details class="explain-drawer">
