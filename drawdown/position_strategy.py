@@ -1059,6 +1059,12 @@ def _score_robust_task_observations(observations: list[dict[str, object]]) -> No
             + sell_score * 0.10
             - trade_penalty
         )
+    ranked = sorted(observations, key=lambda item: item["task_score"], reverse=True)
+    edge_count = max(1, math.ceil(len(ranked) * 0.10)) if ranked else 0
+    for index, item in enumerate(ranked, start=1):
+        item["task_rank"] = index
+        item["task_top10"] = index <= edge_count
+        item["task_bottom10"] = index > len(ranked) - edge_count
 
 
 def _aggregate_robust_candidate(
@@ -1072,8 +1078,8 @@ def _aggregate_robust_candidate(
     mean_score = _avg_float(scores)
     median_score = _percentile(scores, 0.50)
     p25_score = _percentile(scores, 0.25)
-    top10_rate = sum(1 for score in scores if score >= 90.0) / len(scores) * 100.0 if scores else 0.0
-    bottom10_rate = sum(1 for score in scores if score <= 10.0) / len(scores) * 100.0 if scores else 0.0
+    top10_rate = sum(1 for item in observations if item.get("task_top10")) / len(observations) * 100.0 if observations else 0.0
+    bottom10_rate = sum(1 for item in observations if item.get("task_bottom10")) / len(observations) * 100.0 if observations else 0.0
     robust_score = (
         mean_score * 0.35
         + median_score * 0.25

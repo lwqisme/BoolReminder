@@ -4929,6 +4929,8 @@ STRATEGY_LAB_TEMPLATE = """
                 sell_min_profit_pct: readNumber('sellMinProfit'),
                 repair_sell_cooldown_days: readNumber('repairSellCooldown'),
                 repair_stage_sell_pct: readNumber('repairStageSellPct'),
+                buy_strategies: selectedStrategies('buyStrategy', buyStrategyLabels),
+                sell_strategies: selectedSellStrategies(),
                 return_weight: readNumber('scoreReturnWeight') / 100,
                 drawdown_weight: readNumber('scoreDrawdownWeight') / 100,
                 scorecard_portfolio_keys: selectedScorecardPortfolios(),
@@ -5174,6 +5176,9 @@ STRATEGY_LAB_TEMPLATE = """
                             <div class="robust-task">${escapeHtml(candidate.sell_strategy === 'repair_step'
                                 ? `${pct(candidate.sell_min_profit_pct)} 盈利 / ${number(candidate.repair_sell_cooldown_days)} 日冷却 / ${pct(candidate.repair_stage_sell_pct)} 单档`
                                 : '无阶梯参数')}</div>
+                            <div style="margin-top:8px;">
+                                <button class="btn btn-secondary btn-small" type="button" onclick="applyRobustCandidate('${escapeHtml(candidate.key)}')">应用并看评分</button>
+                            </div>
                         </td>
                         <td>${number(row.robust_score)}</td>
                         <td>${number(row.mean_score)}</td>
@@ -5190,6 +5195,29 @@ STRATEGY_LAB_TEMPLATE = """
                 `;
             }).join('');
             document.getElementById('robustBody').innerHTML = rows || '<tr><td colspan="9">暂无稳健榜结果。</td></tr>';
+        }
+
+        function applyRobustCandidate(candidateKey) {
+            if (!lastRobustLeaderboard) {
+                setStatus('error', '暂无稳健榜结果可应用。');
+                return;
+            }
+            const row = (lastRobustLeaderboard.leaderboard || []).find((item) => item.candidate && item.candidate.key === candidateKey);
+            const candidate = row && row.candidate;
+            if (!candidate) {
+                setStatus('error', '未找到对应策略参数。');
+                return;
+            }
+            setSelectValue('buyStrategy', candidate.buy_strategy);
+            setSelectValue('sellStrategy', candidate.sell_strategy);
+            if (candidate.sell_strategy === 'repair_step') {
+                setFieldValue('sellMinProfit', candidate.sell_min_profit_pct);
+                setFieldValue('repairSellCooldown', candidate.repair_sell_cooldown_days);
+                setFieldValue('repairStageSellPct', candidate.repair_stage_sell_pct);
+            }
+            updateCommandBar();
+            activateTab('scorecard');
+            setStatus('success', '已应用稳健榜策略参数。点击“运行评分”即可查看它在每个股票和时间阶段下的表现。');
         }
 
         function setScanStage(value) {

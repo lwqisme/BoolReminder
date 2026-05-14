@@ -43,6 +43,8 @@ class StrategyLabRobustTest(unittest.TestCase):
         top = result["leaderboard"][0]
         self.assertIn("candidate", top)
         self.assertIn("robust_score", top)
+        self.assertGreaterEqual(top["top10_rate"], 0)
+        self.assertGreaterEqual(top["bottom10_rate"], 0)
         self.assertEqual(top["task_count"], 3)
 
 

@@ -20,6 +20,15 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("activateTab('results')", body)
         self.assertNotIn("activateTab('scorecard')", body)
 
+    def test_scorecard_payload_uses_selected_strategy_filters(self):
+        with app.test_client() as client:
+            html = client.get("/strategy-lab").get_data(as_text=True)
+
+        self.assertIn("buy_strategies: selectedStrategies('buyStrategy', buyStrategyLabels)", html)
+        self.assertIn("sell_strategies: selectedSellStrategies()", html)
+        self.assertIn("function applyRobustCandidate(candidateKey)", html)
+        self.assertIn("应用并看评分", html)
+
 
 if __name__ == "__main__":
     unittest.main()
