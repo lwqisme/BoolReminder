@@ -27,6 +27,7 @@ from drawdown.position_strategy import (
     STRATEGY_LABELS,
     parse_date_range,
     run_longbridge_strategy_lab,
+    run_longbridge_robust_leaderboard,
     run_longbridge_strategy_scorecard,
     run_longbridge_sell_parameter_scan,
 )
@@ -2016,6 +2017,45 @@ STRATEGY_LAB_TEMPLATE = """
             border-radius: 999px;
             background: linear-gradient(90deg, rgba(255, 184, 176, 0.95), rgba(255, 231, 184, 0.92), rgba(170, 230, 205, 0.98));
         }
+        .robust-board {
+            display: none;
+            margin-top: 16px;
+        }
+        .robust-board.show {
+            display: block;
+        }
+        .robust-strip {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+        .robust-stat {
+            padding: 12px;
+            border-radius: var(--radius-sm);
+            background: rgba(255, 255, 255, 0.62);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+        }
+        .robust-stat span {
+            display: block;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 800;
+            margin-bottom: 5px;
+        }
+        .robust-stat strong {
+            color: var(--ink);
+            font-family: var(--mono);
+            font-size: 18px;
+        }
+        .robust-table td:first-child {
+            min-width: 230px;
+        }
+        .robust-task {
+            color: var(--muted);
+            font-size: 11px;
+            line-height: 1.35;
+        }
         .history-list {
             display: grid;
             gap: 10px;
@@ -2852,13 +2892,14 @@ STRATEGY_LAB_TEMPLATE = """
             <div class="tool-head">
                 <h2>卖出参数扫描</h2>
                 <div style="display:flex;align-items:center;gap:8px;">
-                    <span class="small">固定当前组合，只扫描一个买入规则 + 阶梯修复卖出。</span>
+                    <span class="small">单参数扫描用于局部调参；稳健榜用分阶段搜索找跨题目 Top10。</span>
                     <button class="btn btn-secondary btn-small" type="button" onclick="runSellParameterScan()">运行扫描</button>
+                    <button class="btn btn-secondary btn-small" type="button" onclick="runRobustLeaderboard()">稳健 Top10</button>
                     <span class="code">SCAN</span>
                 </div>
             </div>
             <div class="tool-body">
-            <div class="hint">扫描用于优化阶梯修复卖出参数；它读取实验配置里的资金、组合、回撤口径、手续费和评分权重。点击热力格会把参数回填到实验配置，然后可以重新运行演算或评分。</div>
+            <div class="hint">扫描用于优化阶梯修复卖出参数；稳健 Top10 会读取评分页勾选的股票/组合与时间阶段，先用代表性题目粗筛，再局部加密，最后对候选做全题验证。行情数据统一准备，避免每个候选重复请求外部 API。</div>
             <div class="scan-panel" aria-label="卖出参数扫描">
                 <div class="scan-controls">
                     <label>买入规则
@@ -2887,6 +2928,7 @@ STRATEGY_LAB_TEMPLATE = """
                 </div>
                 <div class="scan-actions">
                     <button class="btn btn-secondary btn-small" type="button" onclick="runSellParameterScan()">运行扫描</button>
+                    <button class="btn btn-secondary btn-small" type="button" onclick="runRobustLeaderboard()">运行稳健 Top10</button>
                     <label class="scan-mode">评分口径
                         <select id="scanScoreMode" onchange="rerenderSellScan()">
                             <option value="balanced" {% if default_config.default_scan_score_mode == 'balanced' %}selected{% endif %}>综合参数评分</option>
@@ -2914,6 +2956,31 @@ STRATEGY_LAB_TEMPLATE = """
                         <div id="scan3dChart" class="scan-3d-chart"></div>
                     </div>
                     <div class="scan-legend"><i></i><span id="scanLegendText">颜色按综合参数评分从低到高；蓝框是当前参数，绿框是本次扫描最佳。</span></div>
+                </div>
+                <div id="robustBoard" class="robust-board">
+                    <div class="summary-title">
+                        <h2>稳健 Top10</h2>
+                        <span id="robustRange" class="small"></span>
+                    </div>
+                    <div id="robustStrip" class="robust-strip"></div>
+                    <div class="table-wrap">
+                        <table class="robust-table">
+                            <thead>
+                                <tr>
+                                    <th>策略 / 参数</th>
+                                    <th>稳健分</th>
+                                    <th>均分</th>
+                                    <th>P25</th>
+                                    <th>Top10%</th>
+                                    <th>Bottom10%</th>
+                                    <th>均收益</th>
+                                    <th>均回撤</th>
+                                    <th>最强 / 最弱题目</th>
+                                </tr>
+                            </thead>
+                            <tbody id="robustBody"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
             </div>
@@ -3201,6 +3268,7 @@ STRATEGY_LAB_TEMPLATE = """
         let activeDetailIndex = null;
         let lastScorecard = null;
         let lastSellScan = null;
+        let lastRobustLeaderboard = null;
         let activeScanStageSell = null;
         let activeScanScoreMode = {{ default_config.default_scan_score_mode|tojson }};
         let activeScanView = '2d';
@@ -3675,6 +3743,9 @@ STRATEGY_LAB_TEMPLATE = """
             if (item.kind === 'scan') {
                 return `${item.kind_label || '参数扫描'} · ${summary.cell_count || 0} 个参数`;
             }
+            if (item.kind === 'robust') {
+                return `${item.kind_label || '稳健 Top10'} · ${summary.leaderboard_count || 0} 个结果 / ${summary.task_count || 0} 题`;
+            }
             return item.kind_label || '运行记录';
         }
 
@@ -3690,6 +3761,9 @@ STRATEGY_LAB_TEMPLATE = """
             }
             if (item.kind === 'scan') {
                 return `${summary.buy_strategy_label || config.buy_strategy || '扫描'}；最佳 ${pctCompact(summary.best_sell_min_profit_pct)} 盈利 / ${number(summary.best_repair_sell_cooldown_days)} 日冷却 / ${pctCompact(summary.best_repair_stage_sell_pct)} 单档${warnings}`;
+            }
+            if (item.kind === 'robust') {
+                return `${summary.top_label || '最高稳健分 --'} 分数 ${number(summary.top_robust_score)}；均收 ${pctCompact(summary.top_return_pct)} / 均回撤 ${pctCompact(summary.top_drawdown_pct)}${warnings}`;
             }
             return warnings ? warnings.replace(/^；/, '') : '运行摘要';
         }
@@ -4059,7 +4133,8 @@ STRATEGY_LAB_TEMPLATE = """
             const titleByKind = {
                 run: '组合演算',
                 score: '策略评分',
-                scan: '参数扫描'
+                scan: '参数扫描',
+                robust: '稳健 Top10'
             };
             panel.classList.add('show');
             document.getElementById('jobTitle').textContent = titleByKind[job.kind] || fallbackTitle;
@@ -5075,6 +5150,48 @@ STRATEGY_LAB_TEMPLATE = """
             }
         }
 
+        function renderRobustLeaderboard(data) {
+            lastRobustLeaderboard = data;
+            const board = document.getElementById('robustBoard');
+            board.classList.add('show');
+            const tasks = data.tasks || [];
+            const counts = data.candidate_counts || {};
+            document.getElementById('robustRange').textContent = `${data.range.start} 至 ${data.range.end}；${tasks.length} 个题目`;
+            document.getElementById('robustStrip').innerHTML = `
+                <div class="robust-stat"><span>粗筛候选</span><strong>${number(counts.coarse)}</strong></div>
+                <div class="robust-stat"><span>局部加密候选</span><strong>${number(counts.fine)}</strong></div>
+                <div class="robust-stat"><span>最终验证候选</span><strong>${number(counts.final)}</strong></div>
+                <div class="robust-stat"><span>输出 Top</span><strong>${number((data.leaderboard || []).length)}</strong></div>
+            `;
+            const rows = (data.leaderboard || []).map((row) => {
+                const candidate = row.candidate || {};
+                const strongest = row.strongest_task || {};
+                const weakest = row.weakest_task || {};
+                return `
+                    <tr>
+                        <td>
+                            <strong>${escapeHtml(candidate.label || candidate.key || '--')}</strong>
+                            <div class="robust-task">${escapeHtml(candidate.sell_strategy === 'repair_step'
+                                ? `${pct(candidate.sell_min_profit_pct)} 盈利 / ${number(candidate.repair_sell_cooldown_days)} 日冷却 / ${pct(candidate.repair_stage_sell_pct)} 单档`
+                                : '无阶梯参数')}</div>
+                        </td>
+                        <td>${number(row.robust_score)}</td>
+                        <td>${number(row.mean_score)}</td>
+                        <td>${number(row.p25_score)}</td>
+                        <td>${pct(row.top10_rate)}</td>
+                        <td>${pct(row.bottom10_rate)}</td>
+                        <td>${pct(row.avg_return_pct)}</td>
+                        <td>${pct(row.avg_drawdown_pct)}</td>
+                        <td>
+                            <div class="robust-task">强：${escapeHtml(strongest.label || '--')} / ${number(strongest.score)}</div>
+                            <div class="robust-task">弱：${escapeHtml(weakest.label || '--')} / ${number(weakest.score)}</div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            document.getElementById('robustBody').innerHTML = rows || '<tr><td colspan="9">暂无稳健榜结果。</td></tr>';
+        }
+
         function setScanStage(value) {
             activeScanStageSell = Number(value);
             if (lastSellScan) {
@@ -5319,6 +5436,34 @@ STRATEGY_LAB_TEMPLATE = """
                 setStatus('success', `卖出参数扫描完成${warnings}`);
             } catch (error) {
                 setStatus('error', `扫描失败: ${error.message || error}`);
+            }
+        }
+
+        async function runRobustLeaderboard() {
+            setStatus('info', '正在运行稳健 Top10：先粗筛，再局部加密，最后做全题验证...');
+            try {
+                const payload = {
+                    ...scorecardPayload(),
+                    start: document.getElementById('start').value,
+                    end: document.getElementById('end').value,
+                    top_n: 10
+                };
+                const data = await runStrategyJob('robust', payload, {
+                    title: '稳健 Top10',
+                    perfKey: 'apiScoreMs',
+                    pollDelay: 1200
+                });
+                renderRobustLeaderboard(data);
+                activateTab('scan');
+                updateCommandBar();
+                addRunHistory(
+                    'robust',
+                    '稳健 Top10 完成',
+                    `${number((data.leaderboard || []).length)} 个结果；${number((data.tasks || []).length)} 个题目`
+                );
+                setStatus('success', '稳健 Top10 完成');
+            } catch (error) {
+                setStatus('error', `稳健 Top10 失败: ${error.message || error}`);
             }
         }
 
@@ -6134,6 +6279,24 @@ def _run_strategy_scan_payload(payload: dict[str, object]) -> dict[str, object]:
     )
 
 
+def _run_strategy_robust_payload(payload: dict[str, object]) -> dict[str, object]:
+    end_date = date.fromisoformat(payload.get("end")) if payload.get("end") else datetime.now().date()
+    lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+    targets = lab_config.portfolio_or_default()
+    if targets is not None and not isinstance(targets, list):
+        raise ValueError("targets 必须是数组")
+    top_n = int(payload.get("top_n") or 10)
+    return run_longbridge_robust_leaderboard(
+        lab_config.to_strategy_inputs(),
+        end_date=end_date,
+        core_targets=targets,
+        portfolio_keys=payload.get("scorecard_portfolio_keys"),
+        scorecard_periods=payload.get("scorecard_periods"),
+        buy_strategies=payload.get("buy_strategies"),
+        top_n=top_n,
+    )
+
+
 def _strategy_lab_job_snapshot(job: dict[str, object]) -> dict[str, object]:
     snapshot = {
         "id": job["id"],
@@ -6232,6 +6395,7 @@ def _create_strategy_lab_job(kind: str, payload: dict[str, object]) -> dict[str,
         "run": _run_strategy_lab_payload,
         "score": _run_strategy_score_payload,
         "scan": _run_strategy_scan_payload,
+        "robust": _run_strategy_robust_payload,
     }
     if kind not in runners:
         raise ValueError("未知 strategy-lab job 类型。")
@@ -6296,7 +6460,7 @@ def api_strategy_lab_runs():
     except (TypeError, ValueError):
         limit = 50
     kind = request.args.get("kind")
-    if kind not in {None, "", "run", "score", "scan"}:
+    if kind not in {None, "", "run", "score", "scan", "robust"}:
         return _json_error("未知运行记录类型", 400)
     return jsonify({
         "success": True,

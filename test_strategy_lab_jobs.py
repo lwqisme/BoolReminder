@@ -51,6 +51,29 @@ class StrategyLabJobsTest(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 400)
 
+    def test_robust_job_kind_is_supported(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("drawdown.strategy_lab_history.strategy_lab_data_dir", return_value=Path(tmpdir)):
+                with patch("web.app._run_strategy_robust_payload", return_value={"leaderboard": [], "tasks": []}):
+                    with app.test_client() as client:
+                        created = client.post(
+                            "/api/strategy-lab/jobs",
+                            json={"kind": "robust", "payload": {"end": "2026-05-14"}},
+                        )
+                        self.assertEqual(created.status_code, 202)
+                        job_id = created.get_json()["job"]["id"]
+
+                        for _ in range(20):
+                            status = client.get(f"/api/strategy-lab/jobs/{job_id}")
+                            job = status.get_json()["job"]
+                            if job["status"] == "succeeded":
+                                break
+                            time.sleep(0.02)
+
+                        self.assertEqual(job["status"], "succeeded")
+                        self.assertEqual(job["kind"], "robust")
+                        self.assertEqual(job["data"], {"leaderboard": [], "tasks": []})
+
     def test_job_failure_returns_error(self):
         with patch("web.app._run_strategy_scan_payload", side_effect=RuntimeError("network down")):
             with app.test_client() as client:

@@ -85,6 +85,12 @@ SCORECARD_PERIODS = [
 
 SCORECARD_RETURN_WEIGHT = 0.90
 SCORECARD_DRAWDOWN_WEIGHT = 0.10
+ROBUST_COARSE_SELL_MIN_PROFITS = [5, 10, 20]
+ROBUST_COARSE_REPAIR_COOLDOWNS = [0, 30, 60]
+ROBUST_COARSE_REPAIR_STAGE_SELLS = [8, 15, 25]
+ROBUST_NON_REPAIR_SELL_STRATEGIES = ("none", "grid_rebound", "cost_deleverage")
+ROBUST_SHORTLIST_SIZE = 12
+ROBUST_FINALIST_SIZE = 40
 
 
 @dataclass(frozen=True)
@@ -395,73 +401,11 @@ def run_longbridge_strategy_scorecard(
     drawdown_weight: float = SCORECARD_DRAWDOWN_WEIGHT,
 ) -> dict[str, object]:
     return_weight, drawdown_weight = _normalize_score_weights(return_weight, drawdown_weight)
-    scorecard_portfolios = [
-        {**portfolio, "targets": [dict(target) for target in portfolio["targets"]]}
-        for portfolio in SCORECARD_PORTFOLIOS
-    ]
-    if portfolio_keys is not None:
-        selected_keys = {str(key) for key in portfolio_keys}
-        if not selected_keys:
-            raise ValueError("至少需要选择一个评分题目。")
-        known_keys = {str(portfolio["key"]) for portfolio in scorecard_portfolios}
-        unknown_keys = selected_keys - known_keys
-        if unknown_keys:
-            raise ValueError("未知评分题目: " + ", ".join(sorted(unknown_keys)))
-        scorecard_portfolios = [
-            portfolio for portfolio in scorecard_portfolios
-            if str(portfolio["key"]) in selected_keys
-        ]
-    symbol_max_drawdowns = _target_max_drawdown_by_symbol(core_targets or [])
-    if core_targets is not None:
-        parsed_core_targets = parse_portfolio_targets(core_targets)
-        for portfolio in scorecard_portfolios:
-            if portfolio["key"] == "core_50_30_20":
-                portfolio["label"] = "当前组合"
-                portfolio["targets"] = [
-                    {
-                        "symbol": target.symbol,
-                        "weight": target.weight,
-                        "name": target.name,
-                        "max_drawdown_pct": target.max_drawdown_pct,
-                    }
-                    for target in parsed_core_targets
-                ]
-                break
-    if symbol_max_drawdowns:
-        for portfolio in scorecard_portfolios:
-            for target in portfolio["targets"]:
-                symbol = normalize_longbridge_symbol(str(target.get("symbol", "")))
-                if symbol in symbol_max_drawdowns:
-                    target["max_drawdown_pct"] = symbol_max_drawdowns[symbol]
-
-    symbols = sorted(
-        {
-            target.symbol
-            for portfolio in scorecard_portfolios
-            for target in parse_portfolio_targets(portfolio["targets"])
-        }
-    )
+    scorecard_portfolios = _resolve_scorecard_portfolios(core_targets, portfolio_keys)
     resolved_periods = _resolve_scorecard_periods(end_date, scorecard_periods)
     start_date = min(period["fetch_start"] for period in resolved_periods)
     fetch_end_date = max(period["end"] for period in resolved_periods)
-    quote_ctx = build_longbridge_quote_context()
-    full_points_by_symbol: dict[str, list[PricePoint]] = {}
-    warnings: list[str] = []
-
-    for symbol in symbols:
-        candles = fetch_longbridge_daily_candles(quote_ctx, symbol, start_date, fetch_end_date)
-        if not candles:
-            raise RuntimeError(f"Longbridge 没有返回 {symbol} 的历史日线。")
-        series = [
-            (candle_datetime(candle).replace(tzinfo=None), float(candle.close))
-            for candle in candles
-        ]
-        points = build_price_points_from_series(series)
-        if not points:
-            raise RuntimeError(f"无法从 Longbridge 构建 {symbol} 的价格序列。")
-        full_points_by_symbol[symbol] = points
-        if points[0].date.date() > start_date:
-            warnings.append(f"{symbol} 首个可用交易日为 {points[0].date.date().isoformat()}")
+    full_points_by_symbol, warnings = _fetch_scorecard_points(scorecard_portfolios, start_date, fetch_end_date)
 
     questions: list[dict[str, object]] = []
     summary_by_key: dict[str, dict[str, object]] = {}
@@ -721,6 +665,466 @@ def run_longbridge_sell_parameter_scan(
         "cells": cells,
         "warnings": warnings,
     }
+
+
+def run_longbridge_robust_leaderboard(
+    inputs: StrategyInputs,
+    end_date: date,
+    core_targets: Iterable[dict[str, object]] | None = None,
+    portfolio_keys: Iterable[str] | None = None,
+    scorecard_periods: Iterable[dict[str, object]] | None = None,
+    buy_strategies: Iterable[str] | None = None,
+    top_n: int = 10,
+    coarse_shortlist_size: int = ROBUST_SHORTLIST_SIZE,
+    finalist_size: int = ROBUST_FINALIST_SIZE,
+) -> dict[str, object]:
+    """Find robust top strategy/parameter candidates with staged pruning."""
+    selected_buy_strategies = list(buy_strategies or STRATEGY_LABELS.keys())
+    unknown_buy_strategies = set(selected_buy_strategies) - set(STRATEGY_LABELS)
+    if unknown_buy_strategies:
+        raise ValueError("未知买入策略: " + ", ".join(sorted(unknown_buy_strategies)))
+
+    scorecard_portfolios = _resolve_scorecard_portfolios(core_targets, portfolio_keys)
+    resolved_periods = _resolve_scorecard_periods(end_date, scorecard_periods)
+    start_date = min(period["fetch_start"] for period in resolved_periods)
+    fetch_end_date = max(period["end"] for period in resolved_periods)
+    full_points_by_symbol, warnings = _fetch_scorecard_points(scorecard_portfolios, start_date, fetch_end_date)
+    tasks = _build_robust_tasks(scorecard_portfolios, resolved_periods, full_points_by_symbol)
+    if not tasks:
+        raise ValueError("没有可用于稳健榜的题目。")
+    coarse_tasks = _representative_robust_tasks(tasks)
+
+    coarse_params = [
+        (profit, cooldown, stage)
+        for profit in ROBUST_COARSE_SELL_MIN_PROFITS
+        for cooldown in ROBUST_COARSE_REPAIR_COOLDOWNS
+        for stage in ROBUST_COARSE_REPAIR_STAGE_SELLS
+    ]
+    coarse_candidates = _dedupe_candidates(
+        _non_repair_candidates(selected_buy_strategies)
+        + _repair_candidates(selected_buy_strategies, coarse_params)
+    )
+    coarse_rows = _score_robust_candidates(coarse_tasks, inputs, coarse_candidates)
+    coarse_leaders = sorted(coarse_rows, key=lambda item: item["robust_score"], reverse=True)[
+        : max(1, int(coarse_shortlist_size))
+    ]
+
+    fine_candidates = _dedupe_candidates(
+        _non_repair_candidates(selected_buy_strategies)
+        + [
+            candidate
+            for row in coarse_leaders
+            for candidate in _local_candidate_neighborhood(row["candidate"], selected_buy_strategies)
+        ]
+    )
+    fine_rows = _score_robust_candidates(tasks, inputs, fine_candidates)
+    finalists = sorted(fine_rows, key=lambda item: item["robust_score"], reverse=True)[
+        : max(1, int(finalist_size))
+    ]
+    final_candidates = [row["candidate"] for row in finalists]
+    final_rows = _score_robust_candidates(tasks, inputs, final_candidates)
+    leaderboard = sorted(final_rows, key=lambda item: item["robust_score"], reverse=True)[: max(1, int(top_n))]
+
+    return {
+        "range": {
+            "start": start_date.isoformat(),
+            "end": fetch_end_date.isoformat(),
+        },
+        "method": {
+            "name": "coarse_to_fine_robust_leaderboard",
+            "coarse_grid": {
+                "sell_min_profit_pct": ROBUST_COARSE_SELL_MIN_PROFITS,
+                "repair_sell_cooldown_days": ROBUST_COARSE_REPAIR_COOLDOWNS,
+                "repair_stage_sell_pct": ROBUST_COARSE_REPAIR_STAGE_SELLS,
+            },
+            "coarse_task_count": len(coarse_tasks),
+            "coarse_shortlist_size": int(coarse_shortlist_size),
+            "finalist_size": int(finalist_size),
+            "score_formula": "35% mean + 25% median + 25% p25 + 10% top10_rate - 15% bottom10_rate",
+        },
+        "candidate_counts": {
+            "coarse": len(coarse_candidates),
+            "fine": len(fine_candidates),
+            "final": len(final_candidates),
+        },
+        "tasks": [
+            {
+                "key": task["key"],
+                "portfolio_key": task["portfolio_key"],
+                "portfolio_label": task["portfolio_label"],
+                "period_key": task["period_key"],
+                "period_label": task["period_label"],
+                "start": task["start"].isoformat(),
+                "end": task["end"].isoformat(),
+            }
+            for task in tasks
+        ],
+        "leaderboard": leaderboard,
+        "warnings": warnings,
+    }
+
+
+def _resolve_scorecard_portfolios(
+    core_targets: Iterable[dict[str, object]] | None = None,
+    portfolio_keys: Iterable[str] | None = None,
+) -> list[dict[str, object]]:
+    scorecard_portfolios = [
+        {**portfolio, "targets": [dict(target) for target in portfolio["targets"]]}
+        for portfolio in SCORECARD_PORTFOLIOS
+    ]
+    if portfolio_keys is not None:
+        selected_keys = {str(key) for key in portfolio_keys}
+        if not selected_keys:
+            raise ValueError("至少需要选择一个评分题目。")
+        known_keys = {str(portfolio["key"]) for portfolio in scorecard_portfolios}
+        unknown_keys = selected_keys - known_keys
+        if unknown_keys:
+            raise ValueError("未知评分题目: " + ", ".join(sorted(unknown_keys)))
+        scorecard_portfolios = [
+            portfolio for portfolio in scorecard_portfolios
+            if str(portfolio["key"]) in selected_keys
+        ]
+    symbol_max_drawdowns = _target_max_drawdown_by_symbol(core_targets or [])
+    if core_targets is not None:
+        parsed_core_targets = parse_portfolio_targets(core_targets)
+        for portfolio in scorecard_portfolios:
+            if portfolio["key"] == "core_50_30_20":
+                portfolio["label"] = "当前组合"
+                portfolio["targets"] = [
+                    {
+                        "symbol": target.symbol,
+                        "weight": target.weight,
+                        "name": target.name,
+                        "max_drawdown_pct": target.max_drawdown_pct,
+                    }
+                    for target in parsed_core_targets
+                ]
+                break
+    if symbol_max_drawdowns:
+        for portfolio in scorecard_portfolios:
+            for target in portfolio["targets"]:
+                symbol = normalize_longbridge_symbol(str(target.get("symbol", "")))
+                if symbol in symbol_max_drawdowns:
+                    target["max_drawdown_pct"] = symbol_max_drawdowns[symbol]
+    return scorecard_portfolios
+
+
+def _fetch_scorecard_points(
+    scorecard_portfolios: list[dict[str, object]],
+    start_date: date,
+    fetch_end_date: date,
+) -> tuple[dict[str, list[PricePoint]], list[str]]:
+    symbols = sorted(
+        {
+            target.symbol
+            for portfolio in scorecard_portfolios
+            for target in parse_portfolio_targets(portfolio["targets"])
+        }
+    )
+    quote_ctx = build_longbridge_quote_context()
+    full_points_by_symbol: dict[str, list[PricePoint]] = {}
+    warnings: list[str] = []
+    for symbol in symbols:
+        candles = fetch_longbridge_daily_candles(quote_ctx, symbol, start_date, fetch_end_date)
+        if not candles:
+            raise RuntimeError(f"Longbridge 没有返回 {symbol} 的历史日线。")
+        series = [
+            (candle_datetime(candle).replace(tzinfo=None), float(candle.close))
+            for candle in candles
+        ]
+        points = build_price_points_from_series(series)
+        if not points:
+            raise RuntimeError(f"无法从 Longbridge 构建 {symbol} 的价格序列。")
+        full_points_by_symbol[symbol] = points
+        if points[0].date.date() > start_date:
+            warnings.append(f"{symbol} 首个可用交易日为 {points[0].date.date().isoformat()}")
+    return full_points_by_symbol, warnings
+
+
+def _build_robust_tasks(
+    scorecard_portfolios: list[dict[str, object]],
+    resolved_periods: list[dict[str, object]],
+    full_points_by_symbol: dict[str, list[PricePoint]],
+) -> list[dict[str, object]]:
+    tasks: list[dict[str, object]] = []
+    for portfolio in scorecard_portfolios:
+        targets = parse_portfolio_targets(portfolio["targets"])
+        for period in resolved_periods:
+            if period["mode"] == "exact":
+                scoped_points = {
+                    target.symbol: _rebuild_points_for_range(
+                        full_points_by_symbol[target.symbol],
+                        period["start"],
+                        period["end"],
+                    )
+                    for target in targets
+                }
+            else:
+                scoped_points = {
+                    target.symbol: _last_trading_points(
+                        _rebuild_points_for_range(
+                            full_points_by_symbol[target.symbol],
+                            period["fetch_start"],
+                            period["end"],
+                        ),
+                        int(period["trading_days"]),
+                    )
+                    for target in targets
+                }
+            question_start = min(points[0].date.date() for points in scoped_points.values())
+            tasks.append(
+                {
+                    "key": f"{portfolio['key']}__{period['key']}",
+                    "portfolio_key": portfolio["key"],
+                    "portfolio_label": portfolio["label"],
+                    "period_key": period["key"],
+                    "period_label": period["label"],
+                    "start": question_start,
+                    "end": period["end"],
+                    "targets": targets,
+                    "price_points": scoped_points,
+                }
+            )
+    return tasks
+
+
+def _representative_robust_tasks(tasks: list[dict[str, object]]) -> list[dict[str, object]]:
+    if len(tasks) <= 3:
+        return tasks
+    by_period: dict[str, dict[str, object]] = {}
+    for task in tasks:
+        period_key = str(task.get("period_key", ""))
+        portfolio_key = str(task.get("portfolio_key", ""))
+        if period_key not in by_period or portfolio_key == "core_50_30_20":
+            by_period[period_key] = task
+    preferred_periods = ["3y", "5y", "1y"]
+    selected = [by_period[key] for key in preferred_periods if key in by_period]
+    if not selected:
+        selected = list(by_period.values())
+    return selected[:3]
+
+
+def _non_repair_candidates(buy_strategies: Iterable[str]) -> list[dict[str, object]]:
+    return [
+        {
+            "key": f"{buy_strategy}__{sell_strategy}",
+            "label": f"{STRATEGY_LABELS[buy_strategy]} / {SELL_STRATEGY_LABELS[sell_strategy]}",
+            "buy_strategy": buy_strategy,
+            "sell_strategy": sell_strategy,
+            "sell_min_profit_pct": None,
+            "repair_sell_cooldown_days": None,
+            "repair_stage_sell_pct": None,
+        }
+        for buy_strategy in buy_strategies
+        for sell_strategy in ROBUST_NON_REPAIR_SELL_STRATEGIES
+    ]
+
+
+def _repair_candidates(
+    buy_strategies: Iterable[str],
+    params: Iterable[tuple[float, int, float]],
+) -> list[dict[str, object]]:
+    return [
+        {
+            "key": f"{buy_strategy}__repair_step__p{profit:g}__c{cooldown:g}__s{stage:g}",
+            "label": (
+                f"{STRATEGY_LABELS[buy_strategy]} / 阶梯修复 "
+                f"{profit:g}%盈利 {cooldown:g}日冷却 {stage:g}%单档"
+            ),
+            "buy_strategy": buy_strategy,
+            "sell_strategy": "repair_step",
+            "sell_min_profit_pct": float(profit),
+            "repair_sell_cooldown_days": int(cooldown),
+            "repair_stage_sell_pct": float(stage),
+        }
+        for buy_strategy in buy_strategies
+        for profit, cooldown, stage in params
+    ]
+
+
+def _dedupe_candidates(candidates: Iterable[dict[str, object]]) -> list[dict[str, object]]:
+    result: dict[str, dict[str, object]] = {}
+    for candidate in candidates:
+        result[str(candidate["key"])] = candidate
+    return list(result.values())
+
+
+def _local_candidate_neighborhood(
+    candidate: dict[str, object],
+    buy_strategies: Iterable[str],
+) -> list[dict[str, object]]:
+    if candidate.get("sell_strategy") != "repair_step":
+        return [candidate]
+    buy_strategy = str(candidate["buy_strategy"])
+    if buy_strategy not in set(buy_strategies):
+        return []
+    profit = float(candidate.get("sell_min_profit_pct") or 0.0)
+    cooldown = int(candidate.get("repair_sell_cooldown_days") or 0)
+    stage = float(candidate.get("repair_stage_sell_pct") or 0.0)
+    profit_values = _bounded_neighbor_values(profit, [profit - 2.5, profit, profit + 2.5], 0, 100)
+    cooldown_values = sorted({max(0, int(cooldown + delta)) for delta in (-15, 0, 15)})
+    stage_values = _bounded_neighbor_values(stage, [stage - 2, stage, stage + 2], 0, 100)
+    return _repair_candidates(
+        [buy_strategy],
+        [
+            (profit_value, cooldown_value, stage_value)
+            for profit_value in profit_values
+            for cooldown_value in cooldown_values
+            for stage_value in stage_values
+        ],
+    )
+
+
+def _bounded_neighbor_values(value: float, values: Iterable[float], minimum: float, maximum: float) -> list[float]:
+    result = {
+        round(candidate, 4)
+        for candidate in values
+        if math.isfinite(candidate) and minimum <= candidate <= maximum
+    }
+    result.add(round(min(max(value, minimum), maximum), 4))
+    return sorted(result)
+
+
+def _score_robust_candidates(
+    tasks: list[dict[str, object]],
+    inputs: StrategyInputs,
+    candidates: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    observations_by_key: dict[str, list[dict[str, object]]] = {
+        str(candidate["key"]): []
+        for candidate in candidates
+    }
+    for task in tasks:
+        observations = []
+        for candidate in candidates:
+            candidate_inputs = inputs
+            if candidate.get("sell_strategy") == "repair_step":
+                candidate_inputs = replace(
+                    inputs,
+                    sell_min_profit_pct=float(candidate["sell_min_profit_pct"]),
+                    repair_sell_cooldown_days=int(candidate["repair_sell_cooldown_days"]),
+                    repair_stage_sell_pct=float(candidate["repair_stage_sell_pct"]),
+                )
+            result = simulate_portfolio(
+                task["price_points"],
+                task["targets"],
+                candidate_inputs,
+                strategies=[str(candidate["buy_strategy"])],
+                sell_strategies=[str(candidate["sell_strategy"])],
+            )
+            strategy = result["strategies"][0]
+            metrics = strategy["metrics"]
+            observations.append(
+                {
+                    "candidate": candidate,
+                    "task": task,
+                    "return_pct": float(metrics.get("return_pct", 0.0)),
+                    "max_drawdown_pct": float(metrics.get("max_drawdown_pct", 0.0)),
+                    "sell_quality_score": float(metrics.get("sell_quality_score", 0.0)),
+                    "trade_count": int(metrics.get("trade_count", 0)),
+                }
+            )
+        _score_robust_task_observations(observations)
+        for observation in observations:
+            observations_by_key[str(observation["candidate"]["key"])].append(observation)
+    return [
+        _aggregate_robust_candidate(candidate, observations_by_key[str(candidate["key"])])
+        for candidate in candidates
+    ]
+
+
+def _score_robust_task_observations(observations: list[dict[str, object]]) -> None:
+    returns = [float(item["return_pct"]) for item in observations]
+    inverse_drawdowns = [-float(item["max_drawdown_pct"]) for item in observations]
+    calmars = [
+        float(item["return_pct"]) / max(1.0, abs(float(item["max_drawdown_pct"])))
+        for item in observations
+    ]
+    sell_qualities = [float(item["sell_quality_score"]) for item in observations]
+    trade_counts = [float(item["trade_count"]) for item in observations]
+    max_trade_count = max(trade_counts) if trade_counts else 0.0
+    for item in observations:
+        return_score = _normalize_bigger_better(float(item["return_pct"]), returns) * 100.0
+        drawdown_score = _normalize_bigger_better(-float(item["max_drawdown_pct"]), inverse_drawdowns) * 100.0
+        calmar = float(item["return_pct"]) / max(1.0, abs(float(item["max_drawdown_pct"])))
+        calmar_score = _normalize_bigger_better(calmar, calmars) * 100.0
+        sell_score = _normalize_bigger_better(float(item["sell_quality_score"]), sell_qualities) * 100.0
+        trade_penalty = 0.0
+        if max_trade_count > 0:
+            trade_penalty = min(12.0, float(item["trade_count"]) / max_trade_count * 12.0)
+        item["task_score"] = (
+            return_score * 0.45
+            + drawdown_score * 0.25
+            + calmar_score * 0.20
+            + sell_score * 0.10
+            - trade_penalty
+        )
+
+
+def _aggregate_robust_candidate(
+    candidate: dict[str, object],
+    observations: list[dict[str, object]],
+) -> dict[str, object]:
+    scores = sorted(float(item["task_score"]) for item in observations)
+    returns = [float(item["return_pct"]) for item in observations]
+    drawdowns = [float(item["max_drawdown_pct"]) for item in observations]
+    sell_qualities = [float(item["sell_quality_score"]) for item in observations]
+    mean_score = _avg_float(scores)
+    median_score = _percentile(scores, 0.50)
+    p25_score = _percentile(scores, 0.25)
+    top10_rate = sum(1 for score in scores if score >= 90.0) / len(scores) * 100.0 if scores else 0.0
+    bottom10_rate = sum(1 for score in scores if score <= 10.0) / len(scores) * 100.0 if scores else 0.0
+    robust_score = (
+        mean_score * 0.35
+        + median_score * 0.25
+        + p25_score * 0.25
+        + top10_rate * 0.10
+        - bottom10_rate * 0.15
+    )
+    sorted_observations = sorted(observations, key=lambda item: item["task_score"])
+    weakest = sorted_observations[0] if sorted_observations else None
+    strongest = sorted_observations[-1] if sorted_observations else None
+    return {
+        "candidate": candidate,
+        "robust_score": robust_score,
+        "mean_score": mean_score,
+        "median_score": median_score,
+        "p25_score": p25_score,
+        "top10_rate": top10_rate,
+        "bottom10_rate": bottom10_rate,
+        "avg_return_pct": _avg_float(returns),
+        "avg_drawdown_pct": _avg_float(drawdowns),
+        "avg_sell_quality_score": _avg_float(sell_qualities),
+        "task_count": len(observations),
+        "strongest_task": _robust_task_summary(strongest),
+        "weakest_task": _robust_task_summary(weakest),
+    }
+
+
+def _robust_task_summary(observation: dict[str, object] | None) -> dict[str, object] | None:
+    if not observation:
+        return None
+    task = observation["task"]
+    return {
+        "key": task["key"],
+        "label": f"{task['portfolio_label']} / {task['period_label']}",
+        "score": float(observation["task_score"]),
+        "return_pct": float(observation["return_pct"]),
+        "max_drawdown_pct": float(observation["max_drawdown_pct"]),
+    }
+
+
+def _percentile(values: list[float], percentile: float) -> float:
+    if not values:
+        return 0.0
+    sorted_values = sorted(values)
+    index = (len(sorted_values) - 1) * min(1.0, max(0.0, percentile))
+    lower = math.floor(index)
+    upper = math.ceil(index)
+    if lower == upper:
+        return sorted_values[int(index)]
+    ratio = index - lower
+    return sorted_values[lower] * (1 - ratio) + sorted_values[upper] * ratio
 
 
 def _simulate_strategy(

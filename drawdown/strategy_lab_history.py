@@ -207,6 +207,7 @@ def _kind_label(kind: str) -> str:
         "run": "组合演算",
         "score": "策略评分",
         "scan": "参数扫描",
+        "robust": "稳健 Top10",
     }.get(kind, kind)
 
 
@@ -252,6 +253,8 @@ def _result_summary(kind: str, result: Mapping[str, object]) -> dict[str, object
         return _score_result_summary(result)
     if kind == "scan":
         return _scan_result_summary(result)
+    if kind == "robust":
+        return _robust_result_summary(result)
     return {
         "warnings": _warnings(result),
     }
@@ -305,6 +308,26 @@ def _scan_result_summary(result: Mapping[str, object]) -> dict[str, object]:
         "best_repair_stage_sell_pct": _number(best.get("repair_stage_sell_pct")) if best else None,
         "best_return_pct": _number(best.get("return_pct")) if best else None,
         "best_drawdown_pct": _number(best.get("max_drawdown_pct")) if best else None,
+        "warnings": _warnings(result),
+    }
+
+
+def _robust_result_summary(result: Mapping[str, object]) -> dict[str, object]:
+    leaderboard = result.get("leaderboard")
+    leaderboard = leaderboard if isinstance(leaderboard, list) else []
+    tasks = result.get("tasks")
+    tasks = tasks if isinstance(tasks, list) else []
+    top = leaderboard[0] if leaderboard and isinstance(leaderboard[0], Mapping) else None
+    candidate = top.get("candidate") if isinstance(top, Mapping) else None
+    candidate = candidate if isinstance(candidate, Mapping) else {}
+    return {
+        "leaderboard_count": len(leaderboard),
+        "task_count": len(tasks),
+        "range": result.get("range") or {},
+        "top_label": candidate.get("label"),
+        "top_robust_score": _number(top.get("robust_score")) if top else None,
+        "top_return_pct": _number(top.get("avg_return_pct")) if top else None,
+        "top_drawdown_pct": _number(top.get("avg_drawdown_pct")) if top else None,
         "warnings": _warnings(result),
     }
 
