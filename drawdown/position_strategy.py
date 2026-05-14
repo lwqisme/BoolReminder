@@ -89,6 +89,8 @@ ROBUST_COARSE_SELL_MIN_PROFITS = [5, 10, 20]
 ROBUST_COARSE_REPAIR_COOLDOWNS = [0, 30, 60]
 ROBUST_COARSE_REPAIR_STAGE_SELLS = [8, 15, 25]
 ROBUST_NON_REPAIR_SELL_STRATEGIES = ("none", "grid_rebound", "cost_deleverage")
+ROBUST_BUY_STEP_VALUES = [2.5, 5.0, 10.0]
+ROBUST_EQUAL_SLICE_ALLOCATION_VALUES = [2.5, 5.0, 7.5, 10.0]
 ROBUST_SHORTLIST_SIZE = 12
 ROBUST_FINALIST_SIZE = 40
 
@@ -915,15 +917,17 @@ def _representative_robust_tasks(tasks: list[dict[str, object]]) -> list[dict[st
 def _non_repair_candidates(buy_strategies: Iterable[str]) -> list[dict[str, object]]:
     return [
         {
-            "key": f"{buy_strategy}__{sell_strategy}",
-            "label": f"{STRATEGY_LABELS[buy_strategy]} / {SELL_STRATEGY_LABELS[sell_strategy]}",
+            "key": _candidate_key(buy_strategy, sell_strategy, buy_params),
+            "label": _candidate_label(buy_strategy, sell_strategy, buy_params),
             "buy_strategy": buy_strategy,
             "sell_strategy": sell_strategy,
+            **buy_params,
             "sell_min_profit_pct": None,
             "repair_sell_cooldown_days": None,
             "repair_stage_sell_pct": None,
         }
         for buy_strategy in buy_strategies
+        for buy_params in _buy_param_variants(buy_strategy)
         for sell_strategy in ROBUST_NON_REPAIR_SELL_STRATEGIES
     ]
 
@@ -934,20 +938,74 @@ def _repair_candidates(
 ) -> list[dict[str, object]]:
     return [
         {
-            "key": f"{buy_strategy}__repair_step__p{profit:g}__c{cooldown:g}__s{stage:g}",
-            "label": (
-                f"{STRATEGY_LABELS[buy_strategy]} / 阶梯修复 "
-                f"{profit:g}%盈利 {cooldown:g}日冷却 {stage:g}%单档"
-            ),
+            "key": _candidate_key(buy_strategy, "repair_step", buy_params, profit, cooldown, stage),
+            "label": _candidate_label(buy_strategy, "repair_step", buy_params, profit, cooldown, stage),
             "buy_strategy": buy_strategy,
             "sell_strategy": "repair_step",
+            **buy_params,
             "sell_min_profit_pct": float(profit),
             "repair_sell_cooldown_days": int(cooldown),
             "repair_stage_sell_pct": float(stage),
         }
         for buy_strategy in buy_strategies
+        for buy_params in _buy_param_variants(buy_strategy)
         for profit, cooldown, stage in params
     ]
+
+
+def _buy_param_variants(buy_strategy: str) -> list[dict[str, float | None]]:
+    if buy_strategy in {"equal_slice", "linear_weighted_slice", "weighted_slice"}:
+        return [
+            {
+                "step_pct": step,
+                "equal_slice_allocation_pct": allocation if buy_strategy == "equal_slice" else None,
+            }
+            for step in ROBUST_BUY_STEP_VALUES
+            for allocation in (ROBUST_EQUAL_SLICE_ALLOCATION_VALUES if buy_strategy == "equal_slice" else [None])
+        ]
+    return [{"step_pct": None, "equal_slice_allocation_pct": None}]
+
+
+def _candidate_key(
+    buy_strategy: str,
+    sell_strategy: str,
+    buy_params: dict[str, float | None],
+    profit: float | None = None,
+    cooldown: int | None = None,
+    stage: float | None = None,
+) -> str:
+    parts = [buy_strategy]
+    if buy_params.get("step_pct") is not None:
+        parts.append(f"step{float(buy_params['step_pct']):g}")
+    if buy_params.get("equal_slice_allocation_pct") is not None:
+        parts.append(f"alloc{float(buy_params['equal_slice_allocation_pct']):g}")
+    parts.append(sell_strategy)
+    if sell_strategy == "repair_step":
+        parts.extend([f"p{float(profit or 0):g}", f"c{int(cooldown or 0):g}", f"s{float(stage or 0):g}"])
+    return "__".join(parts)
+
+
+def _candidate_label(
+    buy_strategy: str,
+    sell_strategy: str,
+    buy_params: dict[str, float | None],
+    profit: float | None = None,
+    cooldown: int | None = None,
+    stage: float | None = None,
+) -> str:
+    buy_label = STRATEGY_LABELS[buy_strategy]
+    buy_bits = []
+    if buy_params.get("step_pct") is not None:
+        buy_bits.append(f"步长 {float(buy_params['step_pct']):g}%")
+    if buy_params.get("equal_slice_allocation_pct") is not None:
+        buy_bits.append(f"每步 {float(buy_params['equal_slice_allocation_pct']):g}%")
+    if buy_bits:
+        buy_label = f"{buy_label} ({' / '.join(buy_bits)})"
+    if sell_strategy == "repair_step":
+        sell_label = f"阶梯修复 {float(profit or 0):g}%盈利 {int(cooldown or 0):g}日冷却 {float(stage or 0):g}%单档"
+    else:
+        sell_label = SELL_STRATEGY_LABELS[sell_strategy]
+    return f"{buy_label} / {sell_label}"
 
 
 def _dedupe_candidates(candidates: Iterable[dict[str, object]]) -> list[dict[str, object]]:
@@ -966,21 +1024,33 @@ def _local_candidate_neighborhood(
     buy_strategy = str(candidate["buy_strategy"])
     if buy_strategy not in set(buy_strategies):
         return []
+    buy_step = candidate.get("step_pct")
+    buy_allocation = candidate.get("equal_slice_allocation_pct")
+    buy_params = {
+        "step_pct": float(buy_step) if buy_step is not None else None,
+        "equal_slice_allocation_pct": float(buy_allocation) if buy_allocation is not None else None,
+    }
     profit = float(candidate.get("sell_min_profit_pct") or 0.0)
     cooldown = int(candidate.get("repair_sell_cooldown_days") or 0)
     stage = float(candidate.get("repair_stage_sell_pct") or 0.0)
     profit_values = _bounded_neighbor_values(profit, [profit - 2.5, profit, profit + 2.5], 0, 100)
     cooldown_values = sorted({max(0, int(cooldown + delta)) for delta in (-15, 0, 15)})
     stage_values = _bounded_neighbor_values(stage, [stage - 2, stage, stage + 2], 0, 100)
-    return _repair_candidates(
-        [buy_strategy],
-        [
-            (profit_value, cooldown_value, stage_value)
-            for profit_value in profit_values
-            for cooldown_value in cooldown_values
-            for stage_value in stage_values
-        ],
-    )
+    return [
+        {
+            "key": _candidate_key(buy_strategy, "repair_step", buy_params, profit_value, cooldown_value, stage_value),
+            "label": _candidate_label(buy_strategy, "repair_step", buy_params, profit_value, cooldown_value, stage_value),
+            "buy_strategy": buy_strategy,
+            "sell_strategy": "repair_step",
+            **buy_params,
+            "sell_min_profit_pct": float(profit_value),
+            "repair_sell_cooldown_days": int(cooldown_value),
+            "repair_stage_sell_pct": float(stage_value),
+        }
+        for profit_value in profit_values
+        for cooldown_value in cooldown_values
+        for stage_value in stage_values
+    ]
 
 
 def _bounded_neighbor_values(value: float, values: Iterable[float], minimum: float, maximum: float) -> list[float]:
@@ -1008,9 +1078,18 @@ def _score_robust_candidates(
         observations = []
         for candidate in candidates:
             candidate_inputs = inputs
+            if candidate.get("step_pct") is not None or candidate.get("equal_slice_allocation_pct") is not None:
+                candidate_inputs = replace(
+                    candidate_inputs,
+                    step_pct=float(candidate.get("step_pct") or candidate_inputs.step_pct),
+                    equal_slice_allocation_pct=float(
+                        candidate.get("equal_slice_allocation_pct")
+                        or candidate_inputs.equal_slice_allocation_pct
+                    ),
+                )
             if candidate.get("sell_strategy") == "repair_step":
                 candidate_inputs = replace(
-                    inputs,
+                    candidate_inputs,
                     sell_min_profit_pct=float(candidate["sell_min_profit_pct"]),
                     repair_sell_cooldown_days=int(candidate["repair_sell_cooldown_days"]),
                     repair_stage_sell_pct=float(candidate["repair_stage_sell_pct"]),
@@ -1702,9 +1781,11 @@ def _execute_salary_flow_dca(
     drawdown_pct = _point_drawdown_pct(point, inputs)
     multiplier = _salary_flow_dca_multiplier(drawdown_pct)
     monthly_amount = inputs.monthly_contribution * state.weight / 100.0
-    scheduled_amount = monthly_amount / 4.0 * multiplier
-    reserve_cash = state.budget * 0.10
+    base_scheduled_amount = monthly_amount / 4.0 * multiplier
+    reserve_cash = state.budget * _salary_flow_cash_reserve_ratio(drawdown_pct)
     available_cash = max(0.0, state.cash - reserve_cash)
+    extra_cash = max(0.0, available_cash - base_scheduled_amount)
+    scheduled_amount = base_scheduled_amount + extra_cash * _salary_flow_idle_cash_sweep_ratio(drawdown_pct)
     gross_amount = min(scheduled_amount, available_cash)
     if gross_amount <= 0:
         return False
@@ -1752,7 +1833,9 @@ def _execute_salary_flow_dca(
             "shares": shares,
             "allocation_pct": 0.0,
             "scheduled_amount": scheduled_amount,
+            "base_scheduled_amount": base_scheduled_amount,
             "cash_reserve": reserve_cash,
+            "idle_cash_sweep": max(0.0, gross_amount - base_scheduled_amount),
             "drawdown_boost": multiplier,
         }
     )
@@ -1761,12 +1844,36 @@ def _execute_salary_flow_dca(
 
 def _salary_flow_dca_multiplier(drawdown_pct: float) -> float:
     if drawdown_pct >= 30.0:
-        return 2.5
-    if drawdown_pct >= 15.0:
-        return 1.8
+        return 4.0
+    if drawdown_pct >= 20.0:
+        return 3.0
+    if drawdown_pct >= 10.0:
+        return 2.0
     if drawdown_pct >= 5.0:
-        return 1.3
+        return 1.4
     return 1.0
+
+
+def _salary_flow_cash_reserve_ratio(drawdown_pct: float) -> float:
+    if drawdown_pct >= 30.0:
+        return 0.0
+    if drawdown_pct >= 20.0:
+        return 0.03
+    if drawdown_pct >= 10.0:
+        return 0.05
+    return 0.08
+
+
+def _salary_flow_idle_cash_sweep_ratio(drawdown_pct: float) -> float:
+    if drawdown_pct >= 30.0:
+        return 0.90
+    if drawdown_pct >= 20.0:
+        return 0.70
+    if drawdown_pct >= 10.0:
+        return 0.50
+    if drawdown_pct >= 5.0:
+        return 0.35
+    return 0.20
 
 
 def _execute_crossed_tranches(

@@ -265,10 +265,10 @@ class PositionStrategyTest(unittest.TestCase):
         strategy = result["strategies"][0]
         buys = [trade for trade in strategy["trades"] if trade["action"] == "buy"]
         self.assertEqual([trade["date"] for trade in buys], ["2024-01-02", "2024-01-08", "2024-01-15", "2024-01-22", "2024-01-29", "2024-02-05"])
-        self.assertEqual([round(trade["drawdown_boost"], 1) for trade in buys], [1.0, 1.0, 1.3, 1.8, 2.5, 2.5])
-        self.assertEqual([round(trade["gross_amount"], 2) for trade in buys], [100.0, 100.0, 130.0, 180.0, 250.0, 250.0])
+        self.assertEqual([round(trade["drawdown_boost"], 1) for trade in buys], [1.0, 1.0, 1.4, 2.0, 4.0, 4.0])
+        self.assertEqual([round(trade["gross_amount"], 2) for trade in buys], [264.0, 211.2, 246.68, 214.06, 64.06, 400.0])
         self.assertAlmostEqual(strategy["metrics"]["total_contributed"], 1400.0)
-        self.assertAlmostEqual(strategy["metrics"]["cash_remaining"], 390.0)
+        self.assertAlmostEqual(strategy["metrics"]["cash_remaining"], 0.0)
 
     def test_simulation_can_cross_buy_and_sell_strategies(self):
         inputs = StrategyInputs(

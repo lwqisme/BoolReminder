@@ -2899,7 +2899,7 @@ STRATEGY_LAB_TEMPLATE = """
                 <div class="reference-item"><span class="tag">BUY</span><div><strong>线性递增加权细切</strong><p>同样按细切步长触发，投入按档位序号 1、2、3... 递增并归一化到 100% 预算，前期投入比平方递增更有存在感。</p></div></div>
                 <div class="reference-item"><span class="tag">BUY</span><div><strong>平方递增加权细切</strong><p>同样按细切步长触发，投入按档位序号平方递增并归一化到 100% 预算，更保守地把资金留给深度回撤。</p></div></div>
                 <div class="reference-item"><span class="tag">BUY</span><div><strong>每周定投</strong><p>在所选时间段内，每周第一个可交易日等额买入，把该标的预算平均分配到所有周，不依赖回撤触发。</p></div></div>
-                <div class="reference-item"><span class="tag">BUY</span><div><strong>工资流定投</strong><p>每周首个交易日按每月注入资金动态买入，默认保留累计投入的 10% 现金垫；回撤越深，当周投入按 1.0x、1.3x、1.8x、2.5x 放大。</p></div></div>
+                <div class="reference-item"><span class="tag">BUY</span><div><strong>工资流定投</strong><p>每周首个交易日按每月注入资金动态买入，并按余额加速吃现金。回撤越深，当周投入按 1.0x、1.4x、2.0x、3.0x、4.0x 放大；现金垫从 8% 逐步降到 0%，闲置现金会按 20%-90% 扫入。</p></div></div>
                 <div class="reference-item"><span class="tag">SELL</span><div><strong>不卖出</strong><p>只执行买入策略，不触发任何卖出，用来观察纯回撤加仓在所选时间段内的结果。</p></div></div>
                 <div class="reference-item"><span class="tag">SELL</span><div><strong>阶梯修复卖出</strong><p>每笔买入独立判断：该笔回撤修复到买入回撤的 50%、20% 以及接近 ATH 时分批卖出，默认每次卖 12%、冷却 30 天，并要求至少 10% 盈利。</p></div></div>
                 <div class="reference-item"><span class="tag">SELL</span><div><strong>网格回弹卖出</strong><p>每笔买入独立配对退出：回撤修复 1 个 step 卖该笔一半，修复 2 个 step 卖该笔剩余部分。</p></div></div>
@@ -5217,10 +5217,15 @@ STRATEGY_LAB_TEMPLATE = """
                 const candidate = row.candidate || {};
                 const strongest = row.strongest_task || {};
                 const weakest = row.weakest_task || {};
+                const buyParams = [
+                    candidate.step_pct !== null && candidate.step_pct !== undefined ? `步长 ${pct(candidate.step_pct)}` : '',
+                    candidate.equal_slice_allocation_pct !== null && candidate.equal_slice_allocation_pct !== undefined ? `每步 ${pct(candidate.equal_slice_allocation_pct)}` : ''
+                ].filter(Boolean).join(' / ');
                 return `
                     <tr>
                         <td>
                             <strong>${escapeHtml(candidate.label || candidate.key || '--')}</strong>
+                            ${buyParams ? `<div class="robust-task">${escapeHtml(buyParams)}</div>` : ''}
                             <div class="robust-task">${escapeHtml(candidate.sell_strategy === 'repair_step'
                                 ? `${pct(candidate.sell_min_profit_pct)} 盈利 / ${number(candidate.repair_sell_cooldown_days)} 日冷却 / ${pct(candidate.repair_stage_sell_pct)} 单档`
                                 : '无阶梯参数')}</div>
@@ -5258,6 +5263,12 @@ STRATEGY_LAB_TEMPLATE = """
             }
             setSelectValue('buyStrategy', candidate.buy_strategy);
             setSelectValue('sellStrategy', candidate.sell_strategy);
+            if (candidate.step_pct !== null && candidate.step_pct !== undefined) {
+                setFieldValue('stepPct', candidate.step_pct);
+            }
+            if (candidate.equal_slice_allocation_pct !== null && candidate.equal_slice_allocation_pct !== undefined) {
+                setFieldValue('equalSliceAllocation', candidate.equal_slice_allocation_pct);
+            }
             if (candidate.sell_strategy === 'repair_step') {
                 setFieldValue('sellMinProfit', candidate.sell_min_profit_pct);
                 setFieldValue('repairSellCooldown', candidate.repair_sell_cooldown_days);
