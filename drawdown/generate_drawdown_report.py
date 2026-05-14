@@ -116,6 +116,8 @@ class PricePoint:
     is_sell: bool
     rolling_peak: float
     drawdown_ath: float
+    rolling_120_peak: float = 0.0
+    drawdown_120: float = 0.0
 
 
 @dataclass
@@ -125,6 +127,12 @@ class TradeOverlay:
     shares: float | None
     price: float | None
     event_type: str
+
+
+@dataclass(frozen=True)
+class CachedDailyCandle:
+    date: datetime
+    close: float
 
 
 def parse_args() -> argparse.Namespace:
@@ -344,10 +352,14 @@ def build_price_points_from_series(series: list[tuple[datetime, float]]) -> list
         return []
 
     points: list[PricePoint] = []
+    ordered = sorted(series, key=lambda item: item[0])
+    closes = [close for _point_date, close in ordered]
     rolling_peak = -math.inf
-    for point_date, close in sorted(series, key=lambda item: item[0]):
+    for index, (point_date, close) in enumerate(ordered):
         rolling_peak = max(rolling_peak, close)
         drawdown_ath = close / rolling_peak - 1.0
+        window_peak = max(closes[max(0, index - 119) : index + 1])
+        drawdown_120 = close / window_peak - 1.0
         points.append(
             PricePoint(
                 date=point_date,
@@ -356,6 +368,8 @@ def build_price_points_from_series(series: list[tuple[datetime, float]]) -> list
                 is_sell=False,
                 rolling_peak=rolling_peak,
                 drawdown_ath=drawdown_ath,
+                rolling_120_peak=window_peak,
+                drawdown_120=drawdown_120,
             )
         )
     return points
@@ -614,7 +628,7 @@ def load_price_points(path: Path) -> list[PricePoint]:
     if len(rows) < 3:
         raise ValueError(f"{path} does not look like a valid TSV export.")
 
-    points: list[PricePoint] = []
+    raw_points: list[tuple[datetime, float, bool, bool]] = []
     rolling_peak = -math.inf
 
     for row in rows[2:]:
@@ -625,8 +639,16 @@ def load_price_points(path: Path) -> list[PricePoint]:
         close = float(row[1])
         is_buy = bool(row[2].strip())
         is_sell = bool(row[3].strip())
+        raw_points.append((point_date, close, is_buy, is_sell))
+
+    raw_points.sort(key=lambda item: item[0])
+    closes = [close for _point_date, close, _is_buy, _is_sell in raw_points]
+    points: list[PricePoint] = []
+    for index, (point_date, close, is_buy, is_sell) in enumerate(raw_points):
         rolling_peak = max(rolling_peak, close)
         drawdown_ath = close / rolling_peak - 1.0
+        window_peak = max(closes[max(0, index - 119) : index + 1])
+        drawdown_120 = close / window_peak - 1.0
 
         points.append(
             PricePoint(
@@ -636,6 +658,8 @@ def load_price_points(path: Path) -> list[PricePoint]:
                 is_sell=is_sell,
                 rolling_peak=rolling_peak,
                 drawdown_ath=drawdown_ath,
+                rolling_120_peak=window_peak,
+                drawdown_120=drawdown_120,
             )
         )
 
@@ -3365,6 +3389,24 @@ def build_longbridge_quote_context():
 def fetch_longbridge_daily_candles(
     quote_ctx: object, symbol: str, start_date: date, end_date: date
 ) -> list[object]:
+    cached = _load_cached_daily_candles(symbol, start_date, end_date)
+    if cached is not None:
+        return cached
+
+    try:
+        candles = _fetch_longbridge_daily_candles_uncached(quote_ctx, symbol, start_date, end_date)
+    except Exception:
+        stale_cached = _load_cached_daily_candles(symbol, start_date, end_date, allow_stale=True)
+        if stale_cached is not None:
+            return stale_cached
+        raise
+    _save_cached_daily_candles(symbol, start_date, end_date, candles)
+    return candles
+
+
+def _fetch_longbridge_daily_candles_uncached(
+    quote_ctx: object, symbol: str, start_date: date, end_date: date
+) -> list[object]:
     from longbridge.openapi import AdjustType, Period  # type: ignore
 
     if (end_date - start_date).days <= LONGBRIDGE_SHORT_RANGE_DAYS:
@@ -3403,6 +3445,129 @@ def fetch_longbridge_daily_candles(
         cursor = datetime.combine(earliest_in_chunk - timedelta(days=1), time.min)
 
     return [candles_by_day[day] for day in sorted(candles_by_day)]
+
+
+def _daily_candle_cache_dir() -> Path:
+    path = ROOT_DIR / "data" / "longbridge_daily_candles"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _daily_candle_cache_path(symbol: str) -> Path:
+    safe_symbol = re.sub(r"[^A-Z0-9._-]+", "_", normalize_longbridge_symbol(symbol).upper())
+    return _daily_candle_cache_dir() / f"{safe_symbol}.json"
+
+
+def _daily_candle_cache_today() -> str:
+    return datetime.utcnow().date().isoformat()
+
+
+def _load_cached_daily_candles(
+    symbol: str,
+    start_date: date,
+    end_date: date,
+    *,
+    allow_stale: bool = False,
+) -> list[CachedDailyCandle] | None:
+    path = _daily_candle_cache_path(symbol)
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    if not allow_stale and payload.get("cache_date") != _daily_candle_cache_today():
+        return None
+    if payload.get("symbol") != normalize_longbridge_symbol(symbol):
+        return None
+    try:
+        requested_start = date.fromisoformat(str(payload.get("requested_start_date")))
+        requested_end = date.fromisoformat(str(payload.get("requested_end_date")))
+    except (TypeError, ValueError):
+        return None
+    if requested_start > start_date or requested_end < end_date:
+        return None
+
+    raw_candles = payload.get("candles")
+    if not isinstance(raw_candles, list):
+        return None
+
+    candles: list[CachedDailyCandle] = []
+    try:
+        for item in raw_candles:
+            if not isinstance(item, dict):
+                continue
+            candle_day = date.fromisoformat(str(item["date"]))
+            if start_date <= candle_day <= end_date:
+                candles.append(
+                    CachedDailyCandle(
+                        date=datetime.combine(candle_day, time.min),
+                        close=float(item["close"]),
+                    )
+                )
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    if not candles:
+        return None
+    return candles
+
+
+def _save_cached_daily_candles(
+    symbol: str,
+    start_date: date,
+    end_date: date,
+    candles: list[object],
+) -> None:
+    if not candles:
+        return
+    rows: dict[str, float] = {}
+    cache_start_date = start_date
+    cache_end_date = end_date
+    path = _daily_candle_cache_path(symbol)
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+            if existing.get("symbol") == normalize_longbridge_symbol(symbol):
+                existing_start = date.fromisoformat(str(existing.get("requested_start_date")))
+                existing_end = date.fromisoformat(str(existing.get("requested_end_date")))
+                cache_start_date = min(cache_start_date, existing_start)
+                cache_end_date = max(cache_end_date, existing_end)
+                existing_candles = existing.get("candles")
+                if isinstance(existing_candles, list):
+                    for item in existing_candles:
+                        if isinstance(item, dict):
+                            rows[str(item["date"])] = float(item["close"])
+        except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
+            rows = {}
+            cache_start_date = start_date
+            cache_end_date = end_date
+
+    for candle in candles:
+        try:
+            candle_day = candle_datetime(candle).date().isoformat()
+            close = float(getattr(candle, "close"))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        rows[candle_day] = close
+    if not rows:
+        return
+    payload = {
+        "symbol": normalize_longbridge_symbol(symbol),
+        "cache_date": _daily_candle_cache_today(),
+        "cached_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "requested_start_date": cache_start_date.isoformat(),
+        "requested_end_date": cache_end_date.isoformat(),
+        "candles": [
+            {"date": candle_day, "close": rows[candle_day]}
+            for candle_day in sorted(rows)
+        ],
+    }
+    _daily_candle_cache_path(symbol).write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def load_longbridge_price_points(

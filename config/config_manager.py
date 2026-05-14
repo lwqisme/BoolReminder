@@ -78,6 +78,44 @@ class ConfigManager:
                 "raw_keep_count": 400,
                 "drawdown_keep_days": 30,
             },
+            "position_strategy": {
+                "default_initial_cash": 20000,
+                "default_monthly_contribution": 1000,
+                "default_max_drawdown_pct": 50,
+                "default_trade_fee": 0.35,
+                "default_slice_step_pct": 5,
+                "default_equal_slice_allocation_pct": 10,
+                "default_hkd_to_usd": 0.128,
+                "default_reserve_position_pct": 40,
+                "default_sell_min_profit_pct": 10,
+                "default_repair_sell_cooldown_days": 30,
+                "default_repair_stage_sell_pct": 12,
+                "default_drawdown_basis": "rolling_120",
+                "default_buy_strategy": "all",
+                "default_sell_strategy": "all",
+                "default_score_return_weight_pct": 90,
+                "default_score_drawdown_weight_pct": 10,
+                "default_scorecard_portfolio_keys": [],
+                "default_scorecard_periods": [],
+                "default_scan_buy_strategy": "pyramid_3",
+                "default_scan_period_trading_days": 1260,
+                "default_scan_sell_min_profit_values": "5,10,15,20,25",
+                "default_scan_repair_cooldown_values": "0,15,30,45,60",
+                "default_scan_repair_stage_sell_values": "8,12,16,20,25",
+                "default_scan_score_mode": "balanced",
+                "default_option_enabled": False,
+                "default_option_allocation_pct": 20,
+                "default_option_target_dte": 365,
+                "default_option_min_dte": 300,
+                "default_option_max_dte": 450,
+                "default_option_moneyness": "atm",
+                "default_option_profit_take_pct": 100,
+                "default_option_profit_take_sell_pct": 50,
+                "default_option_exit_dte": 120,
+                "default_option_trade_fee": 0.35,
+                "default_option_max_trades_per_strategy": 20,
+                "default_portfolio": [],
+            },
             "schedule": {
                 "timezone": "Asia/Shanghai",
                 "hour": 11,
@@ -269,6 +307,74 @@ class ConfigManager:
             "raw_keep_count": cleanup_config.get("raw_keep_count", 400),
             "drawdown_keep_days": cleanup_config.get("drawdown_keep_days", 30),
         }
+
+    def get_position_strategy_config(self) -> Dict[str, Any]:
+        """获取仓位策略实验室配置"""
+        strategy_config = self.get("position_strategy", {})
+        return {
+            "default_initial_cash": strategy_config.get("default_initial_cash", 20000),
+            "default_monthly_contribution": strategy_config.get("default_monthly_contribution", 1000),
+            "default_max_drawdown_pct": strategy_config.get("default_max_drawdown_pct", 50),
+            "default_trade_fee": strategy_config.get("default_trade_fee", 0.35),
+            "default_slice_step_pct": strategy_config.get("default_slice_step_pct", 5),
+            "default_equal_slice_allocation_pct": strategy_config.get(
+                "default_equal_slice_allocation_pct", 10
+            ),
+            "default_hkd_to_usd": strategy_config.get("default_hkd_to_usd", 0.128),
+            "default_reserve_position_pct": strategy_config.get("default_reserve_position_pct", 40),
+            "default_sell_min_profit_pct": strategy_config.get("default_sell_min_profit_pct", 10),
+            "default_repair_sell_cooldown_days": strategy_config.get(
+                "default_repair_sell_cooldown_days", 30
+            ),
+            "default_repair_stage_sell_pct": strategy_config.get("default_repair_stage_sell_pct", 12),
+            "default_drawdown_basis": strategy_config.get("default_drawdown_basis", "rolling_120"),
+            "default_buy_strategy": strategy_config.get("default_buy_strategy", "all"),
+            "default_sell_strategy": strategy_config.get("default_sell_strategy", "all"),
+            "default_score_return_weight_pct": strategy_config.get("default_score_return_weight_pct", 90),
+            "default_score_drawdown_weight_pct": strategy_config.get("default_score_drawdown_weight_pct", 10),
+            "default_scorecard_portfolio_keys": strategy_config.get("default_scorecard_portfolio_keys", []),
+            "default_scorecard_periods": strategy_config.get("default_scorecard_periods", []),
+            "default_scan_buy_strategy": strategy_config.get("default_scan_buy_strategy", "pyramid_3"),
+            "default_scan_period_trading_days": strategy_config.get("default_scan_period_trading_days", 1260),
+            "default_scan_sell_min_profit_values": strategy_config.get(
+                "default_scan_sell_min_profit_values", "5,10,15,20,25"
+            ),
+            "default_scan_repair_cooldown_values": strategy_config.get(
+                "default_scan_repair_cooldown_values", "0,15,30,45,60"
+            ),
+            "default_scan_repair_stage_sell_values": strategy_config.get(
+                "default_scan_repair_stage_sell_values", "8,12,16,20,25"
+            ),
+            "default_scan_score_mode": strategy_config.get("default_scan_score_mode", "balanced"),
+            "default_option_enabled": strategy_config.get("default_option_enabled", False),
+            "default_option_allocation_pct": strategy_config.get("default_option_allocation_pct", 20),
+            "default_option_target_dte": strategy_config.get("default_option_target_dte", 365),
+            "default_option_min_dte": strategy_config.get("default_option_min_dte", 300),
+            "default_option_max_dte": strategy_config.get("default_option_max_dte", 450),
+            "default_option_moneyness": strategy_config.get("default_option_moneyness", "atm"),
+            "default_option_profit_take_pct": strategy_config.get("default_option_profit_take_pct", 100),
+            "default_option_profit_take_sell_pct": strategy_config.get(
+                "default_option_profit_take_sell_pct", 50
+            ),
+            "default_option_exit_dte": strategy_config.get("default_option_exit_dte", 120),
+            "default_option_trade_fee": strategy_config.get("default_option_trade_fee", 0.35),
+            "default_option_max_trades_per_strategy": strategy_config.get(
+                "default_option_max_trades_per_strategy", 20
+            ),
+            "default_portfolio": strategy_config.get("default_portfolio", []),
+        }
+
+    def update_position_strategy_config(self, values: Dict[str, Any]) -> bool:
+        """更新仓位策略实验室默认配置"""
+        try:
+            if "position_strategy" not in self.config:
+                self.config["position_strategy"] = {}
+            self.config["position_strategy"].update(values)
+            self.save_config()
+            return True
+        except Exception as e:
+            print(f"更新仓位策略实验室配置失败: {e}")
+            return False
     
     def get_report_cleanup_config(self) -> Dict[str, Any]:
         """获取报告清理配置"""
