@@ -31,6 +31,16 @@ from drawdown.position_strategy import (
     run_longbridge_sell_parameter_scan,
 )
 from drawdown.strategy_lab_config import StrategyLabConfig
+from drawdown.strategy_lab_history import (
+    delete_experiment_preset,
+    delete_run_snapshot,
+    list_experiment_presets,
+    list_run_snapshots,
+    load_experiment_preset,
+    load_run_snapshot,
+    save_experiment_preset,
+    save_run_snapshot,
+)
 from trade_sync.cleanup import run_trade_sync_cleanup
 from trade_sync.normalize import canonical_symbol, normalize_trade_rows
 from trade_sync.store import (
@@ -2010,6 +2020,37 @@ STRATEGY_LAB_TEMPLATE = """
             display: grid;
             gap: 10px;
         }
+        .history-section {
+            margin-top: 14px;
+        }
+        .history-section:first-child {
+            margin-top: 0;
+        }
+        .history-section-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin: 0 0 10px;
+            flex-wrap: wrap;
+        }
+        .history-section-head h3 {
+            margin: 0;
+            color: var(--ink);
+            font-size: 14px;
+            letter-spacing: 0;
+        }
+        .preset-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .preset-actions input {
+            width: 220px;
+            min-height: 34px;
+            padding: 8px 10px;
+        }
         .history-empty {
             padding: 18px;
             border-radius: var(--radius-sm);
@@ -2045,6 +2086,17 @@ STRATEGY_LAB_TEMPLATE = """
             font-family: var(--mono);
             font-size: 11px;
             white-space: nowrap;
+        }
+        .history-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-top: 8px;
+            flex-wrap: wrap;
+        }
+        .history-meta {
+            text-align: right;
         }
         .table-wrap {
             overflow: auto;
@@ -2470,6 +2522,10 @@ STRATEGY_LAB_TEMPLATE = """
             .score-weight-fields { grid-template-columns: 1fr 1fr; }
             .score-weight-note { max-width: none; text-align: left; }
             .chart { height: 340px; }
+            .history-item { grid-template-columns: 1fr; }
+            .history-meta { text-align: left; }
+            .history-actions { justify-content: flex-start; }
+            .preset-actions input { width: 100%; }
         }
     </style>
 </head>
@@ -2867,13 +2923,29 @@ STRATEGY_LAB_TEMPLATE = """
             <div class="tool-head">
                 <h2>运行历史</h2>
                 <div style="display:flex;align-items:center;gap:8px;">
-                    <span class="small">当前版本记录本次页面会话，后续阶段会持久化到服务端。</span>
+                    <button class="btn btn-secondary btn-small" type="button" onclick="refreshHistoryWorkspace()">刷新</button>
+                    <span class="small">成功完成的演算、评分和扫描会保存到服务端。</span>
                     <span class="code">HISTORY</span>
                 </div>
             </div>
             <div class="tool-body">
-            <div class="hint">这里先作为研究动线的落点：每次运行演算、评分或扫描后会记录参数摘要和结果摘要。后续会扩展为可恢复方案、对比基准和跨天历史。</div>
-            <div id="runHistoryList" class="history-list"></div>
+            <div class="hint">这里是跨页面和跨容器重启的研究记录：可以从历史恢复参数，再回到配置、演算、评分或扫描继续迭代。记录只保存参数与摘要，不保存完整大结果。</div>
+            <div class="history-section">
+                <div class="history-section-head">
+                    <h3>参数预设</h3>
+                    <div class="preset-actions">
+                        <input id="presetName" type="text" maxlength="80" placeholder="预设名称">
+                        <button class="btn btn-secondary btn-small" type="button" onclick="saveCurrentPreset()">保存当前参数</button>
+                    </div>
+                </div>
+                <div id="presetList" class="history-list"></div>
+            </div>
+            <div class="history-section">
+                <div class="history-section-head">
+                    <h3>运行记录</h3>
+                </div>
+                <div id="runHistoryList" class="history-list"></div>
+            </div>
             </div>
         </div>
 
@@ -3137,6 +3209,7 @@ STRATEGY_LAB_TEMPLATE = """
         let lastScorecardSignature = null;
         let scoreDetailContext = null;
         let runHistory = [];
+        let experimentPresets = [];
         const urlParams = new URLSearchParams(window.location.search);
         const perfEnabled = urlParams.get('perf') === '1';
         const liteMode = urlParams.get('lite') === '1';
@@ -3305,12 +3378,13 @@ STRATEGY_LAB_TEMPLATE = """
             updateCommandBar();
         }
 
-        function initPortfolioRows() {
+        function initPortfolioRows(portfolio = defaultPortfolio) {
             const grid = document.getElementById('holdingGrid');
-            const totalWeight = defaultPortfolio.reduce((sum, item) => sum + item.weight, 0) || 1;
+            const rows = Array.isArray(portfolio) && portfolio.length ? portfolio : defaultPortfolio;
+            const totalWeight = rows.reduce((sum, item) => sum + Number(item.weight || 0), 0) || 1;
             const fallbackMaxDrawdown = readNumber('maxDrawdown') || 50;
-            grid.innerHTML = defaultPortfolio.map((item, index) => {
-                const pct = Math.round(item.weight / totalWeight * 100);
+            grid.innerHTML = rows.map((item, index) => {
+                const pct = Math.round(Number(item.weight || 0) / totalWeight * 100);
                 const maxDrawdown = Number(item.max_drawdown_pct ?? fallbackMaxDrawdown) || fallbackMaxDrawdown;
                 return `
                 <div class="holding" data-holding="${index}">
@@ -3318,14 +3392,14 @@ STRATEGY_LAB_TEMPLATE = """
                         <span class="ticker" contenteditable="true" data-row="${index}" data-field="symbol" onblur="updateHoldingBar(${index})">${escapeHtml(item.symbol)}</span>
                         <span class="weight-editor">
                             <button class="weight-step" type="button" onclick="adjustHoldingWeight(${index}, -10)">-</button>
-                            <span class="weight-value" contenteditable="true" data-row="${index}" data-field="weight" onblur="updateHoldingBar(${index})">${item.weight}</span>
+                            <span class="weight-value" contenteditable="true" data-row="${index}" data-field="weight" onblur="updateHoldingBar(${index})">${Number(item.weight || 0)}</span>
                             <button class="weight-step" type="button" onclick="adjustHoldingWeight(${index}, 10)">+</button>
                         </span>
                     </div>
                     <div class="holding-inputs">
                         <label class="holding-field">
                             名称
-                            <span contenteditable="true" data-row="${index}" data-field="name">${escapeHtml(item.name || item.symbol)}</span>
+                            <span contenteditable="true" data-row="${index}" data-field="name">${escapeHtml(item.name || item.symbol || '')}</span>
                         </label>
                         <label class="holding-field">
                             评分回撤 %
@@ -3456,6 +3530,22 @@ STRATEGY_LAB_TEMPLATE = """
             };
         }
 
+        function currentExperimentPayload() {
+            return {
+                ...buildLabPayload(),
+                return_weight: readNumber('scoreReturnWeight') / 100,
+                drawdown_weight: readNumber('scoreDrawdownWeight') / 100,
+                scorecard_portfolio_keys: selectedScorecardPortfolios(),
+                scorecard_periods: scorecardPeriodPayload(),
+                buy_strategy: document.getElementById('scanBuyStrategy').value,
+                trading_days: Number(document.getElementById('scanPeriod').value || 1260),
+                sell_min_profit_values: parseScanValues('scanSellMinProfits', false, 100),
+                repair_sell_cooldown_values: parseScanValues('scanCooldowns', true),
+                repair_stage_sell_values: parseScanValues('scanStageSells', false, 100),
+                scan_score_mode: document.getElementById('scanScoreMode').value
+            };
+        }
+
         function stableSignature(value) {
             return JSON.stringify(value);
         }
@@ -3541,7 +3631,7 @@ STRATEGY_LAB_TEMPLATE = """
                 return;
             }
             if (activeTabName === 'history') {
-                setFreshness(runHistory.length ? `本次会话已有 ${runHistory.length} 条运行记录。` : '本次会话尚无运行记录。', 'idle');
+                setFreshness(runHistory.length ? `服务端已有 ${runHistory.length} 条运行记录。` : '服务端尚无运行记录。', 'idle');
                 return;
             }
             setFreshness('修改参数后，可在任意工作区直接运行演算或评分。', 'idle');
@@ -3570,17 +3660,186 @@ STRATEGY_LAB_TEMPLATE = """
             ].join(' · ');
         }
 
-        function addRunHistory(type, title, summary) {
-            runHistory.unshift({
-                type,
-                title,
-                summary,
-                context: experimentSummaryText(),
-                time: new Date().toLocaleString()
-            });
-            runHistory = runHistory.slice(0, 12);
-            renderRunHistory();
-            updateCommandBar();
+        function addRunHistory() {
+            loadRunHistory();
+        }
+
+        function runHistoryTitle(item) {
+            const summary = item.result_summary || {};
+            if (item.kind === 'run') {
+                return `${item.kind_label || '组合演算'} · ${summary.strategy_count || 0} 个组合`;
+            }
+            if (item.kind === 'score') {
+                return `${item.kind_label || '策略评分'} · ${summary.strategy_count || 0} 个组合 / ${summary.question_count || 0} 题`;
+            }
+            if (item.kind === 'scan') {
+                return `${item.kind_label || '参数扫描'} · ${summary.cell_count || 0} 个参数`;
+            }
+            return item.kind_label || '运行记录';
+        }
+
+        function runHistorySummary(item) {
+            const summary = item.result_summary || {};
+            const config = item.config_summary || {};
+            const warnings = Array.isArray(summary.warnings) && summary.warnings.length ? `；告警 ${summary.warnings.length} 条` : '';
+            if (item.kind === 'run') {
+                return `${summary.best_label || '最佳组合 --'} 收益 ${pctCompact(summary.best_return_pct)}；最大回撤 ${pctCompact(summary.worst_drawdown_pct)}${warnings}`;
+            }
+            if (item.kind === 'score') {
+                return `${summary.top_label || '最高分 --'} 分数 ${number(summary.top_score)}；均收 ${pctCompact(summary.top_return_pct)} / 均回撤 ${pctCompact(summary.top_drawdown_pct)}${warnings}`;
+            }
+            if (item.kind === 'scan') {
+                return `${summary.buy_strategy_label || config.buy_strategy || '扫描'}；最佳 ${pctCompact(summary.best_sell_min_profit_pct)} 盈利 / ${number(summary.best_repair_sell_cooldown_days)} 日冷却 / ${pctCompact(summary.best_repair_stage_sell_pct)} 单档${warnings}`;
+            }
+            return warnings ? warnings.replace(/^；/, '') : '运行摘要';
+        }
+
+        function runHistoryContext(item) {
+            const config = item.config_summary || {};
+            const range = `${config.start || '--'} 至 ${config.end || '--'}`;
+            const portfolio = `${config.target_count || 0} 标的 / ${number(config.target_weight)} 权重`;
+            const buy = config.buy_strategy ? `买入 ${config.buy_strategy}` : '';
+            const sell = config.sell_strategy ? `卖出 ${config.sell_strategy}` : '';
+            return [range, portfolio, buy, sell].filter(Boolean).join(' · ');
+        }
+
+        function formatRunTime(value) {
+            if (!value) {
+                return '--';
+            }
+            const date = new Date(value);
+            return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+        }
+
+        async function loadExperimentPresets() {
+            const list = document.getElementById('presetList');
+            if (!list) {
+                return;
+            }
+            list.innerHTML = '<div class="history-empty">正在读取参数预设...</div>';
+            try {
+                const response = await fetch('/api/strategy-lab/presets?limit=50');
+                const payload = await response.json();
+                if (!response.ok || !payload.success) {
+                    throw new Error(payload.message || '读取参数预设失败');
+                }
+                experimentPresets = payload.presets || [];
+                renderExperimentPresets();
+            } catch (error) {
+                list.innerHTML = `<div class="history-empty">参数预设读取失败：${escapeHtml(error.message || error)}</div>`;
+            }
+        }
+
+        async function refreshHistoryWorkspace() {
+            await Promise.all([
+                loadExperimentPresets(),
+                loadRunHistory()
+            ]);
+        }
+
+        function renderExperimentPresets() {
+            const list = document.getElementById('presetList');
+            if (!list) {
+                return;
+            }
+            if (!experimentPresets.length) {
+                list.innerHTML = '<div class="history-empty">尚无参数预设。可以把当前配置保存为预设，后续直接恢复。</div>';
+                return;
+            }
+            list.innerHTML = experimentPresets.map((item) => `
+                <div class="history-item">
+                    <div>
+                        <strong>${escapeHtml(item.name || '未命名预设')}</strong>
+                        <span>${escapeHtml(runHistoryContext(item))}</span>
+                    </div>
+                    <div class="history-meta">
+                        <small>${escapeHtml(formatRunTime(item.updated_at || item.created_at))}</small>
+                        <div class="history-actions">
+                            <button class="btn btn-secondary btn-small" type="button" onclick="restorePresetConfig('${escapeHtml(item.id)}')">恢复参数</button>
+                            <button class="btn btn-secondary btn-small" type="button" onclick="deletePreset('${escapeHtml(item.id)}')">删除</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function saveCurrentPreset() {
+            const nameEl = document.getElementById('presetName');
+            const name = nameEl ? nameEl.value.trim() : '';
+            if (!name) {
+                setStatus('error', '请先填写预设名称。');
+                return;
+            }
+            try {
+                const response = await fetch('/api/strategy-lab/presets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, payload: currentExperimentPayload() })
+                });
+                const payload = await response.json();
+                if (!response.ok || !payload.success) {
+                    throw new Error(payload.message || '保存参数预设失败');
+                }
+                if (nameEl) {
+                    nameEl.value = '';
+                }
+                await loadExperimentPresets();
+                setStatus('success', '参数预设已保存。');
+            } catch (error) {
+                setStatus('error', `保存预设失败: ${error.message || error}`);
+            }
+        }
+
+        async function restorePresetConfig(presetId) {
+            try {
+                const response = await fetch(`/api/strategy-lab/presets/${encodeURIComponent(presetId)}`);
+                const payload = await response.json();
+                if (!response.ok || !payload.success) {
+                    throw new Error(payload.message || '读取参数预设失败');
+                }
+                applyRunConfigPayload(payload.preset.config_payload || {});
+                activateTab('setup');
+                setStatus('success', '已从参数预设恢复配置。');
+            } catch (error) {
+                setStatus('error', `恢复预设失败: ${error.message || error}`);
+            }
+        }
+
+        async function deletePreset(presetId) {
+            if (!window.confirm('删除这个参数预设？')) {
+                return;
+            }
+            try {
+                const response = await fetch(`/api/strategy-lab/presets/${encodeURIComponent(presetId)}`, { method: 'DELETE' });
+                const payload = await response.json();
+                if (!response.ok || !payload.success) {
+                    throw new Error(payload.message || '删除参数预设失败');
+                }
+                await loadExperimentPresets();
+                setStatus('success', '参数预设已删除。');
+            } catch (error) {
+                setStatus('error', `删除预设失败: ${error.message || error}`);
+            }
+        }
+
+        async function loadRunHistory() {
+            const list = document.getElementById('runHistoryList');
+            if (!list) {
+                return;
+            }
+            list.innerHTML = '<div class="history-empty">正在读取服务端运行历史...</div>';
+            try {
+                const response = await fetch('/api/strategy-lab/runs?limit=50');
+                const payload = await response.json();
+                if (!response.ok || !payload.success) {
+                    throw new Error(payload.message || '读取运行历史失败');
+                }
+                runHistory = payload.runs || [];
+                renderRunHistory();
+                updateCommandBar();
+            } catch (error) {
+                list.innerHTML = `<div class="history-empty">运行历史读取失败：${escapeHtml(error.message || error)}</div>`;
+            }
         }
 
         function renderRunHistory() {
@@ -3589,19 +3848,185 @@ STRATEGY_LAB_TEMPLATE = """
                 return;
             }
             if (!runHistory.length) {
-                list.innerHTML = '<div class="history-empty">尚无运行记录。运行演算、评分或参数扫描后，这里会显示本次页面会话里的摘要。</div>';
+                list.innerHTML = '<div class="history-empty">尚无运行记录。完成演算、评分或参数扫描后，这里会保存服务端摘要。</div>';
                 return;
             }
             list.innerHTML = runHistory.map((item) => `
                 <div class="history-item">
                     <div>
-                        <strong>${escapeHtml(item.title)}</strong>
-                        <span>${escapeHtml(item.summary)}</span>
-                        <span>${escapeHtml(item.context)}</span>
+                        <strong>${escapeHtml(runHistoryTitle(item))}</strong>
+                        <span>${escapeHtml(runHistorySummary(item))}</span>
+                        <span>${escapeHtml(runHistoryContext(item))}</span>
                     </div>
-                    <small>${escapeHtml(item.time)}</small>
+                    <div class="history-meta">
+                        <small>${escapeHtml(formatRunTime(item.created_at))}</small>
+                        <div class="history-actions">
+                            <button class="btn btn-secondary btn-small" type="button" onclick="restoreRunConfig('${escapeHtml(item.id)}')">恢复参数</button>
+                            <button class="btn btn-secondary btn-small" type="button" onclick="deleteRunHistory('${escapeHtml(item.id)}')">删除</button>
+                        </div>
+                    </div>
                 </div>
             `).join('');
+        }
+
+        function setFieldValue(id, value) {
+            if (value === undefined || value === null) {
+                return;
+            }
+            const element = document.getElementById(id);
+            if (element) {
+                element.value = value;
+            }
+        }
+
+        function setSelectValue(id, value) {
+            if (value === undefined || value === null) {
+                return;
+            }
+            const element = document.getElementById(id);
+            if (element && Array.from(element.options).some((option) => option.value === String(value))) {
+                element.value = String(value);
+            }
+        }
+
+        function strategySelectorFromPayload(values, allKeys, allValue = 'all') {
+            if (!Array.isArray(values) || !values.length) {
+                return null;
+            }
+            if (values.length === 1) {
+                return values[0];
+            }
+            const sortedValues = [...values].map(String).sort().join('|');
+            const sortedKeys = [...allKeys].map(String).sort().join('|');
+            return sortedValues === sortedKeys || values.length > 1 ? allValue : null;
+        }
+
+        function setOptionEnabled(enabled) {
+            const checkbox = document.getElementById('optionEnabled');
+            const toggle = document.getElementById('optionToggle');
+            if (!checkbox || !toggle || enabled === undefined || enabled === null) {
+                return;
+            }
+            checkbox.checked = Boolean(enabled);
+            toggle.classList.toggle('on', checkbox.checked);
+        }
+
+        function applyScorecardPeriods(periods) {
+            if (!Array.isArray(periods)) {
+                return;
+            }
+            periods.forEach((period) => {
+                if (!period || !period.key) {
+                    return;
+                }
+                ['label', 'start', 'end'].forEach((field) => {
+                    const element = document.querySelector(`[data-score-period="${period.key}"][data-period-field="${field}"]`);
+                    if (element && period[field] !== undefined && period[field] !== null) {
+                        element.value = period[field] || '';
+                    }
+                });
+            });
+        }
+
+        function applyScanValues(id, values) {
+            if (Array.isArray(values) && values.length) {
+                setFieldValue(id, values.join(','));
+            }
+        }
+
+        function applyRunConfigPayload(payload) {
+            setFieldValue('start', payload.start);
+            setFieldValue('end', payload.end);
+            setFieldValue('initialCash', payload.initial_cash);
+            setFieldValue('monthlyContribution', payload.monthly_contribution);
+            setFieldValue('maxDrawdown', payload.max_drawdown_pct);
+            setSelectValue('drawdownBasis', payload.drawdown_basis);
+            setFieldValue('stepPct', payload.step_pct);
+            setFieldValue('equalSliceAllocation', payload.equal_slice_allocation_pct);
+            setFieldValue('tradeFee', payload.trade_fee);
+            setFieldValue('hkdToUsd', payload.hkd_to_usd);
+            setFieldValue('reservePosition', payload.reserve_position_pct);
+            setFieldValue('sellMinProfit', payload.sell_min_profit_pct);
+            setFieldValue('repairSellCooldown', payload.repair_sell_cooldown_days);
+            setFieldValue('repairStageSellPct', payload.repair_stage_sell_pct);
+
+            const buySelector = strategySelectorFromPayload(payload.buy_strategies, Object.keys(buyStrategyLabels));
+            setSelectValue('buyStrategy', buySelector);
+            const sellSelector = strategySelectorFromPayload(payload.sell_strategies, defaultSellStrategyKeys);
+            setSelectValue('sellStrategy', sellSelector);
+
+            if (Array.isArray(payload.targets) && payload.targets.length) {
+                initPortfolioRows(payload.targets);
+                updateHoldingBar();
+            }
+
+            const option = payload.option_overlay || {};
+            setOptionEnabled(option.enabled);
+            setFieldValue('optionAllocation', option.allocation_pct);
+            setFieldValue('optionTargetDte', option.target_dte);
+            setFieldValue('optionMinDte', option.min_dte);
+            setFieldValue('optionMaxDte', option.max_dte);
+            setSelectValue('optionMoneyness', option.moneyness);
+            setFieldValue('optionProfitTake', option.profit_take_pct);
+            setFieldValue('optionProfitSell', option.profit_take_sell_pct);
+            setFieldValue('optionExitDte', option.exit_dte);
+            setFieldValue('optionTradeFee', option.trade_fee);
+            setFieldValue('optionMaxTrades', option.max_trades_per_strategy);
+
+            if (payload.return_weight !== undefined) {
+                setFieldValue('scoreReturnWeight', Number(payload.return_weight || 0) * 100);
+            }
+            if (payload.drawdown_weight !== undefined) {
+                setFieldValue('scoreDrawdownWeight', Number(payload.drawdown_weight || 0) * 100);
+            }
+            if (Array.isArray(payload.scorecard_portfolio_keys)) {
+                document.querySelectorAll('input[name="scoreTopic"]').forEach((input) => {
+                    input.checked = payload.scorecard_portfolio_keys.includes(input.value);
+                });
+            }
+            applyScorecardPeriods(payload.scorecard_periods);
+
+            setSelectValue('scanBuyStrategy', payload.buy_strategy);
+            setFieldValue('scanPeriod', payload.trading_days);
+            applyScanValues('scanSellMinProfits', payload.sell_min_profit_values);
+            applyScanValues('scanCooldowns', payload.repair_sell_cooldown_values);
+            applyScanValues('scanStageSells', payload.repair_stage_sell_values);
+            setSelectValue('scanScoreMode', payload.scan_score_mode);
+
+            updateScorecardQuestionHint();
+            updateCommandBar();
+        }
+
+        async function restoreRunConfig(runId) {
+            try {
+                const response = await fetch(`/api/strategy-lab/runs/${encodeURIComponent(runId)}`);
+                const payload = await response.json();
+                if (!response.ok || !payload.success) {
+                    throw new Error(payload.message || '读取运行记录失败');
+                }
+                applyRunConfigPayload(payload.run.config_payload || {});
+                activateTab('setup');
+                setStatus('success', '已从运行历史恢复参数，可直接重新演算、评分或扫描。');
+            } catch (error) {
+                setStatus('error', `恢复参数失败: ${error.message || error}`);
+            }
+        }
+
+        async function deleteRunHistory(runId) {
+            if (!window.confirm('删除这条运行历史？')) {
+                return;
+            }
+            try {
+                const response = await fetch(`/api/strategy-lab/runs/${encodeURIComponent(runId)}`, { method: 'DELETE' });
+                const payload = await response.json();
+                if (!response.ok || !payload.success) {
+                    throw new Error(payload.message || '删除运行记录失败');
+                }
+                await loadRunHistory();
+                setStatus('success', '运行历史已删除。');
+            } catch (error) {
+                setStatus('error', `删除失败: ${error.message || error}`);
+            }
         }
 
         function parseScanValues(id, integerOnly = false, maximum = null) {
@@ -5000,7 +5425,7 @@ STRATEGY_LAB_TEMPLATE = """
         updateScorecardQuestionHint();
         initScoreTooltip();
         initCommandBarWatchers();
-        renderRunHistory();
+        refreshHistoryWorkspace();
         updateCommandBar();
         initPerfPanel();
     </script>
@@ -5725,6 +6150,8 @@ def _strategy_lab_job_snapshot(job: dict[str, object]) -> dict[str, object]:
     }
     if job.get("status") == "succeeded":
         snapshot["data"] = job.get("data")
+        if job.get("run_snapshot"):
+            snapshot["run_snapshot"] = job.get("run_snapshot")
     if job.get("status") == "failed":
         snapshot["error"] = job.get("error", "任务失败")
     return snapshot
@@ -5771,6 +6198,14 @@ def _run_strategy_lab_job(job_id: str, runner: Callable[[dict[str, object]], dic
             message="准备行情数据；腾讯云网络较慢时会优先使用已有缓存。",
         )
         result = runner(payload)
+        with strategy_lab_jobs_lock:
+            job = strategy_lab_jobs[job_id]
+            kind = str(job.get("kind", ""))
+        run_snapshot = None
+        try:
+            run_snapshot = save_run_snapshot(kind, payload, result, job_id=job_id)
+        except Exception as snapshot_exc:
+            run_snapshot = {"error": f"运行历史保存失败: {snapshot_exc}"}
         _update_strategy_lab_job(
             job_id,
             status="succeeded",
@@ -5778,6 +6213,7 @@ def _run_strategy_lab_job(job_id: str, runner: Callable[[dict[str, object]], dic
             progress=100,
             message="任务完成。",
             data=result,
+            run_snapshot=run_snapshot,
             finished_at=datetime.now(timezone.utc).isoformat(),
         )
     except Exception as exc:
@@ -5852,6 +6288,75 @@ def api_strategy_lab_job_status(job_id: str):
             return _json_error("任务不存在或已过期", 404)
         snapshot = _strategy_lab_job_snapshot(job)
     return jsonify({"success": True, "job": snapshot})
+
+
+@app.route('/api/strategy-lab/runs', methods=['GET'])
+def api_strategy_lab_runs():
+    try:
+        limit = int(request.args.get("limit", 50))
+    except (TypeError, ValueError):
+        limit = 50
+    kind = request.args.get("kind")
+    if kind not in {None, "", "run", "score", "scan"}:
+        return _json_error("未知运行记录类型", 400)
+    return jsonify({
+        "success": True,
+        "runs": list_run_snapshots(limit=limit, kind=kind or None),
+    })
+
+
+@app.route('/api/strategy-lab/runs/<run_id>', methods=['GET'])
+def api_strategy_lab_run_snapshot(run_id: str):
+    snapshot = load_run_snapshot(run_id)
+    if not snapshot:
+        return _json_error("运行记录不存在", 404)
+    return jsonify({"success": True, "run": snapshot})
+
+
+@app.route('/api/strategy-lab/runs/<run_id>', methods=['DELETE'])
+def api_strategy_lab_delete_run_snapshot(run_id: str):
+    if not delete_run_snapshot(run_id):
+        return _json_error("运行记录不存在", 404)
+    return jsonify({"success": True})
+
+
+@app.route('/api/strategy-lab/presets', methods=['GET', 'POST'])
+def api_strategy_lab_presets():
+    if request.method == 'GET':
+        try:
+            limit = int(request.args.get("limit", 50))
+        except (TypeError, ValueError):
+            limit = 50
+        return jsonify({
+            "success": True,
+            "presets": list_experiment_presets(limit=limit),
+        })
+    payload = request.get_json(silent=True) or {}
+    try:
+        config_payload = payload.get("payload")
+        if not isinstance(config_payload, dict):
+            return _json_error("缺少预设参数", 400)
+        preset = save_experiment_preset(str(payload.get("name", "")), config_payload)
+        return jsonify({"success": True, "preset": preset}), 201
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        return _json_error(f"保存预设失败: {exc}", 500)
+
+
+@app.route('/api/strategy-lab/presets/<preset_id>', methods=['GET'])
+def api_strategy_lab_preset(preset_id: str):
+    preset = load_experiment_preset(preset_id)
+    if not preset:
+        return _json_error("参数预设不存在", 404)
+    return jsonify({"success": True, "preset": preset})
+
+
+@app.route('/api/strategy-lab/presets/<preset_id>', methods=['DELETE'])
+def api_strategy_lab_delete_preset(preset_id: str):
+    if not delete_experiment_preset(preset_id):
+        return _json_error("参数预设不存在", 404)
+    return jsonify({"success": True})
 
 
 @app.route('/api/strategy-lab/run', methods=['POST'])
