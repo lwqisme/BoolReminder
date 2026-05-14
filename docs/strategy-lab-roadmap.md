@@ -94,6 +94,24 @@ Remaining work:
 
 Goal: make strategy-lab a research record, not only a calculator.
 
+Status: in progress.
+
+Current implementation:
+
+- Successful `run`, `score`, and `scan` background jobs write compact run snapshots under `data/strategy_lab/runs`.
+- Run snapshots keep the runtime config payload and a small result summary, not the full chart/trade payload.
+- The UI Run History view loads server-side history and can restore a prior run's parameters back into the shared setup controls.
+- Named experiment presets are stored under `data/strategy_lab/presets` and can be saved, restored, and deleted from the History workspace.
+- History APIs:
+  - `GET /api/strategy-lab/runs`
+  - `GET /api/strategy-lab/runs/<run_id>`
+  - `DELETE /api/strategy-lab/runs/<run_id>`
+- Preset APIs:
+  - `GET /api/strategy-lab/presets`
+  - `POST /api/strategy-lab/presets`
+  - `GET /api/strategy-lab/presets/<preset_id>`
+  - `DELETE /api/strategy-lab/presets/<preset_id>`
+
 Planned objects:
 
 - `ExperimentPreset`: named reusable configuration.
@@ -106,6 +124,12 @@ Planned workflows:
 - Compare two runs.
 - Restore a prior run's config.
 - Pin a baseline and show deltas in scorecard/scan views.
+
+Remaining work:
+
+- Capture market-data cache freshness in each run snapshot.
+- Add pinned baselines and visible deltas for scorecard/scan.
+- Add history retention controls if the snapshot directory grows too large.
 
 ## Guardrails
 
