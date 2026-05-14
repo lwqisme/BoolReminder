@@ -29,6 +29,7 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("function applyRobustCandidate(candidateKey)", html)
         self.assertIn("应用并看评分", html)
         self.assertIn('id="robustScoreMode"', html)
+        self.assertIn("稳健榜口径", html)
         self.assertIn("收益优先 80/20", html)
         self.assertIn("robust_score_mode: document.getElementById('robustScoreMode').value", html)
         self.assertIn('aria-label="解释 P25"', html)

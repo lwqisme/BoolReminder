@@ -2962,6 +2962,12 @@ STRATEGY_LAB_TEMPLATE = """
                 <div class="scan-actions">
                     <button class="btn btn-secondary btn-small" type="button" onclick="runSellParameterScan()">运行扫描</button>
                     <button class="btn btn-secondary btn-small" type="button" onclick="runRobustLeaderboard()">运行稳健 Top10</button>
+                    <label class="scan-mode">稳健榜口径
+                        <select id="robustScoreMode">
+                            <option value="robust">稳健综合</option>
+                            <option value="return_drawdown">收益优先 80/20</option>
+                        </select>
+                    </label>
                     <label class="scan-mode">评分口径
                         <select id="scanScoreMode" onchange="rerenderSellScan()">
                             <option value="balanced" {% if default_config.default_scan_score_mode == 'balanced' %}selected{% endif %}>综合参数评分</option>
@@ -2994,15 +3000,6 @@ STRATEGY_LAB_TEMPLATE = """
                     <div class="summary-title">
                         <h2>稳健 Top10</h2>
                         <span id="robustRange" class="small"></span>
-                    </div>
-                    <div class="robust-controls">
-                        <label>排序口径
-                            <select id="robustScoreMode">
-                                <option value="robust">稳健综合</option>
-                                <option value="return_drawdown">收益优先 80/20</option>
-                            </select>
-                        </label>
-                        <button class="btn btn-secondary btn-small" type="button" onclick="runRobustLeaderboard()">按当前口径重跑</button>
                     </div>
                     <div id="robustStrip" class="robust-strip"></div>
                     <div class="table-wrap">
