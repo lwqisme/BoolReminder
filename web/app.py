@@ -2051,6 +2051,22 @@ STRATEGY_LAB_TEMPLATE = """
         .robust-table td:first-child {
             min-width: 230px;
         }
+        .metric-help {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+            margin-left: 4px;
+            border: 1px solid rgba(17, 103, 216, 0.28);
+            border-radius: 50%;
+            color: var(--blue);
+            background: rgba(17, 103, 216, 0.08);
+            font-size: 11px;
+            font-weight: 900;
+            line-height: 1;
+            cursor: help;
+        }
         .robust-task {
             color: var(--muted);
             font-size: 11px;
@@ -2970,9 +2986,9 @@ STRATEGY_LAB_TEMPLATE = """
                                     <th>策略 / 参数</th>
                                     <th>稳健分</th>
                                     <th>均分</th>
-                                    <th>P25</th>
-                                    <th>Top10%</th>
-                                    <th>Bottom10%</th>
+                                    <th>P25 <span class="metric-help" title="所有题目得分的第 25 分位数。它代表偏弱场景里的保底表现，越高说明策略不容易只靠少数题目拉高均值。">?</span></th>
+                                    <th>Top10% <span class="metric-help" title="该策略在多少比例的题目中进入候选排名前 10%。这是强势命中率，越高说明跨股票/阶段更常排在前列。">?</span></th>
+                                    <th>Bottom10% <span class="metric-help" title="该策略在多少比例的题目中落入候选排名后 10%。这是踩坑率，越低说明跨股票/阶段更少垫底。">?</span></th>
                                     <th>均收益</th>
                                     <th>均回撤</th>
                                     <th>最强 / 最弱题目</th>
