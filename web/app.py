@@ -6,9 +6,12 @@ Flask Web应用
 import os
 import sys
 import math
+import threading
+import time
+import uuid
 from pathlib import Path
 from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for, send_from_directory
-from typing import Optional
+from typing import Callable, Optional
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlencode
 
@@ -55,6 +58,9 @@ watchlist_cache: dict[str, object] = {
     "error": None,
     "last_success_at": None,
 }
+strategy_lab_jobs: dict[str, dict[str, object]] = {}
+strategy_lab_jobs_lock = threading.Lock()
+STRATEGY_LAB_JOB_TTL_SECONDS = 60 * 60
 
 # 初始化配置管理器（模块级别）
 try:
@@ -1263,6 +1269,52 @@ STRATEGY_LAB_TEMPLATE = """
         .freshness-state.synced { background: rgba(225, 246, 238, 0.72); color: var(--green); }
         .freshness-state.stale { background: rgba(255, 241, 208, 0.72); color: #9a6400; }
         .freshness-state.idle { color: var(--muted); }
+        .job-panel {
+            display: none;
+            margin: 0 0 16px;
+            padding: 12px 14px;
+            border: var(--liquid-glass-border);
+            border-radius: var(--radius);
+            background: rgba(255, 255, 255, 0.62);
+            box-shadow:
+                0 12px 28px rgba(15, 23, 42, 0.052),
+                inset 0 1px 0 rgba(255, 255, 255, 0.82);
+        }
+        .job-panel.show { display: grid; gap: 9px; }
+        .job-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 10px;
+            color: var(--charcoal);
+            font-weight: 900;
+        }
+        .job-head span {
+            color: var(--muted);
+            font-family: var(--mono);
+            font-size: 11px;
+            font-weight: 800;
+            white-space: nowrap;
+        }
+        .job-progress {
+            height: 7px;
+            border-radius: 999px;
+            background: rgba(226, 235, 246, 0.82);
+            overflow: hidden;
+        }
+        .job-progress span {
+            display: block;
+            width: 0%;
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--blue), var(--green));
+            transition: width 180ms ease;
+        }
+        .job-message {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.45;
+        }
         .command-actions {
             display: flex;
             align-items: center;
@@ -2456,6 +2508,15 @@ STRATEGY_LAB_TEMPLATE = """
 
         <div id="status" class="status"></div>
 
+        <div id="jobPanel" class="job-panel" aria-live="polite">
+            <div class="job-head">
+                <strong id="jobTitle">后台任务</strong>
+                <span id="jobStage">QUEUED</span>
+            </div>
+            <div class="job-progress"><span id="jobProgress"></span></div>
+            <div id="jobMessage" class="job-message">等待任务开始。</div>
+        </div>
+
         <div class="command-bar" aria-label="策略实验室操作条">
             <div class="command-main">
                 <div class="command-title">
@@ -3563,6 +3624,67 @@ STRATEGY_LAB_TEMPLATE = """
             const status = document.getElementById('status');
             status.className = `status ${type}`;
             status.textContent = message;
+        }
+
+        function updateJobPanel(job, fallbackTitle = '后台任务') {
+            const panel = document.getElementById('jobPanel');
+            if (!panel || !job) {
+                return;
+            }
+            const titleByKind = {
+                run: '组合演算',
+                score: '策略评分',
+                scan: '参数扫描'
+            };
+            panel.classList.add('show');
+            document.getElementById('jobTitle').textContent = titleByKind[job.kind] || fallbackTitle;
+            document.getElementById('jobStage').textContent = `${String(job.status || '').toUpperCase()} / ${String(job.stage || '').toUpperCase()}`;
+            document.getElementById('jobProgress').style.width = `${Math.max(0, Math.min(100, Number(job.progress || 0)))}%`;
+            document.getElementById('jobMessage').textContent = job.message || fallbackTitle;
+        }
+
+        function hideJobPanelLater() {
+            window.setTimeout(() => {
+                const panel = document.getElementById('jobPanel');
+                if (panel) {
+                    panel.classList.remove('show');
+                }
+            }, 1800);
+        }
+
+        async function runStrategyJob(kind, payload, options = {}) {
+            const apiStart = performance.now();
+            const createResponse = await fetch('/api/strategy-lab/jobs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ kind, payload })
+            });
+            const created = await createResponse.json();
+            if (!createResponse.ok || !created.success) {
+                throw new Error(created.message || '创建后台任务失败');
+            }
+            let job = created.job;
+            updateJobPanel(job, options.title);
+            const pollDelay = options.pollDelay || 900;
+            for (;;) {
+                if (job.status === 'succeeded') {
+                    setPerfMetric(options.perfKey || 'apiScoreMs', performance.now() - apiStart);
+                    hideJobPanelLater();
+                    return job.data;
+                }
+                if (job.status === 'failed') {
+                    hideJobPanelLater();
+                    throw new Error(job.error || job.message || '后台任务失败');
+                }
+                await new Promise((resolve) => window.setTimeout(resolve, pollDelay));
+                const statusResponse = await fetch(`/api/strategy-lab/jobs/${encodeURIComponent(job.id)}`);
+                const statusPayload = await statusResponse.json();
+                if (!statusResponse.ok || !statusPayload.success) {
+                    throw new Error(statusPayload.message || '读取后台任务失败');
+                }
+                job = statusPayload.job;
+                updateJobPanel(job, options.title);
+            }
         }
 
         function formatDateInput(date) {
@@ -4755,26 +4877,19 @@ STRATEGY_LAB_TEMPLATE = """
                     repair_sell_cooldown_values: parseScanValues('scanCooldowns', true),
                     repair_stage_sell_values: parseScanValues('scanStageSells', false, 100)
                 };
-                const apiStart = performance.now();
-                const response = await fetch('/api/strategy-lab/sell-scan', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                const data = await runStrategyJob('scan', payload, {
+                    title: '参数扫描',
+                    perfKey: 'apiScoreMs'
                 });
-                const result = await response.json();
-                setPerfMetric('apiScoreMs', performance.now() - apiStart);
-                if (!response.ok || !result.success) {
-                    throw new Error(result.message || '扫描失败');
-                }
                 activeScanStageSell = null;
                 activeScanView = '2d';
                 Plotly.purge('scan3dChart');
-                renderSellParameterScan(result.data);
-                const warnings = result.data.warnings && result.data.warnings.length ? `；${result.data.warnings.join('；')}` : '';
+                renderSellParameterScan(data);
+                const warnings = data.warnings && data.warnings.length ? `；${data.warnings.join('；')}` : '';
                 addRunHistory(
                     'scan',
                     '参数扫描完成',
-                    `组合数 ${number((result.data.cells || []).length)}；${warnings ? warnings.replace(/^；/, '') : '无缓存告警'}`
+                    `组合数 ${number((data.cells || []).length)}；${warnings ? warnings.replace(/^；/, '') : '无缓存告警'}`
                 );
                 setStatus('success', `卖出参数扫描完成${warnings}`);
             } catch (error) {
@@ -4831,25 +4946,18 @@ STRATEGY_LAB_TEMPLATE = """
             setStatus('info', '正在运行策略评分：优先读取本机日线缓存，缺口再请求 Longbridge...');
             const payload = scorecardPayload();
             try {
-                const apiStart = performance.now();
-                const response = await fetch('/api/strategy-lab/score', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                const data = await runStrategyJob('score', payload, {
+                    title: '策略评分',
+                    perfKey: 'apiScoreMs'
                 });
-                const result = await response.json();
-                setPerfMetric('apiScoreMs', performance.now() - apiStart);
-                if (!response.ok || !result.success) {
-                    throw new Error(result.message || '评分失败');
-                }
-                renderScorecard(result.data);
+                renderScorecard(data);
                 lastScorecardSignature = stableSignature(payload);
                 activateTab('scorecard');
                 updateCommandBar();
                 addRunHistory(
                     'scorecard',
                     '策略评分完成',
-                    `${number((result.data.summary || []).length)} 个策略组合；${number((result.data.questions || []).length)} 个题目`
+                    `${number((data.summary || []).length)} 个策略组合；${number((data.questions || []).length)} 个题目`
                 );
                 setStatus('success', '策略评分完成');
             } catch (error) {
@@ -4861,33 +4969,26 @@ STRATEGY_LAB_TEMPLATE = """
             setStatus('info', '正在运行组合演算：优先读取本机日线缓存，缺口再请求 Longbridge...');
             const payload = buildLabPayload();
             try {
-                const apiStart = performance.now();
-                const response = await fetch('/api/strategy-lab/run', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                const data = await runStrategyJob('run', payload, {
+                    title: '组合演算',
+                    perfKey: 'apiLabMs'
                 });
-                const result = await response.json();
-                setPerfMetric('apiLabMs', performance.now() - apiStart);
-                if (!response.ok || !result.success) {
-                    throw new Error(result.message || '演算失败');
-                }
-                lastResult = result.data;
+                lastResult = data;
                 lastLabSignature = stableSignature(payload);
                 scoreDetailContext = null;
                 hideDetail();
-                renderSummary(result.data);
+                renderSummary(data);
                 activateTab('results');
-                if (result.data.strategies && result.data.strategies.length) {
+                if (data.strategies && data.strategies.length) {
                     showDetail(0, false);
                 }
-                renderTrades(result.data);
+                renderTrades(data);
                 updateCommandBar();
-                const warningText = result.data.warnings && result.data.warnings.length ? `；${result.data.warnings.join('；')}` : '';
+                const warningText = data.warnings && data.warnings.length ? `；${data.warnings.join('；')}` : '';
                 addRunHistory(
                     'lab',
                     '组合演算完成',
-                    `${number((result.data.strategies || []).length)} 个策略组合；${warningText ? warningText.replace(/^；/, '') : '无缓存告警'}`
+                    `${number((data.strategies || []).length)} 个策略组合；${warningText ? warningText.replace(/^；/, '') : '无缓存告警'}`
                 );
                 setStatus('success', `演算完成${warningText}`);
             } catch (error) {
@@ -5541,39 +5642,224 @@ def _apply_score_target_max_drawdowns(targets: list[dict[str, object]], max_draw
     return applied
 
 
+def _run_strategy_lab_payload(payload: dict[str, object]) -> dict[str, object]:
+    start_date, end_date = parse_date_range(payload.get("start"), payload.get("end"))
+    lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+    targets = lab_config.portfolio_or_default()
+    if not isinstance(targets, list):
+        raise ValueError("targets 必须是数组")
+    buy_strategies = payload.get("buy_strategies") or list(STRATEGY_LABELS)
+    sell_strategies = payload.get("sell_strategies") or list(SELL_STRATEGY_LABELS)
+    if not isinstance(buy_strategies, list) or not isinstance(sell_strategies, list):
+        raise ValueError("buy_strategies 和 sell_strategies 必须是数组")
+    result = run_longbridge_strategy_lab(
+        targets,
+        lab_config.to_strategy_inputs(),
+        start_date,
+        end_date,
+        buy_strategies=buy_strategies,
+        sell_strategies=sell_strategies,
+    )
+    option_settings = lab_config.option_settings()
+    if option_settings.enabled:
+        polygon_config = config_manager.get_polygon_config() if config_manager else {}
+        result = apply_option_overlay(
+            result,
+            api_key=polygon_config.get("api_key", ""),
+            settings=option_settings,
+        )
+    else:
+        result["option_overlay"] = {"enabled": False}
+    return result
+
+
+def _run_strategy_score_payload(payload: dict[str, object]) -> dict[str, object]:
+    end_date = date.fromisoformat(payload.get("end")) if payload.get("end") else datetime.now().date()
+    lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+    targets = lab_config.portfolio_or_default()
+    if targets is not None and not isinstance(targets, list):
+        raise ValueError("targets 必须是数组")
+    return_weight, drawdown_weight = lab_config.score_weights()
+    return run_longbridge_strategy_scorecard(
+        lab_config.to_strategy_inputs(),
+        end_date=end_date,
+        core_targets=targets,
+        portfolio_keys=payload.get("scorecard_portfolio_keys"),
+        scorecard_periods=payload.get("scorecard_periods"),
+        return_weight=return_weight,
+        drawdown_weight=drawdown_weight,
+    )
+
+
+def _run_strategy_scan_payload(payload: dict[str, object]) -> dict[str, object]:
+    start_date, end_date = parse_date_range(payload.get("start"), payload.get("end"))
+    lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+    targets = lab_config.portfolio_or_default()
+    if not isinstance(targets, list):
+        raise ValueError("targets 必须是数组")
+    return run_longbridge_sell_parameter_scan(
+        targets,
+        lab_config.to_strategy_inputs(),
+        start_date,
+        end_date,
+        buy_strategy=lab_config.scan_buy_strategy,
+        sell_min_profit_values=payload.get("sell_min_profit_values") or [5, 10, 15, 20, 25],
+        repair_cooldown_values=payload.get("repair_sell_cooldown_values") or [0, 15, 30, 45, 60],
+        repair_stage_sell_values=payload.get("repair_stage_sell_values") or [8, 12, 16, 20, 25],
+        trading_days=lab_config.scan_period_trading_days,
+    )
+
+
+def _strategy_lab_job_snapshot(job: dict[str, object]) -> dict[str, object]:
+    snapshot = {
+        "id": job["id"],
+        "kind": job["kind"],
+        "status": job["status"],
+        "stage": job.get("stage", ""),
+        "message": job.get("message", ""),
+        "progress": job.get("progress", 0),
+        "created_at": job.get("created_at"),
+        "updated_at": job.get("updated_at"),
+        "started_at": job.get("started_at"),
+        "finished_at": job.get("finished_at"),
+    }
+    if job.get("status") == "succeeded":
+        snapshot["data"] = job.get("data")
+    if job.get("status") == "failed":
+        snapshot["error"] = job.get("error", "任务失败")
+    return snapshot
+
+
+def _update_strategy_lab_job(job_id: str, **updates: object) -> None:
+    with strategy_lab_jobs_lock:
+        job = strategy_lab_jobs.get(job_id)
+        if not job:
+            return
+        job.update(updates)
+        job["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+
+def _cleanup_strategy_lab_jobs(now: float | None = None) -> None:
+    now = now or time.time()
+    with strategy_lab_jobs_lock:
+        stale_ids = [
+            job_id
+            for job_id, job in strategy_lab_jobs.items()
+            if now - float(job.get("created_monotonic", now)) > STRATEGY_LAB_JOB_TTL_SECONDS
+        ]
+        for job_id in stale_ids:
+            strategy_lab_jobs.pop(job_id, None)
+
+
+def _run_strategy_lab_job(job_id: str, runner: Callable[[dict[str, object]], dict[str, object]]) -> None:
+    _update_strategy_lab_job(
+        job_id,
+        status="running",
+        stage="cache",
+        progress=10,
+        message="检查本机日线缓存，缺口会请求 Longbridge。",
+        started_at=datetime.now(timezone.utc).isoformat(),
+    )
+    try:
+        with strategy_lab_jobs_lock:
+            job = strategy_lab_jobs[job_id]
+            payload = dict(job.get("payload") or {})
+        _update_strategy_lab_job(
+            job_id,
+            stage="market_data",
+            progress=35,
+            message="准备行情数据；腾讯云网络较慢时会优先使用已有缓存。",
+        )
+        result = runner(payload)
+        _update_strategy_lab_job(
+            job_id,
+            status="succeeded",
+            stage="completed",
+            progress=100,
+            message="任务完成。",
+            data=result,
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+    except Exception as exc:
+        _update_strategy_lab_job(
+            job_id,
+            status="failed",
+            stage="failed",
+            progress=100,
+            message="任务失败。",
+            error=str(exc),
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+
+def _create_strategy_lab_job(kind: str, payload: dict[str, object]) -> dict[str, object]:
+    runners: dict[str, Callable[[dict[str, object]], dict[str, object]]] = {
+        "run": _run_strategy_lab_payload,
+        "score": _run_strategy_score_payload,
+        "scan": _run_strategy_scan_payload,
+    }
+    if kind not in runners:
+        raise ValueError("未知 strategy-lab job 类型。")
+    _cleanup_strategy_lab_jobs()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    job_id = uuid.uuid4().hex
+    job = {
+        "id": job_id,
+        "kind": kind,
+        "status": "queued",
+        "stage": "queued",
+        "message": "任务已排队。",
+        "progress": 0,
+        "payload": dict(payload),
+        "created_at": now_iso,
+        "updated_at": now_iso,
+        "created_monotonic": time.time(),
+    }
+    with strategy_lab_jobs_lock:
+        strategy_lab_jobs[job_id] = job
+    thread = threading.Thread(
+        target=_run_strategy_lab_job,
+        args=(job_id, runners[kind]),
+        daemon=True,
+        name=f"strategy-lab-{kind}-{job_id[:8]}",
+    )
+    thread.start()
+    return _strategy_lab_job_snapshot(job)
+
+
+@app.route('/api/strategy-lab/jobs', methods=['POST'])
+def api_strategy_lab_jobs():
+    payload = request.get_json(silent=True) or {}
+    try:
+        kind = str(payload.get("kind", "")).strip()
+        job_payload = payload.get("payload")
+        if not isinstance(job_payload, dict):
+            return _json_error("缺少 job payload", 400)
+        job = _create_strategy_lab_job(kind, job_payload)
+        return jsonify({"success": True, "job": job}), 202
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        return _json_error(f"创建任务失败: {exc}", 500)
+
+
+@app.route('/api/strategy-lab/jobs/<job_id>', methods=['GET'])
+def api_strategy_lab_job_status(job_id: str):
+    _cleanup_strategy_lab_jobs()
+    with strategy_lab_jobs_lock:
+        job = strategy_lab_jobs.get(job_id)
+        if not job:
+            return _json_error("任务不存在或已过期", 404)
+        snapshot = _strategy_lab_job_snapshot(job)
+    return jsonify({"success": True, "job": snapshot})
+
+
 @app.route('/api/strategy-lab/run', methods=['POST'])
 def api_strategy_lab_run():
     """运行三策略组合实时演算。"""
     payload = request.get_json(silent=True) or {}
     try:
-        start_date, end_date = parse_date_range(payload.get("start"), payload.get("end"))
-        lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
-        targets = lab_config.portfolio_or_default()
-        if not isinstance(targets, list):
-            return _json_error("targets 必须是数组", 400)
-        buy_strategies = payload.get("buy_strategies") or list(STRATEGY_LABELS)
-        sell_strategies = payload.get("sell_strategies") or list(SELL_STRATEGY_LABELS)
-        if not isinstance(buy_strategies, list) or not isinstance(sell_strategies, list):
-            return _json_error("buy_strategies 和 sell_strategies 必须是数组", 400)
-        result = run_longbridge_strategy_lab(
-            targets,
-            lab_config.to_strategy_inputs(),
-            start_date,
-            end_date,
-            buy_strategies=buy_strategies,
-            sell_strategies=sell_strategies,
-        )
-        option_settings = lab_config.option_settings()
-        if option_settings.enabled:
-            polygon_config = config_manager.get_polygon_config() if config_manager else {}
-            result = apply_option_overlay(
-                result,
-                api_key=polygon_config.get("api_key", ""),
-                settings=option_settings,
-            )
-        else:
-            result["option_overlay"] = {"enabled": False}
-        return jsonify({"success": True, "data": result})
+        return jsonify({"success": True, "data": _run_strategy_lab_payload(payload)})
     except ValueError as exc:
         return _json_error(str(exc), 400)
     except Exception as exc:
@@ -5585,22 +5871,7 @@ def api_strategy_lab_score():
     """运行固定题目的策略评分。"""
     payload = request.get_json(silent=True) or {}
     try:
-        end_date = date.fromisoformat(payload.get("end")) if payload.get("end") else datetime.now().date()
-        lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
-        targets = lab_config.portfolio_or_default()
-        if targets is not None and not isinstance(targets, list):
-            return _json_error("targets 必须是数组", 400)
-        return_weight, drawdown_weight = lab_config.score_weights()
-        result = run_longbridge_strategy_scorecard(
-            lab_config.to_strategy_inputs(),
-            end_date=end_date,
-            core_targets=targets,
-            portfolio_keys=payload.get("scorecard_portfolio_keys"),
-            scorecard_periods=payload.get("scorecard_periods"),
-            return_weight=return_weight,
-            drawdown_weight=drawdown_weight,
-        )
-        return jsonify({"success": True, "data": result})
+        return jsonify({"success": True, "data": _run_strategy_score_payload(payload)})
     except ValueError as exc:
         return _json_error(str(exc), 400)
     except Exception as exc:
@@ -5612,23 +5883,7 @@ def api_strategy_lab_sell_scan():
     """扫描当前组合下阶梯修复卖出的参数敏感性。"""
     payload = request.get_json(silent=True) or {}
     try:
-        start_date, end_date = parse_date_range(payload.get("start"), payload.get("end"))
-        lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
-        targets = lab_config.portfolio_or_default()
-        if not isinstance(targets, list):
-            return _json_error("targets 必须是数组", 400)
-        result = run_longbridge_sell_parameter_scan(
-            targets,
-            lab_config.to_strategy_inputs(),
-            start_date,
-            end_date,
-            buy_strategy=lab_config.scan_buy_strategy,
-            sell_min_profit_values=payload.get("sell_min_profit_values") or [5, 10, 15, 20, 25],
-            repair_cooldown_values=payload.get("repair_sell_cooldown_values") or [0, 15, 30, 45, 60],
-            repair_stage_sell_values=payload.get("repair_stage_sell_values") or [8, 12, 16, 20, 25],
-            trading_days=lab_config.scan_period_trading_days,
-        )
-        return jsonify({"success": True, "data": result})
+        return jsonify({"success": True, "data": _run_strategy_scan_payload(payload)})
     except ValueError as exc:
         return _json_error(str(exc), 400)
     except Exception as exc:

@@ -50,6 +50,8 @@ Implementation notes:
 
 Goal: make strategy-lab usable when Longbridge or Polygon is slow from Tencent Cloud.
 
+Status: in progress.
+
 Planned backend:
 
 - Introduce async jobs:
@@ -72,6 +74,21 @@ Planned UI:
 - Show cache freshness per symbol.
 - Show stage progress instead of one long loading message.
 - Make Polygon option overlay a separate optional job branch so it cannot block stock strategy scoring.
+
+Current implementation:
+
+- `run`, `score`, and `scan` can run as in-process background jobs.
+- The UI starts jobs and polls status, while legacy synchronous APIs remain available.
+- Jobs report coarse stages: queued, cache, market_data, completed, failed.
+- Job data is currently in memory and expires after one hour.
+
+Remaining work:
+
+- Persist job records if we need results to survive container restarts.
+- Add explicit market-data cache freshness per symbol.
+- Add force-refresh/offline-only run modes.
+- Split Polygon option overlay into its own optional job branch.
+- Add daily cache prewarm for default scorecard and current portfolio.
 
 ## Phase 4: Experiment History and Presets
 
