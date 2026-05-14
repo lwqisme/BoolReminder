@@ -1954,6 +1954,46 @@ STRATEGY_LAB_TEMPLATE = """
             border-radius: 999px;
             background: linear-gradient(90deg, rgba(255, 184, 176, 0.95), rgba(255, 231, 184, 0.92), rgba(170, 230, 205, 0.98));
         }
+        .history-list {
+            display: grid;
+            gap: 10px;
+        }
+        .history-empty {
+            padding: 18px;
+            border-radius: var(--radius-sm);
+            background: rgba(248, 250, 252, 0.58);
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.55;
+        }
+        .history-item {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: center;
+            padding: 12px;
+            border-radius: var(--radius-sm);
+            background: rgba(255, 255, 255, 0.58);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+        }
+        .history-item strong {
+            display: block;
+            margin-bottom: 4px;
+            color: var(--charcoal);
+            font-size: 13px;
+        }
+        .history-item span {
+            display: block;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+        .history-item small {
+            color: var(--faint);
+            font-family: var(--mono);
+            font-size: 11px;
+            white-space: nowrap;
+        }
         .table-wrap {
             overflow: auto;
             border-radius: var(--radius);
@@ -2386,9 +2426,11 @@ STRATEGY_LAB_TEMPLATE = """
         <aside class="rail">
             <div class="mark">SL</div>
             <nav class="workspace-nav">
-                <button class="active" type="button" data-tab="setup" data-short="设置" onclick="activateTab('setup')">参数设置</button>
+                <button class="active" type="button" data-tab="setup" data-short="配置" onclick="activateTab('setup')">实验配置</button>
                 <button type="button" data-tab="results" data-short="演算" onclick="activateTab('results')">组合演算</button>
                 <button type="button" data-tab="scorecard" data-short="评分" onclick="activateTab('scorecard')">策略评分</button>
+                <button type="button" data-tab="scan" data-short="扫描" onclick="activateTab('scan')">参数扫描</button>
+                <button type="button" data-tab="history" data-short="历史" onclick="activateTab('history')">运行历史</button>
             </nav>
         </aside>
 
@@ -2426,8 +2468,10 @@ STRATEGY_LAB_TEMPLATE = """
             <div class="command-actions">
                 <button class="btn" type="button" onclick="runLab()">运行演算</button>
                 <button class="btn btn-secondary" type="button" onclick="runScorecard()">运行评分</button>
+                <button class="btn btn-secondary" type="button" onclick="activateTab('scan')">参数扫描</button>
                 <button class="btn btn-secondary" type="button" onclick="saveStrategyDefaults()">保存默认值</button>
                 <button class="btn btn-secondary" type="button" onclick="activateTab('setup')">编辑参数</button>
+                <button class="btn btn-secondary" type="button" onclick="activateTab('history')">运行历史</button>
             </div>
         </div>
 
@@ -2687,6 +2731,91 @@ STRATEGY_LAB_TEMPLATE = """
             </div>
         </div>
 
+        <div id="scanWorkspace" class="panel tab-hidden" data-tab-panel="scan">
+            <div class="tool-head">
+                <h2>卖出参数扫描</h2>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span class="small">固定当前组合，只扫描一个买入规则 + 阶梯修复卖出。</span>
+                    <button class="btn btn-secondary btn-small" type="button" onclick="runSellParameterScan()">运行扫描</button>
+                    <span class="code">SCAN</span>
+                </div>
+            </div>
+            <div class="tool-body">
+            <div class="hint">扫描用于优化阶梯修复卖出参数；它读取实验配置里的资金、组合、回撤口径、手续费和评分权重。点击热力格会把参数回填到实验配置，然后可以重新运行演算或评分。</div>
+            <div class="scan-panel" aria-label="卖出参数扫描">
+                <div class="scan-controls">
+                    <label>买入规则
+                        <select id="scanBuyStrategy">
+                            {% for key, label in buy_strategy_labels.items() %}
+                                <option value="{{ key }}" {% if key == default_config.default_scan_buy_strategy %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+                    <label>扫描周期
+                        <select id="scanPeriod">
+                            <option value="252" data-fetch-days="365" {% if default_config.default_scan_period_trading_days == 252 %}selected{% endif %}>近 252 交易日</option>
+                            <option value="756" data-fetch-days="1095" {% if default_config.default_scan_period_trading_days == 756 %}selected{% endif %}>近 756 交易日</option>
+                            <option value="1260" data-fetch-days="1825" {% if default_config.default_scan_period_trading_days == 1260 %}selected{% endif %}>近 1260 交易日</option>
+                        </select>
+                    </label>
+                    <label>最小盈利 %
+                        <input id="scanSellMinProfits" type="text" value="{{ default_config.default_scan_sell_min_profit_values }}">
+                    </label>
+                    <label>冷却天数
+                        <input id="scanCooldowns" type="text" value="{{ default_config.default_scan_repair_cooldown_values }}">
+                    </label>
+                    <label>单档卖出 %
+                        <input id="scanStageSells" type="text" value="{{ default_config.default_scan_repair_stage_sell_values }}">
+                    </label>
+                </div>
+                <div class="scan-actions">
+                    <button class="btn btn-secondary btn-small" type="button" onclick="runSellParameterScan()">运行扫描</button>
+                    <label class="scan-mode">评分口径
+                        <select id="scanScoreMode" onchange="rerenderSellScan()">
+                            <option value="balanced" {% if default_config.default_scan_score_mode == 'balanced' %}selected{% endif %}>综合参数评分</option>
+                            <option value="return_drawdown" {% if default_config.default_scan_score_mode == 'return_drawdown' %}selected{% endif %}>仅收益&回撤</option>
+                        </select>
+                    </label>
+                    <span class="scan-note">当前设置作为基准；点击热力格可把参数回填到实验配置。</span>
+                </div>
+                <div id="scanResult" class="scan-result">
+                    <div id="scanStrip" class="scan-strip"></div>
+                    <div class="scan-view-tabs">
+                        <button id="scanView2dBtn" class="scan-view-tab active" type="button" onclick="setScanView('2d')">2D 热力表</button>
+                        <button id="scanView3dBtn" class="scan-view-tab" type="button" onclick="setScanView('3d')">3D 参数图</button>
+                    </div>
+                    <div id="scan2dView">
+                        <div id="scanStageTabs" class="scan-stage-tabs"></div>
+                        <div class="table-wrap">
+                            <table class="scan-table">
+                                <thead id="scanMatrixHead"></thead>
+                                <tbody id="scanMatrixBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div id="scan3dView" class="scan-view-hidden">
+                        <div id="scan3dChart" class="scan-3d-chart"></div>
+                    </div>
+                    <div class="scan-legend"><i></i><span id="scanLegendText">颜色按综合参数评分从低到高；蓝框是当前参数，绿框是本次扫描最佳。</span></div>
+                </div>
+            </div>
+            </div>
+        </div>
+
+        <div id="historyWorkspace" class="panel tab-hidden" data-tab-panel="history">
+            <div class="tool-head">
+                <h2>运行历史</h2>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span class="small">当前版本记录本次页面会话，后续阶段会持久化到服务端。</span>
+                    <span class="code">HISTORY</span>
+                </div>
+            </div>
+            <div class="tool-body">
+            <div class="hint">这里先作为研究动线的落点：每次运行演算、评分或扫描后会记录参数摘要和结果摘要。后续会扩展为可恢复方案、对比基准和跨天历史。</div>
+            <div id="runHistoryList" class="history-list"></div>
+            </div>
+        </div>
+
         <div id="kpiGrid" class="kpi-grid tab-hidden" data-tab-panel="results">
             <div class="kpi" id="kpiBestReturn"><span>最佳组合收益</span><strong>--</strong></div>
             <div class="kpi" id="kpiWorstDrawdown"><span>最大组合回撤</span><strong>--</strong></div>
@@ -2792,67 +2921,6 @@ STRATEGY_LAB_TEMPLATE = """
                             </div>
                         {% endfor %}
                     </div>
-                </div>
-            </div>
-            <div class="scan-panel" aria-label="卖出参数扫描">
-                <div class="summary-title">
-                    <h2>卖出参数扫描</h2>
-                    <span class="small">固定当前组合，只扫描一个买入规则 + 阶梯修复卖出。</span>
-                </div>
-                <div class="scan-controls">
-                    <label>买入规则
-                        <select id="scanBuyStrategy">
-                            {% for key, label in buy_strategy_labels.items() %}
-                                <option value="{{ key }}" {% if key == default_config.default_scan_buy_strategy %}selected{% endif %}>{{ label }}</option>
-                            {% endfor %}
-                        </select>
-                    </label>
-                    <label>扫描周期
-                        <select id="scanPeriod">
-                            <option value="252" data-fetch-days="365" {% if default_config.default_scan_period_trading_days == 252 %}selected{% endif %}>近 252 交易日</option>
-                            <option value="756" data-fetch-days="1095" {% if default_config.default_scan_period_trading_days == 756 %}selected{% endif %}>近 756 交易日</option>
-                            <option value="1260" data-fetch-days="1825" {% if default_config.default_scan_period_trading_days == 1260 %}selected{% endif %}>近 1260 交易日</option>
-                        </select>
-                    </label>
-                    <label>最小盈利 %
-                        <input id="scanSellMinProfits" type="text" value="{{ default_config.default_scan_sell_min_profit_values }}">
-                    </label>
-                    <label>冷却天数
-                        <input id="scanCooldowns" type="text" value="{{ default_config.default_scan_repair_cooldown_values }}">
-                    </label>
-                    <label>单档卖出 %
-                        <input id="scanStageSells" type="text" value="{{ default_config.default_scan_repair_stage_sell_values }}">
-                    </label>
-                </div>
-                <div class="scan-actions">
-                    <button class="btn btn-secondary btn-small" type="button" onclick="runSellParameterScan()">运行扫描</button>
-                    <label class="scan-mode">评分口径
-                        <select id="scanScoreMode" onchange="rerenderSellScan()">
-                            <option value="balanced" {% if default_config.default_scan_score_mode == 'balanced' %}selected{% endif %}>综合参数评分</option>
-                            <option value="return_drawdown" {% if default_config.default_scan_score_mode == 'return_drawdown' %}selected{% endif %}>仅收益&回撤</option>
-                        </select>
-                    </label>
-                    <span class="scan-note">当前设置作为基准；点击热力格可把参数回填到首页设置。</span>
-                </div>
-                <div id="scanResult" class="scan-result">
-                    <div id="scanStrip" class="scan-strip"></div>
-                    <div class="scan-view-tabs">
-                        <button id="scanView2dBtn" class="scan-view-tab active" type="button" onclick="setScanView('2d')">2D 热力表</button>
-                        <button id="scanView3dBtn" class="scan-view-tab" type="button" onclick="setScanView('3d')">3D 参数图</button>
-                    </div>
-                    <div id="scan2dView">
-                        <div id="scanStageTabs" class="scan-stage-tabs"></div>
-                        <div class="table-wrap">
-                            <table class="scan-table">
-                                <thead id="scanMatrixHead"></thead>
-                                <tbody id="scanMatrixBody"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                    <div id="scan3dView" class="scan-view-hidden">
-                        <div id="scan3dChart" class="scan-3d-chart"></div>
-                    </div>
-                    <div class="scan-legend"><i></i><span id="scanLegendText">颜色按综合参数评分从低到高；蓝框是当前参数，绿框是本次扫描最佳。</span></div>
                 </div>
             </div>
             <div class="table-wrap" style="margin-top: 12px;">
@@ -3007,6 +3075,7 @@ STRATEGY_LAB_TEMPLATE = """
         let lastLabSignature = null;
         let lastScorecardSignature = null;
         let scoreDetailContext = null;
+        let runHistory = [];
         const urlParams = new URLSearchParams(window.location.search);
         const perfEnabled = urlParams.get('perf') === '1';
         const liteMode = urlParams.get('lite') === '1';
@@ -3161,6 +3230,9 @@ STRATEGY_LAB_TEMPLATE = """
                         }
                     });
                 }, 0);
+            }
+            if (tab === 'scan' && activeScanView === '3d') {
+                setTimeout(() => renderScan3d(), 0);
             }
         }
 
@@ -3356,9 +3428,11 @@ STRATEGY_LAB_TEMPLATE = """
                 return;
             }
             const modeLabels = {
-                setup: '参数设置',
+                setup: '实验配置',
                 results: '组合演算',
-                scorecard: '策略评分'
+                scorecard: '策略评分',
+                scan: '参数扫描',
+                history: '运行历史'
             };
             document.getElementById('workspaceMode').textContent = modeLabels[activeTabName] || '策略实验室';
             const topicCount = selectedScorecardPortfolios().length;
@@ -3397,7 +3471,19 @@ STRATEGY_LAB_TEMPLATE = """
                 }
                 return;
             }
-            setFreshness('修改参数后，可在任意页面直接运行演算或评分。', 'idle');
+            if (activeTabName === 'scan') {
+                if (!lastSellScan) {
+                    setFreshness('尚未运行参数扫描。', 'idle');
+                } else {
+                    setFreshness('扫描结果来自当前页面会话；点击热力格可回填卖出参数。', 'synced');
+                }
+                return;
+            }
+            if (activeTabName === 'history') {
+                setFreshness(runHistory.length ? `本次会话已有 ${runHistory.length} 条运行记录。` : '本次会话尚无运行记录。', 'idle');
+                return;
+            }
+            setFreshness('修改参数后，可在任意工作区直接运行演算或评分。', 'idle');
         }
 
         function scheduleCommandBarUpdate() {
@@ -3412,6 +3498,49 @@ STRATEGY_LAB_TEMPLATE = """
             container.addEventListener('input', scheduleCommandBarUpdate);
             container.addEventListener('change', scheduleCommandBarUpdate);
             container.addEventListener('blur', scheduleCommandBarUpdate, true);
+        }
+
+        function experimentSummaryText() {
+            return [
+                `${document.getElementById('start').value || '--'} 至 ${document.getElementById('end').value || '--'}`,
+                currentPortfolioSummary(),
+                `买入 ${strategyLabelFromSelect('buyStrategy', buyStrategyLabels, '全部买入策略')}`,
+                `卖出 ${strategyLabelFromSelect('sellStrategy', sellStrategyLabels, '默认卖出策略组')}`
+            ].join(' · ');
+        }
+
+        function addRunHistory(type, title, summary) {
+            runHistory.unshift({
+                type,
+                title,
+                summary,
+                context: experimentSummaryText(),
+                time: new Date().toLocaleString()
+            });
+            runHistory = runHistory.slice(0, 12);
+            renderRunHistory();
+            updateCommandBar();
+        }
+
+        function renderRunHistory() {
+            const list = document.getElementById('runHistoryList');
+            if (!list) {
+                return;
+            }
+            if (!runHistory.length) {
+                list.innerHTML = '<div class="history-empty">尚无运行记录。运行演算、评分或参数扫描后，这里会显示本次页面会话里的摘要。</div>';
+                return;
+            }
+            list.innerHTML = runHistory.map((item) => `
+                <div class="history-item">
+                    <div>
+                        <strong>${escapeHtml(item.title)}</strong>
+                        <span>${escapeHtml(item.summary)}</span>
+                        <span>${escapeHtml(item.context)}</span>
+                    </div>
+                    <small>${escapeHtml(item.time)}</small>
+                </div>
+            `).join('');
         }
 
         function parseScanValues(id, integerOnly = false, maximum = null) {
@@ -3885,7 +4014,10 @@ STRATEGY_LAB_TEMPLATE = """
                     <strong>来自评分题目</strong>
                     <span>${escapeHtml(portfolio)} ${escapeHtml(period)}；当前图表使用评分矩阵里点开的买入 / 卖出策略。</span>
                 </div>
-                <button class="btn btn-secondary btn-small" type="button" onclick="returnToScorecard()">返回评分</button>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <button class="btn btn-secondary btn-small" type="button" onclick="returnToScorecard()">返回评分</button>
+                    <button class="btn btn-secondary btn-small" type="button" onclick="openFullRunFromScorecard()">查看完整演算</button>
+                </div>
             `;
         }
 
@@ -3894,6 +4026,14 @@ STRATEGY_LAB_TEMPLATE = """
             const scorePanel = document.getElementById('scorecard');
             if (scorePanel) {
                 scorePanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        function openFullRunFromScorecard() {
+            activateTab('results');
+            const panel = document.getElementById('detailPanel');
+            if (panel && !panel.hidden) {
+                panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         }
 
@@ -4303,7 +4443,7 @@ STRATEGY_LAB_TEMPLATE = """
                                 <div class="score-metric return"><strong>${pctCompact(strategy.return_pct)}</strong></div>
                                 <div class="score-metric drawdown"><strong>${pctCompact(strategy.max_drawdown_pct)}</strong></div>
                             </div>
-                            <button class="btn btn-secondary btn-small score-detail-btn" type="button" onclick="loadScorecardDetail('${question.key}', '${item.buy_strategy}', '${item.sell_strategy}')">详情</button>
+                            <button class="btn btn-secondary btn-small score-detail-btn" type="button" onclick="loadScorecardDetail('${question.key}', '${item.buy_strategy}', '${item.sell_strategy}', true)">详情</button>
                         </td>
                     `;
                 }).join('');
@@ -4631,13 +4771,18 @@ STRATEGY_LAB_TEMPLATE = """
                 Plotly.purge('scan3dChart');
                 renderSellParameterScan(result.data);
                 const warnings = result.data.warnings && result.data.warnings.length ? `；${result.data.warnings.join('；')}` : '';
+                addRunHistory(
+                    'scan',
+                    '参数扫描完成',
+                    `组合数 ${number((result.data.cells || []).length)}；${warnings ? warnings.replace(/^；/, '') : '无缓存告警'}`
+                );
                 setStatus('success', `卖出参数扫描完成${warnings}`);
             } catch (error) {
                 setStatus('error', `扫描失败: ${error.message || error}`);
             }
         }
 
-        async function loadScorecardDetail(questionKey, buyStrategy, sellStrategy) {
+        async function loadScorecardDetail(questionKey, buyStrategy, sellStrategy, stayOnScorecard = false) {
             setStatus('info', '正在加载评分题目详情...');
             try {
                 const apiStart = performance.now();
@@ -4661,12 +4806,22 @@ STRATEGY_LAB_TEMPLATE = """
                 lastLabSignature = null;
                 renderSummary(result.data);
                 renderTrades(result.data);
-                activateTab('results');
                 const meta = result.data.scorecard_detail || {};
                 scoreDetailContext = meta;
                 showDetail(0);
+                if (stayOnScorecard) {
+                    activateTab('scorecard');
+                    setStatus('success', `已加载详情: ${meta.portfolio_label || ''} ${meta.period_label || ''}；可点“查看完整演算”进入图表。`);
+                } else {
+                    activateTab('results');
+                    setStatus('success', `已加载详情: ${meta.portfolio_label || ''} ${meta.period_label || ''}`);
+                }
+                addRunHistory(
+                    'detail',
+                    '评分详情已加载',
+                    `${meta.portfolio_label || ''} ${meta.period_label || ''}`.trim() || '评分题目详情'
+                );
                 updateCommandBar();
-                setStatus('success', `已加载详情: ${meta.portfolio_label || ''} ${meta.period_label || ''}`);
             } catch (error) {
                 setStatus('error', `详情加载失败: ${error.message || error}`);
             }
@@ -4691,6 +4846,11 @@ STRATEGY_LAB_TEMPLATE = """
                 lastScorecardSignature = stableSignature(payload);
                 activateTab('scorecard');
                 updateCommandBar();
+                addRunHistory(
+                    'scorecard',
+                    '策略评分完成',
+                    `${number((result.data.summary || []).length)} 个策略组合；${number((result.data.questions || []).length)} 个题目`
+                );
                 setStatus('success', '策略评分完成');
             } catch (error) {
                 setStatus('error', `评分失败: ${error.message || error}`);
@@ -4724,6 +4884,11 @@ STRATEGY_LAB_TEMPLATE = """
                 renderTrades(result.data);
                 updateCommandBar();
                 const warningText = result.data.warnings && result.data.warnings.length ? `；${result.data.warnings.join('；')}` : '';
+                addRunHistory(
+                    'lab',
+                    '组合演算完成',
+                    `${number((result.data.strategies || []).length)} 个策略组合；${warningText ? warningText.replace(/^；/, '') : '无缓存告警'}`
+                );
                 setStatus('success', `演算完成${warningText}`);
             } catch (error) {
                 setStatus('error', `请求失败: ${error.message || error}`);
@@ -4734,6 +4899,7 @@ STRATEGY_LAB_TEMPLATE = """
         updateScorecardQuestionHint();
         initScoreTooltip();
         initCommandBarWatchers();
+        renderRunHistory();
         updateCommandBar();
         initPerfPanel();
     </script>
