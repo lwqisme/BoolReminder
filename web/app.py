@@ -4990,7 +4990,7 @@ STRATEGY_LAB_TEMPLATE = """
                                 <div class="score-metric return"><strong>${pctCompact(strategy.return_pct)}</strong></div>
                                 <div class="score-metric drawdown"><strong>${pctCompact(strategy.max_drawdown_pct)}</strong></div>
                             </div>
-                            <button class="btn btn-secondary btn-small score-detail-btn" type="button" onclick="loadScorecardDetail('${question.key}', '${item.buy_strategy}', '${item.sell_strategy}', true)">详情</button>
+                            <button class="btn btn-secondary btn-small score-detail-btn" type="button" onclick="loadScorecardDetail('${question.key}', '${item.buy_strategy}', '${item.sell_strategy}')">详情</button>
                         </td>
                     `;
                 }).join('');
@@ -5322,7 +5322,7 @@ STRATEGY_LAB_TEMPLATE = """
             }
         }
 
-        async function loadScorecardDetail(questionKey, buyStrategy, sellStrategy, stayOnScorecard = false) {
+        async function loadScorecardDetail(questionKey, buyStrategy, sellStrategy) {
             setStatus('info', '正在加载评分题目详情...');
             try {
                 const apiStart = performance.now();
@@ -5349,13 +5349,12 @@ STRATEGY_LAB_TEMPLATE = """
                 const meta = result.data.scorecard_detail || {};
                 scoreDetailContext = meta;
                 showDetail(0);
-                if (stayOnScorecard) {
-                    activateTab('scorecard');
-                    setStatus('success', `已加载详情: ${meta.portfolio_label || ''} ${meta.period_label || ''}；可点“查看完整演算”进入图表。`);
-                } else {
-                    activateTab('results');
-                    setStatus('success', `已加载详情: ${meta.portfolio_label || ''} ${meta.period_label || ''}`);
+                activateTab('results');
+                const panel = document.getElementById('detailPanel');
+                if (panel) {
+                    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
+                setStatus('success', `已加载评分详情: ${meta.portfolio_label || ''} ${meta.period_label || ''}；可用详情上方按钮返回评分。`);
                 addRunHistory(
                     'detail',
                     '评分详情已加载',
