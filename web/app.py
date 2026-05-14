@@ -2030,6 +2030,17 @@ STRATEGY_LAB_TEMPLATE = """
             gap: 10px;
             margin-bottom: 12px;
         }
+        .robust-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 10px 0 0;
+        }
+        .robust-controls select {
+            width: auto;
+            min-width: 180px;
+        }
         .robust-stat {
             padding: 12px;
             border-radius: var(--radius-sm);
@@ -2984,6 +2995,15 @@ STRATEGY_LAB_TEMPLATE = """
                         <h2>稳健 Top10</h2>
                         <span id="robustRange" class="small"></span>
                     </div>
+                    <div class="robust-controls">
+                        <label>排序口径
+                            <select id="robustScoreMode">
+                                <option value="robust">稳健综合</option>
+                                <option value="return_drawdown">收益优先 80/20</option>
+                            </select>
+                        </label>
+                        <button class="btn btn-secondary btn-small" type="button" onclick="runRobustLeaderboard()">按当前口径重跑</button>
+                    </div>
                     <div id="robustStrip" class="robust-strip"></div>
                     <div class="table-wrap">
                         <table class="robust-table">
@@ -3632,7 +3652,8 @@ STRATEGY_LAB_TEMPLATE = """
                 sell_min_profit_values: parseScanValues('scanSellMinProfits', false, 100),
                 repair_sell_cooldown_values: parseScanValues('scanCooldowns', true),
                 repair_stage_sell_values: parseScanValues('scanStageSells', false, 100),
-                scan_score_mode: document.getElementById('scanScoreMode').value
+                scan_score_mode: document.getElementById('scanScoreMode').value,
+                robust_score_mode: document.getElementById('robustScoreMode').value
             };
         }
 
@@ -4088,6 +4109,7 @@ STRATEGY_LAB_TEMPLATE = """
             applyScanValues('scanCooldowns', payload.repair_sell_cooldown_values);
             applyScanValues('scanStageSells', payload.repair_stage_sell_values);
             setSelectValue('scanScoreMode', payload.scan_score_mode);
+            setSelectValue('robustScoreMode', payload.robust_score_mode);
 
             updateScorecardQuestionHint();
             updateCommandBar();
@@ -4989,10 +5011,10 @@ STRATEGY_LAB_TEMPLATE = """
                 default_scorecard_periods: scorecardPeriodPayload(),
                 default_scan_buy_strategy: document.getElementById('scanBuyStrategy').value,
                 default_scan_period_trading_days: Number(scanPeriod.value || 1260),
-                default_scan_sell_min_profit_values: document.getElementById('scanSellMinProfits').value,
-                default_scan_repair_cooldown_values: document.getElementById('scanCooldowns').value,
-                default_scan_repair_stage_sell_values: document.getElementById('scanStageSells').value,
-                default_scan_score_mode: document.getElementById('scanScoreMode').value,
+        default_scan_sell_min_profit_values: document.getElementById('scanSellMinProfits').value,
+        default_scan_repair_cooldown_values: document.getElementById('scanCooldowns').value,
+        default_scan_repair_stage_sell_values: document.getElementById('scanStageSells').value,
+        default_scan_score_mode: document.getElementById('scanScoreMode').value,
                 default_option_enabled: document.getElementById('optionEnabled').checked,
                 default_option_allocation_pct: readNumber('optionAllocation'),
                 default_option_target_dte: readNumber('optionTargetDte'),
@@ -5185,7 +5207,9 @@ STRATEGY_LAB_TEMPLATE = """
             board.classList.add('show');
             const tasks = data.tasks || [];
             const counts = data.candidate_counts || {};
-            document.getElementById('robustRange').textContent = `${data.range.start} 至 ${data.range.end}；${tasks.length} 个题目`;
+            const method = data.method || {};
+            const modeLabel = method.score_mode === 'return_drawdown' ? '收益优先 80/20' : '稳健综合';
+            document.getElementById('robustRange').textContent = `${data.range.start} 至 ${data.range.end}；${tasks.length} 个题目；${modeLabel}`;
             document.getElementById('robustStrip').innerHTML = `
                 <div class="robust-stat"><span>粗筛候选</span><strong>${number(counts.coarse)}</strong></div>
                 <div class="robust-stat"><span>局部加密候选</span><strong>${number(counts.fine)}</strong></div>
@@ -5501,7 +5525,8 @@ STRATEGY_LAB_TEMPLATE = """
                     ...scorecardPayload(),
                     start: document.getElementById('start').value,
                     end: document.getElementById('end').value,
-                    top_n: 10
+                    top_n: 10,
+                    robust_score_mode: document.getElementById('robustScoreMode').value
                 };
                 const data = await runStrategyJob('robust', payload, {
                     title: '稳健 Top10',
@@ -6349,6 +6374,7 @@ def _run_strategy_robust_payload(payload: dict[str, object]) -> dict[str, object
         scorecard_periods=payload.get("scorecard_periods"),
         buy_strategies=payload.get("buy_strategies"),
         top_n=top_n,
+        score_mode=str(payload.get("robust_score_mode") or "robust"),
     )
 
 

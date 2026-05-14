@@ -47,6 +47,27 @@ class StrategyLabRobustTest(unittest.TestCase):
         self.assertGreaterEqual(top["bottom10_rate"], 0)
         self.assertEqual(top["task_count"], 3)
 
+    def test_return_drawdown_mode_is_supported(self):
+        def fake_fetch(_ctx, _symbol, _start, _end):
+            return candles(100, 92, 85, 100, 118, 135, 128, 150)
+
+        with patch("drawdown.position_strategy.build_longbridge_quote_context", return_value=object()):
+            with patch("drawdown.position_strategy.fetch_longbridge_daily_candles", side_effect=fake_fetch):
+                result = run_longbridge_robust_leaderboard(
+                    StrategyInputs(initial_cash=1000, monthly_contribution=0, trade_fee=0, max_drawdown_pct=40),
+                    end_date=datetime(2021, 1, 8).date(),
+                    portfolio_keys=["tsla_100"],
+                    buy_strategies=["pyramid_3"],
+                    top_n=3,
+                    coarse_shortlist_size=3,
+                    finalist_size=4,
+                    score_mode="return_drawdown",
+                )
+
+        self.assertEqual(result["method"]["score_mode"], "return_drawdown")
+        self.assertEqual(result["method"]["score_formula"], "80% return + 20% drawdown")
+        self.assertLessEqual(len(result["leaderboard"]), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

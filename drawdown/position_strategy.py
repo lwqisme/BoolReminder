@@ -677,8 +677,11 @@ def run_longbridge_robust_leaderboard(
     top_n: int = 10,
     coarse_shortlist_size: int = ROBUST_SHORTLIST_SIZE,
     finalist_size: int = ROBUST_FINALIST_SIZE,
+    score_mode: str = "robust",
 ) -> dict[str, object]:
     """Find robust top strategy/parameter candidates with staged pruning."""
+    if score_mode not in {"robust", "return_drawdown"}:
+        raise ValueError("稳健榜评分口径必须是 robust 或 return_drawdown。")
     selected_buy_strategies = list(buy_strategies or STRATEGY_LABELS.keys())
     unknown_buy_strategies = set(selected_buy_strategies) - set(STRATEGY_LABELS)
     if unknown_buy_strategies:
@@ -704,7 +707,7 @@ def run_longbridge_robust_leaderboard(
         _non_repair_candidates(selected_buy_strategies)
         + _repair_candidates(selected_buy_strategies, coarse_params)
     )
-    coarse_rows = _score_robust_candidates(coarse_tasks, inputs, coarse_candidates)
+    coarse_rows = _score_robust_candidates(coarse_tasks, inputs, coarse_candidates, score_mode=score_mode)
     coarse_leaders = sorted(coarse_rows, key=lambda item: item["robust_score"], reverse=True)[
         : max(1, int(coarse_shortlist_size))
     ]
@@ -717,12 +720,12 @@ def run_longbridge_robust_leaderboard(
             for candidate in _local_candidate_neighborhood(row["candidate"], selected_buy_strategies)
         ]
     )
-    fine_rows = _score_robust_candidates(tasks, inputs, fine_candidates)
+    fine_rows = _score_robust_candidates(tasks, inputs, fine_candidates, score_mode=score_mode)
     finalists = sorted(fine_rows, key=lambda item: item["robust_score"], reverse=True)[
         : max(1, int(finalist_size))
     ]
     final_candidates = [row["candidate"] for row in finalists]
-    final_rows = _score_robust_candidates(tasks, inputs, final_candidates)
+    final_rows = _score_robust_candidates(tasks, inputs, final_candidates, score_mode=score_mode)
     leaderboard = sorted(final_rows, key=lambda item: item["robust_score"], reverse=True)[: max(1, int(top_n))]
 
     return {
@@ -732,6 +735,7 @@ def run_longbridge_robust_leaderboard(
         },
         "method": {
             "name": "coarse_to_fine_robust_leaderboard",
+            "score_mode": score_mode,
             "coarse_grid": {
                 "sell_min_profit_pct": ROBUST_COARSE_SELL_MIN_PROFITS,
                 "repair_sell_cooldown_days": ROBUST_COARSE_REPAIR_COOLDOWNS,
@@ -740,7 +744,11 @@ def run_longbridge_robust_leaderboard(
             "coarse_task_count": len(coarse_tasks),
             "coarse_shortlist_size": int(coarse_shortlist_size),
             "finalist_size": int(finalist_size),
-            "score_formula": "35% mean + 25% median + 25% p25 + 10% top10_rate - 15% bottom10_rate",
+            "score_formula": (
+                "80% return + 20% drawdown"
+                if score_mode == "return_drawdown"
+                else "35% mean + 25% median + 25% p25 + 10% top10_rate - 15% bottom10_rate"
+            ),
         },
         "candidate_counts": {
             "coarse": len(coarse_candidates),
@@ -989,6 +997,8 @@ def _score_robust_candidates(
     tasks: list[dict[str, object]],
     inputs: StrategyInputs,
     candidates: list[dict[str, object]],
+    *,
+    score_mode: str,
 ) -> list[dict[str, object]]:
     observations_by_key: dict[str, list[dict[str, object]]] = {
         str(candidate["key"]): []
@@ -1024,16 +1034,16 @@ def _score_robust_candidates(
                     "trade_count": int(metrics.get("trade_count", 0)),
                 }
             )
-        _score_robust_task_observations(observations)
+        _score_robust_task_observations(observations, score_mode=score_mode)
         for observation in observations:
             observations_by_key[str(observation["candidate"]["key"])].append(observation)
     return [
-        _aggregate_robust_candidate(candidate, observations_by_key[str(candidate["key"])])
+        _aggregate_robust_candidate(candidate, observations_by_key[str(candidate["key"])], score_mode=score_mode)
         for candidate in candidates
     ]
 
 
-def _score_robust_task_observations(observations: list[dict[str, object]]) -> None:
+def _score_robust_task_observations(observations: list[dict[str, object]], *, score_mode: str) -> None:
     returns = [float(item["return_pct"]) for item in observations]
     inverse_drawdowns = [-float(item["max_drawdown_pct"]) for item in observations]
     calmars = [
@@ -1052,13 +1062,16 @@ def _score_robust_task_observations(observations: list[dict[str, object]]) -> No
         trade_penalty = 0.0
         if max_trade_count > 0:
             trade_penalty = min(12.0, float(item["trade_count"]) / max_trade_count * 12.0)
-        item["task_score"] = (
-            return_score * 0.45
-            + drawdown_score * 0.25
-            + calmar_score * 0.20
-            + sell_score * 0.10
-            - trade_penalty
-        )
+        if score_mode == "return_drawdown":
+            item["task_score"] = return_score * 0.80 + drawdown_score * 0.20
+        else:
+            item["task_score"] = (
+                return_score * 0.45
+                + drawdown_score * 0.25
+                + calmar_score * 0.20
+                + sell_score * 0.10
+                - trade_penalty
+            )
     ranked = sorted(observations, key=lambda item: item["task_score"], reverse=True)
     edge_count = max(1, math.ceil(len(ranked) * 0.10)) if ranked else 0
     for index, item in enumerate(ranked, start=1):
@@ -1070,6 +1083,8 @@ def _score_robust_task_observations(observations: list[dict[str, object]]) -> No
 def _aggregate_robust_candidate(
     candidate: dict[str, object],
     observations: list[dict[str, object]],
+    *,
+    score_mode: str,
 ) -> dict[str, object]:
     scores = sorted(float(item["task_score"]) for item in observations)
     returns = [float(item["return_pct"]) for item in observations]
@@ -1080,13 +1095,16 @@ def _aggregate_robust_candidate(
     p25_score = _percentile(scores, 0.25)
     top10_rate = sum(1 for item in observations if item.get("task_top10")) / len(observations) * 100.0 if observations else 0.0
     bottom10_rate = sum(1 for item in observations if item.get("task_bottom10")) / len(observations) * 100.0 if observations else 0.0
-    robust_score = (
-        mean_score * 0.35
-        + median_score * 0.25
-        + p25_score * 0.25
-        + top10_rate * 0.10
-        - bottom10_rate * 0.15
-    )
+    if score_mode == "return_drawdown":
+        robust_score = mean_score
+    else:
+        robust_score = (
+            mean_score * 0.35
+            + median_score * 0.25
+            + p25_score * 0.25
+            + top10_rate * 0.10
+            - bottom10_rate * 0.15
+        )
     sorted_observations = sorted(observations, key=lambda item: item["task_score"])
     weakest = sorted_observations[0] if sorted_observations else None
     strongest = sorted_observations[-1] if sorted_observations else None
