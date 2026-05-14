@@ -40,6 +40,16 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("强势命中率", html)
         self.assertIn("踩坑率", html)
 
+    def test_salary_flow_dca_explanation_is_visible_in_strategy_reference(self):
+        with app.test_client() as client:
+            html = client.get("/strategy-lab").get_data(as_text=True)
+
+        self.assertIn("查看工资流定投说明", html)
+        self.assertIn("月注入资金 × 标的权重 ÷ 4", html)
+        self.assertIn("1.4x、2.0x、3.0x、4.0x", html)
+        self.assertIn("余额扫入", html)
+        self.assertIn("drawdown_boost", html)
+
 
 if __name__ == "__main__":
     unittest.main()

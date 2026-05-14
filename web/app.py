@@ -2905,6 +2905,35 @@ STRATEGY_LAB_TEMPLATE = """
                 <div class="reference-item"><span class="tag">SELL</span><div><strong>网格回弹卖出</strong><p>每笔买入独立配对退出：回撤修复 1 个 step 卖该笔一半，修复 2 个 step 卖该笔剩余部分。</p></div></div>
                 <div class="reference-item"><span class="tag">SELL</span><div><strong>成本区间去杠杆</strong><p>按整体持仓成本触发，价格高于平均成本 8%、15%、25% 时分批降仓，保留设定底仓。</p></div></div>
             </div>
+            <details class="explain-drawer">
+                <summary>查看工资流定投说明</summary>
+                <div class="description-grid">
+                    <div class="description-card">
+                        <strong>投入节奏</strong>
+                        <p>每周首个交易日触发一次。基础额度按“月注入资金 × 标的权重 ÷ 4”估算，再乘以当前回撤对应的加速倍率。</p>
+                    </div>
+                    <div class="description-card">
+                        <strong>回撤加速</strong>
+                        <p>浅回撤使用 1.0x；回撤达到 5%、10%、20%、30% 后，分别提高到 1.4x、2.0x、3.0x、4.0x，越跌越主动吃仓位。</p>
+                    </div>
+                    <div class="description-card">
+                        <strong>现金垫</strong>
+                        <p>为了避免一开始把现金打光，浅回撤保留约 8% 现金；10%+ 保留 5%，20%+ 保留 3%，30%+ 不再保留现金垫。</p>
+                    </div>
+                    <div class="description-card">
+                        <strong>余额扫入</strong>
+                        <p>如果账户仍有闲置现金，会按回撤深度额外扫入 20%、35%、50%、70%、90%。深跌时会更快把余额转成持仓。</p>
+                    </div>
+                    <div class="description-card">
+                        <strong>适用倾向</strong>
+                        <p>它更像“现金流补给 + 回撤越深越激进”的冲高峰策略。优点是深跌反弹时弹性更强，代价是连续下跌时现金消耗更快。</p>
+                    </div>
+                    <div class="description-card">
+                        <strong>看结果时</strong>
+                        <p>评分页里重点看收益率、最大回撤、现金余额和交易明细中的 drawdown_boost、cash_reserve、idle_cash_sweep 字段。</p>
+                    </div>
+                </div>
+            </details>
             </div>
         </div>
             </div>
