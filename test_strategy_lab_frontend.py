@@ -28,6 +28,8 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("sell_strategies: selectedSellStrategies()", html)
         self.assertIn("function applyRobustCandidate(candidateKey)", html)
         self.assertIn("应用并看评分", html)
+        self.assertIn('aria-label="解释 P25"', html)
+        self.assertIn("document.getElementById('robustBoard')", html)
         self.assertIn("第 25 分位数", html)
         self.assertIn("强势命中率", html)
         self.assertIn("踩坑率", html)

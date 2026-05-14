@@ -2051,21 +2051,27 @@ STRATEGY_LAB_TEMPLATE = """
         .robust-table td:first-child {
             min-width: 230px;
         }
-        .metric-help {
+        .metric-help.score-info-btn {
+            position: static;
             display: inline-flex;
             align-items: center;
             justify-content: center;
             width: 16px;
             height: 16px;
+            min-height: 16px;
             margin-left: 4px;
+            padding: 0;
             border: 1px solid rgba(17, 103, 216, 0.28);
             border-radius: 50%;
             color: var(--blue);
             background: rgba(17, 103, 216, 0.08);
+            box-shadow: none;
+            font-family: var(--mono);
             font-size: 11px;
             font-weight: 900;
             line-height: 1;
             cursor: help;
+            vertical-align: middle;
         }
         .robust-task {
             color: var(--muted);
@@ -2986,9 +2992,9 @@ STRATEGY_LAB_TEMPLATE = """
                                     <th>策略 / 参数</th>
                                     <th>稳健分</th>
                                     <th>均分</th>
-                                    <th>P25 <span class="metric-help" title="所有题目得分的第 25 分位数。它代表偏弱场景里的保底表现，越高说明策略不容易只靠少数题目拉高均值。">?</span></th>
-                                    <th>Top10% <span class="metric-help" title="该策略在多少比例的题目中进入候选排名前 10%。这是强势命中率，越高说明跨股票/阶段更常排在前列。">?</span></th>
-                                    <th>Bottom10% <span class="metric-help" title="该策略在多少比例的题目中落入候选排名后 10%。这是踩坑率，越低说明跨股票/阶段更少垫底。">?</span></th>
+                                    <th>P25 <button class="metric-help score-info-btn" type="button" aria-label="解释 P25" data-tooltip="P25\n所有题目得分的第 25 分位数。\n它代表偏弱场景里的保底表现，越高说明策略不容易只靠少数题目拉高均值。">?</button></th>
+                                    <th>Top10% <button class="metric-help score-info-btn" type="button" aria-label="解释 Top10%" data-tooltip="Top10%\n该策略在多少比例的题目中进入候选排名前 10%。\n这是强势命中率，越高说明跨股票/阶段更常排在前列。">?</button></th>
+                                    <th>Bottom10% <button class="metric-help score-info-btn" type="button" aria-label="解释 Bottom10%" data-tooltip="Bottom10%\n该策略在多少比例的题目中落入候选排名后 10%。\n这是踩坑率，越低说明跨股票/阶段更少垫底。">?</button></th>
                                     <th>均收益</th>
                                     <th>均回撤</th>
                                     <th>最强 / 最弱题目</th>
@@ -4465,37 +4471,42 @@ STRATEGY_LAB_TEMPLATE = """
         }
 
         function initScoreTooltip() {
-            const matrix = document.getElementById('scoreMatrixBody');
-            if (!matrix) {
+            const containers = [
+                document.getElementById('scoreMatrixBody'),
+                document.getElementById('robustBoard')
+            ].filter(Boolean);
+            if (!containers.length) {
                 return;
             }
-            matrix.addEventListener('mouseover', (event) => {
-                const trigger = event.target.closest('.score-info-btn');
-                if (trigger && matrix.contains(trigger)) {
-                    showScoreTooltip(trigger, event);
-                }
-            });
-            matrix.addEventListener('mouseout', (event) => {
-                const trigger = event.target.closest('.score-info-btn');
-                if (trigger && !trigger.contains(event.relatedTarget)) {
-                    hideScoreTooltip();
-                }
-            });
-            matrix.addEventListener('focusin', (event) => {
-                const trigger = event.target.closest('.score-info-btn');
-                if (trigger && matrix.contains(trigger)) {
-                    const rect = trigger.getBoundingClientRect();
-                    showScoreTooltip(trigger, {
-                        clientX: rect.right,
-                        clientY: rect.top
-                    });
-                }
-            });
-            matrix.addEventListener('focusout', (event) => {
-                const trigger = event.target.closest('.score-info-btn');
-                if (trigger && !trigger.contains(event.relatedTarget)) {
-                    hideScoreTooltip();
-                }
+            containers.forEach((container) => {
+                container.addEventListener('mouseover', (event) => {
+                    const trigger = event.target.closest('.score-info-btn');
+                    if (trigger && container.contains(trigger)) {
+                        showScoreTooltip(trigger, event);
+                    }
+                });
+                container.addEventListener('mouseout', (event) => {
+                    const trigger = event.target.closest('.score-info-btn');
+                    if (trigger && !trigger.contains(event.relatedTarget)) {
+                        hideScoreTooltip();
+                    }
+                });
+                container.addEventListener('focusin', (event) => {
+                    const trigger = event.target.closest('.score-info-btn');
+                    if (trigger && container.contains(trigger)) {
+                        const rect = trigger.getBoundingClientRect();
+                        showScoreTooltip(trigger, {
+                            clientX: rect.right,
+                            clientY: rect.top
+                        });
+                    }
+                });
+                container.addEventListener('focusout', (event) => {
+                    const trigger = event.target.closest('.score-info-btn');
+                    if (trigger && !trigger.contains(event.relatedTarget)) {
+                        hideScoreTooltip();
+                    }
+                });
             });
         }
 
