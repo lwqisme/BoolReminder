@@ -16,21 +16,18 @@ from urllib.parse import urlencode
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.config_manager import ConfigManager
 from drawdown.generate_drawdown_report import TradeOverlay, normalize_longbridge_symbol, render_longbridge_drawdown_from_overlays
-from drawdown.option_overlay import OptionOverlaySettings, apply_option_overlay
+from drawdown.option_overlay import apply_option_overlay
 from drawdown.position_strategy import (
-    DEFAULT_PORTFOLIO,
-    SCORECARD_DRAWDOWN_WEIGHT,
     SCORECARD_PERIODS,
     SCORECARD_PORTFOLIOS,
-    SCORECARD_RETURN_WEIGHT,
     SELL_STRATEGY_LABELS,
     STRATEGY_LABELS,
-    StrategyInputs,
     parse_date_range,
     run_longbridge_strategy_lab,
     run_longbridge_strategy_scorecard,
     run_longbridge_sell_parameter_scan,
 )
+from drawdown.strategy_lab_config import StrategyLabConfig
 from trade_sync.cleanup import run_trade_sync_cleanup
 from trade_sync.normalize import canonical_symbol, normalize_trade_rows
 from trade_sync.store import (
@@ -5256,6 +5253,7 @@ def api_drawdown_generate():
 def strategy_lab_page():
     """组合仓位策略实验室。"""
     strategy_config = _get_position_strategy_config()
+    lab_config = StrategyLabConfig.from_saved_defaults(strategy_config)
     end_date = datetime.now().date()
     start_date = end_date - timedelta(days=365 * 3)
     scorecard_portfolios = [
@@ -5273,30 +5271,24 @@ def strategy_lab_page():
         }
         for item in SCORECARD_PORTFOLIOS
     ]
-    default_scorecard_portfolio_keys = strategy_config.get("default_scorecard_portfolio_keys") or [
-        "tsm_100",
-        "googl_100",
-        "tsla_100",
-        "core_50_30_20",
-    ]
+    default_scorecard_portfolio_keys = lab_config.selected_scorecard_keys()
     period_overrides = {
-        str(item.get("key", "")): item
-        for item in (strategy_config.get("default_scorecard_periods") or [])
-        if isinstance(item, dict)
+        period.key: period
+        for period in lab_config.scorecard_periods
     }
     scorecard_periods = []
     for period in SCORECARD_PERIODS:
         override = period_overrides.get(str(period["key"]), {})
         scorecard_periods.append({
             **period,
-            "label": str(override.get("label") or period["label"]),
-            "start": str(override.get("start") or ""),
-            "end": str(override.get("end") or ""),
+            "label": str(getattr(override, "label", "") or period["label"]),
+            "start": str(getattr(override, "start", "") or ""),
+            "end": str(getattr(override, "end", "") or ""),
         })
-    default_portfolio = strategy_config.get("default_portfolio") or DEFAULT_PORTFOLIO
+    default_portfolio = lab_config.portfolio_or_default()
     return render_template_string(
         STRATEGY_LAB_TEMPLATE,
-        default_config=strategy_config,
+        default_config=lab_config.to_legacy_defaults(),
         default_portfolio=default_portfolio,
         buy_strategy_labels=STRATEGY_LABELS,
         sell_strategy_labels=SELL_STRATEGY_LABELS,
@@ -5331,7 +5323,10 @@ def api_strategy_lab_defaults():
         defaults_payload = payload.get("defaults")
         if not isinstance(defaults_payload, dict):
             return _json_error("缺少 defaults", 400)
-        values = _strategy_lab_defaults_from_payload(defaults_payload)
+        values = StrategyLabConfig.from_defaults_payload(
+            defaults_payload,
+            _get_position_strategy_config(),
+        ).to_legacy_defaults()
         if not config_manager.update_position_strategy_config(values):
             return _json_error("保存默认值失败", 500)
         return jsonify({
@@ -5343,273 +5338,6 @@ def api_strategy_lab_defaults():
         return _json_error(str(exc), 400)
     except Exception as exc:
         return _json_error(f"保存默认值失败: {exc}", 500)
-
-
-def _parse_strategy_score_weights(payload: dict[str, object]) -> tuple[float, float]:
-    defaults = _get_position_strategy_config()
-    default_return_weight = float(defaults["default_score_return_weight_pct"]) / 100.0
-    default_drawdown_weight = float(defaults["default_score_drawdown_weight_pct"]) / 100.0
-
-    def read_weight(key: str, default: float) -> float:
-        raw = payload.get(key, default)
-        try:
-            value = float(raw if raw not in (None, "") else default)
-        except (TypeError, ValueError):
-            value = default
-        if not math.isfinite(value):
-            value = default
-        return max(0.0, value)
-
-    return_weight = read_weight("return_weight", default_return_weight)
-    drawdown_weight = read_weight("drawdown_weight", default_drawdown_weight)
-    total = return_weight + drawdown_weight
-    if total <= 0:
-        return SCORECARD_RETURN_WEIGHT, SCORECARD_DRAWDOWN_WEIGHT
-    return return_weight / total, drawdown_weight / total
-
-
-def _payload_float(payload: dict[str, object], key: str, default: float) -> float:
-    value = payload.get(key, default)
-    if value in (None, ""):
-        return default
-    return float(value)
-
-
-def _payload_int(payload: dict[str, object], key: str, default: int) -> int:
-    value = payload.get(key, default)
-    if value in (None, ""):
-        return default
-    return int(value)
-
-
-def _payload_bool(payload: dict[str, object], key: str, default: bool) -> bool:
-    value = payload.get(key, default)
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(value)
-
-
-def _strategy_inputs_from_payload(payload: dict[str, object]) -> StrategyInputs:
-    defaults = _get_position_strategy_config()
-    return StrategyInputs(
-        initial_cash=_payload_float(payload, "initial_cash", defaults["default_initial_cash"]),
-        monthly_contribution=_payload_float(
-            payload,
-            "monthly_contribution",
-            defaults["default_monthly_contribution"],
-        ),
-        max_drawdown_pct=_payload_float(payload, "max_drawdown_pct", defaults["default_max_drawdown_pct"]),
-        drawdown_basis=str(payload.get("drawdown_basis") or defaults["default_drawdown_basis"]),
-        step_pct=_payload_float(payload, "step_pct", defaults["default_slice_step_pct"]),
-        equal_slice_allocation_pct=_payload_float(
-            payload,
-            "equal_slice_allocation_pct",
-            defaults["default_equal_slice_allocation_pct"],
-        ),
-        trade_fee=_payload_float(payload, "trade_fee", defaults["default_trade_fee"]),
-        hkd_to_usd=_payload_float(payload, "hkd_to_usd", defaults["default_hkd_to_usd"]),
-        reserve_position_pct=_payload_float(
-            payload,
-            "reserve_position_pct",
-            defaults["default_reserve_position_pct"],
-        ),
-        sell_min_profit_pct=_payload_float(
-            payload,
-            "sell_min_profit_pct",
-            defaults["default_sell_min_profit_pct"],
-        ),
-        repair_sell_cooldown_days=_payload_int(
-            payload,
-            "repair_sell_cooldown_days",
-            defaults["default_repair_sell_cooldown_days"],
-        ),
-        repair_stage_sell_pct=_payload_float(
-            payload,
-            "repair_stage_sell_pct",
-            defaults["default_repair_stage_sell_pct"],
-        ),
-    )
-
-
-def _strategy_lab_defaults_from_payload(payload: dict[str, object]) -> dict[str, object]:
-    defaults = _get_position_strategy_config()
-    values: dict[str, object] = {
-        "default_initial_cash": _payload_float(payload, "default_initial_cash", defaults["default_initial_cash"]),
-        "default_monthly_contribution": _payload_float(
-            payload,
-            "default_monthly_contribution",
-            defaults["default_monthly_contribution"],
-        ),
-        "default_max_drawdown_pct": _payload_float(
-            payload,
-            "default_max_drawdown_pct",
-            defaults["default_max_drawdown_pct"],
-        ),
-        "default_trade_fee": _payload_float(payload, "default_trade_fee", defaults["default_trade_fee"]),
-        "default_slice_step_pct": _payload_float(
-            payload,
-            "default_slice_step_pct",
-            defaults["default_slice_step_pct"],
-        ),
-        "default_equal_slice_allocation_pct": _payload_float(
-            payload,
-            "default_equal_slice_allocation_pct",
-            defaults["default_equal_slice_allocation_pct"],
-        ),
-        "default_hkd_to_usd": _payload_float(payload, "default_hkd_to_usd", defaults["default_hkd_to_usd"]),
-        "default_reserve_position_pct": _payload_float(
-            payload,
-            "default_reserve_position_pct",
-            defaults["default_reserve_position_pct"],
-        ),
-        "default_sell_min_profit_pct": _payload_float(
-            payload,
-            "default_sell_min_profit_pct",
-            defaults["default_sell_min_profit_pct"],
-        ),
-        "default_repair_sell_cooldown_days": _payload_int(
-            payload,
-            "default_repair_sell_cooldown_days",
-            defaults["default_repair_sell_cooldown_days"],
-        ),
-        "default_repair_stage_sell_pct": _payload_float(
-            payload,
-            "default_repair_stage_sell_pct",
-            defaults["default_repair_stage_sell_pct"],
-        ),
-        "default_drawdown_basis": str(payload.get("default_drawdown_basis") or defaults["default_drawdown_basis"]),
-        "default_buy_strategy": str(payload.get("default_buy_strategy") or defaults["default_buy_strategy"]),
-        "default_sell_strategy": str(payload.get("default_sell_strategy") or defaults["default_sell_strategy"]),
-        "default_score_return_weight_pct": _payload_float(
-            payload,
-            "default_score_return_weight_pct",
-            defaults["default_score_return_weight_pct"],
-        ),
-        "default_score_drawdown_weight_pct": _payload_float(
-            payload,
-            "default_score_drawdown_weight_pct",
-            defaults["default_score_drawdown_weight_pct"],
-        ),
-        "default_scan_buy_strategy": str(
-            payload.get("default_scan_buy_strategy") or defaults["default_scan_buy_strategy"]
-        ),
-        "default_scan_period_trading_days": _payload_int(
-            payload,
-            "default_scan_period_trading_days",
-            defaults["default_scan_period_trading_days"],
-        ),
-        "default_scan_sell_min_profit_values": str(
-            payload.get("default_scan_sell_min_profit_values")
-            or defaults["default_scan_sell_min_profit_values"]
-        ),
-        "default_scan_repair_cooldown_values": str(
-            payload.get("default_scan_repair_cooldown_values")
-            or defaults["default_scan_repair_cooldown_values"]
-        ),
-        "default_scan_repair_stage_sell_values": str(
-            payload.get("default_scan_repair_stage_sell_values")
-            or defaults["default_scan_repair_stage_sell_values"]
-        ),
-        "default_scan_score_mode": str(
-            payload.get("default_scan_score_mode") or defaults["default_scan_score_mode"]
-        ),
-        "default_option_enabled": _payload_bool(
-            payload,
-            "default_option_enabled",
-            bool(defaults["default_option_enabled"]),
-        ),
-        "default_option_allocation_pct": _payload_float(
-            payload,
-            "default_option_allocation_pct",
-            defaults["default_option_allocation_pct"],
-        ),
-        "default_option_target_dte": _payload_int(
-            payload,
-            "default_option_target_dte",
-            defaults["default_option_target_dte"],
-        ),
-        "default_option_min_dte": _payload_int(
-            payload,
-            "default_option_min_dte",
-            defaults["default_option_min_dte"],
-        ),
-        "default_option_max_dte": _payload_int(
-            payload,
-            "default_option_max_dte",
-            defaults["default_option_max_dte"],
-        ),
-        "default_option_moneyness": str(
-            payload.get("default_option_moneyness") or defaults["default_option_moneyness"]
-        ),
-        "default_option_profit_take_pct": _payload_float(
-            payload,
-            "default_option_profit_take_pct",
-            defaults["default_option_profit_take_pct"],
-        ),
-        "default_option_profit_take_sell_pct": _payload_float(
-            payload,
-            "default_option_profit_take_sell_pct",
-            defaults["default_option_profit_take_sell_pct"],
-        ),
-        "default_option_exit_dte": _payload_int(
-            payload,
-            "default_option_exit_dte",
-            defaults["default_option_exit_dte"],
-        ),
-        "default_option_trade_fee": _payload_float(
-            payload,
-            "default_option_trade_fee",
-            defaults["default_option_trade_fee"],
-        ),
-        "default_option_max_trades_per_strategy": _payload_int(
-            payload,
-            "default_option_max_trades_per_strategy",
-            defaults["default_option_max_trades_per_strategy"],
-        ),
-    }
-    if values["default_drawdown_basis"] not in {"ath", "rolling_120"}:
-        raise ValueError("默认回撤口径必须是 ath 或 rolling_120。")
-    if values["default_buy_strategy"] != "all" and values["default_buy_strategy"] not in STRATEGY_LABELS:
-        raise ValueError("默认买入策略无效。")
-    if values["default_sell_strategy"] != "all" and values["default_sell_strategy"] not in SELL_STRATEGY_LABELS:
-        raise ValueError("默认卖出策略无效。")
-    if values["default_scan_buy_strategy"] not in STRATEGY_LABELS:
-        raise ValueError("默认扫描买入策略无效。")
-    if values["default_scan_score_mode"] not in {"balanced", "return_drawdown"}:
-        raise ValueError("默认扫描评分口径无效。")
-    if values["default_option_moneyness"] not in {"atm", "itm_10", "otm_10"}:
-        raise ValueError("默认期权行权价规则无效。")
-
-    scorecard_keys = payload.get("default_scorecard_portfolio_keys")
-    if isinstance(scorecard_keys, list):
-        valid_keys = {str(item["key"]) for item in SCORECARD_PORTFOLIOS}
-        values["default_scorecard_portfolio_keys"] = [
-            str(key)
-            for key in scorecard_keys
-            if str(key) in valid_keys
-        ]
-
-    scorecard_periods = payload.get("default_scorecard_periods")
-    if isinstance(scorecard_periods, list):
-        valid_periods = {str(item["key"]) for item in SCORECARD_PERIODS}
-        values["default_scorecard_periods"] = [
-            {
-                "key": str(item.get("key", "")),
-                "label": str(item.get("label", "")),
-                "start": str(item.get("start", "")),
-                "end": str(item.get("end", "")),
-            }
-            for item in scorecard_periods
-            if isinstance(item, dict) and str(item.get("key", "")) in valid_periods
-        ]
-
-    portfolio = payload.get("default_portfolio")
-    if isinstance(portfolio, list):
-        values["default_portfolio"] = portfolio
-
-    return values
 
 
 def _score_target_max_drawdown_by_symbol(targets: object) -> dict[str, float]:
@@ -5653,40 +5381,25 @@ def api_strategy_lab_run():
     payload = request.get_json(silent=True) or {}
     try:
         start_date, end_date = parse_date_range(payload.get("start"), payload.get("end"))
-        default_targets = _get_position_strategy_config().get("default_portfolio") or DEFAULT_PORTFOLIO
-        targets = payload.get("targets", default_targets)
+        lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+        targets = lab_config.portfolio_or_default()
         if not isinstance(targets, list):
             return _json_error("targets 必须是数组", 400)
-        inputs = _strategy_inputs_from_payload(payload)
         buy_strategies = payload.get("buy_strategies") or list(STRATEGY_LABELS)
         sell_strategies = payload.get("sell_strategies") or list(SELL_STRATEGY_LABELS)
         if not isinstance(buy_strategies, list) or not isinstance(sell_strategies, list):
             return _json_error("buy_strategies 和 sell_strategies 必须是数组", 400)
         result = run_longbridge_strategy_lab(
             targets,
-            inputs,
+            lab_config.to_strategy_inputs(),
             start_date,
             end_date,
             buy_strategies=buy_strategies,
             sell_strategies=sell_strategies,
         )
-        option_payload = payload.get("option_overlay") or {}
-        if isinstance(option_payload, dict) and option_payload.get("enabled"):
-            defaults = _get_position_strategy_config()
+        option_settings = lab_config.option_settings()
+        if option_settings.enabled:
             polygon_config = config_manager.get_polygon_config() if config_manager else {}
-            option_settings = OptionOverlaySettings(
-                enabled=True,
-                allocation_pct=float(option_payload.get("allocation_pct", defaults["default_option_allocation_pct"]) or 0),
-                target_dte=int(option_payload.get("target_dte", defaults["default_option_target_dte"]) or 0),
-                min_dte=int(option_payload.get("min_dte", defaults["default_option_min_dte"]) or 0),
-                max_dte=int(option_payload.get("max_dte", defaults["default_option_max_dte"]) or 0),
-                moneyness=str(option_payload.get("moneyness", defaults["default_option_moneyness"]) or defaults["default_option_moneyness"]),
-                profit_take_pct=float(option_payload.get("profit_take_pct", defaults["default_option_profit_take_pct"]) or 0),
-                profit_take_sell_pct=float(option_payload.get("profit_take_sell_pct", defaults["default_option_profit_take_sell_pct"]) or 0),
-                exit_dte=int(option_payload.get("exit_dte", defaults["default_option_exit_dte"]) or 0),
-                trade_fee=float(option_payload.get("trade_fee", defaults["default_option_trade_fee"]) or 0),
-                max_trades_per_strategy=int(option_payload.get("max_trades_per_strategy", defaults["default_option_max_trades_per_strategy"]) or 0),
-            )
             result = apply_option_overlay(
                 result,
                 api_key=polygon_config.get("api_key", ""),
@@ -5707,14 +5420,13 @@ def api_strategy_lab_score():
     payload = request.get_json(silent=True) or {}
     try:
         end_date = date.fromisoformat(payload.get("end")) if payload.get("end") else datetime.now().date()
-        inputs = _strategy_inputs_from_payload(payload)
-        default_targets = _get_position_strategy_config().get("default_portfolio") or DEFAULT_PORTFOLIO
-        targets = payload.get("targets", default_targets)
+        lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+        targets = lab_config.portfolio_or_default()
         if targets is not None and not isinstance(targets, list):
             return _json_error("targets 必须是数组", 400)
-        return_weight, drawdown_weight = _parse_strategy_score_weights(payload)
+        return_weight, drawdown_weight = lab_config.score_weights()
         result = run_longbridge_strategy_scorecard(
-            inputs,
+            lab_config.to_strategy_inputs(),
             end_date=end_date,
             core_targets=targets,
             portfolio_keys=payload.get("scorecard_portfolio_keys"),
@@ -5735,22 +5447,20 @@ def api_strategy_lab_sell_scan():
     payload = request.get_json(silent=True) or {}
     try:
         start_date, end_date = parse_date_range(payload.get("start"), payload.get("end"))
-        default_targets = _get_position_strategy_config().get("default_portfolio") or DEFAULT_PORTFOLIO
-        targets = payload.get("targets", default_targets)
+        lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+        targets = lab_config.portfolio_or_default()
         if not isinstance(targets, list):
             return _json_error("targets 必须是数组", 400)
-        buy_strategy = str(payload.get("buy_strategy", "pyramid_3") or "pyramid_3")
-        inputs = _strategy_inputs_from_payload(payload)
         result = run_longbridge_sell_parameter_scan(
             targets,
-            inputs,
+            lab_config.to_strategy_inputs(),
             start_date,
             end_date,
-            buy_strategy=buy_strategy,
+            buy_strategy=lab_config.scan_buy_strategy,
             sell_min_profit_values=payload.get("sell_min_profit_values") or [5, 10, 15, 20, 25],
             repair_cooldown_values=payload.get("repair_sell_cooldown_values") or [0, 15, 30, 45, 60],
             repair_stage_sell_values=payload.get("repair_stage_sell_values") or [8, 12, 16, 20, 25],
-            trading_days=_payload_int(payload, "trading_days", 1260),
+            trading_days=lab_config.scan_period_trading_days,
         )
         return jsonify({"success": True, "data": result})
     except ValueError as exc:
@@ -5782,8 +5492,8 @@ def api_strategy_lab_score_detail():
             for item in (custom_periods or [])
             if isinstance(item, dict)
         }
-        default_targets = _get_position_strategy_config().get("default_portfolio") or DEFAULT_PORTFOLIO
-        custom_targets = payload.get("targets", default_targets)
+        lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+        custom_targets = lab_config.portfolio_or_default()
         if custom_targets is not None and not isinstance(custom_targets, list):
             return _json_error("targets 必须是数组", 400)
         target_max_drawdowns = _score_target_max_drawdown_by_symbol(custom_targets)
@@ -5827,10 +5537,9 @@ def api_strategy_lab_score_detail():
         if exact_start_date and exact_start_date > exact_end_date:
             return _json_error("评分详情周期开始日期不能晚于结束日期", 400)
         start_date = exact_start_date or (exact_end_date - timedelta(days=int(selected_period["fetch_days"])))
-        inputs = _strategy_inputs_from_payload(payload)
         result = run_longbridge_strategy_lab(
             selected_portfolio["targets"],
-            inputs,
+            lab_config.to_strategy_inputs(),
             start_date,
             exact_end_date,
             buy_strategies=[buy_strategy],
