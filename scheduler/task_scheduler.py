@@ -27,14 +27,18 @@ logger = logging.getLogger(__name__)
 class TaskScheduler:
     """定时任务调度器"""
     
-    def __init__(self, config_manager: ConfigManager):
+    def __init__(self, config_manager: ConfigManager, instance_id: str = "", is_active_instance=None):
         """
         初始化调度器
         
         Args:
             config_manager: 配置管理器实例
+            instance_id: 当前运行实例ID，用于排查重复实例
+            is_active_instance: 回调函数，返回当前实例是否仍是最新实例
         """
         self.config_manager = config_manager
+        self.instance_id = instance_id
+        self.is_active_instance = is_active_instance
         self.scheduler = BackgroundScheduler(timezone=pytz.timezone('Asia/Shanghai'))
         self._setup_job()
     
@@ -60,6 +64,10 @@ class TaskScheduler:
     
     def _run_analysis_job(self):
         """执行分析任务"""
+        if self.is_active_instance and not self.is_active_instance():
+            logger.warning(f"跳过定时分析任务: 当前实例不是最新实例 ({self.instance_id})")
+            return
+
         logger.info("开始执行定时分析任务...")
 
         lb_config = self.config_manager.get_longbridge_config()

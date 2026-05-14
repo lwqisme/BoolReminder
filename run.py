@@ -7,6 +7,11 @@ import signal
 import sys
 import threading
 import logging
+import json
+import os
+import socket
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from config.config_manager import ConfigManager
@@ -27,6 +32,38 @@ logger = logging.getLogger(__name__)
 
 
 scheduler = None  # 全局调度器变量
+INSTANCE_ID = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}"
+INSTANCE_MARKER_PATH = Path(os.getenv("BOOL_REMINDER_INSTANCE_FILE", "data/active_instance.json"))
+
+
+def register_active_instance():
+    """标记当前进程为最新实例，旧实例的定时任务会自动跳过。"""
+    INSTANCE_MARKER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "instance_id": INSTANCE_ID,
+        "pid": os.getpid(),
+        "hostname": socket.gethostname(),
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }
+    tmp_path = INSTANCE_MARKER_PATH.with_suffix(".tmp")
+    with tmp_path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    tmp_path.replace(INSTANCE_MARKER_PATH)
+    logger.info(f"当前实例已登记为最新实例: {INSTANCE_ID}")
+
+
+def is_active_instance() -> bool:
+    """检查当前进程是否仍是最新实例。"""
+    try:
+        with INSTANCE_MARKER_PATH.open("r", encoding="utf-8") as f:
+            payload = json.load(f)
+        active_instance_id = payload.get("instance_id")
+        return not active_instance_id or active_instance_id == INSTANCE_ID
+    except FileNotFoundError:
+        return True
+    except Exception as e:
+        logger.warning(f"检查最新实例标记失败，继续执行当前任务: {e}")
+        return True
 
 def get_scheduler():
     """获取全局调度器实例，供web应用使用"""
@@ -79,9 +116,12 @@ def main():
     # 初始化Flask应用
     init_app()
     logger.info("Flask应用已初始化")
+
+    # 标记当前进程为最新实例，防止旧容器/旧进程继续发送重复邮件
+    register_active_instance()
     
     # 启动定时任务调度器
-    scheduler = TaskScheduler(config_manager)
+    scheduler = TaskScheduler(config_manager, instance_id=INSTANCE_ID, is_active_instance=is_active_instance)
     scheduler.start()
     # 设置全局scheduler实例，供web应用使用
     set_scheduler(scheduler)

@@ -52,9 +52,6 @@ Thumbs.db
 ._*
 *.tmp.*
 
-# Docker
-.dockerignore
-
 # Runtime secrets / local artifacts
 .longbridge_tokens/
 node_modules/

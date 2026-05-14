@@ -42,8 +42,8 @@ docker-compose build
 # 4. 重启容器
 echo ""
 echo "步骤 4: 重启容器..."
-docker-compose down
-docker-compose up -d
+docker-compose down --remove-orphans
+docker-compose up -d --remove-orphans
 
 # 5. 显示状态
 echo ""

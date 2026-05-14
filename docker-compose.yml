@@ -5,7 +5,7 @@ services:
     build: .
     container_name: boll-reminder
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     volumes:
       # 挂载配置文件目录（配置文件在服务器上维护，不包含在镜像中）
       - ./config:/app/config
