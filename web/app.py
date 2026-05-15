@@ -5435,7 +5435,7 @@ STRATEGY_LAB_TEMPLATE = """
                             ${buyParams ? `<div class="robust-task">${escapeHtml(buyParams)}</div>` : ''}
                             <div class="robust-task">${escapeHtml(sellParams)}</div>
                             <div style="margin-top:8px;">
-                                <button class="btn btn-secondary btn-small" type="button" onclick="applyRobustCandidate('${escapeHtml(candidate.key)}')">应用并看评分</button>
+                                <button class="btn btn-secondary btn-small" type="button" onclick="applyRobustCandidate('${escapeHtml(candidate.key)}')">应用参数并看全量评分</button>
                             </div>
                         </td>
                         <td>${number(row.robust_score)}</td>
@@ -5466,8 +5466,9 @@ STRATEGY_LAB_TEMPLATE = """
                 setStatus('error', '未找到对应策略参数。');
                 return;
             }
-            setSelectValue('buyStrategy', candidate.buy_strategy);
-            setSelectValue('sellStrategy', candidate.sell_strategy);
+            setSelectValue('buyStrategy', 'all');
+            setSelectValue('sellStrategy', 'all');
+            setSelectValue('scoreSellStrategy', 'all');
             if (candidate.step_pct !== null && candidate.step_pct !== undefined) {
                 setFieldValue('stepPct', candidate.step_pct);
             }
@@ -5484,7 +5485,7 @@ STRATEGY_LAB_TEMPLATE = """
             }
             updateCommandBar();
             activateTab('scorecard');
-            setStatus('success', '已应用稳健榜策略参数。点击“运行评分”即可查看它在每个股票和时间阶段下的表现。');
+            setStatus('success', '已应用稳健榜参数，并保持评分为全量策略。点击“运行评分”即可在全量组合里对比这组参数。');
         }
 
         function setScanStage(value) {
