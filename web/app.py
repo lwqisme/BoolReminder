@@ -2782,10 +2782,14 @@ STRATEGY_LAB_TEMPLATE = """
                             <label for="repairStageSellPct">修复单档卖出 %</label>
                             <input id="repairStageSellPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_repair_stage_sell_pct }}">
                         </div>
+                        <div>
+                            <label for="dcaRearmDrawdown">DCA卖出重启回撤 %</label>
+                            <input id="dcaRearmDrawdown" type="number" min="0" max="95" step="0.5" value="{{ default_config.default_dca_rearm_drawdown_pct }}">
+                        </div>
                     </div>
                 </div>
             </div>
-            <div class="hint" style="margin-top: 12px;">演算按交易日从早到晚推进，每天只使用截至当天的价格、回撤、现金和持仓状态；不会提前读取未来走势。价格修复到接近 ATH 后会进入下一轮交易周期，买入档位和分档卖出规则可重新触发。卖出下拉里的“全部卖出策略”现在包含网格回弹卖出，和稳健 Top10 保持一致；阶梯修复卖出每次只执行一个修复档，并在卖出后进入交易日冷却期。等距细切、底仓、手续费、汇率、评分权重和期权参数都可以通过“保存默认值”写入配置，下次打开自动带出。HK 标的按页面汇率折算成 USD。</div>
+            <div class="hint" style="margin-top: 12px;">演算按交易日从早到晚推进，每天只使用截至当天的价格、回撤、现金和持仓状态；不会提前读取未来走势。价格修复到接近 ATH 后会进入下一轮交易周期，买入档位和分档卖出规则可重新触发。DCA卖出重启回撤控制每周定投/工资流定投在明显回撤买入后，是否重新打开阶梯修复、网格回弹、成本去杠杆的整仓卖出档位；0% 表示每次 DCA 买入都可重启。卖出下拉里的“全部卖出策略”现在包含网格回弹卖出，和稳健 Top10 保持一致；阶梯修复卖出每次只执行一个修复档，并在卖出后进入交易日冷却期。等距细切、底仓、手续费、汇率、评分权重和期权参数都可以通过“保存默认值”写入配置，下次打开自动带出。HK 标的按页面汇率折算成 USD。</div>
             </div>
         </div>
 
@@ -2941,7 +2945,7 @@ STRATEGY_LAB_TEMPLATE = """
                     </div>
                     <div class="description-card">
                         <strong>看结果时</strong>
-                        <p>评分页里重点看收益率、最大回撤、现金余额和交易明细中的 drawdown_boost、cash_reserve、idle_cash_sweep 字段；明显回撤买入后会重新打开整仓修复卖出档位。</p>
+                        <p>评分页里重点看收益率、最大回撤、现金余额和交易明细中的 drawdown_boost、cash_reserve、idle_cash_sweep 字段；明显回撤买入后，会按“DCA卖出重启回撤”参数重新打开整仓修复卖出档位。</p>
                     </div>
                 </div>
             </details>
@@ -3782,6 +3786,7 @@ STRATEGY_LAB_TEMPLATE = """
                 sell_min_profit_pct: readNumber('sellMinProfit'),
                 repair_sell_cooldown_days: readNumber('repairSellCooldown'),
                 repair_stage_sell_pct: readNumber('repairStageSellPct'),
+                dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown'),
                 option_overlay: {
                     enabled: document.getElementById('optionEnabled').checked,
                     allocation_pct: readNumber('optionAllocation'),
@@ -4250,6 +4255,7 @@ STRATEGY_LAB_TEMPLATE = """
             setFieldValue('sellMinProfit', payload.sell_min_profit_pct);
             setFieldValue('repairSellCooldown', payload.repair_sell_cooldown_days);
             setFieldValue('repairStageSellPct', payload.repair_stage_sell_pct);
+            setFieldValue('dcaRearmDrawdown', payload.dca_rearm_drawdown_pct);
 
             const buySelector = strategySelectorFromPayload(payload.buy_strategies, Object.keys(buyStrategyLabels));
             setSelectValue('buyStrategy', buySelector);
@@ -5161,6 +5167,7 @@ STRATEGY_LAB_TEMPLATE = """
                 sell_min_profit_pct: readNumber('sellMinProfit'),
                 repair_sell_cooldown_days: readNumber('repairSellCooldown'),
                 repair_stage_sell_pct: readNumber('repairStageSellPct'),
+                dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown'),
                 buy_strategies: selectedStrategies('buyStrategy', buyStrategyLabels),
                 sell_strategies: selectedSellStrategies(),
                 score_sell_strategies: selectedSellStrategies(),
@@ -5186,6 +5193,7 @@ STRATEGY_LAB_TEMPLATE = """
                 default_sell_min_profit_pct: readNumber('sellMinProfit'),
                 default_repair_sell_cooldown_days: readNumber('repairSellCooldown'),
                 default_repair_stage_sell_pct: readNumber('repairStageSellPct'),
+                default_dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown'),
                 default_drawdown_basis: document.getElementById('drawdownBasis').value,
                 default_buy_strategy: document.getElementById('buyStrategy').value,
                 default_sell_strategy: document.getElementById('sellStrategy').value,
@@ -5411,14 +5419,21 @@ STRATEGY_LAB_TEMPLATE = """
                     candidate.step_pct !== null && candidate.step_pct !== undefined ? `步长 ${pct(candidate.step_pct)}` : '',
                     candidate.equal_slice_allocation_pct !== null && candidate.equal_slice_allocation_pct !== undefined ? `每步 ${pct(candidate.equal_slice_allocation_pct)}` : ''
                 ].filter(Boolean).join(' / ');
+                const dcaRearmParam = candidate.dca_rearm_drawdown_pct !== null && candidate.dca_rearm_drawdown_pct !== undefined
+                    ? `DCA重启 ${pct(candidate.dca_rearm_drawdown_pct)}`
+                    : '';
+                const sellParams = [
+                    candidate.sell_strategy === 'repair_step'
+                        ? `${pct(candidate.sell_min_profit_pct)} 盈利 / ${number(candidate.repair_sell_cooldown_days)} 日冷却 / ${pct(candidate.repair_stage_sell_pct)} 单档`
+                        : '无阶梯参数',
+                    dcaRearmParam
+                ].filter(Boolean).join(' / ');
                 return `
                     <tr>
                         <td>
                             <strong>${escapeHtml(candidate.label || candidate.key || '--')}</strong>
                             ${buyParams ? `<div class="robust-task">${escapeHtml(buyParams)}</div>` : ''}
-                            <div class="robust-task">${escapeHtml(candidate.sell_strategy === 'repair_step'
-                                ? `${pct(candidate.sell_min_profit_pct)} 盈利 / ${number(candidate.repair_sell_cooldown_days)} 日冷却 / ${pct(candidate.repair_stage_sell_pct)} 单档`
-                                : '无阶梯参数')}</div>
+                            <div class="robust-task">${escapeHtml(sellParams)}</div>
                             <div style="margin-top:8px;">
                                 <button class="btn btn-secondary btn-small" type="button" onclick="applyRobustCandidate('${escapeHtml(candidate.key)}')">应用并看评分</button>
                             </div>
@@ -5463,6 +5478,9 @@ STRATEGY_LAB_TEMPLATE = """
                 setFieldValue('sellMinProfit', candidate.sell_min_profit_pct);
                 setFieldValue('repairSellCooldown', candidate.repair_sell_cooldown_days);
                 setFieldValue('repairStageSellPct', candidate.repair_stage_sell_pct);
+            }
+            if (candidate.dca_rearm_drawdown_pct !== null && candidate.dca_rearm_drawdown_pct !== undefined) {
+                setFieldValue('dcaRearmDrawdown', candidate.dca_rearm_drawdown_pct);
             }
             updateCommandBar();
             activateTab('scorecard');

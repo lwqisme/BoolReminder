@@ -38,6 +38,11 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("document.getElementById('robustBoard')", html)
         self.assertIn("setFieldValue('stepPct', candidate.step_pct)", html)
         self.assertIn("setFieldValue('equalSliceAllocation', candidate.equal_slice_allocation_pct)", html)
+        self.assertIn('id="dcaRearmDrawdown"', html)
+        self.assertIn("dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown')", html)
+        self.assertIn("default_dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown')", html)
+        self.assertIn("setFieldValue('dcaRearmDrawdown', candidate.dca_rearm_drawdown_pct)", html)
+        self.assertIn("DCA重启", html)
         self.assertIn("第 25 分位数", html)
         self.assertIn("强势命中率", html)
         self.assertIn("踩坑率", html)
@@ -74,6 +79,7 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("1.4x、2.0x、3.0x、4.0x", html)
         self.assertIn("余额扫入", html)
         self.assertIn("drawdown_boost", html)
+        self.assertIn("DCA卖出重启回撤", html)
 
 
 if __name__ == "__main__":
