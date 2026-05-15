@@ -39,6 +39,8 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("第 25 分位数", html)
         self.assertIn("强势命中率", html)
         self.assertIn("踩坑率", html)
+        self.assertIn("defaultSellStrategyKeys = Object.keys(sellStrategyLabels);", html)
+        self.assertIn("现在包含网格回弹卖出", html)
 
     def test_robust_top10_is_independent_and_shares_score_topics(self):
         with app.test_client() as client:

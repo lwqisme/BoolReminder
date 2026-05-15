@@ -2785,7 +2785,7 @@ STRATEGY_LAB_TEMPLATE = """
                     </div>
                 </div>
             </div>
-            <div class="hint" style="margin-top: 12px;">演算按交易日从早到晚推进，每天只使用截至当天的价格、回撤、现金和持仓状态；不会提前读取未来走势。价格修复到接近 ATH 后会进入下一轮交易周期，买入档位和分档卖出规则可重新触发。阶梯修复卖出每次只执行一个修复档，并在卖出后进入交易日冷却期；等距细切、底仓、手续费、汇率、评分权重和期权参数都可以通过“保存默认值”写入配置，下次打开自动带出。HK 标的按页面汇率折算成 USD。</div>
+            <div class="hint" style="margin-top: 12px;">演算按交易日从早到晚推进，每天只使用截至当天的价格、回撤、现金和持仓状态；不会提前读取未来走势。价格修复到接近 ATH 后会进入下一轮交易周期，买入档位和分档卖出规则可重新触发。卖出下拉里的“全部卖出策略”现在包含网格回弹卖出，和稳健 Top10 保持一致；阶梯修复卖出每次只执行一个修复档，并在卖出后进入交易日冷却期。等距细切、底仓、手续费、汇率、评分权重和期权参数都可以通过“保存默认值”写入配置，下次打开自动带出。HK 标的按页面汇率折算成 USD。</div>
             </div>
         </div>
 
@@ -3396,7 +3396,7 @@ STRATEGY_LAB_TEMPLATE = """
         const scorecardPortfolioLabels = {{ scorecard_portfolio_labels|tojson }};
         const scorecardPeriods = {{ scorecard_periods|tojson }};
         const strategyColors = ['#07689f', '#ff7e67', '#5aaeda', '#054d76', '#ff9a87', '#2e8fc4', '#a2d5f2', '#d95f4b', '#07547f', '#7fc2e8', '#c95442', '#2b769f'];
-        const defaultSellStrategyKeys = Object.keys(sellStrategyLabels).filter((key) => key !== 'grid_rebound');
+        const defaultSellStrategyKeys = Object.keys(sellStrategyLabels);
         let lastResult = null;
         let activeDetailIndex = null;
         let lastScorecard = null;
