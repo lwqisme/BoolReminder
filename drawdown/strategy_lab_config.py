@@ -41,6 +41,7 @@ DEFAULT_STRATEGY_LAB_DEFAULTS: dict[str, object] = {
     "default_drawdown_basis": "rolling_120",
     "default_buy_strategy": "all",
     "default_sell_strategy": "all",
+    "default_score_sell_strategy": "all",
     "default_score_return_weight_pct": 90,
     "default_score_drawdown_weight_pct": 10,
     "default_scorecard_portfolio_keys": [],
@@ -100,6 +101,7 @@ class StrategyLabConfig:
     drawdown_basis: str = "rolling_120"
     buy_strategy: str = "all"
     sell_strategy: str = "all"
+    score_sell_strategy: str = "all"
     score_return_weight_pct: float = 90.0
     score_drawdown_weight_pct: float = 10.0
     scorecard_portfolio_keys: list[str] = field(default_factory=list)
@@ -141,6 +143,7 @@ class StrategyLabConfig:
             drawdown_basis=str(raw.get("default_drawdown_basis") or _default("default_drawdown_basis")),
             buy_strategy=str(raw.get("default_buy_strategy") or _default("default_buy_strategy")),
             sell_strategy=str(raw.get("default_sell_strategy") or _default("default_sell_strategy")),
+            score_sell_strategy=str(raw.get("default_score_sell_strategy") or _default("default_score_sell_strategy")),
             score_return_weight_pct=_read_float(raw, "default_score_return_weight_pct"),
             score_drawdown_weight_pct=_read_float(raw, "default_score_drawdown_weight_pct"),
             scorecard_portfolio_keys=_valid_scorecard_keys(raw.get("default_scorecard_portfolio_keys")),
@@ -216,6 +219,11 @@ class StrategyLabConfig:
                 SELL_STRATEGY_LABELS,
                 base_config.sell_strategy,
             ),
+            score_sell_strategy=_selector_from_payload(
+                payload.get("score_sell_strategies"),
+                SELL_STRATEGY_LABELS,
+                base_config.score_sell_strategy,
+            ),
             score_return_weight_pct=_read_float(
                 payload,
                 "return_weight",
@@ -271,6 +279,8 @@ class StrategyLabConfig:
             raise ValueError("买入策略无效。")
         if self.sell_strategy != "all" and self.sell_strategy not in SELL_STRATEGY_LABELS:
             raise ValueError("卖出策略无效。")
+        if self.score_sell_strategy != "all" and self.score_sell_strategy not in SELL_STRATEGY_LABELS:
+            raise ValueError("评分卖出策略无效。")
         if self.scan_buy_strategy not in STRATEGY_LABELS:
             raise ValueError("扫描买入策略无效。")
         if self.scan_score_mode not in {"balanced", "return_drawdown"}:
@@ -351,6 +361,7 @@ class StrategyLabConfig:
             "default_drawdown_basis": self.drawdown_basis,
             "default_buy_strategy": self.buy_strategy,
             "default_sell_strategy": self.sell_strategy,
+            "default_score_sell_strategy": self.score_sell_strategy,
             "default_score_return_weight_pct": self.score_return_weight_pct,
             "default_score_drawdown_weight_pct": self.score_drawdown_weight_pct,
             "default_scorecard_portfolio_keys": list(self.scorecard_portfolio_keys),

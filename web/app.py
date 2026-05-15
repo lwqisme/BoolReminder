@@ -2759,7 +2759,7 @@ STRATEGY_LAB_TEMPLATE = """
                     <div class="grid">
                         <div>
                             <label for="sellStrategy">卖出策略</label>
-                            <select id="sellStrategy">
+                            <select id="sellStrategy" onchange="syncSellStrategy(this)">
                                 <option value="all" {% if default_config.default_sell_strategy == 'all' %}selected{% endif %}>全部卖出策略</option>
                                 {% for key, label in sell_strategy_labels.items() %}
                                     <option value="{{ key }}" {% if default_config.default_sell_strategy == key %}selected{% endif %}>{{ label }}</option>
@@ -3224,6 +3224,18 @@ STRATEGY_LAB_TEMPLATE = """
                 </div>
                 <div class="score-weight-note">运行评分时读取当前权重；后端会按比例归一化，例如 80 / 20 与 4 / 1 等价。</div>
             </div>
+            <div class="score-sell-panel" aria-label="评分卖出策略">
+                <div class="score-topic-title">卖出策略组</div>
+                <label class="score-sell-select">
+                    <span>当前卖出规则</span>
+                    <select id="scoreSellStrategy" onchange="syncSellStrategy(this)">
+                        <option value="all" {% if default_config.default_score_sell_strategy == 'all' %}selected{% endif %}>全部卖出策略</option>
+                        {% for key, label in sell_strategy_labels.items() %}
+                            <option value="{{ key }}" {% if default_config.default_score_sell_strategy == key %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            </div>
             <div class="score-topic-panel" aria-label="评分题目">
                 <div class="score-topic-title">共享题目矩阵 <span data-score-topic-summary></span></div>
                 <div>
@@ -3666,8 +3678,22 @@ STRATEGY_LAB_TEMPLATE = """
         }
 
         function selectedSellStrategies() {
-            const value = document.getElementById('sellStrategy').value;
+            const scoreSelect = document.getElementById('scoreSellStrategy');
+            const value = scoreSelect ? scoreSelect.value : document.getElementById('sellStrategy').value;
             return value === 'all' ? defaultSellStrategyKeys : [value];
+        }
+
+        function syncSellStrategy(changedSelect) {
+            if (!changedSelect) {
+                return;
+            }
+            const value = changedSelect.value;
+            if (changedSelect.id === 'sellStrategy') {
+                setSelectValue('scoreSellStrategy', value);
+            } else if (changedSelect.id === 'scoreSellStrategy') {
+                setSelectValue('sellStrategy', value);
+            }
+            updateCommandBar();
         }
 
         function selectedScorecardPortfolios() {
@@ -3839,7 +3865,7 @@ STRATEGY_LAB_TEMPLATE = """
                 ['时间', `${document.getElementById('start').value || '--'} 至 ${document.getElementById('end').value || '--'}`],
                 ['组合', currentPortfolioSummary()],
                 ['买入', strategyLabelFromSelect('buyStrategy', buyStrategyLabels, '全部买入策略')],
-                ['卖出', strategyLabelFromSelect('sellStrategy', sellStrategyLabels, '默认卖出策略组')],
+                ['卖出', strategyLabelFromSelect('scoreSellStrategy', sellStrategyLabels, '默认卖出策略组')],
                 ['评分', `${topicCount * periodCount} 题`],
                 ['期权', document.getElementById('optionEnabled').checked ? '启用' : '关闭']
             ];
@@ -3911,7 +3937,7 @@ STRATEGY_LAB_TEMPLATE = """
                 `${document.getElementById('start').value || '--'} 至 ${document.getElementById('end').value || '--'}`,
                 currentPortfolioSummary(),
                 `买入 ${strategyLabelFromSelect('buyStrategy', buyStrategyLabels, '全部买入策略')}`,
-                `卖出 ${strategyLabelFromSelect('sellStrategy', sellStrategyLabels, '默认卖出策略组')}`
+                `卖出 ${strategyLabelFromSelect('scoreSellStrategy', sellStrategyLabels, '默认卖出策略组')}`
             ].join(' · ');
         }
 
@@ -4227,8 +4253,9 @@ STRATEGY_LAB_TEMPLATE = """
 
             const buySelector = strategySelectorFromPayload(payload.buy_strategies, Object.keys(buyStrategyLabels));
             setSelectValue('buyStrategy', buySelector);
-            const sellSelector = strategySelectorFromPayload(payload.sell_strategies, defaultSellStrategyKeys);
+            const sellSelector = strategySelectorFromPayload(payload.score_sell_strategies || payload.sell_strategies, defaultSellStrategyKeys);
             setSelectValue('sellStrategy', sellSelector);
+            setSelectValue('scoreSellStrategy', sellSelector);
 
             if (Array.isArray(payload.targets) && payload.targets.length) {
                 initPortfolioRows(payload.targets);
@@ -5120,8 +5147,8 @@ STRATEGY_LAB_TEMPLATE = """
         }
 
         function scorecardPayload() {
-            return {
-                end: document.getElementById('end').value,
+                return {
+                    end: document.getElementById('end').value,
                 initial_cash: readNumber('initialCash'),
                 monthly_contribution: readNumber('monthlyContribution'),
                 max_drawdown_pct: readNumber('maxDrawdown'),
@@ -5136,6 +5163,7 @@ STRATEGY_LAB_TEMPLATE = """
                 repair_stage_sell_pct: readNumber('repairStageSellPct'),
                 buy_strategies: selectedStrategies('buyStrategy', buyStrategyLabels),
                 sell_strategies: selectedSellStrategies(),
+                score_sell_strategies: selectedSellStrategies(),
                 return_weight: readNumber('scoreReturnWeight') / 100,
                 drawdown_weight: readNumber('scoreDrawdownWeight') / 100,
                 scorecard_portfolio_keys: selectedScorecardPortfolios(),
@@ -5161,6 +5189,7 @@ STRATEGY_LAB_TEMPLATE = """
                 default_drawdown_basis: document.getElementById('drawdownBasis').value,
                 default_buy_strategy: document.getElementById('buyStrategy').value,
                 default_sell_strategy: document.getElementById('sellStrategy').value,
+                default_score_sell_strategy: document.getElementById('scoreSellStrategy').value,
                 default_score_return_weight_pct: readNumber('scoreReturnWeight'),
                 default_score_drawdown_weight_pct: readNumber('scoreDrawdownWeight'),
                 default_scorecard_portfolio_keys: selectedScorecardPortfolios(),
@@ -6499,12 +6528,17 @@ def _run_strategy_score_payload(payload: dict[str, object]) -> dict[str, object]
     if targets is not None and not isinstance(targets, list):
         raise ValueError("targets 必须是数组")
     return_weight, drawdown_weight = lab_config.score_weights()
+    sell_strategies = payload.get("score_sell_strategies")
+    if sell_strategies is None:
+        sell_strategies = payload.get("sell_strategies")
     return run_longbridge_strategy_scorecard(
         lab_config.to_strategy_inputs(),
         end_date=end_date,
         core_targets=targets,
         portfolio_keys=payload.get("scorecard_portfolio_keys"),
         scorecard_periods=payload.get("scorecard_periods"),
+        buy_strategies=payload.get("buy_strategies"),
+        sell_strategies=sell_strategies,
         return_weight=return_weight,
         drawdown_weight=drawdown_weight,
     )

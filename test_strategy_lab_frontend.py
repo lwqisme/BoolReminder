@@ -32,6 +32,8 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("稳健榜口径", html)
         self.assertIn("收益优先 80/20", html)
         self.assertIn("robust_score_mode: document.getElementById('robustScoreMode').value", html)
+        self.assertIn('id="scoreSellStrategy"', html)
+        self.assertIn("score_sell_strategies: selectedSellStrategies()", html)
         self.assertIn('aria-label="解释 P25"', html)
         self.assertIn("document.getElementById('robustBoard')", html)
         self.assertIn("setFieldValue('stepPct', candidate.step_pct)", html)
