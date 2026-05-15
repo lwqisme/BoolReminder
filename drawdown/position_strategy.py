@@ -1765,6 +1765,7 @@ def _execute_weekly_dca(
             remaining_shares=shares,
         )
     )
+    sell_cycle_rearmed = _rearm_position_sell_cycle_after_dca_buy(state, drawdown_pct, inputs, sell_strategy)
     trade_log.append(
         {
             "action": "buy",
@@ -1783,6 +1784,7 @@ def _execute_weekly_dca(
             "net_amount": net_amount,
             "shares": shares,
             "allocation_pct": 0.0,
+            "sell_cycle_rearmed": sell_cycle_rearmed,
         }
     )
     return True
@@ -1834,6 +1836,7 @@ def _execute_salary_flow_dca(
             remaining_shares=shares,
         )
     )
+    sell_cycle_rearmed = _rearm_position_sell_cycle_after_dca_buy(state, drawdown_pct, inputs, sell_strategy)
     trade_log.append(
         {
             "action": "buy",
@@ -1857,9 +1860,31 @@ def _execute_salary_flow_dca(
             "cash_reserve": reserve_cash,
             "idle_cash_sweep": max(0.0, gross_amount - base_scheduled_amount),
             "drawdown_boost": multiplier,
+            "sell_cycle_rearmed": sell_cycle_rearmed,
         }
     )
     return True
+
+
+def _rearm_position_sell_cycle_after_dca_buy(
+    state: SymbolState,
+    drawdown_pct: float,
+    inputs: StrategyInputs,
+    sell_strategy: str,
+) -> bool:
+    if sell_strategy not in {"repair_step", "grid_rebound", "cost_deleverage"}:
+        return False
+    if not state.sell_marks:
+        return False
+    if drawdown_pct + 1e-9 < _position_sell_rearm_drawdown_pct(inputs):
+        return False
+    state.sell_marks.clear()
+    return True
+
+
+def _position_sell_rearm_drawdown_pct(inputs: StrategyInputs) -> float:
+    threshold = max(5.0, inputs.step_pct)
+    return max(1.0, min(threshold, inputs.max_drawdown_pct))
 
 
 def _salary_flow_dca_multiplier(drawdown_pct: float) -> float:
@@ -2211,8 +2236,9 @@ def _sell_shares(
     shares = _sellable_shares(state, requested_shares, inputs)
     if shares <= 0:
         return False
+    cost_basis = _avg_cost_usd(state) * shares
     _reduce_lots_fifo(state, shares)
-    return _record_sell(state, point, shares, inputs, trade_log, sell_strategy, trigger_value)
+    return _record_sell(state, point, shares, inputs, trade_log, sell_strategy, trigger_value, cost_basis=cost_basis)
 
 
 def _record_sell(
@@ -2224,13 +2250,15 @@ def _record_sell(
     sell_strategy: str,
     trigger_value: float,
     lot: PositionLot | None = None,
+    cost_basis: float | None = None,
 ) -> bool:
     price_usd = _price_usd(state.symbol, point.close, inputs)
     gross_amount = shares * price_usd
     if gross_amount <= 0:
         return False
-    avg_cost_before_sell = _avg_cost_usd(state)
-    cost_basis = lot.buy_price_usd * shares if lot else avg_cost_before_sell * shares
+    if cost_basis is None:
+        avg_cost_before_sell = _avg_cost_usd(state)
+        cost_basis = lot.buy_price_usd * shares if lot else avg_cost_before_sell * shares
     estimated_profit = gross_amount - cost_basis if cost_basis > 0 else 0.0
     estimated_profit_pct = _pct(gross_amount / cost_basis - 1.0) if cost_basis > 0 else 0.0
     fee = min(inputs.trade_fee, gross_amount)

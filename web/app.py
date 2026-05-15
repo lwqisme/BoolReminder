@@ -2941,7 +2941,7 @@ STRATEGY_LAB_TEMPLATE = """
                     </div>
                     <div class="description-card">
                         <strong>看结果时</strong>
-                        <p>评分页里重点看收益率、最大回撤、现金余额和交易明细中的 drawdown_boost、cash_reserve、idle_cash_sweep 字段。</p>
+                        <p>评分页里重点看收益率、最大回撤、现金余额和交易明细中的 drawdown_boost、cash_reserve、idle_cash_sweep 字段；明显回撤买入后会重新打开整仓修复卖出档位。</p>
                     </div>
                 </div>
             </details>

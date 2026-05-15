@@ -489,6 +489,50 @@ class PositionStrategyTest(unittest.TestCase):
         self.assertTrue(all(trade.get("lot_buy_price_usd") is None for trade in sells))
         self.assertGreater(min(trade["gross_amount"] for trade in sells), 400)
 
+    def test_salary_flow_rearms_position_repair_after_drawdown_buy(self):
+        inputs = StrategyInputs(
+            initial_cash=10000,
+            monthly_contribution=1000,
+            max_drawdown_pct=50,
+            drawdown_basis="ath",
+            step_pct=5,
+            trade_fee=0,
+            reserve_position_pct=0,
+            sell_min_profit_pct=0,
+            repair_sell_cooldown_days=0,
+            repair_stage_sell_pct=25,
+        )
+        result = simulate_portfolio(
+            {
+                "TSLA.US": dated_points(
+                    ("2024-01-01", 100),
+                    ("2024-01-02", 98),
+                    ("2024-01-08", 80),
+                    ("2024-01-09", 100),
+                    ("2024-01-10", 105),
+                    ("2024-01-11", 110),
+                    ("2024-01-15", 95),
+                    ("2024-01-16", 115),
+                    ("2024-01-17", 120),
+                    ("2024-01-18", 125),
+                )
+            },
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            inputs,
+            strategies=("salary_flow_dca",),
+            sell_strategies=("repair_step",),
+        )
+
+        trades = result["strategies"][0]["trades"]
+        sells = [trade for trade in trades if trade["action"] == "sell"]
+        rearming_buys = [
+            trade for trade in trades
+            if trade["action"] == "buy" and trade.get("sell_cycle_rearmed")
+        ]
+        self.assertEqual(len(sells), 6)
+        self.assertEqual([trade["date"] for trade in rearming_buys], ["2024-01-15"])
+        self.assertEqual([trade["date"] for trade in sells[-3:]], ["2024-01-16", "2024-01-17", "2024-01-18"])
+
     def test_scorecard_weights_return_more_than_drawdown(self):
         scored = _score_question_strategies(
             [
