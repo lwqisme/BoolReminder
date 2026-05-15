@@ -8,6 +8,7 @@ class StrategyLabConfigTest(unittest.TestCase):
         defaults = strategy_lab_default_dict()
         config = StrategyLabConfig.from_saved_defaults(defaults)
         self.assertEqual(config.to_legacy_defaults()["default_initial_cash"], 20000.0)
+        self.assertEqual(config.to_legacy_defaults()["default_dca_rearm_drawdown_pct"], 5.0)
         self.assertEqual(config.drawdown_basis, "rolling_120")
         self.assertEqual(config.selected_scorecard_keys(), ["tsm_100", "googl_100", "tsla_100", "core_50_30_20"])
 
@@ -17,6 +18,7 @@ class StrategyLabConfigTest(unittest.TestCase):
                 "initial_cash": 50000,
                 "monthly_contribution": 1200,
                 "max_drawdown_pct": 45,
+                "dca_rearm_drawdown_pct": 10,
                 "return_weight": 0.8,
                 "drawdown_weight": 0.2,
                 "targets": [{"symbol": "TSM.US", "weight": 100, "name": "TSM"}],
@@ -28,6 +30,7 @@ class StrategyLabConfigTest(unittest.TestCase):
         self.assertEqual(inputs.initial_cash, 50000.0)
         self.assertEqual(inputs.monthly_contribution, 1200.0)
         self.assertEqual(inputs.max_drawdown_pct, 45.0)
+        self.assertEqual(inputs.dca_rearm_drawdown_pct, 10.0)
         self.assertEqual(config.score_weights(), (0.8, 0.2))
         self.assertEqual(config.portfolio_or_default()[0]["symbol"], "TSM.US")
 

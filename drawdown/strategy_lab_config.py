@@ -38,6 +38,7 @@ DEFAULT_STRATEGY_LAB_DEFAULTS: dict[str, object] = {
     "default_sell_min_profit_pct": 10,
     "default_repair_sell_cooldown_days": 30,
     "default_repair_stage_sell_pct": 12,
+    "default_dca_rearm_drawdown_pct": 5,
     "default_drawdown_basis": "rolling_120",
     "default_buy_strategy": "all",
     "default_sell_strategy": "all",
@@ -98,6 +99,7 @@ class StrategyLabConfig:
     sell_min_profit_pct: float = 10.0
     repair_sell_cooldown_days: int = 30
     repair_stage_sell_pct: float = 12.0
+    dca_rearm_drawdown_pct: float = 5.0
     drawdown_basis: str = "rolling_120"
     buy_strategy: str = "all"
     sell_strategy: str = "all"
@@ -140,6 +142,7 @@ class StrategyLabConfig:
             sell_min_profit_pct=_read_float(raw, "default_sell_min_profit_pct"),
             repair_sell_cooldown_days=_read_int(raw, "default_repair_sell_cooldown_days"),
             repair_stage_sell_pct=_read_float(raw, "default_repair_stage_sell_pct"),
+            dca_rearm_drawdown_pct=_read_float(raw, "default_dca_rearm_drawdown_pct"),
             drawdown_basis=str(raw.get("default_drawdown_basis") or _default("default_drawdown_basis")),
             buy_strategy=str(raw.get("default_buy_strategy") or _default("default_buy_strategy")),
             sell_strategy=str(raw.get("default_sell_strategy") or _default("default_sell_strategy")),
@@ -212,6 +215,11 @@ class StrategyLabConfig:
                 "repair_stage_sell_pct",
                 base_config.repair_stage_sell_pct,
             ),
+            dca_rearm_drawdown_pct=_read_float(
+                payload,
+                "dca_rearm_drawdown_pct",
+                base_config.dca_rearm_drawdown_pct,
+            ),
             drawdown_basis=str(payload.get("drawdown_basis") or base_config.drawdown_basis),
             buy_strategy=_selector_from_payload(payload.get("buy_strategies"), STRATEGY_LABELS, base_config.buy_strategy),
             sell_strategy=_selector_from_payload(
@@ -281,6 +289,8 @@ class StrategyLabConfig:
             raise ValueError("卖出策略无效。")
         if self.score_sell_strategy != "all" and self.score_sell_strategy not in SELL_STRATEGY_LABELS:
             raise ValueError("评分卖出策略无效。")
+        if self.dca_rearm_drawdown_pct < 0:
+            raise ValueError("DCA 卖出重启回撤不能小于 0。")
         if self.scan_buy_strategy not in STRATEGY_LABELS:
             raise ValueError("扫描买入策略无效。")
         if self.scan_score_mode not in {"balanced", "return_drawdown"}:
@@ -305,6 +315,7 @@ class StrategyLabConfig:
             sell_min_profit_pct=self.sell_min_profit_pct,
             repair_sell_cooldown_days=self.repair_sell_cooldown_days,
             repair_stage_sell_pct=self.repair_stage_sell_pct,
+            dca_rearm_drawdown_pct=self.dca_rearm_drawdown_pct,
         )
 
     def score_weights(self) -> tuple[float, float]:
@@ -358,6 +369,7 @@ class StrategyLabConfig:
             "default_sell_min_profit_pct": self.sell_min_profit_pct,
             "default_repair_sell_cooldown_days": self.repair_sell_cooldown_days,
             "default_repair_stage_sell_pct": self.repair_stage_sell_pct,
+            "default_dca_rearm_drawdown_pct": self.dca_rearm_drawdown_pct,
             "default_drawdown_basis": self.drawdown_basis,
             "default_buy_strategy": self.buy_strategy,
             "default_sell_strategy": self.sell_strategy,

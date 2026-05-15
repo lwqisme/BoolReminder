@@ -90,6 +90,9 @@ ROBUST_COARSE_REPAIR_COOLDOWNS = [0, 30, 60]
 ROBUST_COARSE_REPAIR_STAGE_SELLS = [8, 15, 25]
 ROBUST_NON_REPAIR_SELL_STRATEGIES = ("none", "grid_rebound", "cost_deleverage")
 LOT_SELL_BUY_STRATEGIES = {"pyramid_3"}
+DCA_REARM_BUY_STRATEGIES = {"weekly_dca", "salary_flow_dca"}
+POSITION_SELL_REARM_STRATEGIES = {"repair_step", "grid_rebound", "cost_deleverage"}
+ROBUST_DCA_REARM_DRAWDOWN_VALUES = [0.0, 5.0, 10.0, 15.0]
 ROBUST_BUY_STEP_VALUES = [2.5, 5.0, 10.0]
 ROBUST_EQUAL_SLICE_ALLOCATION_VALUES = [2.5, 5.0, 7.5, 10.0]
 ROBUST_SHORTLIST_SIZE = 12
@@ -110,6 +113,7 @@ class StrategyInputs:
     sell_min_profit_pct: float = 10.0
     repair_sell_cooldown_days: int = 30
     repair_stage_sell_pct: float = 12.0
+    dca_rearm_drawdown_pct: float = 5.0
 
 
 @dataclass(frozen=True)
@@ -709,6 +713,7 @@ def run_longbridge_robust_leaderboard(
     coarse_candidates = _dedupe_candidates(
         _non_repair_candidates(selected_buy_strategies)
         + _repair_candidates(selected_buy_strategies, coarse_params)
+        + _dca_repair_candidates(selected_buy_strategies, inputs)
     )
     coarse_rows = _score_robust_candidates(coarse_tasks, inputs, coarse_candidates, score_mode=score_mode)
     coarse_leaders = sorted(coarse_rows, key=lambda item: item["robust_score"], reverse=True)[
@@ -717,6 +722,7 @@ def run_longbridge_robust_leaderboard(
 
     fine_candidates = _dedupe_candidates(
         _non_repair_candidates(selected_buy_strategies)
+        + _dca_repair_candidates(selected_buy_strategies, inputs)
         + [
             candidate
             for row in coarse_leaders
@@ -743,6 +749,7 @@ def run_longbridge_robust_leaderboard(
                 "sell_min_profit_pct": ROBUST_COARSE_SELL_MIN_PROFITS,
                 "repair_sell_cooldown_days": ROBUST_COARSE_REPAIR_COOLDOWNS,
                 "repair_stage_sell_pct": ROBUST_COARSE_REPAIR_STAGE_SELLS,
+                "dca_rearm_drawdown_pct": ROBUST_DCA_REARM_DRAWDOWN_VALUES,
             },
             "coarse_task_count": len(coarse_tasks),
             "coarse_shortlist_size": int(coarse_shortlist_size),
@@ -918,18 +925,20 @@ def _representative_robust_tasks(tasks: list[dict[str, object]]) -> list[dict[st
 def _non_repair_candidates(buy_strategies: Iterable[str]) -> list[dict[str, object]]:
     return [
         {
-            "key": _candidate_key(buy_strategy, sell_strategy, buy_params),
-            "label": _candidate_label(buy_strategy, sell_strategy, buy_params),
+            "key": _candidate_key(buy_strategy, sell_strategy, buy_params, dca_rearm_drawdown_pct=rearm),
+            "label": _candidate_label(buy_strategy, sell_strategy, buy_params, dca_rearm_drawdown_pct=rearm),
             "buy_strategy": buy_strategy,
             "sell_strategy": sell_strategy,
             **buy_params,
             "sell_min_profit_pct": None,
             "repair_sell_cooldown_days": None,
             "repair_stage_sell_pct": None,
+            "dca_rearm_drawdown_pct": rearm,
         }
         for buy_strategy in buy_strategies
         for buy_params in _buy_param_variants(buy_strategy)
         for sell_strategy in ROBUST_NON_REPAIR_SELL_STRATEGIES
+        for rearm in _dca_rearm_variants(buy_strategy, sell_strategy)
     ]
 
 
@@ -947,11 +956,51 @@ def _repair_candidates(
             "sell_min_profit_pct": float(profit),
             "repair_sell_cooldown_days": int(cooldown),
             "repair_stage_sell_pct": float(stage),
+            "dca_rearm_drawdown_pct": None,
         }
         for buy_strategy in buy_strategies
         if buy_strategy in LOT_SELL_BUY_STRATEGIES
         for buy_params in _buy_param_variants(buy_strategy)
         for profit, cooldown, stage in params
+    ]
+
+
+def _dca_repair_candidates(
+    buy_strategies: Iterable[str],
+    inputs: StrategyInputs,
+) -> list[dict[str, object]]:
+    buy_params = {"step_pct": None, "equal_slice_allocation_pct": None}
+    return [
+        {
+            "key": _candidate_key(
+                buy_strategy,
+                "repair_step",
+                buy_params,
+                inputs.sell_min_profit_pct,
+                inputs.repair_sell_cooldown_days,
+                inputs.repair_stage_sell_pct,
+                dca_rearm_drawdown_pct=rearm,
+            ),
+            "label": _candidate_label(
+                buy_strategy,
+                "repair_step",
+                buy_params,
+                inputs.sell_min_profit_pct,
+                inputs.repair_sell_cooldown_days,
+                inputs.repair_stage_sell_pct,
+                dca_rearm_drawdown_pct=rearm,
+            ),
+            "buy_strategy": buy_strategy,
+            "sell_strategy": "repair_step",
+            **buy_params,
+            "sell_min_profit_pct": float(inputs.sell_min_profit_pct),
+            "repair_sell_cooldown_days": int(inputs.repair_sell_cooldown_days),
+            "repair_stage_sell_pct": float(inputs.repair_stage_sell_pct),
+            "dca_rearm_drawdown_pct": rearm,
+        }
+        for buy_strategy in buy_strategies
+        if buy_strategy in DCA_REARM_BUY_STRATEGIES
+        for rearm in ROBUST_DCA_REARM_DRAWDOWN_VALUES
     ]
 
 
@@ -968,6 +1017,12 @@ def _buy_param_variants(buy_strategy: str) -> list[dict[str, float | None]]:
     return [{"step_pct": None, "equal_slice_allocation_pct": None}]
 
 
+def _dca_rearm_variants(buy_strategy: str, sell_strategy: str) -> list[float | None]:
+    if buy_strategy in DCA_REARM_BUY_STRATEGIES and sell_strategy in POSITION_SELL_REARM_STRATEGIES:
+        return list(ROBUST_DCA_REARM_DRAWDOWN_VALUES)
+    return [None]
+
+
 def _candidate_key(
     buy_strategy: str,
     sell_strategy: str,
@@ -975,6 +1030,8 @@ def _candidate_key(
     profit: float | None = None,
     cooldown: int | None = None,
     stage: float | None = None,
+    *,
+    dca_rearm_drawdown_pct: float | None = None,
 ) -> str:
     parts = [buy_strategy]
     if buy_params.get("step_pct") is not None:
@@ -984,6 +1041,8 @@ def _candidate_key(
     parts.append(sell_strategy)
     if sell_strategy == "repair_step":
         parts.extend([f"p{float(profit or 0):g}", f"c{int(cooldown or 0):g}", f"s{float(stage or 0):g}"])
+    if dca_rearm_drawdown_pct is not None:
+        parts.append(f"rearm{float(dca_rearm_drawdown_pct):g}")
     return "__".join(parts)
 
 
@@ -994,6 +1053,8 @@ def _candidate_label(
     profit: float | None = None,
     cooldown: int | None = None,
     stage: float | None = None,
+    *,
+    dca_rearm_drawdown_pct: float | None = None,
 ) -> str:
     buy_label = STRATEGY_LABELS[buy_strategy]
     buy_bits = []
@@ -1007,6 +1068,8 @@ def _candidate_label(
         sell_label = f"阶梯修复 {float(profit or 0):g}%盈利 {int(cooldown or 0):g}日冷却 {float(stage or 0):g}%单档"
     else:
         sell_label = SELL_STRATEGY_LABELS[sell_strategy]
+    if dca_rearm_drawdown_pct is not None:
+        sell_label = f"{sell_label} / DCA重启 {float(dca_rearm_drawdown_pct):g}%回撤"
     return f"{buy_label} / {sell_label}"
 
 
@@ -1035,19 +1098,38 @@ def _local_candidate_neighborhood(
     profit = float(candidate.get("sell_min_profit_pct") or 0.0)
     cooldown = int(candidate.get("repair_sell_cooldown_days") or 0)
     stage = float(candidate.get("repair_stage_sell_pct") or 0.0)
+    rearm = candidate.get("dca_rearm_drawdown_pct")
+    rearm_value = float(rearm) if rearm is not None else None
     profit_values = _bounded_neighbor_values(profit, [profit - 2.5, profit, profit + 2.5], 0, 100)
     cooldown_values = sorted({max(0, int(cooldown + delta)) for delta in (-15, 0, 15)})
     stage_values = _bounded_neighbor_values(stage, [stage - 2, stage, stage + 2], 0, 100)
     return [
         {
-            "key": _candidate_key(buy_strategy, "repair_step", buy_params, profit_value, cooldown_value, stage_value),
-            "label": _candidate_label(buy_strategy, "repair_step", buy_params, profit_value, cooldown_value, stage_value),
+            "key": _candidate_key(
+                buy_strategy,
+                "repair_step",
+                buy_params,
+                profit_value,
+                cooldown_value,
+                stage_value,
+                dca_rearm_drawdown_pct=rearm_value,
+            ),
+            "label": _candidate_label(
+                buy_strategy,
+                "repair_step",
+                buy_params,
+                profit_value,
+                cooldown_value,
+                stage_value,
+                dca_rearm_drawdown_pct=rearm_value,
+            ),
             "buy_strategy": buy_strategy,
             "sell_strategy": "repair_step",
             **buy_params,
             "sell_min_profit_pct": float(profit_value),
             "repair_sell_cooldown_days": int(cooldown_value),
             "repair_stage_sell_pct": float(stage_value),
+            "dca_rearm_drawdown_pct": rearm_value,
         }
         for profit_value in profit_values
         for cooldown_value in cooldown_values
@@ -1095,6 +1177,11 @@ def _score_robust_candidates(
                     sell_min_profit_pct=float(candidate["sell_min_profit_pct"]),
                     repair_sell_cooldown_days=int(candidate["repair_sell_cooldown_days"]),
                     repair_stage_sell_pct=float(candidate["repair_stage_sell_pct"]),
+                )
+            if candidate.get("dca_rearm_drawdown_pct") is not None:
+                candidate_inputs = replace(
+                    candidate_inputs,
+                    dca_rearm_drawdown_pct=float(candidate["dca_rearm_drawdown_pct"]),
                 )
             result = simulate_portfolio(
                 task["price_points"],
@@ -1872,7 +1959,7 @@ def _rearm_position_sell_cycle_after_dca_buy(
     inputs: StrategyInputs,
     sell_strategy: str,
 ) -> bool:
-    if sell_strategy not in {"repair_step", "grid_rebound", "cost_deleverage"}:
+    if sell_strategy not in POSITION_SELL_REARM_STRATEGIES:
         return False
     if not state.sell_marks:
         return False
@@ -1883,8 +1970,8 @@ def _rearm_position_sell_cycle_after_dca_buy(
 
 
 def _position_sell_rearm_drawdown_pct(inputs: StrategyInputs) -> float:
-    threshold = max(5.0, inputs.step_pct)
-    return max(1.0, min(threshold, inputs.max_drawdown_pct))
+    threshold = max(0.0, float(inputs.dca_rearm_drawdown_pct))
+    return min(threshold, float(inputs.max_drawdown_pct))
 
 
 def _salary_flow_dca_multiplier(drawdown_pct: float) -> float:

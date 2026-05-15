@@ -3,7 +3,13 @@ from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from drawdown.generate_drawdown_report import CachedDailyCandle
-from drawdown.position_strategy import StrategyInputs, _repair_candidates, run_longbridge_robust_leaderboard
+from drawdown.position_strategy import (
+    StrategyInputs,
+    _dca_repair_candidates,
+    _non_repair_candidates,
+    _repair_candidates,
+    run_longbridge_robust_leaderboard,
+)
 
 
 def candles(*prices: float):
@@ -73,6 +79,20 @@ class StrategyLabRobustTest(unittest.TestCase):
 
         self.assertEqual(_repair_candidates(["equal_slice", "weekly_dca"], params), [])
         self.assertEqual(len(_repair_candidates(["pyramid_3"], params)), 1)
+
+    def test_dca_rearm_candidates_are_generated_for_robust_top10(self):
+        inputs = StrategyInputs(sell_min_profit_pct=10, repair_sell_cooldown_days=30, repair_stage_sell_pct=12)
+        non_repair = _non_repair_candidates(["weekly_dca"])
+        repair = _dca_repair_candidates(["weekly_dca", "pyramid_3"], inputs)
+
+        rearm_values = {
+            candidate.get("dca_rearm_drawdown_pct")
+            for candidate in non_repair + repair
+            if candidate.get("dca_rearm_drawdown_pct") is not None
+        }
+        self.assertEqual(rearm_values, {0.0, 5.0, 10.0, 15.0})
+        self.assertTrue(any(candidate["sell_strategy"] == "repair_step" for candidate in repair))
+        self.assertTrue(all(candidate["buy_strategy"] == "weekly_dca" for candidate in repair))
 
     def test_return_drawdown_mode_is_supported(self):
         def fake_fetch(_ctx, _symbol, _start, _end):
