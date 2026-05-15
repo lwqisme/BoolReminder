@@ -169,9 +169,10 @@ class PositionStrategyTest(unittest.TestCase):
             [1000.0, 1000.0, 1100.0, 1100.0, 1200.0],
         )
 
-    def test_weekly_dca_buys_first_trading_day_each_week(self):
+    def test_weekly_dca_all_ins_initial_cash_and_paychecks(self):
         inputs = StrategyInputs(
             initial_cash=900,
+            monthly_contribution=120,
             max_drawdown_pct=50,
             step_pct=5,
             equal_slice_allocation_pct=5,
@@ -185,6 +186,9 @@ class PositionStrategyTest(unittest.TestCase):
                     ("2024-01-08", 80),
                     ("2024-01-12", 70),
                     ("2024-01-16", 60),
+                    ("2024-02-01", 65),
+                    ("2024-02-05", 70),
+                    ("2024-03-01", 75),
                 )
             },
             [PortfolioTarget("TSLA.US", 100, "TSLA")],
@@ -196,8 +200,8 @@ class PositionStrategyTest(unittest.TestCase):
         strategy = result["strategies"][0]
         buy_trades = [trade for trade in strategy["trades"] if trade["action"] == "buy"]
         self.assertEqual(strategy["label"], "每周定投 / 不卖出")
-        self.assertEqual([trade["date"] for trade in buy_trades], ["2024-01-02", "2024-01-08", "2024-01-16"])
-        self.assertEqual([round(trade["gross_amount"], 2) for trade in buy_trades], [300.0, 300.0, 300.0])
+        self.assertEqual([trade["date"] for trade in buy_trades], ["2024-01-02", "2024-02-01", "2024-03-01"])
+        self.assertEqual([round(trade["gross_amount"], 2) for trade in buy_trades], [900.0, 120.0, 120.0])
 
     def test_simulation_applies_fees_and_generates_three_buy_accounts_without_sells(self):
         inputs = StrategyInputs(

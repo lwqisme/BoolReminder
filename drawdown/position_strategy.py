@@ -165,6 +165,7 @@ class SymbolState:
     sell_marks: set[str] | None = None
     last_repair_sell_date: date | None = None
     last_repair_sell_trade_index: int | None = None
+    dca_pending_cash: float = 0.0
 
 
 def parse_date_range(start_raw: str | None, end_raw: str | None) -> tuple[date, date]:
@@ -213,7 +214,7 @@ def parse_portfolio_targets(raw_targets: Iterable[dict[str, object]]) -> list[Po
 
 def build_strategy_tranches(inputs: StrategyInputs, strategy: str) -> list[StrategyTranche]:
     if strategy == "weekly_dca":
-        return [StrategyTranche(strategy, 0.0, 0.0, "每周首个交易日等额定投")]
+        return [StrategyTranche(strategy, 0.0, 0.0, "初始现金和工资到账后立即投入")]
     if strategy == "salary_flow_dca":
         return [StrategyTranche(strategy, 0.0, 0.0, "每周首个交易日按工资流动态定投")]
 
@@ -1343,6 +1344,7 @@ def _simulate_strategy(
             cash=inputs.initial_cash * target.weight / 100.0,
             lots=[],
             sell_marks=set(),
+            dca_pending_cash=inputs.initial_cash * target.weight / 100.0 if strategy == "weekly_dca" else 0.0,
         )
         for target in targets
     }
@@ -1358,12 +1360,7 @@ def _simulate_strategy(
     dca_days = {
         symbol: _weekly_dca_days(points)
         for symbol, points in price_points_by_symbol.items()
-    } if strategy in {"weekly_dca", "salary_flow_dca"} else {}
-    dca_amounts = {
-        target.symbol: states[target.symbol].budget / len(dca_days.get(target.symbol, set()))
-        for target in targets
-        if len(dca_days.get(target.symbol, set())) > 0
-    } if strategy == "weekly_dca" else {}
+    } if strategy == "salary_flow_dca" else {}
     all_days = sorted(
         {day for points in point_by_day.values() for day in points}
     )
@@ -1386,6 +1383,8 @@ def _simulate_strategy(
                 state = states[target.symbol]
                 state.cash += contribution
                 state.budget += contribution
+                if strategy == "weekly_dca":
+                    state.dca_pending_cash += contribution
                 total_monthly_contributions += contribution
 
         for symbol, day_points in point_by_day.items():
@@ -1400,8 +1399,6 @@ def _simulate_strategy(
                 bought_today = _execute_weekly_dca(
                     state,
                     point,
-                    dca_days.get(symbol, set()),
-                    dca_amounts.get(symbol, 0.0),
                     inputs,
                     trade_log,
                     sell_strategy,
@@ -1816,15 +1813,13 @@ def _clamp(value: float, minimum: float, maximum: float) -> float:
 def _execute_weekly_dca(
     state: SymbolState,
     point: PricePoint,
-    dca_days: set[date],
-    scheduled_amount: float,
     inputs: StrategyInputs,
     trade_log: list[dict[str, object]],
     sell_strategy: str,
 ) -> bool:
-    if point.date.date() not in dca_days or scheduled_amount <= 0:
+    if state.dca_pending_cash <= 0:
         return False
-    gross_amount = min(scheduled_amount, state.cash)
+    gross_amount = min(state.dca_pending_cash, state.cash)
     if gross_amount <= 0:
         return False
     fee = min(inputs.trade_fee, gross_amount)
@@ -1834,6 +1829,7 @@ def _execute_weekly_dca(
     drawdown_pct = _point_drawdown_pct(point, inputs)
 
     state.cash -= gross_amount
+    state.dca_pending_cash = max(0.0, state.dca_pending_cash - gross_amount)
     state.shares += shares
     state.invested += gross_amount
     state.fees += fee

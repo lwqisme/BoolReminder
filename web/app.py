@@ -2913,7 +2913,7 @@ STRATEGY_LAB_TEMPLATE = """
                 <div class="reference-item"><span class="tag">BUY</span><div><strong>等距细切</strong><p>按细切步长逐档触发，默认每回撤 5% 买入该标的预算的 5%，交易更平滑，但固定手续费影响更明显。</p></div></div>
                 <div class="reference-item"><span class="tag">BUY</span><div><strong>线性递增加权细切</strong><p>同样按细切步长触发，投入按档位序号 1、2、3... 递增并归一化到 100% 预算，前期投入比平方递增更有存在感。</p></div></div>
                 <div class="reference-item"><span class="tag">BUY</span><div><strong>平方递增加权细切</strong><p>同样按细切步长触发，投入按档位序号平方递增并归一化到 100% 预算，更保守地把资金留给深度回撤。</p></div></div>
-                <div class="reference-item"><span class="tag">BUY</span><div><strong>每周定投</strong><p>在所选时间段内，每周第一个可交易日等额买入，把该标的预算平均分配到所有周，不依赖回撤触发。</p></div></div>
+                <div class="reference-item"><span class="tag">BUY</span><div><strong>每周定投</strong><p>首个交易日把初始现金按标的权重投入；之后每次月注入资金到账，就在该标的下一个可交易日把这笔工资流立即买入，不再按周均摊。</p></div></div>
                 <div class="reference-item"><span class="tag">BUY</span><div><strong>工资流定投</strong><p>每周首个交易日按每月注入资金动态买入，并按余额加速吃现金。回撤越深，当周投入按 1.0x、1.4x、2.0x、3.0x、4.0x 放大；现金垫从 8% 逐步降到 0%，闲置现金会按 20%-90% 扫入。</p></div></div>
                 <div class="reference-item"><span class="tag">SELL</span><div><strong>不卖出</strong><p>只执行买入策略，不触发任何卖出，用来观察纯回撤加仓在所选时间段内的结果。</p></div></div>
                 <div class="reference-item"><span class="tag">SELL</span><div><strong>阶梯修复卖出</strong><p>三档金字塔按每笔买入 lot 独立修复；细切和定投按整只标的的平均成本、平均买入回撤触发，卖出量按整体持仓计算，避免碎卖。</p></div></div>
