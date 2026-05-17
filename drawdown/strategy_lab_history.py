@@ -207,7 +207,7 @@ def _kind_label(kind: str) -> str:
         "run": "组合演算",
         "score": "策略评分",
         "scan": "参数扫描",
-        "robust": "稳健 Top10",
+        "robust": "收益 Top10",
     }.get(kind, kind)
 
 
@@ -325,7 +325,7 @@ def _robust_result_summary(result: Mapping[str, object]) -> dict[str, object]:
         "task_count": len(tasks),
         "range": result.get("range") or {},
         "top_label": candidate.get("label"),
-        "top_robust_score": _number(top.get("robust_score")) if top else None,
+        "top_score": _number(top.get("score", top.get("robust_score"))) if top else None,
         "top_return_pct": _number(top.get("avg_return_pct")) if top else None,
         "top_drawdown_pct": _number(top.get("avg_drawdown_pct")) if top else None,
         "warnings": _warnings(result),

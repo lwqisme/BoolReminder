@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import math
+import re
+import time
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
-from typing import Iterable
+from typing import Callable, Iterable
 
 from drawdown.generate_drawdown_report import (
     PricePoint,
@@ -28,9 +30,9 @@ STRATEGY_LABELS = {
     "pyramid_3": "三档金字塔",
     "equal_slice": "等距细切",
     "linear_weighted_slice": "线性递增加权细切",
-    "weighted_slice": "平方递增加权细切",
     "weekly_dca": "每周定投",
     "salary_flow_dca": "工资流定投",
+    "core_dip_dca": "核心定投+回撤加仓",
 }
 
 SELL_STRATEGY_LABELS = {
@@ -76,6 +78,13 @@ SCORECARD_PORTFOLIOS = [
         ],
     },
 ]
+DEFAULT_INVESTMENT_UNIVERSE = [
+    {"symbol": "TSM.US", "name": "TSM", "max_drawdown_pct": 40.0},
+    {"symbol": "GOOGL.US", "name": "GOOGL", "max_drawdown_pct": 40.0},
+    {"symbol": "TSLA.US", "name": "TSLA", "max_drawdown_pct": 50.0},
+    {"symbol": "0700.HK", "name": "腾讯", "max_drawdown_pct": 50.0},
+    {"symbol": "QQQ.US", "name": "QQQ", "max_drawdown_pct": 40.0},
+]
 
 SCORECARD_PERIODS = [
     {"key": "1y", "label": "近 1 年", "trading_days": 252, "fetch_days": 365},
@@ -85,18 +94,34 @@ SCORECARD_PERIODS = [
 
 SCORECARD_RETURN_WEIGHT = 0.90
 SCORECARD_DRAWDOWN_WEIGHT = 0.10
-ROBUST_COARSE_SELL_MIN_PROFITS = [5, 10, 20]
-ROBUST_COARSE_REPAIR_COOLDOWNS = [0, 30, 60]
-ROBUST_COARSE_REPAIR_STAGE_SELLS = [8, 15, 25]
-ROBUST_NON_REPAIR_SELL_STRATEGIES = ("none", "grid_rebound", "cost_deleverage")
+ROBUST_REPAIR_SELL_MIN_PROFITS = [5, 10, 20]
+ROBUST_REPAIR_COOLDOWNS = [0, 30, 60]
+ROBUST_REPAIR_STAGE_SELLS = [8, 15, 25]
+ROBUST_GRID_REBOUND_STEPS = [2.5, 5.0, 7.5, 10.0, 15.0]
+ROBUST_GRID_FIRST_SELLS = [10.0, 15.0, 25.0, 40.0]
+ROBUST_GRID_SECOND_SELLS = [15.0, 25.0, 40.0, 50.0]
+ROBUST_COST_PROFIT_SETS = [(8.0, 15.0, 25.0), (10.0, 20.0, 30.0), (15.0, 25.0, 40.0)]
+ROBUST_COST_SELL_SETS = [(20.0, 20.0, 20.0), (30.0, 30.0, 30.0), (40.0, 30.0, 20.0)]
+ROBUST_COST_COOLDOWNS = [0, 15, 30]
+ROBUST_NON_REPAIR_SELL_STRATEGIES = ("none",)
 LOT_SELL_BUY_STRATEGIES = {"pyramid_3"}
-DCA_REARM_BUY_STRATEGIES = {"weekly_dca", "salary_flow_dca"}
+REARM_BUY_STRATEGIES = {"pyramid_3", "weekly_dca", "salary_flow_dca", "core_dip_dca"}
 POSITION_SELL_REARM_STRATEGIES = {"repair_step", "grid_rebound", "cost_deleverage"}
-ROBUST_DCA_REARM_DRAWDOWN_VALUES = [0.0, 5.0, 10.0, 15.0]
+ROBUST_DCA_REARM_DRAWDOWN_VALUES = [0.0, 5.0, 10.0, 15.0, 20.0]
 ROBUST_BUY_STEP_VALUES = [2.5, 5.0, 10.0]
 ROBUST_EQUAL_SLICE_ALLOCATION_VALUES = [2.5, 5.0, 7.5, 10.0]
-ROBUST_SHORTLIST_SIZE = 12
-ROBUST_FINALIST_SIZE = 40
+ROBUST_CORE_DIP_PARAM_SETS = [
+    (70.0, 85.0, 12.0, 10.0, 30.0),
+    (80.0, 90.0, 8.0, 5.0, 25.0),
+    (85.0, 95.0, 6.0, 8.0, 25.0),
+    (90.0, 95.0, 5.0, 5.0, 20.0),
+    (90.0, 100.0, 5.0, 5.0, 15.0),
+    (95.0, 100.0, 3.0, 3.0, 15.0),
+]
+
+
+class StrategyLabComputationCancelled(RuntimeError):
+    """Raised when a long-running Strategy Lab computation is cancelled."""
 
 
 @dataclass(frozen=True)
@@ -114,6 +139,27 @@ class StrategyInputs:
     repair_sell_cooldown_days: int = 30
     repair_stage_sell_pct: float = 12.0
     dca_rearm_drawdown_pct: float = 5.0
+    grid_rebound_step_pct: float = 5.0
+    grid_first_sell_pct: float = 40.0
+    grid_second_sell_pct: float = 40.0
+    grid_min_sell_amount: float = 200.0
+    cost_first_profit_pct: float = 8.0
+    cost_second_profit_pct: float = 15.0
+    cost_third_profit_pct: float = 25.0
+    cost_first_sell_pct: float = 30.0
+    cost_second_sell_pct: float = 30.0
+    cost_third_sell_pct: float = 30.0
+    cost_deleverage_cooldown_days: int = 0
+    cost_min_sell_amount: float = 0.0
+    core_dip_initial_core_pct: float = 80.0
+    core_dip_weekly_core_pct: float = 90.0
+    core_dip_cash_reserve_pct: float = 8.0
+    core_dip_start_drawdown_pct: float = 5.0
+    core_dip_full_drawdown_pct: float = 25.0
+    core_dip_timing_enabled: bool = False
+    core_dip_timing_max_delay_days: int = 3
+    core_dip_timing_rise_threshold_pct: float = 1.5
+    core_dip_timing_near_low_pct: float = 2.0
 
 
 @dataclass(frozen=True)
@@ -165,7 +211,11 @@ class SymbolState:
     sell_marks: set[str] | None = None
     last_repair_sell_date: date | None = None
     last_repair_sell_trade_index: int | None = None
+    last_cost_deleverage_sell_trade_index: int | None = None
     dca_pending_cash: float = 0.0
+    core_dip_pending_cash: float = 0.0
+    core_dip_pending_days: int = 0
+    buy_rearm_drawdown_pct: float | None = None
 
 
 def parse_date_range(start_raw: str | None, end_raw: str | None) -> tuple[date, date]:
@@ -217,6 +267,8 @@ def build_strategy_tranches(inputs: StrategyInputs, strategy: str) -> list[Strat
         return [StrategyTranche(strategy, 0.0, 0.0, "初始现金和工资到账后立即投入")]
     if strategy == "salary_flow_dca":
         return [StrategyTranche(strategy, 0.0, 0.0, "每周首个交易日按工资流动态定投")]
+    if strategy == "core_dip_dca":
+        return [StrategyTranche(strategy, 0.0, 0.0, "先建核心底仓，再用工资流定投和回撤扫入现金")]
 
     max_dd = _positive_pct(inputs.max_drawdown_pct, "最大可接受回撤")
     step = _positive_pct(inputs.step_pct, "细切步长")
@@ -248,18 +300,6 @@ def build_strategy_tranches(inputs: StrategyInputs, strategy: str) -> list[Strat
             for index, threshold in enumerate(thresholds)
         ]
 
-    if strategy == "weighted_slice":
-        weight_sum = sum((index + 1) ** 2 for index in range(len(thresholds)))
-        return [
-            StrategyTranche(
-                strategy,
-                threshold,
-                ((index + 1) ** 2) / weight_sum * 100.0,
-                "平方递增加权",
-            )
-            for index, threshold in enumerate(thresholds)
-        ]
-
     raise ValueError(f"未知策略: {strategy}")
 
 
@@ -271,9 +311,9 @@ def simulate_portfolio(
         "pyramid_3",
         "equal_slice",
         "linear_weighted_slice",
-        "weighted_slice",
         "weekly_dca",
         "salary_flow_dca",
+        "core_dip_dca",
     ),
     sell_strategies: Iterable[str] = ("none",),
 ) -> dict[str, object]:
@@ -295,6 +335,51 @@ def simulate_portfolio(
         raise ValueError("阶梯修复卖出冷却天数不能为负数。")
     if inputs.repair_stage_sell_pct < 0 or inputs.repair_stage_sell_pct > 100:
         raise ValueError("阶梯修复单档卖出比例必须在 0 到 100 之间。")
+    if inputs.grid_rebound_step_pct <= 0 or inputs.grid_rebound_step_pct > 100:
+        raise ValueError("网格回弹步长必须在 0 到 100 之间。")
+    if inputs.grid_first_sell_pct < 0 or inputs.grid_first_sell_pct > 100:
+        raise ValueError("网格第一档卖出比例必须在 0 到 100 之间。")
+    if inputs.grid_second_sell_pct < 0 or inputs.grid_second_sell_pct > 100:
+        raise ValueError("网格第二档卖出比例必须在 0 到 100 之间。")
+    if inputs.grid_min_sell_amount < 0:
+        raise ValueError("网格最小卖出金额不能为负数。")
+    cost_profits = [
+        inputs.cost_first_profit_pct,
+        inputs.cost_second_profit_pct,
+        inputs.cost_third_profit_pct,
+    ]
+    if any(value < 0 or value > 100 for value in cost_profits):
+        raise ValueError("成本区间盈利档位必须在 0 到 100 之间。")
+    if cost_profits != sorted(cost_profits):
+        raise ValueError("成本区间盈利档位必须从低到高。")
+    if inputs.cost_first_sell_pct < 0 or inputs.cost_first_sell_pct > 100:
+        raise ValueError("成本区间第一档卖出比例必须在 0 到 100 之间。")
+    if inputs.cost_second_sell_pct < 0 or inputs.cost_second_sell_pct > 100:
+        raise ValueError("成本区间第二档卖出比例必须在 0 到 100 之间。")
+    if inputs.cost_third_sell_pct < 0 or inputs.cost_third_sell_pct > 100:
+        raise ValueError("成本区间第三档卖出比例必须在 0 到 100 之间。")
+    if inputs.cost_deleverage_cooldown_days < 0:
+        raise ValueError("成本区间去杠杆冷却天数不能为负数。")
+    if inputs.cost_min_sell_amount < 0:
+        raise ValueError("成本区间最小卖出金额不能为负数。")
+    if not 0 <= inputs.core_dip_initial_core_pct <= 100:
+        raise ValueError("核心定投初始核心仓比例必须在 0 到 100 之间。")
+    if not 0 <= inputs.core_dip_weekly_core_pct <= 100:
+        raise ValueError("核心定投每周核心投入比例必须在 0 到 100 之间。")
+    if not 0 <= inputs.core_dip_cash_reserve_pct <= 100:
+        raise ValueError("核心定投现金垫比例必须在 0 到 100 之间。")
+    if not 0 <= inputs.core_dip_start_drawdown_pct <= 100:
+        raise ValueError("核心定投加仓起点回撤必须在 0 到 100 之间。")
+    if not 0 <= inputs.core_dip_full_drawdown_pct <= 100:
+        raise ValueError("核心定投满档回撤必须在 0 到 100 之间。")
+    if inputs.core_dip_start_drawdown_pct > inputs.core_dip_full_drawdown_pct:
+        raise ValueError("核心定投加仓起点不能高于满档回撤。")
+    if inputs.core_dip_timing_max_delay_days < 0:
+        raise ValueError("核心定投买点优化最多延迟天数不能为负数。")
+    if inputs.core_dip_timing_rise_threshold_pct < 0:
+        raise ValueError("核心定投买点优化大涨阈值不能为负数。")
+    if inputs.core_dip_timing_near_low_pct < 0:
+        raise ValueError("核心定投买点优化近低偏离不能为负数。")
 
     target_by_symbol = {target.symbol: target for target in targets}
     missing_symbols = [symbol for symbol in target_by_symbol if symbol not in price_points_by_symbol]
@@ -322,6 +407,27 @@ def simulate_portfolio(
             "sell_min_profit_pct": inputs.sell_min_profit_pct,
             "repair_sell_cooldown_days": inputs.repair_sell_cooldown_days,
             "repair_stage_sell_pct": inputs.repair_stage_sell_pct,
+            "grid_rebound_step_pct": inputs.grid_rebound_step_pct,
+            "grid_first_sell_pct": inputs.grid_first_sell_pct,
+            "grid_second_sell_pct": inputs.grid_second_sell_pct,
+            "grid_min_sell_amount": inputs.grid_min_sell_amount,
+            "cost_first_profit_pct": inputs.cost_first_profit_pct,
+            "cost_second_profit_pct": inputs.cost_second_profit_pct,
+            "cost_third_profit_pct": inputs.cost_third_profit_pct,
+            "cost_first_sell_pct": inputs.cost_first_sell_pct,
+            "cost_second_sell_pct": inputs.cost_second_sell_pct,
+            "cost_third_sell_pct": inputs.cost_third_sell_pct,
+            "cost_deleverage_cooldown_days": inputs.cost_deleverage_cooldown_days,
+            "cost_min_sell_amount": inputs.cost_min_sell_amount,
+            "core_dip_initial_core_pct": inputs.core_dip_initial_core_pct,
+            "core_dip_weekly_core_pct": inputs.core_dip_weekly_core_pct,
+            "core_dip_cash_reserve_pct": inputs.core_dip_cash_reserve_pct,
+            "core_dip_start_drawdown_pct": inputs.core_dip_start_drawdown_pct,
+            "core_dip_full_drawdown_pct": inputs.core_dip_full_drawdown_pct,
+            "core_dip_timing_enabled": inputs.core_dip_timing_enabled,
+            "core_dip_timing_max_delay_days": inputs.core_dip_timing_max_delay_days,
+            "core_dip_timing_rise_threshold_pct": inputs.core_dip_timing_rise_threshold_pct,
+            "core_dip_timing_near_low_pct": inputs.core_dip_timing_near_low_pct,
         },
         "targets": [
             {
@@ -346,9 +452,9 @@ def run_longbridge_strategy_lab(
         "pyramid_3",
         "equal_slice",
         "linear_weighted_slice",
-        "weighted_slice",
         "weekly_dca",
         "salary_flow_dca",
+        "core_dip_dca",
     ),
     sell_strategies: Iterable[str] = ("none", "repair_step", "cost_deleverage"),
     trading_days: int | None = None,
@@ -397,19 +503,20 @@ def run_longbridge_strategy_scorecard(
         "pyramid_3",
         "equal_slice",
         "linear_weighted_slice",
-        "weighted_slice",
         "weekly_dca",
         "salary_flow_dca",
+        "core_dip_dca",
     ),
     sell_strategies: Iterable[str] = ("none", "repair_step", "cost_deleverage"),
     core_targets: Iterable[dict[str, object]] | None = None,
     portfolio_keys: Iterable[str] | None = None,
     scorecard_periods: Iterable[dict[str, object]] | None = None,
+    investment_universe: Iterable[dict[str, object]] | None = None,
     return_weight: float = SCORECARD_RETURN_WEIGHT,
     drawdown_weight: float = SCORECARD_DRAWDOWN_WEIGHT,
 ) -> dict[str, object]:
     return_weight, drawdown_weight = _normalize_score_weights(return_weight, drawdown_weight)
-    scorecard_portfolios = _resolve_scorecard_portfolios(core_targets, portfolio_keys)
+    scorecard_portfolios = _resolve_scorecard_portfolios(core_targets, portfolio_keys, investment_universe)
     resolved_periods = _resolve_scorecard_periods(end_date, scorecard_periods)
     start_date = min(period["fetch_start"] for period in resolved_periods)
     fetch_end_date = max(period["end"] for period in resolved_periods)
@@ -681,21 +788,24 @@ def run_longbridge_robust_leaderboard(
     core_targets: Iterable[dict[str, object]] | None = None,
     portfolio_keys: Iterable[str] | None = None,
     scorecard_periods: Iterable[dict[str, object]] | None = None,
+    investment_universe: Iterable[dict[str, object]] | None = None,
     buy_strategies: Iterable[str] | None = None,
+    sell_strategies: Iterable[str] | None = None,
     top_n: int = 10,
-    coarse_shortlist_size: int = ROBUST_SHORTLIST_SIZE,
-    finalist_size: int = ROBUST_FINALIST_SIZE,
-    score_mode: str = "robust",
+    return_weight: float = SCORECARD_RETURN_WEIGHT,
+    drawdown_weight: float = SCORECARD_DRAWDOWN_WEIGHT,
+    core_dip_timing_filter: str = "all",
+    control_checker: Callable[[], None] | None = None,
 ) -> dict[str, object]:
-    """Find robust top strategy/parameter candidates with staged pruning."""
-    if score_mode not in {"robust", "return_drawdown"}:
-        raise ValueError("稳健榜评分口径必须是 robust 或 return_drawdown。")
-    selected_buy_strategies = list(buy_strategies or STRATEGY_LABELS.keys())
-    unknown_buy_strategies = set(selected_buy_strategies) - set(STRATEGY_LABELS)
-    if unknown_buy_strategies:
-        raise ValueError("未知买入策略: " + ", ".join(sorted(unknown_buy_strategies)))
+    """Find robust top strategy/parameter candidates on all selected tasks."""
+    _check_robust_control(control_checker)
+    return_weight, drawdown_weight = _normalize_score_weights(return_weight, drawdown_weight)
+    selected_buy_strategies, selected_sell_strategies = _validate_robust_strategy_selection(
+        buy_strategies,
+        sell_strategies,
+    )
 
-    scorecard_portfolios = _resolve_scorecard_portfolios(core_targets, portfolio_keys)
+    scorecard_portfolios = _resolve_scorecard_portfolios(core_targets, portfolio_keys, investment_universe)
     resolved_periods = _resolve_scorecard_periods(end_date, scorecard_periods)
     start_date = min(period["fetch_start"] for period in resolved_periods)
     fetch_end_date = max(period["end"] for period in resolved_periods)
@@ -703,40 +813,27 @@ def run_longbridge_robust_leaderboard(
     tasks = _build_robust_tasks(scorecard_portfolios, resolved_periods, full_points_by_symbol)
     if not tasks:
         raise ValueError("没有可用于稳健榜的题目。")
-    coarse_tasks = _representative_robust_tasks(tasks)
+    _check_robust_control(control_checker)
 
-    coarse_params = [
-        (profit, cooldown, stage)
-        for profit in ROBUST_COARSE_SELL_MIN_PROFITS
-        for cooldown in ROBUST_COARSE_REPAIR_COOLDOWNS
-        for stage in ROBUST_COARSE_REPAIR_STAGE_SELLS
-    ]
-    coarse_candidates = _dedupe_candidates(
-        _non_repair_candidates(selected_buy_strategies)
-        + _repair_candidates(selected_buy_strategies, coarse_params)
-        + _dca_repair_candidates(selected_buy_strategies, inputs)
+    candidates = _robust_candidate_pool(
+        selected_buy_strategies,
+        selected_sell_strategies,
+        inputs,
+        core_dip_timing_filter,
     )
-    coarse_rows = _score_robust_candidates(coarse_tasks, inputs, coarse_candidates, score_mode=score_mode)
-    coarse_leaders = sorted(coarse_rows, key=lambda item: item["robust_score"], reverse=True)[
-        : max(1, int(coarse_shortlist_size))
-    ]
-
-    fine_candidates = _dedupe_candidates(
-        _non_repair_candidates(selected_buy_strategies)
-        + _dca_repair_candidates(selected_buy_strategies, inputs)
-        + [
-            candidate
-            for row in coarse_leaders
-            for candidate in _local_candidate_neighborhood(row["candidate"], selected_buy_strategies)
-        ]
+    rows = _score_robust_candidates(
+        tasks,
+        inputs,
+        candidates,
+        return_weight=return_weight,
+        drawdown_weight=drawdown_weight,
+        control_checker=control_checker,
     )
-    fine_rows = _score_robust_candidates(tasks, inputs, fine_candidates, score_mode=score_mode)
-    finalists = sorted(fine_rows, key=lambda item: item["robust_score"], reverse=True)[
-        : max(1, int(finalist_size))
-    ]
-    final_candidates = [row["candidate"] for row in finalists]
-    final_rows = _score_robust_candidates(tasks, inputs, final_candidates, score_mode=score_mode)
-    leaderboard = sorted(final_rows, key=lambda item: item["robust_score"], reverse=True)[: max(1, int(top_n))]
+    _score_robust_summary_like_scorecard(rows, return_weight, drawdown_weight)
+    leaderboard = sorted(rows, key=lambda item: item["robust_score"], reverse=True)[: max(1, int(top_n))]
+    simulation_counts = {
+        "total": len(tasks) * len(candidates),
+    }
 
     return {
         "range": {
@@ -744,28 +841,20 @@ def run_longbridge_robust_leaderboard(
             "end": fetch_end_date.isoformat(),
         },
         "method": {
-            "name": "coarse_to_fine_robust_leaderboard",
-            "score_mode": score_mode,
-            "coarse_grid": {
-                "sell_min_profit_pct": ROBUST_COARSE_SELL_MIN_PROFITS,
-                "repair_sell_cooldown_days": ROBUST_COARSE_REPAIR_COOLDOWNS,
-                "repair_stage_sell_pct": ROBUST_COARSE_REPAIR_STAGE_SELLS,
-                "dca_rearm_drawdown_pct": ROBUST_DCA_REARM_DRAWDOWN_VALUES,
+            "name": "full_candidate_return_90_drawdown_10_leaderboard",
+            "ranking_formula": "return_90_drawdown_10",
+            "weights": {
+                "return": return_weight,
+                "drawdown": drawdown_weight,
             },
-            "coarse_task_count": len(coarse_tasks),
-            "coarse_shortlist_size": int(coarse_shortlist_size),
-            "finalist_size": int(finalist_size),
-            "score_formula": (
-                "80% return + 20% drawdown"
-                if score_mode == "return_drawdown"
-                else "35% mean + 25% median + 25% p25 + 10% top10_rate - 15% bottom10_rate"
-            ),
+            "parameter_grid": _robust_parameter_grid_payload(inputs),
+            "score_formula": "90% return + 10% drawdown",
         },
         "candidate_counts": {
-            "coarse": len(coarse_candidates),
-            "fine": len(fine_candidates),
-            "final": len(final_candidates),
+            "total": len(candidates),
         },
+        "simulation_counts": simulation_counts,
+        "sell_strategies": selected_sell_strategies,
         "tasks": [
             {
                 "key": task["key"],
@@ -783,14 +872,176 @@ def run_longbridge_robust_leaderboard(
     }
 
 
+def prepare_robust_leaderboard_packet(
+    inputs: StrategyInputs,
+    end_date: date,
+    core_targets: Iterable[dict[str, object]] | None = None,
+    portfolio_keys: Iterable[str] | None = None,
+    scorecard_periods: Iterable[dict[str, object]] | None = None,
+    investment_universe: Iterable[dict[str, object]] | None = None,
+    buy_strategies: Iterable[str] | None = None,
+    sell_strategies: Iterable[str] | None = None,
+    top_n: int = 10,
+    return_weight: float = SCORECARD_RETURN_WEIGHT,
+    drawdown_weight: float = SCORECARD_DRAWDOWN_WEIGHT,
+    core_dip_timing_filter: str = "all",
+) -> dict[str, object]:
+    """Prepare all market data and candidates for browser-side robust scoring."""
+    return_weight, drawdown_weight = _normalize_score_weights(return_weight, drawdown_weight)
+    selected_buy_strategies, selected_sell_strategies = _validate_robust_strategy_selection(
+        buy_strategies,
+        sell_strategies,
+    )
+
+    scorecard_portfolios = _resolve_scorecard_portfolios(core_targets, portfolio_keys, investment_universe)
+    resolved_periods = _resolve_scorecard_periods(end_date, scorecard_periods)
+    start_date = min(period["fetch_start"] for period in resolved_periods)
+    fetch_end_date = max(period["end"] for period in resolved_periods)
+    full_points_by_symbol, warnings = _fetch_scorecard_points(scorecard_portfolios, start_date, fetch_end_date)
+    tasks = _build_robust_tasks(scorecard_portfolios, resolved_periods, full_points_by_symbol)
+    if not tasks:
+        raise ValueError("没有可用于稳健榜的题目。")
+
+    candidates = _robust_candidate_pool(
+        selected_buy_strategies,
+        selected_sell_strategies,
+        inputs,
+        core_dip_timing_filter,
+    )
+    simulation_counts = {
+        "total": len(tasks) * len(candidates),
+    }
+    return {
+        "range": {
+            "start": start_date.isoformat(),
+            "end": fetch_end_date.isoformat(),
+        },
+        "inputs": _strategy_inputs_payload(inputs),
+        "method": {
+            "name": "client_full_candidate_return_90_drawdown_10_packet",
+            "ranking_formula": "return_90_drawdown_10",
+            "weights": {
+                "return": return_weight,
+                "drawdown": drawdown_weight,
+            },
+            "parameter_grid": _robust_parameter_grid_payload(inputs),
+            "top_n": int(top_n),
+            "score_formula": "90% return + 10% drawdown",
+        },
+        "candidate_counts": {
+            "total": len(candidates),
+        },
+        "simulation_counts": simulation_counts,
+        "buy_strategies": selected_buy_strategies,
+        "sell_strategies": selected_sell_strategies,
+        "tasks": [_robust_task_packet(task) for task in tasks],
+        "candidate_pool": candidates,
+        "warnings": warnings,
+    }
+
+
+def _strategy_inputs_payload(inputs: StrategyInputs) -> dict[str, object]:
+    return {
+        "initial_cash": inputs.initial_cash,
+        "monthly_contribution": inputs.monthly_contribution,
+        "max_drawdown_pct": inputs.max_drawdown_pct,
+        "drawdown_basis": inputs.drawdown_basis,
+        "step_pct": inputs.step_pct,
+        "equal_slice_allocation_pct": inputs.equal_slice_allocation_pct,
+        "trade_fee": inputs.trade_fee,
+        "hkd_to_usd": inputs.hkd_to_usd,
+        "reserve_position_pct": inputs.reserve_position_pct,
+        "sell_min_profit_pct": inputs.sell_min_profit_pct,
+        "repair_sell_cooldown_days": inputs.repair_sell_cooldown_days,
+        "repair_stage_sell_pct": inputs.repair_stage_sell_pct,
+        "dca_rearm_drawdown_pct": inputs.dca_rearm_drawdown_pct,
+        "grid_rebound_step_pct": inputs.grid_rebound_step_pct,
+        "grid_first_sell_pct": inputs.grid_first_sell_pct,
+        "grid_second_sell_pct": inputs.grid_second_sell_pct,
+        "grid_min_sell_amount": inputs.grid_min_sell_amount,
+        "cost_first_profit_pct": inputs.cost_first_profit_pct,
+        "cost_second_profit_pct": inputs.cost_second_profit_pct,
+        "cost_third_profit_pct": inputs.cost_third_profit_pct,
+        "cost_first_sell_pct": inputs.cost_first_sell_pct,
+        "cost_second_sell_pct": inputs.cost_second_sell_pct,
+        "cost_third_sell_pct": inputs.cost_third_sell_pct,
+        "cost_deleverage_cooldown_days": inputs.cost_deleverage_cooldown_days,
+        "cost_min_sell_amount": inputs.cost_min_sell_amount,
+        "core_dip_initial_core_pct": inputs.core_dip_initial_core_pct,
+        "core_dip_weekly_core_pct": inputs.core_dip_weekly_core_pct,
+        "core_dip_cash_reserve_pct": inputs.core_dip_cash_reserve_pct,
+        "core_dip_start_drawdown_pct": inputs.core_dip_start_drawdown_pct,
+        "core_dip_full_drawdown_pct": inputs.core_dip_full_drawdown_pct,
+        "core_dip_timing_enabled": inputs.core_dip_timing_enabled,
+        "core_dip_timing_max_delay_days": inputs.core_dip_timing_max_delay_days,
+        "core_dip_timing_rise_threshold_pct": inputs.core_dip_timing_rise_threshold_pct,
+        "core_dip_timing_near_low_pct": inputs.core_dip_timing_near_low_pct,
+    }
+
+
+def _robust_parameter_grid_payload(inputs: StrategyInputs) -> dict[str, object]:
+    return {
+        "sell_min_profit_pct": ROBUST_REPAIR_SELL_MIN_PROFITS,
+        "repair_sell_cooldown_days": ROBUST_REPAIR_COOLDOWNS,
+        "repair_stage_sell_pct": ROBUST_REPAIR_STAGE_SELLS,
+        "dca_rearm_drawdown_pct": ROBUST_DCA_REARM_DRAWDOWN_VALUES,
+        "grid_rebound_step_pct": ROBUST_GRID_REBOUND_STEPS,
+        "grid_first_sell_pct": ROBUST_GRID_FIRST_SELLS,
+        "grid_second_sell_pct": ROBUST_GRID_SECOND_SELLS,
+        "grid_min_sell_amount": [inputs.grid_min_sell_amount],
+        "cost_profit_sets": ROBUST_COST_PROFIT_SETS,
+        "cost_sell_sets": ROBUST_COST_SELL_SETS,
+        "cost_deleverage_cooldown_days": ROBUST_COST_COOLDOWNS,
+        "cost_min_sell_amount": [inputs.cost_min_sell_amount],
+    }
+
+
+def _robust_task_packet(task: dict[str, object]) -> dict[str, object]:
+    price_points = task["price_points"]
+    return {
+        "key": task["key"],
+        "portfolio_key": task["portfolio_key"],
+        "portfolio_label": task["portfolio_label"],
+        "period_key": task["period_key"],
+        "period_label": task["period_label"],
+        "start": task["start"].isoformat(),
+        "end": task["end"].isoformat(),
+        "targets": [
+            {
+                "symbol": target.symbol,
+                "weight": target.weight,
+                "name": target.name,
+                "max_drawdown_pct": target.max_drawdown_pct,
+            }
+            for target in task["targets"]
+        ],
+        "price_points": {
+            symbol: [
+                {
+                    "date": point.date.date().isoformat(),
+                    "close": point.close,
+                    "rolling_peak": point.rolling_peak,
+                    "drawdown_ath": point.drawdown_ath,
+                    "rolling_120_peak": point.rolling_120_peak,
+                    "drawdown_120": point.drawdown_120,
+                }
+                for point in points
+            ]
+            for symbol, points in price_points.items()
+        },
+    }
+
+
 def _resolve_scorecard_portfolios(
     core_targets: Iterable[dict[str, object]] | None = None,
     portfolio_keys: Iterable[str] | None = None,
+    investment_universe: Iterable[dict[str, object]] | None = None,
 ) -> list[dict[str, object]]:
     scorecard_portfolios = [
         {**portfolio, "targets": [dict(target) for target in portfolio["targets"]]}
         for portfolio in SCORECARD_PORTFOLIOS
     ]
+    scorecard_portfolios = _merge_universe_scorecard_portfolios(scorecard_portfolios, investment_universe)
     if portfolio_keys is not None:
         selected_keys = {str(key) for key in portfolio_keys}
         if not selected_keys:
@@ -826,6 +1077,49 @@ def _resolve_scorecard_portfolios(
                 if symbol in symbol_max_drawdowns:
                     target["max_drawdown_pct"] = symbol_max_drawdowns[symbol]
     return scorecard_portfolios
+
+
+def _merge_universe_scorecard_portfolios(
+    scorecard_portfolios: list[dict[str, object]],
+    investment_universe: Iterable[dict[str, object]] | None,
+) -> list[dict[str, object]]:
+    if investment_universe is None:
+        return scorecard_portfolios
+    by_symbol: dict[str, dict[str, object]] = {}
+    for portfolio in scorecard_portfolios:
+        targets = portfolio.get("targets")
+        if isinstance(targets, list) and len(targets) == 1:
+            parsed = parse_portfolio_targets(targets)
+            if parsed:
+                by_symbol[parsed[0].symbol] = portfolio
+    for item in investment_universe:
+        if not isinstance(item, dict):
+            continue
+        symbol = normalize_longbridge_symbol(str(item.get("symbol", "")).strip())
+        if not symbol:
+            continue
+        name = str(item.get("name") or symbol).strip()
+        max_drawdown_pct = _optional_positive_pct(item.get("max_drawdown_pct"))
+        target = {"symbol": symbol, "weight": 100.0, "name": name}
+        if max_drawdown_pct is not None:
+            target["max_drawdown_pct"] = max_drawdown_pct
+        portfolio = {
+            "key": _scorecard_symbol_key(symbol),
+            "label": f"全仓 {name}",
+            "targets": [target],
+        }
+        existing = by_symbol.get(symbol)
+        if existing:
+            existing["label"] = portfolio["label"]
+            existing["targets"] = [target]
+        else:
+            scorecard_portfolios.append(portfolio)
+            by_symbol[symbol] = portfolio
+    return scorecard_portfolios
+
+
+def _scorecard_symbol_key(symbol: str) -> str:
+    return "symbol_" + re.sub(r"[^a-z0-9]+", "_", symbol.lower()).strip("_")
 
 
 def _fetch_scorecard_points(
@@ -907,20 +1201,49 @@ def _build_robust_tasks(
     return tasks
 
 
-def _representative_robust_tasks(tasks: list[dict[str, object]]) -> list[dict[str, object]]:
-    if len(tasks) <= 3:
-        return tasks
-    by_period: dict[str, dict[str, object]] = {}
-    for task in tasks:
-        period_key = str(task.get("period_key", ""))
-        portfolio_key = str(task.get("portfolio_key", ""))
-        if period_key not in by_period or portfolio_key == "core_50_30_20":
-            by_period[period_key] = task
-    preferred_periods = ["3y", "5y", "1y"]
-    selected = [by_period[key] for key in preferred_periods if key in by_period]
-    if not selected:
-        selected = list(by_period.values())
-    return selected[:3]
+def _validate_robust_strategy_selection(
+    buy_strategies: Iterable[str] | None,
+    sell_strategies: Iterable[str] | None,
+) -> tuple[list[str], list[str]]:
+    selected_buy_strategies = list(buy_strategies or STRATEGY_LABELS.keys())
+    unknown_buy_strategies = set(selected_buy_strategies) - set(STRATEGY_LABELS)
+    if unknown_buy_strategies:
+        raise ValueError("未知买入策略: " + ", ".join(sorted(unknown_buy_strategies)))
+
+    selected_sell_strategies = list(sell_strategies or SELL_STRATEGY_LABELS.keys())
+    unknown_sell_strategies = set(selected_sell_strategies) - set(SELL_STRATEGY_LABELS)
+    if unknown_sell_strategies:
+        raise ValueError("未知卖出策略: " + ", ".join(sorted(unknown_sell_strategies)))
+    if not selected_sell_strategies:
+        raise ValueError("至少需要选择一个卖出策略。")
+    return selected_buy_strategies, selected_sell_strategies
+
+
+def _robust_candidate_pool(
+    selected_buy_strategies: Iterable[str],
+    selected_sell_strategies: Iterable[str],
+    inputs: StrategyInputs,
+    core_dip_timing_filter: str,
+) -> list[dict[str, object]]:
+    if core_dip_timing_filter not in {"all", "enabled", "disabled"}:
+        raise ValueError("核心买点优化候选必须是 all、enabled 或 disabled。")
+    repair_params = [
+        (profit, cooldown, stage)
+        for profit in ROBUST_REPAIR_SELL_MIN_PROFITS
+        for cooldown in ROBUST_REPAIR_COOLDOWNS
+        for stage in ROBUST_REPAIR_STAGE_SELLS
+    ]
+    candidates = (
+        _non_repair_candidates(selected_buy_strategies)
+        + _repair_candidates(selected_buy_strategies, repair_params)
+        + _dca_repair_candidates(selected_buy_strategies, inputs)
+        + _grid_rebound_candidates(selected_buy_strategies, inputs)
+        + _cost_deleverage_candidates(selected_buy_strategies, inputs)
+    )
+    return _filter_core_dip_timing_candidates(
+        _dedupe_candidates(_filter_candidates_by_sell_strategy(candidates, selected_sell_strategies)),
+        core_dip_timing_filter,
+    )
 
 
 def _non_repair_candidates(buy_strategies: Iterable[str]) -> list[dict[str, object]]:
@@ -934,6 +1257,18 @@ def _non_repair_candidates(buy_strategies: Iterable[str]) -> list[dict[str, obje
             "sell_min_profit_pct": None,
             "repair_sell_cooldown_days": None,
             "repair_stage_sell_pct": None,
+            "grid_rebound_step_pct": None,
+            "grid_first_sell_pct": None,
+            "grid_second_sell_pct": None,
+            "grid_min_sell_amount": None,
+            "cost_first_profit_pct": None,
+            "cost_second_profit_pct": None,
+            "cost_third_profit_pct": None,
+            "cost_first_sell_pct": None,
+            "cost_second_sell_pct": None,
+            "cost_third_sell_pct": None,
+            "cost_deleverage_cooldown_days": None,
+            "cost_min_sell_amount": None,
             "dca_rearm_drawdown_pct": rearm,
         }
         for buy_strategy in buy_strategies
@@ -949,20 +1284,49 @@ def _repair_candidates(
 ) -> list[dict[str, object]]:
     return [
         {
-            "key": _candidate_key(buy_strategy, "repair_step", buy_params, profit, cooldown, stage),
-            "label": _candidate_label(buy_strategy, "repair_step", buy_params, profit, cooldown, stage),
+            "key": _candidate_key(
+                buy_strategy,
+                "repair_step",
+                buy_params,
+                profit,
+                cooldown,
+                stage,
+                dca_rearm_drawdown_pct=rearm,
+            ),
+            "label": _candidate_label(
+                buy_strategy,
+                "repair_step",
+                buy_params,
+                profit,
+                cooldown,
+                stage,
+                dca_rearm_drawdown_pct=rearm,
+            ),
             "buy_strategy": buy_strategy,
             "sell_strategy": "repair_step",
             **buy_params,
             "sell_min_profit_pct": float(profit),
             "repair_sell_cooldown_days": int(cooldown),
             "repair_stage_sell_pct": float(stage),
-            "dca_rearm_drawdown_pct": None,
+            "grid_rebound_step_pct": None,
+            "grid_first_sell_pct": None,
+            "grid_second_sell_pct": None,
+            "grid_min_sell_amount": None,
+            "cost_first_profit_pct": None,
+            "cost_second_profit_pct": None,
+            "cost_third_profit_pct": None,
+            "cost_first_sell_pct": None,
+            "cost_second_sell_pct": None,
+            "cost_third_sell_pct": None,
+            "cost_deleverage_cooldown_days": None,
+            "cost_min_sell_amount": None,
+            "dca_rearm_drawdown_pct": rearm,
         }
         for buy_strategy in buy_strategies
         if buy_strategy in LOT_SELL_BUY_STRATEGIES
         for buy_params in _buy_param_variants(buy_strategy)
         for profit, cooldown, stage in params
+        for rearm in _dca_rearm_variants(buy_strategy, "repair_step")
     ]
 
 
@@ -970,7 +1334,6 @@ def _dca_repair_candidates(
     buy_strategies: Iterable[str],
     inputs: StrategyInputs,
 ) -> list[dict[str, object]]:
-    buy_params = {"step_pct": None, "equal_slice_allocation_pct": None}
     return [
         {
             "key": _candidate_key(
@@ -997,29 +1360,203 @@ def _dca_repair_candidates(
             "sell_min_profit_pct": float(inputs.sell_min_profit_pct),
             "repair_sell_cooldown_days": int(inputs.repair_sell_cooldown_days),
             "repair_stage_sell_pct": float(inputs.repair_stage_sell_pct),
+            "grid_rebound_step_pct": None,
+            "grid_first_sell_pct": None,
+            "grid_second_sell_pct": None,
+            "grid_min_sell_amount": None,
+            "cost_first_profit_pct": None,
+            "cost_second_profit_pct": None,
+            "cost_third_profit_pct": None,
+            "cost_first_sell_pct": None,
+            "cost_second_sell_pct": None,
+            "cost_third_sell_pct": None,
+            "cost_deleverage_cooldown_days": None,
+            "cost_min_sell_amount": None,
             "dca_rearm_drawdown_pct": rearm,
         }
         for buy_strategy in buy_strategies
-        if buy_strategy in DCA_REARM_BUY_STRATEGIES
+        if buy_strategy in REARM_BUY_STRATEGIES
+        for buy_params in _buy_param_variants(buy_strategy)
         for rearm in ROBUST_DCA_REARM_DRAWDOWN_VALUES
     ]
 
 
+def _grid_rebound_candidates(
+    buy_strategies: Iterable[str],
+    inputs: StrategyInputs,
+) -> list[dict[str, object]]:
+    return [
+        {
+            "key": _candidate_key(
+                buy_strategy,
+                "grid_rebound",
+                buy_params,
+                grid_step=step,
+                grid_first=first_sell,
+                grid_second=second_sell,
+                grid_min=inputs.grid_min_sell_amount,
+                dca_rearm_drawdown_pct=rearm,
+            ),
+            "label": _candidate_label(
+                buy_strategy,
+                "grid_rebound",
+                buy_params,
+                grid_step=step,
+                grid_first=first_sell,
+                grid_second=second_sell,
+                grid_min=inputs.grid_min_sell_amount,
+                dca_rearm_drawdown_pct=rearm,
+            ),
+            "buy_strategy": buy_strategy,
+            "sell_strategy": "grid_rebound",
+            **buy_params,
+            "sell_min_profit_pct": None,
+            "repair_sell_cooldown_days": None,
+            "repair_stage_sell_pct": None,
+            "grid_rebound_step_pct": float(step),
+            "grid_first_sell_pct": float(first_sell),
+            "grid_second_sell_pct": float(second_sell),
+            "grid_min_sell_amount": float(inputs.grid_min_sell_amount),
+            "cost_first_profit_pct": None,
+            "cost_second_profit_pct": None,
+            "cost_third_profit_pct": None,
+            "cost_first_sell_pct": None,
+            "cost_second_sell_pct": None,
+            "cost_third_sell_pct": None,
+            "cost_deleverage_cooldown_days": None,
+            "cost_min_sell_amount": None,
+            "dca_rearm_drawdown_pct": rearm,
+        }
+        for buy_strategy in buy_strategies
+        for buy_params in _buy_param_variants(buy_strategy)
+        for step in ROBUST_GRID_REBOUND_STEPS
+        for first_sell in ROBUST_GRID_FIRST_SELLS
+        for second_sell in ROBUST_GRID_SECOND_SELLS
+        for rearm in _dca_rearm_variants(buy_strategy, "grid_rebound")
+    ]
+
+
+def _cost_deleverage_candidates(
+    buy_strategies: Iterable[str],
+    inputs: StrategyInputs,
+) -> list[dict[str, object]]:
+    return [
+        {
+            "key": _candidate_key(
+                buy_strategy,
+                "cost_deleverage",
+                buy_params,
+                cost_profits=profit_set,
+                cost_sells=sell_set,
+                cost_cooldown=cooldown,
+                cost_min=inputs.cost_min_sell_amount,
+                dca_rearm_drawdown_pct=rearm,
+            ),
+            "label": _candidate_label(
+                buy_strategy,
+                "cost_deleverage",
+                buy_params,
+                cost_profits=profit_set,
+                cost_sells=sell_set,
+                cost_cooldown=cooldown,
+                cost_min=inputs.cost_min_sell_amount,
+                dca_rearm_drawdown_pct=rearm,
+            ),
+            "buy_strategy": buy_strategy,
+            "sell_strategy": "cost_deleverage",
+            **buy_params,
+            "sell_min_profit_pct": None,
+            "repair_sell_cooldown_days": None,
+            "repair_stage_sell_pct": None,
+            "grid_rebound_step_pct": None,
+            "grid_first_sell_pct": None,
+            "grid_second_sell_pct": None,
+            "grid_min_sell_amount": None,
+            "cost_first_profit_pct": float(profit_set[0]),
+            "cost_second_profit_pct": float(profit_set[1]),
+            "cost_third_profit_pct": float(profit_set[2]),
+            "cost_first_sell_pct": float(sell_set[0]),
+            "cost_second_sell_pct": float(sell_set[1]),
+            "cost_third_sell_pct": float(sell_set[2]),
+            "cost_deleverage_cooldown_days": int(cooldown),
+            "cost_min_sell_amount": float(inputs.cost_min_sell_amount),
+            "dca_rearm_drawdown_pct": rearm,
+        }
+        for buy_strategy in buy_strategies
+        for buy_params in _buy_param_variants(buy_strategy)
+        for profit_set in ROBUST_COST_PROFIT_SETS
+        for sell_set in ROBUST_COST_SELL_SETS
+        for cooldown in ROBUST_COST_COOLDOWNS
+        for rearm in _dca_rearm_variants(buy_strategy, "cost_deleverage")
+    ]
+
+
 def _buy_param_variants(buy_strategy: str) -> list[dict[str, float | None]]:
-    if buy_strategy in {"equal_slice", "linear_weighted_slice", "weighted_slice"}:
+    if buy_strategy in {"equal_slice", "linear_weighted_slice"}:
         return [
             {
                 "step_pct": step,
                 "equal_slice_allocation_pct": allocation if buy_strategy == "equal_slice" else None,
+                **_empty_core_dip_params(),
             }
             for step in ROBUST_BUY_STEP_VALUES
             for allocation in (ROBUST_EQUAL_SLICE_ALLOCATION_VALUES if buy_strategy == "equal_slice" else [None])
         ]
-    return [{"step_pct": None, "equal_slice_allocation_pct": None}]
+    if buy_strategy == "core_dip_dca":
+        return [
+            {
+                "step_pct": None,
+                "equal_slice_allocation_pct": None,
+                "core_dip_initial_core_pct": initial_core,
+                "core_dip_weekly_core_pct": weekly_core,
+                "core_dip_cash_reserve_pct": cash_reserve,
+                "core_dip_start_drawdown_pct": start_drawdown,
+                "core_dip_full_drawdown_pct": full_drawdown,
+                "core_dip_timing_enabled": None,
+                "core_dip_timing_max_delay_days": None,
+                "core_dip_timing_rise_threshold_pct": None,
+                "core_dip_timing_near_low_pct": None,
+            }
+            for initial_core, weekly_core, cash_reserve, start_drawdown, full_drawdown in ROBUST_CORE_DIP_PARAM_SETS
+        ] + [
+            {
+                "step_pct": None,
+                "equal_slice_allocation_pct": None,
+                "core_dip_initial_core_pct": initial_core,
+                "core_dip_weekly_core_pct": weekly_core,
+                "core_dip_cash_reserve_pct": cash_reserve,
+                "core_dip_start_drawdown_pct": start_drawdown,
+                "core_dip_full_drawdown_pct": full_drawdown,
+                "core_dip_timing_enabled": True,
+                "core_dip_timing_max_delay_days": 3,
+                "core_dip_timing_rise_threshold_pct": 1.5,
+                "core_dip_timing_near_low_pct": 2.0,
+            }
+            for initial_core, weekly_core, cash_reserve, start_drawdown, full_drawdown in ROBUST_CORE_DIP_PARAM_SETS
+        ]
+    return [{
+        "step_pct": None,
+        "equal_slice_allocation_pct": None,
+        **_empty_core_dip_params(),
+    }]
+
+
+def _empty_core_dip_params() -> dict[str, object | None]:
+    return {
+        "core_dip_initial_core_pct": None,
+        "core_dip_weekly_core_pct": None,
+        "core_dip_cash_reserve_pct": None,
+        "core_dip_start_drawdown_pct": None,
+        "core_dip_full_drawdown_pct": None,
+        "core_dip_timing_enabled": None,
+        "core_dip_timing_max_delay_days": None,
+        "core_dip_timing_rise_threshold_pct": None,
+        "core_dip_timing_near_low_pct": None,
+    }
 
 
 def _dca_rearm_variants(buy_strategy: str, sell_strategy: str) -> list[float | None]:
-    if buy_strategy in DCA_REARM_BUY_STRATEGIES and sell_strategy in POSITION_SELL_REARM_STRATEGIES:
+    if buy_strategy in REARM_BUY_STRATEGIES and sell_strategy in POSITION_SELL_REARM_STRATEGIES:
         return list(ROBUST_DCA_REARM_DRAWDOWN_VALUES)
     return [None]
 
@@ -1033,15 +1570,53 @@ def _candidate_key(
     stage: float | None = None,
     *,
     dca_rearm_drawdown_pct: float | None = None,
+    grid_step: float | None = None,
+    grid_first: float | None = None,
+    grid_second: float | None = None,
+    grid_min: float | None = None,
+    cost_profits: tuple[float, float, float] | None = None,
+    cost_sells: tuple[float, float, float] | None = None,
+    cost_cooldown: int | None = None,
+    cost_min: float | None = None,
 ) -> str:
     parts = [buy_strategy]
     if buy_params.get("step_pct") is not None:
         parts.append(f"step{float(buy_params['step_pct']):g}")
     if buy_params.get("equal_slice_allocation_pct") is not None:
         parts.append(f"alloc{float(buy_params['equal_slice_allocation_pct']):g}")
+    if buy_params.get("core_dip_initial_core_pct") is not None:
+        parts.extend([
+            f"ci{float(buy_params['core_dip_initial_core_pct']):g}",
+            f"cw{float(buy_params['core_dip_weekly_core_pct'] or 0):g}",
+            f"cr{float(buy_params['core_dip_cash_reserve_pct'] or 0):g}",
+            f"csd{float(buy_params['core_dip_start_drawdown_pct'] or 0):g}",
+            f"cfd{float(buy_params['core_dip_full_drawdown_pct'] or 0):g}",
+        ])
+        if buy_params.get("core_dip_timing_enabled"):
+            parts.extend([
+                f"ctd{int(buy_params['core_dip_timing_max_delay_days'] or 0):g}",
+                f"ctr{float(buy_params['core_dip_timing_rise_threshold_pct'] or 0):g}",
+                f"ctl{float(buy_params['core_dip_timing_near_low_pct'] or 0):g}",
+            ])
     parts.append(sell_strategy)
     if sell_strategy == "repair_step":
         parts.extend([f"p{float(profit or 0):g}", f"c{int(cooldown or 0):g}", f"s{float(stage or 0):g}"])
+    if sell_strategy == "grid_rebound":
+        parts.extend([
+            f"g{float(grid_step or 0):g}",
+            f"g1{float(grid_first or 0):g}",
+            f"g2{float(grid_second or 0):g}",
+            f"gmin{float(grid_min or 0):g}",
+        ])
+    if sell_strategy == "cost_deleverage":
+        cost_profits = cost_profits or (0.0, 0.0, 0.0)
+        cost_sells = cost_sells or (0.0, 0.0, 0.0)
+        parts.extend([
+            "cp" + "-".join(f"{float(value):g}" for value in cost_profits),
+            "cs" + "-".join(f"{float(value):g}" for value in cost_sells),
+            f"cc{int(cost_cooldown or 0):g}",
+            f"cmin{float(cost_min or 0):g}",
+        ])
     if dca_rearm_drawdown_pct is not None:
         parts.append(f"rearm{float(dca_rearm_drawdown_pct):g}")
     return "__".join(parts)
@@ -1056,6 +1631,14 @@ def _candidate_label(
     stage: float | None = None,
     *,
     dca_rearm_drawdown_pct: float | None = None,
+    grid_step: float | None = None,
+    grid_first: float | None = None,
+    grid_second: float | None = None,
+    grid_min: float | None = None,
+    cost_profits: tuple[float, float, float] | None = None,
+    cost_sells: tuple[float, float, float] | None = None,
+    cost_cooldown: int | None = None,
+    cost_min: float | None = None,
 ) -> str:
     buy_label = STRATEGY_LABELS[buy_strategy]
     buy_bits = []
@@ -1063,14 +1646,44 @@ def _candidate_label(
         buy_bits.append(f"步长 {float(buy_params['step_pct']):g}%")
     if buy_params.get("equal_slice_allocation_pct") is not None:
         buy_bits.append(f"每步 {float(buy_params['equal_slice_allocation_pct']):g}%")
+    if buy_params.get("core_dip_initial_core_pct") is not None:
+        buy_bits.extend([
+            f"初始 {float(buy_params['core_dip_initial_core_pct']):g}%",
+            f"周投 {float(buy_params['core_dip_weekly_core_pct'] or 0):g}%",
+            f"现金垫 {float(buy_params['core_dip_cash_reserve_pct'] or 0):g}%",
+            f"加仓 {float(buy_params['core_dip_start_drawdown_pct'] or 0):g}-{float(buy_params['core_dip_full_drawdown_pct'] or 0):g}%",
+        ])
+        if buy_params.get("core_dip_timing_enabled"):
+            buy_bits.append(
+                f"买点优化 延迟{int(buy_params['core_dip_timing_max_delay_days'] or 0):g}日 "
+                f"大涨{float(buy_params['core_dip_timing_rise_threshold_pct'] or 0):g}% "
+                f"近低{float(buy_params['core_dip_timing_near_low_pct'] or 0):g}%"
+            )
+        else:
+            buy_bits.append("买点优化 关闭")
     if buy_bits:
         buy_label = f"{buy_label} ({' / '.join(buy_bits)})"
     if sell_strategy == "repair_step":
         sell_label = f"阶梯修复 {float(profit or 0):g}%盈利 {int(cooldown or 0):g}日冷却 {float(stage or 0):g}%单档"
+    elif sell_strategy == "grid_rebound":
+        sell_label = (
+            f"网格回弹 {float(grid_step or 0):g}%步长 "
+            f"{float(grid_first or 0):g}%+{float(grid_second or 0):g}%卖出"
+        )
+    elif sell_strategy == "cost_deleverage":
+        cost_profits = cost_profits or (0.0, 0.0, 0.0)
+        cost_sells = cost_sells or (0.0, 0.0, 0.0)
+        sell_label = (
+            "成本去杠杆 "
+            + "/".join(f"{float(profit_value):g}%" for profit_value in cost_profits)
+            + " 盈利 "
+            + "+".join(f"{float(sell_value):g}%" for sell_value in cost_sells)
+            + f" 卖出 {int(cost_cooldown or 0):g}日冷却"
+        )
     else:
         sell_label = SELL_STRATEGY_LABELS[sell_strategy]
     if dca_rearm_drawdown_pct is not None:
-        sell_label = f"{sell_label} / DCA重启 {float(dca_rearm_drawdown_pct):g}%回撤"
+        sell_label = f"{sell_label} / 卖后重启 {float(dca_rearm_drawdown_pct):g}%回撤"
     return f"{buy_label} / {sell_label}"
 
 
@@ -1081,71 +1694,29 @@ def _dedupe_candidates(candidates: Iterable[dict[str, object]]) -> list[dict[str
     return list(result.values())
 
 
-def _local_candidate_neighborhood(
-    candidate: dict[str, object],
-    buy_strategies: Iterable[str],
+def _filter_core_dip_timing_candidates(
+    candidates: list[dict[str, object]],
+    timing_filter: str,
 ) -> list[dict[str, object]]:
-    if candidate.get("sell_strategy") != "repair_step":
-        return [candidate]
-    buy_strategy = str(candidate["buy_strategy"])
-    if buy_strategy not in set(buy_strategies):
-        return []
-    buy_step = candidate.get("step_pct")
-    buy_allocation = candidate.get("equal_slice_allocation_pct")
-    buy_params = {
-        "step_pct": float(buy_step) if buy_step is not None else None,
-        "equal_slice_allocation_pct": float(buy_allocation) if buy_allocation is not None else None,
-    }
-    profit = float(candidate.get("sell_min_profit_pct") or 0.0)
-    cooldown = int(candidate.get("repair_sell_cooldown_days") or 0)
-    stage = float(candidate.get("repair_stage_sell_pct") or 0.0)
-    rearm = candidate.get("dca_rearm_drawdown_pct")
-    rearm_value = float(rearm) if rearm is not None else None
-    profit_values = _bounded_neighbor_values(profit, [profit - 2.5, profit, profit + 2.5], 0, 100)
-    cooldown_values = sorted({max(0, int(cooldown + delta)) for delta in (-15, 0, 15)})
-    stage_values = _bounded_neighbor_values(stage, [stage - 2, stage, stage + 2], 0, 100)
+    if timing_filter == "all":
+        return candidates
+    enabled = timing_filter == "enabled"
     return [
-        {
-            "key": _candidate_key(
-                buy_strategy,
-                "repair_step",
-                buy_params,
-                profit_value,
-                cooldown_value,
-                stage_value,
-                dca_rearm_drawdown_pct=rearm_value,
-            ),
-            "label": _candidate_label(
-                buy_strategy,
-                "repair_step",
-                buy_params,
-                profit_value,
-                cooldown_value,
-                stage_value,
-                dca_rearm_drawdown_pct=rearm_value,
-            ),
-            "buy_strategy": buy_strategy,
-            "sell_strategy": "repair_step",
-            **buy_params,
-            "sell_min_profit_pct": float(profit_value),
-            "repair_sell_cooldown_days": int(cooldown_value),
-            "repair_stage_sell_pct": float(stage_value),
-            "dca_rearm_drawdown_pct": rearm_value,
-        }
-        for profit_value in profit_values
-        for cooldown_value in cooldown_values
-        for stage_value in stage_values
+        candidate for candidate in candidates
+        if candidate.get("buy_strategy") != "core_dip_dca"
+        or bool(candidate.get("core_dip_timing_enabled")) is enabled
     ]
 
 
-def _bounded_neighbor_values(value: float, values: Iterable[float], minimum: float, maximum: float) -> list[float]:
-    result = {
-        round(candidate, 4)
-        for candidate in values
-        if math.isfinite(candidate) and minimum <= candidate <= maximum
-    }
-    result.add(round(min(max(value, minimum), maximum), 4))
-    return sorted(result)
+def _filter_candidates_by_sell_strategy(
+    candidates: Iterable[dict[str, object]],
+    sell_strategies: Iterable[str],
+) -> list[dict[str, object]]:
+    selected = set(sell_strategies)
+    return [
+        candidate for candidate in candidates
+        if str(candidate.get("sell_strategy")) in selected
+    ]
 
 
 def _score_robust_candidates(
@@ -1153,15 +1724,19 @@ def _score_robust_candidates(
     inputs: StrategyInputs,
     candidates: list[dict[str, object]],
     *,
-    score_mode: str,
+    return_weight: float,
+    drawdown_weight: float,
+    control_checker: Callable[[], None] | None = None,
 ) -> list[dict[str, object]]:
     observations_by_key: dict[str, list[dict[str, object]]] = {
         str(candidate["key"]): []
         for candidate in candidates
     }
     for task in tasks:
+        _check_robust_control(control_checker)
         observations = []
         for candidate in candidates:
+            _check_robust_control(control_checker)
             candidate_inputs = inputs
             if candidate.get("step_pct") is not None or candidate.get("equal_slice_allocation_pct") is not None:
                 candidate_inputs = replace(
@@ -1172,12 +1747,49 @@ def _score_robust_candidates(
                         or candidate_inputs.equal_slice_allocation_pct
                     ),
                 )
+            if candidate.get("core_dip_initial_core_pct") is not None:
+                candidate_inputs = replace(
+                    candidate_inputs,
+                    core_dip_initial_core_pct=float(candidate["core_dip_initial_core_pct"]),
+                    core_dip_weekly_core_pct=float(candidate["core_dip_weekly_core_pct"]),
+                    core_dip_cash_reserve_pct=float(candidate["core_dip_cash_reserve_pct"]),
+                    core_dip_start_drawdown_pct=float(candidate["core_dip_start_drawdown_pct"]),
+                    core_dip_full_drawdown_pct=float(candidate["core_dip_full_drawdown_pct"]),
+                    core_dip_timing_enabled=bool(candidate.get("core_dip_timing_enabled")),
+                    core_dip_timing_max_delay_days=int(candidate.get("core_dip_timing_max_delay_days") or 0),
+                    core_dip_timing_rise_threshold_pct=float(candidate.get("core_dip_timing_rise_threshold_pct") or 0),
+                    core_dip_timing_near_low_pct=float(candidate.get("core_dip_timing_near_low_pct") or 0),
+                )
             if candidate.get("sell_strategy") == "repair_step":
                 candidate_inputs = replace(
                     candidate_inputs,
                     sell_min_profit_pct=float(candidate["sell_min_profit_pct"]),
                     repair_sell_cooldown_days=int(candidate["repair_sell_cooldown_days"]),
                     repair_stage_sell_pct=float(candidate["repair_stage_sell_pct"]),
+                )
+            if candidate.get("sell_strategy") == "grid_rebound":
+                candidate_inputs = replace(
+                    candidate_inputs,
+                    grid_rebound_step_pct=float(candidate.get("grid_rebound_step_pct") or inputs.grid_rebound_step_pct),
+                    grid_first_sell_pct=float(candidate.get("grid_first_sell_pct") or inputs.grid_first_sell_pct),
+                    grid_second_sell_pct=float(candidate.get("grid_second_sell_pct") or inputs.grid_second_sell_pct),
+                    grid_min_sell_amount=float(candidate.get("grid_min_sell_amount") or inputs.grid_min_sell_amount),
+                )
+            if candidate.get("sell_strategy") == "cost_deleverage":
+                candidate_inputs = replace(
+                    candidate_inputs,
+                    cost_first_profit_pct=float(candidate.get("cost_first_profit_pct") or inputs.cost_first_profit_pct),
+                    cost_second_profit_pct=float(candidate.get("cost_second_profit_pct") or inputs.cost_second_profit_pct),
+                    cost_third_profit_pct=float(candidate.get("cost_third_profit_pct") or inputs.cost_third_profit_pct),
+                    cost_first_sell_pct=float(candidate.get("cost_first_sell_pct") or inputs.cost_first_sell_pct),
+                    cost_second_sell_pct=float(candidate.get("cost_second_sell_pct") or inputs.cost_second_sell_pct),
+                    cost_third_sell_pct=float(candidate.get("cost_third_sell_pct") or inputs.cost_third_sell_pct),
+                    cost_deleverage_cooldown_days=int(
+                        candidate.get("cost_deleverage_cooldown_days")
+                        if candidate.get("cost_deleverage_cooldown_days") is not None
+                        else inputs.cost_deleverage_cooldown_days
+                    ),
+                    cost_min_sell_amount=float(candidate.get("cost_min_sell_amount") or inputs.cost_min_sell_amount),
                 )
             if candidate.get("dca_rearm_drawdown_pct") is not None:
                 candidate_inputs = replace(
@@ -1203,88 +1815,71 @@ def _score_robust_candidates(
                     "trade_count": int(metrics.get("trade_count", 0)),
                 }
             )
-        _score_robust_task_observations(observations, score_mode=score_mode)
+        _score_robust_task_observations(
+            observations,
+            return_weight=return_weight,
+            drawdown_weight=drawdown_weight,
+        )
         for observation in observations:
             observations_by_key[str(observation["candidate"]["key"])].append(observation)
-    return [
-        _aggregate_robust_candidate(candidate, observations_by_key[str(candidate["key"])], score_mode=score_mode)
+    _check_robust_control(control_checker)
+    rows = [
+        _aggregate_robust_candidate(candidate, observations_by_key[str(candidate["key"])])
         for candidate in candidates
     ]
+    _score_robust_summary_like_scorecard(rows, return_weight, drawdown_weight)
+    return rows
 
 
-def _score_robust_task_observations(observations: list[dict[str, object]], *, score_mode: str) -> None:
+def _check_robust_control(control_checker: Callable[[], None] | None) -> None:
+    if control_checker is None:
+        return
+    while True:
+        control_checker()
+        try:
+            is_paused = bool(getattr(control_checker, "is_paused")())
+        except AttributeError:
+            return
+        if not is_paused:
+            return
+        time.sleep(0.25)
+
+
+def _score_robust_task_observations(
+    observations: list[dict[str, object]],
+    *,
+    return_weight: float,
+    drawdown_weight: float,
+) -> None:
     returns = [float(item["return_pct"]) for item in observations]
     inverse_drawdowns = [-float(item["max_drawdown_pct"]) for item in observations]
-    calmars = [
-        float(item["return_pct"]) / max(1.0, abs(float(item["max_drawdown_pct"])))
-        for item in observations
-    ]
-    sell_qualities = [float(item["sell_quality_score"]) for item in observations]
-    trade_counts = [float(item["trade_count"]) for item in observations]
-    max_trade_count = max(trade_counts) if trade_counts else 0.0
     for item in observations:
         return_score = _normalize_bigger_better(float(item["return_pct"]), returns) * 100.0
         drawdown_score = _normalize_bigger_better(-float(item["max_drawdown_pct"]), inverse_drawdowns) * 100.0
-        calmar = float(item["return_pct"]) / max(1.0, abs(float(item["max_drawdown_pct"])))
-        calmar_score = _normalize_bigger_better(calmar, calmars) * 100.0
-        sell_score = _normalize_bigger_better(float(item["sell_quality_score"]), sell_qualities) * 100.0
-        trade_penalty = 0.0
-        if max_trade_count > 0:
-            trade_penalty = min(12.0, float(item["trade_count"]) / max_trade_count * 12.0)
-        if score_mode == "return_drawdown":
-            item["task_score"] = return_score * 0.80 + drawdown_score * 0.20
-        else:
-            item["task_score"] = (
-                return_score * 0.45
-                + drawdown_score * 0.25
-                + calmar_score * 0.20
-                + sell_score * 0.10
-                - trade_penalty
-            )
+        item["task_score"] = return_score * return_weight + drawdown_score * drawdown_weight
     ranked = sorted(observations, key=lambda item: item["task_score"], reverse=True)
-    edge_count = max(1, math.ceil(len(ranked) * 0.10)) if ranked else 0
     for index, item in enumerate(ranked, start=1):
         item["task_rank"] = index
-        item["task_top10"] = index <= edge_count
-        item["task_bottom10"] = index > len(ranked) - edge_count
 
 
 def _aggregate_robust_candidate(
     candidate: dict[str, object],
     observations: list[dict[str, object]],
-    *,
-    score_mode: str,
 ) -> dict[str, object]:
-    scores = sorted(float(item["task_score"]) for item in observations)
+    scores = [float(item["task_score"]) for item in observations]
     returns = [float(item["return_pct"]) for item in observations]
     drawdowns = [float(item["max_drawdown_pct"]) for item in observations]
     sell_qualities = [float(item["sell_quality_score"]) for item in observations]
     mean_score = _avg_float(scores)
-    median_score = _percentile(scores, 0.50)
-    p25_score = _percentile(scores, 0.25)
-    top10_rate = sum(1 for item in observations if item.get("task_top10")) / len(observations) * 100.0 if observations else 0.0
-    bottom10_rate = sum(1 for item in observations if item.get("task_bottom10")) / len(observations) * 100.0 if observations else 0.0
-    if score_mode == "return_drawdown":
-        robust_score = mean_score
-    else:
-        robust_score = (
-            mean_score * 0.35
-            + median_score * 0.25
-            + p25_score * 0.25
-            + top10_rate * 0.10
-            - bottom10_rate * 0.15
-        )
+    score = mean_score
     sorted_observations = sorted(observations, key=lambda item: item["task_score"])
     weakest = sorted_observations[0] if sorted_observations else None
     strongest = sorted_observations[-1] if sorted_observations else None
     return {
         "candidate": candidate,
-        "robust_score": robust_score,
+        "score": score,
+        "robust_score": score,
         "mean_score": mean_score,
-        "median_score": median_score,
-        "p25_score": p25_score,
-        "top10_rate": top10_rate,
-        "bottom10_rate": bottom10_rate,
         "avg_return_pct": _avg_float(returns),
         "avg_drawdown_pct": _avg_float(drawdowns),
         "avg_sell_quality_score": _avg_float(sell_qualities),
@@ -1292,6 +1887,24 @@ def _aggregate_robust_candidate(
         "strongest_task": _robust_task_summary(strongest),
         "weakest_task": _robust_task_summary(weakest),
     }
+
+
+def _score_robust_summary_like_scorecard(
+    rows: list[dict[str, object]],
+    return_weight: float,
+    drawdown_weight: float,
+) -> None:
+    returns = [float(row["avg_return_pct"]) for row in rows]
+    drawdowns = [float(row["avg_drawdown_pct"]) for row in rows]
+    for row in rows:
+        return_score = _normalize_bigger_better(float(row["avg_return_pct"]), returns) * 100.0
+        drawdown_score = _normalize_bigger_better(float(row["avg_drawdown_pct"]), drawdowns) * 100.0
+        score = return_score * return_weight + drawdown_score * drawdown_weight
+        row["return_score"] = return_score
+        row["drawdown_score"] = drawdown_score
+        row["mean_score"] = score
+        row["score"] = score
+        row["robust_score"] = score
 
 
 def _robust_task_summary(observation: dict[str, object] | None) -> dict[str, object] | None:
@@ -1334,7 +1947,7 @@ def _simulate_strategy(
     tranches_by_symbol = {
         target.symbol: build_strategy_tranches(_inputs_for_target(inputs, target), strategy)
         for target in targets
-    } if strategy not in {"weekly_dca", "salary_flow_dca"} else {}
+    } if strategy not in {"weekly_dca", "salary_flow_dca", "core_dip_dca"} else {}
     states = {
         target.symbol: SymbolState(
             symbol=target.symbol,
@@ -1348,7 +1961,7 @@ def _simulate_strategy(
         )
         for target in targets
     }
-    executed = {target.symbol: set() for target in targets}
+    executed = {target.symbol: {} for target in targets}
     point_by_day = {
         symbol: {point.date.date(): point for point in points}
         for symbol, points in price_points_by_symbol.items()
@@ -1360,7 +1973,7 @@ def _simulate_strategy(
     dca_days = {
         symbol: _weekly_dca_days(points)
         for symbol, points in price_points_by_symbol.items()
-    } if strategy == "salary_flow_dca" else {}
+    } if strategy in {"salary_flow_dca", "core_dip_dca"} else {}
     all_days = sorted(
         {day for points in point_by_day.values() for day in points}
     )
@@ -1412,8 +2025,19 @@ def _simulate_strategy(
                     trade_log,
                     sell_strategy,
                 )
+            elif strategy == "core_dip_dca":
+                bought_today = _execute_core_dip_dca(
+                    state,
+                    point,
+                    dca_days.get(symbol, set()),
+                    price_points_by_symbol[symbol][max(0, trade_index - 4):trade_index + 1],
+                    inputs,
+                    trade_log,
+                    sell_strategy,
+                )
             else:
                 _rearm_buy_tranches_after_repair(point, executed[symbol], inputs)
+                _rearm_buy_tranches_after_position_sell(state, point, executed[symbol], inputs)
                 bought_today = _execute_crossed_tranches(
                     state,
                     point,
@@ -1549,16 +2173,7 @@ def _last_trading_points(points: list[PricePoint], trading_days: int) -> list[Pr
 
 
 def _normalize_score_weights(return_weight: float, drawdown_weight: float) -> tuple[float, float]:
-    safe_return_weight = max(0.0, float(return_weight or 0.0))
-    safe_drawdown_weight = max(0.0, float(drawdown_weight or 0.0))
-    if not math.isfinite(safe_return_weight):
-        safe_return_weight = SCORECARD_RETURN_WEIGHT
-    if not math.isfinite(safe_drawdown_weight):
-        safe_drawdown_weight = SCORECARD_DRAWDOWN_WEIGHT
-    total = safe_return_weight + safe_drawdown_weight
-    if total <= 0:
-        return SCORECARD_RETURN_WEIGHT, SCORECARD_DRAWDOWN_WEIGHT
-    return safe_return_weight / total, safe_drawdown_weight / total
+    return SCORECARD_RETURN_WEIGHT, SCORECARD_DRAWDOWN_WEIGHT
 
 
 def _score_summary_rows(
@@ -1949,6 +2564,166 @@ def _execute_salary_flow_dca(
     return True
 
 
+def _execute_core_dip_dca(
+    state: SymbolState,
+    point: PricePoint,
+    dca_days: set[date],
+    recent_points: list[PricePoint],
+    inputs: StrategyInputs,
+    trade_log: list[dict[str, object]],
+    sell_strategy: str,
+) -> bool:
+    is_dca_day = point.date.date() in dca_days
+    if not is_dca_day and state.core_dip_pending_cash <= 0:
+        return False
+    if inputs.monthly_contribution <= 0 and state.core_dip_pending_cash <= 0:
+        return False
+    monthly_amount = inputs.monthly_contribution * state.weight / 100.0
+    scheduled_amount = monthly_amount / 4.0
+    drawdown_pct = _point_drawdown_pct(point, inputs)
+    boost_ratio = _core_dip_boost_ratio(drawdown_pct, inputs)
+    core_ratio = _clamp(inputs.core_dip_weekly_core_pct / 100.0, 0.0, 1.0)
+    new_core_amount = scheduled_amount * core_ratio if is_dca_day and inputs.monthly_contribution > 0 else 0.0
+    dip_amount = (
+        scheduled_amount * max(0.0, 1.0 - core_ratio) * boost_ratio
+        if is_dca_day and inputs.monthly_contribution > 0
+        else 0.0
+    )
+    if inputs.core_dip_timing_enabled:
+        state.core_dip_pending_cash += new_core_amount
+        if state.core_dip_pending_cash > 0:
+            state.core_dip_pending_days = state.core_dip_pending_days + 1 if state.core_dip_pending_days else 1
+        core_buy_allowed, timing_reason = _core_dip_timing_allows_buy(
+            point,
+            recent_points,
+            drawdown_pct,
+            state.core_dip_pending_days,
+            state.buy_trades == 0,
+            inputs,
+        )
+        core_amount = state.core_dip_pending_cash if core_buy_allowed else 0.0
+    else:
+        core_buy_allowed = True
+        timing_reason = "disabled"
+        core_amount = new_core_amount
+    reserve_cash = state.budget * _core_dip_cash_reserve_ratio(drawdown_pct, inputs)
+    available_cash = max(0.0, state.cash - reserve_cash)
+    extra_cash = max(0.0, available_cash - core_amount - dip_amount)
+    initial_core_amount = 0.0
+    if not state.buy_trades:
+        initial_core_amount = min(
+            extra_cash,
+            inputs.initial_cash * state.weight / 100.0 * _clamp(inputs.core_dip_initial_core_pct / 100.0, 0.0, 1.0),
+        )
+        extra_cash = max(0.0, extra_cash - initial_core_amount)
+    idle_cash_sweep = (
+        extra_cash * _core_dip_idle_cash_sweep_ratio(drawdown_pct, inputs)
+        if core_buy_allowed or boost_ratio > 0 or initial_core_amount > 0
+        else 0.0
+    )
+    target_amount = core_amount + dip_amount + initial_core_amount + idle_cash_sweep
+    gross_amount = min(target_amount, available_cash)
+    if gross_amount <= 0:
+        return False
+    core_bought = min(core_amount, gross_amount)
+    if inputs.core_dip_timing_enabled and core_bought > 0:
+        state.core_dip_pending_cash = max(0.0, state.core_dip_pending_cash - core_bought)
+        if state.core_dip_pending_cash <= 1e-9:
+            state.core_dip_pending_cash = 0.0
+            state.core_dip_pending_days = 0
+
+    fee = min(inputs.trade_fee, gross_amount)
+    net_amount = gross_amount - fee
+    price_usd = _price_usd(state.symbol, point.close, inputs)
+    shares = net_amount / price_usd if net_amount > 0 and price_usd > 0 else 0.0
+
+    state.cash -= gross_amount
+    state.shares += shares
+    state.invested += gross_amount
+    state.fees += fee
+    state.trades += 1
+    state.buy_trades += 1
+    state.max_shares = max(state.max_shares, state.shares)
+    state.last_value = _position_value_usd(state.symbol, state.shares, point.close, inputs)
+    if state.lots is None:
+        state.lots = []
+    state.lots.append(
+        PositionLot(
+            threshold_pct=0.0,
+            buy_drawdown_pct=drawdown_pct,
+            buy_price_usd=price_usd,
+            initial_shares=shares,
+            remaining_shares=shares,
+        )
+    )
+    sell_cycle_rearmed = _rearm_position_sell_cycle_after_dca_buy(state, drawdown_pct, inputs, sell_strategy)
+    trade_log.append(
+        {
+            "action": "buy",
+            "date": point.date.date().isoformat(),
+            "symbol": state.symbol,
+            "buy_strategy": "core_dip_dca",
+            "sell_strategy": sell_strategy,
+            "threshold_pct": 0.0,
+            "drawdown_pct": drawdown_pct,
+            "price": point.close,
+            "price_usd": price_usd,
+            "display_price": point.close,
+            "display_price_usd": price_usd,
+            "gross_amount": gross_amount,
+            "fee": fee,
+            "net_amount": net_amount,
+            "shares": shares,
+            "allocation_pct": 0.0,
+            "scheduled_amount": scheduled_amount,
+            "core_amount": core_amount,
+            "new_core_amount": new_core_amount,
+            "pending_core_amount": state.core_dip_pending_cash,
+            "timing_reason": timing_reason,
+            "dip_amount": dip_amount,
+            "initial_core_amount": initial_core_amount,
+            "idle_cash_sweep": max(0.0, gross_amount - core_amount - dip_amount - initial_core_amount),
+            "dip_boost_ratio": boost_ratio,
+            "cash_reserve": reserve_cash,
+            "sell_cycle_rearmed": sell_cycle_rearmed,
+        }
+    )
+    return True
+
+
+def _core_dip_timing_allows_buy(
+    point: PricePoint,
+    recent_points: list[PricePoint],
+    drawdown_pct: float,
+    pending_days: int,
+    is_initial_buy: bool,
+    inputs: StrategyInputs,
+) -> tuple[bool, str]:
+    if not inputs.core_dip_timing_enabled:
+        return True, "disabled"
+    if is_initial_buy:
+        return True, "initial_core"
+    if drawdown_pct >= inputs.core_dip_start_drawdown_pct:
+        return True, "drawdown_reached"
+    max_delay_days = int(inputs.core_dip_timing_max_delay_days)
+    if max_delay_days <= 0 or pending_days >= max_delay_days:
+        return True, "delay_expired"
+    closes = [float(item.close) for item in recent_points if item.close > 0]
+    if len(closes) < 2:
+        return True, "insufficient_history"
+    previous_close = closes[-2]
+    day_change_pct = (float(point.close) / previous_close - 1.0) * 100.0 if previous_close > 0 else 0.0
+    recent_low = min(closes)
+    distance_from_low_pct = (float(point.close) / recent_low - 1.0) * 100.0 if recent_low > 0 else 0.0
+    if day_change_pct <= 0:
+        return True, "down_day"
+    if distance_from_low_pct <= inputs.core_dip_timing_near_low_pct:
+        return True, "near_recent_low"
+    if day_change_pct >= inputs.core_dip_timing_rise_threshold_pct:
+        return False, "defer_after_rise"
+    return True, "normal"
+
+
 def _rearm_position_sell_cycle_after_dca_buy(
     state: SymbolState,
     drawdown_pct: float,
@@ -1982,6 +2757,31 @@ def _salary_flow_dca_multiplier(drawdown_pct: float) -> float:
     return 1.0
 
 
+def _core_dip_boost_ratio(drawdown_pct: float, inputs: StrategyInputs) -> float:
+    start = max(0.0, float(inputs.core_dip_start_drawdown_pct))
+    full = max(start, float(inputs.core_dip_full_drawdown_pct))
+    if drawdown_pct <= start:
+        return 0.0
+    if drawdown_pct >= full:
+        return 1.0
+    if full <= start:
+        return 1.0
+    return (drawdown_pct - start) / (full - start)
+
+
+def _core_dip_cash_reserve_ratio(drawdown_pct: float, inputs: StrategyInputs) -> float:
+    base = _clamp(inputs.core_dip_cash_reserve_pct / 100.0, 0.0, 1.0)
+    boost = _core_dip_boost_ratio(drawdown_pct, inputs)
+    return max(0.01, base * (1.0 - boost * 0.85))
+
+
+def _core_dip_idle_cash_sweep_ratio(drawdown_pct: float, inputs: StrategyInputs) -> float:
+    boost = _core_dip_boost_ratio(drawdown_pct, inputs)
+    if boost <= 0:
+        return 0.12
+    return min(0.90, 0.25 + boost * 0.65)
+
+
 def _salary_flow_cash_reserve_ratio(drawdown_pct: float) -> float:
     if drawdown_pct >= 30.0:
         return 0.0
@@ -2008,7 +2808,7 @@ def _execute_crossed_tranches(
     state: SymbolState,
     point: PricePoint,
     tranches: list[StrategyTranche],
-    executed_thresholds: set[float],
+    executed_thresholds: dict[float, float],
     inputs: StrategyInputs,
     trade_log: list[dict[str, object]],
     buy_strategy: str,
@@ -2018,11 +2818,21 @@ def _execute_crossed_tranches(
     bought = False
     for tranche in tranches:
         threshold_key = round(tranche.threshold_pct, 8)
-        if threshold_key in executed_thresholds or drawdown_pct + 1e-9 < tranche.threshold_pct:
+        if drawdown_pct + 1e-9 < tranche.threshold_pct:
             continue
-        gross_amount = min(state.budget * tranche.allocation_pct / 100.0, state.cash)
+        target_amount = state.budget * tranche.allocation_pct / 100.0
+        already_executed = executed_thresholds.get(threshold_key, 0.0)
+        if buy_strategy == "pyramid_3":
+            if already_executed > 0:
+                continue
+            gross_amount = min(target_amount, state.cash)
+        else:
+            gross_amount = min(max(0.0, target_amount - already_executed), state.cash)
         if gross_amount <= 0:
-            executed_thresholds.add(threshold_key)
+            if buy_strategy == "pyramid_3":
+                executed_thresholds[threshold_key] = 1.0
+            else:
+                executed_thresholds[threshold_key] = max(already_executed, target_amount)
             continue
         if state.sell_marks:
             state.sell_marks.clear()
@@ -2049,7 +2859,7 @@ def _execute_crossed_tranches(
                 remaining_shares=shares,
             )
         )
-        executed_thresholds.add(threshold_key)
+        executed_thresholds[threshold_key] = 1.0 if buy_strategy == "pyramid_3" else already_executed + gross_amount
         trade_log.append(
             {
                 "action": "buy",
@@ -2079,12 +2889,26 @@ def _execute_crossed_tranches(
 
 def _rearm_buy_tranches_after_repair(
     point: PricePoint,
-    executed_thresholds: set[float],
+    executed_thresholds: dict[float, float],
     inputs: StrategyInputs,
 ) -> None:
     drawdown_pct = _point_drawdown_pct(point, inputs)
     if executed_thresholds and drawdown_pct <= 0.50:
         executed_thresholds.clear()
+
+
+def _rearm_buy_tranches_after_position_sell(
+    state: SymbolState,
+    point: PricePoint,
+    executed_thresholds: dict[float, float],
+    inputs: StrategyInputs,
+) -> None:
+    if not executed_thresholds or state.buy_rearm_drawdown_pct is None:
+        return
+    drawdown_pct = _point_drawdown_pct(point, inputs)
+    if drawdown_pct + 1e-9 >= state.buy_rearm_drawdown_pct:
+        executed_thresholds.clear()
+        state.buy_rearm_drawdown_pct = None
 
 
 def _execute_sell_strategy(
@@ -2110,7 +2934,7 @@ def _execute_sell_strategy(
         else:
             _execute_position_grid_rebound_sells(state, point, inputs, trade_log)
     elif sell_strategy == "cost_deleverage":
-        _execute_cost_deleverage_sells(state, point, inputs, trade_log)
+        _execute_cost_deleverage_sells(state, point, inputs, trade_log, trade_index)
 
 
 def _uses_lot_level_sells(buy_strategy: str) -> bool:
@@ -2221,8 +3045,8 @@ def _execute_grid_rebound_sells(
             continue
         if current_price_usd < lot.buy_price_usd * min_profit_multiplier:
             continue
-        first_threshold = max(0.0, lot.buy_drawdown_pct - inputs.step_pct)
-        second_threshold = max(0.0, lot.buy_drawdown_pct - inputs.step_pct * 2)
+        first_threshold = max(0.0, lot.buy_drawdown_pct - inputs.grid_rebound_step_pct)
+        second_threshold = max(0.0, lot.buy_drawdown_pct - inputs.grid_rebound_step_pct * 2)
         if not lot.first_grid_sell_done and drawdown_pct <= first_threshold:
             shares = min(lot.initial_shares * 0.5, lot.remaining_shares)
             if _sell_lot_shares(state, lot, point, shares, inputs, trade_log, "grid_rebound", first_threshold):
@@ -2252,15 +3076,25 @@ def _execute_position_grid_rebound_sells(
     drawdown_pct = _point_drawdown_pct(point, inputs)
     avg_buy_drawdown = _avg_buy_drawdown_pct(state)
     stages = [
-        ("grid_1", max(0.0, avg_buy_drawdown - inputs.step_pct), 50.0),
-        ("grid_2", max(0.0, avg_buy_drawdown - inputs.step_pct * 2), 100.0),
+        ("grid_1", max(0.0, avg_buy_drawdown - inputs.grid_rebound_step_pct), inputs.grid_first_sell_pct),
+        ("grid_2", max(0.0, avg_buy_drawdown - inputs.grid_rebound_step_pct * 2), inputs.grid_second_sell_pct),
     ]
     for mark, threshold, sell_pct in stages:
         if mark in state.sell_marks or drawdown_pct > threshold + 1e-9:
             continue
         shares = state.shares * sell_pct / 100.0
-        if _sell_shares(state, point, shares, inputs, trade_log, "grid_rebound", threshold):
+        if _sell_shares(
+            state,
+            point,
+            shares,
+            inputs,
+            trade_log,
+            "grid_rebound",
+            threshold,
+            min_gross_amount=inputs.grid_min_sell_amount,
+        ):
             state.sell_marks.add(mark)
+            return
 
 
 def _execute_cost_deleverage_sells(
@@ -2268,25 +3102,45 @@ def _execute_cost_deleverage_sells(
     point: PricePoint,
     inputs: StrategyInputs,
     trade_log: list[dict[str, object]],
+    trade_index: int,
 ) -> None:
+    if state.shares <= 0:
+        return
     if state.sell_marks is None:
         state.sell_marks = set()
+    if (
+        inputs.cost_deleverage_cooldown_days > 0
+        and state.last_cost_deleverage_sell_trade_index is not None
+        and trade_index - state.last_cost_deleverage_sell_trade_index < inputs.cost_deleverage_cooldown_days
+    ):
+        return
     avg_cost = _avg_cost_usd(state)
     current_price_usd = _price_usd(state.symbol, point.close, inputs)
     if avg_cost <= 0:
         return
     profit_pct = current_price_usd / avg_cost * 100.0 - 100.0
     stages = [
-        ("cost_8", 8.0, 30.0),
-        ("cost_15", 15.0, 30.0),
-        ("cost_25", 25.0, 30.0),
+        ("cost_1", inputs.cost_first_profit_pct, inputs.cost_first_sell_pct),
+        ("cost_2", inputs.cost_second_profit_pct, inputs.cost_second_sell_pct),
+        ("cost_3", inputs.cost_third_profit_pct, inputs.cost_third_sell_pct),
     ]
     for mark, threshold, sell_pct in stages:
         if mark in state.sell_marks or profit_pct < max(threshold, inputs.sell_min_profit_pct):
             continue
         shares = state.shares * sell_pct / 100.0
-        if _sell_shares(state, point, shares, inputs, trade_log, "cost_deleverage", threshold):
+        if _sell_shares(
+            state,
+            point,
+            shares,
+            inputs,
+            trade_log,
+            "cost_deleverage",
+            threshold,
+            min_gross_amount=inputs.cost_min_sell_amount,
+        ):
             state.sell_marks.add(mark)
+            state.last_cost_deleverage_sell_trade_index = trade_index
+            return
 
 
 def _sell_lot_shares(
@@ -2301,10 +3155,13 @@ def _sell_lot_shares(
 ) -> bool:
     shares = _sellable_shares(state, requested_shares, inputs)
     shares = min(shares, lot.remaining_shares)
-    if shares <= 0:
+    if shares <= 0 or not _meets_min_sell_amount(state, point, shares, inputs, 0.0):
         return False
     lot.remaining_shares -= shares
-    return _record_sell(state, point, shares, inputs, trade_log, sell_strategy, trigger_value, lot)
+    sold = _record_sell(state, point, shares, inputs, trade_log, sell_strategy, trigger_value, lot)
+    if sold and sell_strategy != "repair_step":
+        _mark_buy_rearm_after_position_sell(state, point, inputs)
+    return sold
 
 
 def _sell_shares(
@@ -2315,13 +3172,35 @@ def _sell_shares(
     trade_log: list[dict[str, object]],
     sell_strategy: str,
     trigger_value: float,
+    min_gross_amount: float = 0.0,
 ) -> bool:
     shares = _sellable_shares(state, requested_shares, inputs)
-    if shares <= 0:
+    if shares <= 0 or not _meets_min_sell_amount(state, point, shares, inputs, min_gross_amount):
         return False
     cost_basis = _avg_cost_usd(state) * shares
     _reduce_lots_fifo(state, shares)
-    return _record_sell(state, point, shares, inputs, trade_log, sell_strategy, trigger_value, cost_basis=cost_basis)
+    sold = _record_sell(state, point, shares, inputs, trade_log, sell_strategy, trigger_value, cost_basis=cost_basis)
+    if sold:
+        _mark_buy_rearm_after_position_sell(state, point, inputs)
+    return sold
+
+
+def _mark_buy_rearm_after_position_sell(state: SymbolState, point: PricePoint, inputs: StrategyInputs) -> None:
+    drawdown_pct = _point_drawdown_pct(point, inputs)
+    threshold = min(float(inputs.max_drawdown_pct), drawdown_pct + _position_sell_rearm_drawdown_pct(inputs))
+    state.buy_rearm_drawdown_pct = threshold
+
+
+def _meets_min_sell_amount(
+    state: SymbolState,
+    point: PricePoint,
+    shares: float,
+    inputs: StrategyInputs,
+    min_gross_amount: float,
+) -> bool:
+    if min_gross_amount <= 0:
+        return True
+    return shares * _price_usd(state.symbol, point.close, inputs) + 1e-9 >= min_gross_amount
 
 
 def _record_sell(

@@ -55,23 +55,15 @@ class PositionStrategyTest(unittest.TestCase):
         self.assertEqual(tranches[-1].threshold_pct, 50)
         self.assertTrue(all(item.allocation_pct == 5 for item in tranches))
 
-    def test_weighted_slice_allocates_full_budget(self):
+    def test_linear_weighted_slice_allocates_full_budget(self):
         linear_tranches = build_strategy_tranches(
             StrategyInputs(max_drawdown_pct=50, step_pct=5),
             "linear_weighted_slice",
         )
-        tranches = build_strategy_tranches(
-            StrategyInputs(max_drawdown_pct=50, step_pct=5),
-            "weighted_slice",
-        )
 
         self.assertEqual(len(linear_tranches), 10)
         self.assertAlmostEqual(sum(item.allocation_pct for item in linear_tranches), 100.0)
-        self.assertEqual(len(tranches), 10)
-        self.assertAlmostEqual(sum(item.allocation_pct for item in tranches), 100.0)
         self.assertGreater(linear_tranches[-1].allocation_pct, linear_tranches[0].allocation_pct)
-        self.assertGreater(tranches[-1].allocation_pct, tranches[0].allocation_pct)
-        self.assertGreater(tranches[-1].allocation_pct, linear_tranches[-1].allocation_pct)
 
     def test_target_max_drawdown_overrides_global_anchor(self):
         inputs = StrategyInputs(
@@ -226,14 +218,15 @@ class PositionStrategyTest(unittest.TestCase):
                 "pyramid_3__none",
                 "equal_slice__none",
                 "linear_weighted_slice__none",
-                "weighted_slice__none",
                 "weekly_dca__none",
                 "salary_flow_dca__none",
+                "core_dip_dca__none",
             },
         )
         self.assertEqual(by_key["pyramid_3__none"]["metrics"]["trade_count"], 3)
         self.assertEqual(by_key["weekly_dca__none"]["metrics"]["trade_count"], 1)
         self.assertEqual(by_key["salary_flow_dca__none"]["metrics"]["trade_count"], 0)
+        self.assertEqual(by_key["core_dip_dca__none"]["metrics"]["trade_count"], 0)
         self.assertAlmostEqual(by_key["pyramid_3__none"]["metrics"]["total_fees"], 1.05)
         self.assertEqual(by_key["equal_slice__none"]["metrics"]["trade_count"], 10)
         equal_buy_prices = [
@@ -273,6 +266,191 @@ class PositionStrategyTest(unittest.TestCase):
         self.assertEqual([round(trade["gross_amount"], 2) for trade in buys], [264.0, 211.2, 246.68, 214.06, 64.06, 400.0])
         self.assertAlmostEqual(strategy["metrics"]["total_contributed"], 1400.0)
         self.assertAlmostEqual(strategy["metrics"]["cash_remaining"], 0.0)
+
+    def test_core_dip_dca_keeps_core_buying_and_releases_dip_budget(self):
+        result = simulate_portfolio(
+            {
+                "TSLA.US": dated_points(
+                    ("2024-01-02", 100),
+                    ("2024-01-08", 95),
+                    ("2024-01-15", 90),
+                    ("2024-01-22", 80),
+                    ("2024-01-29", 70),
+                )
+            },
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            StrategyInputs(initial_cash=1000, monthly_contribution=400, trade_fee=0),
+            strategies=("core_dip_dca",),
+            sell_strategies=("none",),
+        )
+
+        strategy = result["strategies"][0]
+        buys = [trade for trade in strategy["trades"] if trade["action"] == "buy"]
+        self.assertEqual(strategy["label"], "核心定投+回撤加仓 / 不卖出")
+        self.assertEqual([trade["date"] for trade in buys], ["2024-01-02", "2024-01-08", "2024-01-15", "2024-01-22", "2024-01-29"])
+        self.assertEqual([round(trade["core_amount"], 2) for trade in buys], [90.0, 90.0, 90.0, 90.0, 90.0])
+        self.assertEqual([round(trade["initial_core_amount"], 2) for trade in buys], [800.0, 0.0, 0.0, 0.0, 0.0])
+        self.assertEqual([round(trade["dip_boost_ratio"], 2) for trade in buys], [0.0, 0.0, 0.25, 0.75, 1.0])
+        self.assertEqual([round(trade["dip_amount"], 2) for trade in buys], [0.0, 0.0, 2.5, 7.5, 10.0])
+        self.assertEqual([round(trade["gross_amount"], 2) for trade in buys], [893.6, 26.4, 17.0, 34.0, 17.0])
+        self.assertGreater(strategy["metrics"]["cash_usage_pct"], 98.0)
+
+    def test_core_dip_timing_defers_core_buy_after_sharp_rise(self):
+        result = simulate_portfolio(
+            {
+                "TSLA.US": dated_points(
+                    ("2024-01-02", 100),
+                    ("2024-01-08", 104),
+                    ("2024-01-09", 103),
+                    ("2024-01-10", 102),
+                )
+            },
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            StrategyInputs(
+                initial_cash=1000,
+                monthly_contribution=400,
+                trade_fee=0,
+                core_dip_initial_core_pct=0,
+                core_dip_weekly_core_pct=90,
+                core_dip_cash_reserve_pct=0,
+                core_dip_timing_enabled=True,
+                core_dip_timing_max_delay_days=3,
+                core_dip_timing_rise_threshold_pct=1.5,
+                core_dip_timing_near_low_pct=2,
+            ),
+            strategies=("core_dip_dca",),
+            sell_strategies=("none",),
+        )
+
+        buys = [trade for trade in result["strategies"][0]["trades"] if trade["action"] == "buy"]
+        self.assertEqual([trade["date"] for trade in buys], ["2024-01-02", "2024-01-09"])
+        self.assertEqual(buys[0]["timing_reason"], "initial_core")
+        self.assertEqual(buys[1]["timing_reason"], "down_day")
+        self.assertEqual(round(buys[1]["core_amount"], 2), 90.0)
+
+    def test_core_dip_timing_forces_buy_after_delay(self):
+        result = simulate_portfolio(
+            {
+                "TSLA.US": dated_points(
+                    ("2024-01-02", 100),
+                    ("2024-01-08", 104),
+                    ("2024-01-09", 106),
+                    ("2024-01-10", 108),
+                )
+            },
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            StrategyInputs(
+                initial_cash=1000,
+                monthly_contribution=400,
+                trade_fee=0,
+                core_dip_initial_core_pct=0,
+                core_dip_weekly_core_pct=90,
+                core_dip_cash_reserve_pct=0,
+                core_dip_timing_enabled=True,
+                core_dip_timing_max_delay_days=3,
+                core_dip_timing_rise_threshold_pct=1.5,
+                core_dip_timing_near_low_pct=0,
+            ),
+            strategies=("core_dip_dca",),
+            sell_strategies=("none",),
+        )
+
+        buys = [trade for trade in result["strategies"][0]["trades"] if trade["action"] == "buy"]
+        self.assertEqual([trade["date"] for trade in buys], ["2024-01-02", "2024-01-10"])
+        self.assertEqual(buys[1]["timing_reason"], "delay_expired")
+        self.assertEqual(round(buys[1]["core_amount"], 2), 90.0)
+
+    def test_equal_slice_reuses_triggered_drawdown_for_new_cash(self):
+        result = simulate_portfolio(
+            {
+                "PDD.US": dated_points(
+                    ("2024-01-02", 100),
+                    ("2024-01-03", 70),
+                    ("2024-02-01", 68),
+                    ("2024-03-01", 66),
+                )
+            },
+            [PortfolioTarget("PDD.US", 100, "PDD")],
+            StrategyInputs(
+                initial_cash=1000,
+                monthly_contribution=1000,
+                max_drawdown_pct=30,
+                step_pct=10,
+                equal_slice_allocation_pct=10,
+                trade_fee=0,
+                drawdown_basis="ath",
+            ),
+            strategies=("equal_slice",),
+            sell_strategies=("none",),
+        )
+
+        buys = [trade for trade in result["strategies"][0]["trades"] if trade["action"] == "buy"]
+        self.assertEqual([trade["date"] for trade in buys], ["2024-01-03", "2024-01-03", "2024-01-03", "2024-02-01", "2024-02-01", "2024-02-01", "2024-03-01", "2024-03-01", "2024-03-01"])
+        self.assertEqual([round(trade["gross_amount"], 2) for trade in buys], [100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0])
+
+    def test_pyramid_does_not_reuse_triggered_drawdown_for_new_cash(self):
+        result = simulate_portfolio(
+            {
+                "TSLA.US": dated_points(
+                    ("2024-01-02", 100),
+                    ("2024-01-03", 50),
+                    ("2024-02-01", 48),
+                    ("2024-03-01", 46),
+                )
+            },
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            StrategyInputs(
+                initial_cash=1000,
+                monthly_contribution=1000,
+                max_drawdown_pct=50,
+                trade_fee=0,
+                drawdown_basis="ath",
+            ),
+            strategies=("pyramid_3",),
+            sell_strategies=("none",),
+        )
+
+        buys = [trade for trade in result["strategies"][0]["trades"] if trade["action"] == "buy"]
+        self.assertEqual([trade["date"] for trade in buys], ["2024-01-03", "2024-01-03", "2024-01-03"])
+        self.assertEqual([round(trade["gross_amount"], 2) for trade in buys], [200.0, 300.0, 500.0])
+
+    def test_pyramid_rearms_after_position_sell_and_deeper_drawdown(self):
+        result = simulate_portfolio(
+            {
+                "PDD.US": dated_points(
+                    ("2024-01-02", 100),
+                    ("2024-01-03", 60),
+                    ("2024-01-04", 90),
+                    ("2024-01-05", 78),
+                    ("2024-01-08", 60),
+                )
+            },
+            [PortfolioTarget("PDD.US", 100, "PDD")],
+            StrategyInputs(
+                initial_cash=10000,
+                max_drawdown_pct=40,
+                trade_fee=0,
+                drawdown_basis="ath",
+                sell_min_profit_pct=10,
+                cost_first_profit_pct=10,
+                cost_second_profit_pct=25,
+                cost_third_profit_pct=40,
+                cost_first_sell_pct=50,
+                cost_second_sell_pct=0,
+                cost_third_sell_pct=0,
+                dca_rearm_drawdown_pct=5,
+                reserve_position_pct=0,
+            ),
+            strategies=("pyramid_3",),
+            sell_strategies=("cost_deleverage",),
+        )
+
+        trades = result["strategies"][0]["trades"]
+        buys = [trade for trade in trades if trade["action"] == "buy"]
+        sells = [trade for trade in trades if trade["action"] == "sell"]
+        self.assertTrue(sells)
+        self.assertGreater(len(buys), 3)
+        self.assertTrue(any(trade["date"] == "2024-01-08" for trade in buys))
 
     def test_simulation_can_cross_buy_and_sell_strategies(self):
         inputs = StrategyInputs(
@@ -355,7 +533,7 @@ class PositionStrategyTest(unittest.TestCase):
             {"TSLA.US": points(100, 90, 75, 50, 75, 90, 105, 94.5, 78.75, 52.5, 78.75, 95, 110)},
             [PortfolioTarget("TSLA.US", 100, "TSLA")],
             inputs,
-            strategies=("pyramid_3", "equal_slice", "weighted_slice"),
+            strategies=("pyramid_3", "equal_slice", "linear_weighted_slice"),
             sell_strategies=("repair_step", "grid_rebound", "cost_deleverage"),
         )
 
@@ -492,6 +670,128 @@ class PositionStrategyTest(unittest.TestCase):
         self.assertGreater(len(sells), 0)
         self.assertTrue(all(trade.get("lot_buy_price_usd") is None for trade in sells))
         self.assertGreater(min(trade["gross_amount"] for trade in sells), 400)
+
+    def test_equal_slice_grid_rebound_uses_position_sized_sells(self):
+        inputs = StrategyInputs(
+            initial_cash=10000,
+            max_drawdown_pct=50,
+            step_pct=5,
+            equal_slice_allocation_pct=5,
+            trade_fee=0,
+            reserve_position_pct=0,
+            sell_min_profit_pct=0,
+            grid_rebound_step_pct=5,
+            grid_first_sell_pct=40,
+            grid_second_sell_pct=40,
+            grid_min_sell_amount=0,
+        )
+        result = simulate_portfolio(
+            {"TSLA.US": points(100, 95, 90, 85, 80, 100, 105)},
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            inputs,
+            strategies=("equal_slice",),
+            sell_strategies=("grid_rebound",),
+        )
+
+        sells = [trade for trade in result["strategies"][0]["trades"] if trade["action"] == "sell"]
+        self.assertEqual(len(sells), 2)
+        self.assertTrue(all(trade.get("lot_buy_price_usd") is None for trade in sells))
+        self.assertAlmostEqual(sells[0]["shares"], 9.180426556587548)
+        self.assertAlmostEqual(sells[1]["shares"], 5.508255933952529)
+
+    def test_position_grid_rebound_respects_min_sell_amount(self):
+        inputs = StrategyInputs(
+            initial_cash=1000,
+            max_drawdown_pct=50,
+            step_pct=5,
+            equal_slice_allocation_pct=5,
+            trade_fee=0,
+            reserve_position_pct=0,
+            sell_min_profit_pct=0,
+            grid_rebound_step_pct=5,
+            grid_first_sell_pct=40,
+            grid_second_sell_pct=40,
+            grid_min_sell_amount=500,
+        )
+        result = simulate_portfolio(
+            {"TSLA.US": points(100, 95, 90, 85, 80, 100, 105)},
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            inputs,
+            strategies=("equal_slice",),
+            sell_strategies=("grid_rebound",),
+        )
+
+        sells = [trade for trade in result["strategies"][0]["trades"] if trade["action"] == "sell"]
+        self.assertEqual(sells, [])
+
+    def test_cost_deleverage_uses_configured_position_sized_stages(self):
+        inputs = StrategyInputs(
+            initial_cash=10000,
+            max_drawdown_pct=50,
+            step_pct=5,
+            equal_slice_allocation_pct=5,
+            trade_fee=0,
+            reserve_position_pct=0,
+            sell_min_profit_pct=0,
+            cost_first_profit_pct=5,
+            cost_second_profit_pct=10,
+            cost_third_profit_pct=20,
+            cost_first_sell_pct=20,
+            cost_second_sell_pct=30,
+            cost_third_sell_pct=40,
+            cost_deleverage_cooldown_days=0,
+            cost_min_sell_amount=0,
+        )
+        result = simulate_portfolio(
+            {"TSLA.US": points(100, 95, 90, 85, 100, 110, 125)},
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            inputs,
+            strategies=("equal_slice",),
+            sell_strategies=("cost_deleverage",),
+        )
+
+        sells = [trade for trade in result["strategies"][0]["trades"] if trade["action"] == "sell"]
+        self.assertEqual([trade["trigger_value"] for trade in sells], [5, 10, 20])
+        self.assertTrue(all(trade.get("lot_buy_price_usd") is None for trade in sells))
+        self.assertGreater(sells[0]["gross_amount"], 300)
+
+    def test_cost_deleverage_respects_cooldown_and_min_sell_amount(self):
+        common = dict(
+            initial_cash=1000,
+            max_drawdown_pct=50,
+            step_pct=5,
+            equal_slice_allocation_pct=5,
+            trade_fee=0,
+            reserve_position_pct=0,
+            sell_min_profit_pct=0,
+            cost_first_profit_pct=5,
+            cost_second_profit_pct=10,
+            cost_third_profit_pct=20,
+            cost_first_sell_pct=30,
+            cost_second_sell_pct=30,
+            cost_third_sell_pct=30,
+        )
+        blocked_by_min_amount = simulate_portfolio(
+            {"TSLA.US": points(100, 95, 90, 85, 100, 110, 125)},
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            StrategyInputs(**common, cost_deleverage_cooldown_days=0, cost_min_sell_amount=500),
+            strategies=("equal_slice",),
+            sell_strategies=("cost_deleverage",),
+        )
+        self.assertEqual(
+            [trade for trade in blocked_by_min_amount["strategies"][0]["trades"] if trade["action"] == "sell"],
+            [],
+        )
+
+        cooled_down = simulate_portfolio(
+            {"TSLA.US": points(100, 95, 90, 85, 100, 110, 125)},
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            StrategyInputs(**common, cost_deleverage_cooldown_days=3, cost_min_sell_amount=0),
+            strategies=("equal_slice",),
+            sell_strategies=("cost_deleverage",),
+        )
+        sells = [trade for trade in cooled_down["strategies"][0]["trades"] if trade["action"] == "sell"]
+        self.assertEqual([trade["trigger_value"] for trade in sells], [5])
 
     def test_salary_flow_rearms_position_repair_after_drawdown_buy(self):
         inputs = StrategyInputs(

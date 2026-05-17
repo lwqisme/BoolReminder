@@ -25,11 +25,15 @@ from drawdown.position_strategy import (
     SCORECARD_PORTFOLIOS,
     SELL_STRATEGY_LABELS,
     STRATEGY_LABELS,
+    StrategyLabComputationCancelled,
+    prepare_robust_leaderboard_packet,
     parse_date_range,
     run_longbridge_strategy_lab,
     run_longbridge_robust_leaderboard,
     run_longbridge_strategy_scorecard,
     run_longbridge_sell_parameter_scan,
+    _resolve_scorecard_portfolios,
+    _scorecard_symbol_key,
 )
 from drawdown.strategy_lab_config import StrategyLabConfig
 from drawdown.strategy_lab_history import (
@@ -72,6 +76,7 @@ watchlist_cache: dict[str, object] = {
 strategy_lab_jobs: dict[str, dict[str, object]] = {}
 strategy_lab_jobs_lock = threading.Lock()
 STRATEGY_LAB_JOB_TTL_SECONDS = 60 * 60
+SERVER_ROBUST_MAX_SIMULATIONS = int(os.environ.get("STRATEGY_LAB_SERVER_TOP10_MAX_SIMULATIONS", "2500"))
 
 # 初始化配置管理器（模块级别）
 try:
@@ -1326,6 +1331,18 @@ STRATEGY_LAB_TEMPLATE = """
             font-size: 12px;
             line-height: 1.45;
         }
+        .job-actions {
+            display: none;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .job-actions.show { display: flex; }
+        .btn-warning { background: #f59e0b; border-color: #d97706; color: #ffffff; box-shadow: none; }
+        .btn-warning:hover { background: #d97706; border-color: #b45309; }
+        .btn-danger { background: #dc2626; border-color: #b91c1c; color: #ffffff; box-shadow: none; }
+        .btn-danger:hover { background: #b91c1c; border-color: #991b1b; }
         .command-actions {
             display: flex;
             align-items: center;
@@ -1478,6 +1495,41 @@ STRATEGY_LAB_TEMPLATE = """
         .ticker { font-family: var(--mono); font-weight: 900; font-size: 14px; }
         .weight-bar { height: 5px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
         .weight-bar span { display: block; height: 100%; background: var(--blue); box-shadow: 0 0 10px rgba(17, 103, 216, 0.22); transition: width 300ms ease; }
+        .universe-panel {
+            margin-bottom: 12px;
+            padding: 12px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius-sm);
+            background: rgba(248, 250, 252, 0.72);
+        }
+        .universe-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+        .universe-title { display: grid; gap: 2px; }
+        .universe-title strong { color: var(--charcoal); }
+        .universe-title span { color: var(--muted); font-size: 12px; }
+        .universe-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+        .universe-item {
+            display: grid;
+            grid-template-columns: minmax(72px, 0.9fr) minmax(72px, 1fr) 72px auto;
+            gap: 6px;
+            align-items: center;
+            padding: 8px;
+            border: 1px solid rgba(215, 226, 239, 0.92);
+            border-radius: var(--radius-sm);
+            background: rgba(255, 255, 255, 0.72);
+        }
+        .universe-item input { min-height: 30px; padding: 5px 7px; font-size: 12px; }
+        .universe-remove { width: 30px; min-height: 30px; padding: 0; }
+        @media (max-width: 720px) {
+            .universe-item { grid-template-columns: 1fr 1fr; }
+            .universe-remove { width: auto; }
+        }
         /* kpi grid for results */
         .kpi-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
         .kpi {
@@ -1765,6 +1817,45 @@ STRATEGY_LAB_TEMPLATE = """
             cursor: pointer;
         }
         .score-topic-option input { width: auto; min-height: 0; margin: 0; accent-color: var(--blue); }
+        .robust-strategy-picker {
+            display: grid;
+            gap: 6px;
+            align-self: stretch;
+            min-width: 230px;
+            padding: 8px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.62);
+        }
+        .robust-strategy-picker > span {
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 900;
+        }
+        .robust-strategy-options {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .robust-strategy-option {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            min-height: 28px;
+            padding: 4px 8px;
+            border: 1px solid rgba(17, 103, 216, 0.14);
+            border-radius: 10px;
+            background: #ffffff;
+            color: var(--ink);
+            font-size: 12px;
+            font-weight: 900;
+            cursor: pointer;
+        }
+        .robust-strategy-option input {
+            width: auto;
+            min-height: 0;
+            margin: 0;
+            accent-color: var(--blue);
+        }
         .score-period-grid {
             display: grid;
             grid-template-columns: repeat(3, minmax(180px, 1fr));
@@ -2093,6 +2184,14 @@ STRATEGY_LAB_TEMPLATE = """
             line-height: 1;
             cursor: help;
             vertical-align: middle;
+        }
+        .robust-param-help.score-info-btn {
+            width: 15px;
+            height: 15px;
+            min-height: 15px;
+            margin-left: 2px;
+            margin-right: 2px;
+            font-size: 10px;
         }
         .robust-task {
             color: var(--muted);
@@ -2620,7 +2719,7 @@ STRATEGY_LAB_TEMPLATE = """
                 <button class="active" type="button" data-tab="setup" data-short="配置" onclick="activateTab('setup')">实验配置</button>
                 <button type="button" data-tab="results" data-short="演算" onclick="activateTab('results')">组合演算</button>
                 <button type="button" data-tab="scorecard" data-short="评分" onclick="activateTab('scorecard')">策略评分</button>
-                <button type="button" data-tab="robust" data-short="Top10" onclick="activateTab('robust')">稳健 Top10</button>
+                <button type="button" data-tab="robust" data-short="Top10" onclick="activateTab('robust')">收益 Top10</button>
                 <button type="button" data-tab="scan" data-short="扫描" onclick="activateTab('scan')">参数扫描</button>
                 <button type="button" data-tab="history" data-short="历史" onclick="activateTab('history')">运行历史</button>
             </nav>
@@ -2655,6 +2754,11 @@ STRATEGY_LAB_TEMPLATE = """
             </div>
             <div class="job-progress"><span id="jobProgress"></span></div>
             <div id="jobMessage" class="job-message">等待任务开始。</div>
+            <div id="jobActions" class="job-actions">
+                <button id="jobPauseButton" class="btn btn-warning btn-small" type="button" onclick="pauseStrategyJob()">暂停</button>
+                <button id="jobResumeButton" class="btn btn-secondary btn-small" type="button" onclick="resumeStrategyJob()" style="display:none;">继续</button>
+                <button id="jobCancelButton" class="btn btn-danger btn-small" type="button" onclick="cancelStrategyJob()">停止</button>
+            </div>
         </div>
 
         <div class="command-bar" aria-label="策略实验室操作条">
@@ -2752,6 +2856,45 @@ STRATEGY_LAB_TEMPLATE = """
                             <label for="equalSliceAllocation">等距每档仓位 %</label>
                             <input id="equalSliceAllocation" type="number" min="0.1" max="100" step="0.5" value="{{ default_config.default_equal_slice_allocation_pct }}">
                         </div>
+                        <div>
+                            <label for="coreDipInitialCorePct">核心初始仓 %</label>
+                            <input id="coreDipInitialCorePct" type="number" min="0" max="100" step="1" value="{{ default_config.default_core_dip_initial_core_pct }}">
+                        </div>
+                        <div>
+                            <label for="coreDipWeeklyCorePct">核心周投入 %</label>
+                            <input id="coreDipWeeklyCorePct" type="number" min="0" max="100" step="1" value="{{ default_config.default_core_dip_weekly_core_pct }}">
+                        </div>
+                        <div>
+                            <label for="coreDipCashReservePct">核心现金垫 %</label>
+                            <input id="coreDipCashReservePct" type="number" min="0" max="100" step="1" value="{{ default_config.default_core_dip_cash_reserve_pct }}">
+                        </div>
+                        <div>
+                            <label for="coreDipStartDrawdownPct">核心加仓起点 %</label>
+                            <input id="coreDipStartDrawdownPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_core_dip_start_drawdown_pct }}">
+                        </div>
+                        <div>
+                            <label for="coreDipFullDrawdownPct">核心满档回撤 %</label>
+                            <input id="coreDipFullDrawdownPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_core_dip_full_drawdown_pct }}">
+                        </div>
+                        <div>
+                            <label for="coreDipTimingEnabled">核心买点优化</label>
+                            <select id="coreDipTimingEnabled">
+                                <option value="false" {% if not default_config.default_core_dip_timing_enabled %}selected{% endif %}>关闭</option>
+                                <option value="true" {% if default_config.default_core_dip_timing_enabled %}selected{% endif %}>开启</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="coreDipTimingMaxDelayDays">最多延迟交易日</label>
+                            <input id="coreDipTimingMaxDelayDays" type="number" min="0" max="10" step="1" value="{{ default_config.default_core_dip_timing_max_delay_days }}">
+                        </div>
+                        <div>
+                            <label for="coreDipTimingRiseThresholdPct">大涨延迟阈值 %</label>
+                            <input id="coreDipTimingRiseThresholdPct" type="number" min="0" max="20" step="0.1" value="{{ default_config.default_core_dip_timing_rise_threshold_pct }}">
+                        </div>
+                        <div>
+                            <label for="coreDipTimingNearLowPct">近低偏离阈值 %</label>
+                            <input id="coreDipTimingNearLowPct" type="number" min="0" max="20" step="0.1" value="{{ default_config.default_core_dip_timing_near_low_pct }}">
+                        </div>
                     </div>
                 </div>
                 <div class="fieldset">
@@ -2783,13 +2926,61 @@ STRATEGY_LAB_TEMPLATE = """
                             <input id="repairStageSellPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_repair_stage_sell_pct }}">
                         </div>
                         <div>
-                            <label for="dcaRearmDrawdown">DCA卖出重启回撤 %</label>
+                            <label for="dcaRearmDrawdown">卖后重启回撤 %</label>
                             <input id="dcaRearmDrawdown" type="number" min="0" max="95" step="0.5" value="{{ default_config.default_dca_rearm_drawdown_pct }}">
+                        </div>
+                        <div>
+                            <label for="gridReboundStep">网格回弹步长 %</label>
+                            <input id="gridReboundStep" type="number" min="0.5" max="100" step="0.5" value="{{ default_config.default_grid_rebound_step_pct }}">
+                        </div>
+                        <div>
+                            <label for="gridFirstSellPct">网格第一档卖出 %</label>
+                            <input id="gridFirstSellPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_grid_first_sell_pct }}">
+                        </div>
+                        <div>
+                            <label for="gridSecondSellPct">网格第二档卖出 %</label>
+                            <input id="gridSecondSellPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_grid_second_sell_pct }}">
+                        </div>
+                        <div>
+                            <label for="gridMinSellAmount">网格最小卖出额 USD</label>
+                            <input id="gridMinSellAmount" type="number" min="0" step="50" value="{{ default_config.default_grid_min_sell_amount }}">
+                        </div>
+                        <div>
+                            <label for="costFirstProfitPct">成本第一档盈利 %</label>
+                            <input id="costFirstProfitPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_cost_first_profit_pct }}">
+                        </div>
+                        <div>
+                            <label for="costSecondProfitPct">成本第二档盈利 %</label>
+                            <input id="costSecondProfitPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_cost_second_profit_pct }}">
+                        </div>
+                        <div>
+                            <label for="costThirdProfitPct">成本第三档盈利 %</label>
+                            <input id="costThirdProfitPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_cost_third_profit_pct }}">
+                        </div>
+                        <div>
+                            <label for="costFirstSellPct">成本第一档卖出 %</label>
+                            <input id="costFirstSellPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_cost_first_sell_pct }}">
+                        </div>
+                        <div>
+                            <label for="costSecondSellPct">成本第二档卖出 %</label>
+                            <input id="costSecondSellPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_cost_second_sell_pct }}">
+                        </div>
+                        <div>
+                            <label for="costThirdSellPct">成本第三档卖出 %</label>
+                            <input id="costThirdSellPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_cost_third_sell_pct }}">
+                        </div>
+                        <div>
+                            <label for="costDeleverageCooldown">成本卖出冷却天数</label>
+                            <input id="costDeleverageCooldown" type="number" min="0" step="1" value="{{ default_config.default_cost_deleverage_cooldown_days }}">
+                        </div>
+                        <div>
+                            <label for="costMinSellAmount">成本最小卖出额 USD</label>
+                            <input id="costMinSellAmount" type="number" min="0" step="50" value="{{ default_config.default_cost_min_sell_amount }}">
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="hint" style="margin-top: 12px;">演算按交易日从早到晚推进，每天只使用截至当天的价格、回撤、现金和持仓状态；不会提前读取未来走势。价格修复到接近 ATH 后会进入下一轮交易周期，买入档位和分档卖出规则可重新触发。DCA卖出重启回撤控制每周定投/工资流定投在明显回撤买入后，是否重新打开阶梯修复、网格回弹、成本去杠杆的整仓卖出档位；0% 表示每次 DCA 买入都可重启。卖出下拉里的“全部卖出策略”现在包含网格回弹卖出，和稳健 Top10 保持一致；阶梯修复卖出每次只执行一个修复档，并在卖出后进入交易日冷却期。等距细切、底仓、手续费、汇率、评分权重和期权参数都可以通过“保存默认值”写入配置，下次打开自动带出。HK 标的按页面汇率折算成 USD。</div>
+            <div class="hint" style="margin-top: 12px;">演算按交易日从早到晚推进，每天只使用截至当天的价格、回撤、现金和持仓状态；不会提前读取未来走势。价格修复到接近 ATH 后会进入下一轮交易周期，买入档位和分档卖出规则可重新触发。卖后重启回撤控制卖出后的下一轮触发门槛：三档金字塔在整仓/网格/成本卖出后，需要从卖出当天再加深这些回撤百分点才重新打开已用过的买入档位；每周定投、工资流定投和核心定投在明显回撤买入后，用同一参数重新打开阶梯修复、网格回弹、成本去杠杆的整仓卖出档位。0% 表示卖出后只要仍在当前回撤附近即可重启。卖出下拉里的“全部卖出策略”现在包含网格回弹卖出，和收益 Top10 保持一致；阶梯修复卖出每次只执行一个修复档，并在卖出后进入交易日冷却期。网格回弹对三档金字塔仍按大 lot 卖出，对其他细切/定投策略按整仓聚合卖出，并使用独立回弹步长、两档卖出比例和最小卖出额控制交易噪音。等距细切、底仓、手续费、汇率、评分权重和期权参数都可以通过“保存默认值”写入配置，下次打开自动带出。HK 标的按页面汇率折算成 USD。</div>
             </div>
         </div>
 
@@ -2911,10 +3102,10 @@ STRATEGY_LAB_TEMPLATE = """
             <div class="reference-list">
                 <div class="reference-item"><span class="tag">BUY</span><div><strong>三档金字塔</strong><p>以最大可接受回撤为锚点，在 20%、50%、100% 三个回撤档触发买入，对应投入 20%、30%、50% 的标的预算。</p></div></div>
                 <div class="reference-item"><span class="tag">BUY</span><div><strong>等距细切</strong><p>按细切步长逐档触发，默认每回撤 5% 买入该标的预算的 5%，交易更平滑，但固定手续费影响更明显。</p></div></div>
-                <div class="reference-item"><span class="tag">BUY</span><div><strong>线性递增加权细切</strong><p>同样按细切步长触发，投入按档位序号 1、2、3... 递增并归一化到 100% 预算，前期投入比平方递增更有存在感。</p></div></div>
-                <div class="reference-item"><span class="tag">BUY</span><div><strong>平方递增加权细切</strong><p>同样按细切步长触发，投入按档位序号平方递增并归一化到 100% 预算，更保守地把资金留给深度回撤。</p></div></div>
+                <div class="reference-item"><span class="tag">BUY</span><div><strong>线性递增加权细切</strong><p>同样按细切步长触发，投入按档位序号 1、2、3... 递增并归一化到 100% 预算，比等距细切更偏向深回撤档位。</p></div></div>
                 <div class="reference-item"><span class="tag">BUY</span><div><strong>每周定投</strong><p>首个交易日把初始现金按标的权重投入；之后每次月注入资金到账，就在该标的下一个可交易日把这笔工资流立即买入，不再按周均摊。</p></div></div>
                 <div class="reference-item"><span class="tag">BUY</span><div><strong>工资流定投</strong><p>每周首个交易日按每月注入资金动态买入，并按余额加速吃现金。回撤越深，当周投入按 1.0x、1.4x、2.0x、3.0x、4.0x 放大；现金垫从 8% 逐步降到 0%，闲置现金会按 20%-90% 扫入。</p></div></div>
+                <div class="reference-item"><span class="tag">BUY</span><div><strong>核心定投+回撤加仓</strong><p>首次先用约 80% 初始现金建立核心底仓；之后每周用月注入资金的 90% 定投，5%-25% 回撤区间逐步释放加仓预算，并按回撤深度扫入闲置现金。</p></div></div>
                 <div class="reference-item"><span class="tag">SELL</span><div><strong>不卖出</strong><p>只执行买入策略，不触发任何卖出，用来观察纯回撤加仓在所选时间段内的结果。</p></div></div>
                 <div class="reference-item"><span class="tag">SELL</span><div><strong>阶梯修复卖出</strong><p>三档金字塔按每笔买入 lot 独立修复；细切和定投按整只标的的平均成本、平均买入回撤触发，卖出量按整体持仓计算，避免碎卖。</p></div></div>
                 <div class="reference-item"><span class="tag">SELL</span><div><strong>网格回弹卖出</strong><p>三档金字塔仍按 lot 回弹退出；细切和定投改为整仓网格，回撤从平均买入回撤修复 1 个 / 2 个 step 时按整体仓位减仓。</p></div></div>
@@ -2945,7 +3136,7 @@ STRATEGY_LAB_TEMPLATE = """
                     </div>
                     <div class="description-card">
                         <strong>看结果时</strong>
-                        <p>评分页里重点看收益率、最大回撤、现金余额和交易明细中的 drawdown_boost、cash_reserve、idle_cash_sweep 字段；明显回撤买入后，会按“DCA卖出重启回撤”参数重新打开整仓修复卖出档位。</p>
+                        <p>评分页里重点看收益率、最大回撤、现金余额和交易明细中的 drawdown_boost、cash_reserve、idle_cash_sweep 字段；三档金字塔卖出后，会按“卖后重启回撤”重新打开买入档位，定投类策略则用它重新打开整仓修复卖出档位。</p>
                     </div>
                 </div>
             </details>
@@ -2960,6 +3151,19 @@ STRATEGY_LAB_TEMPLATE = """
                 <span class="code">PORTFOLIO</span>
             </div>
             <div class="tool-body">
+            <div class="universe-panel">
+                <div class="universe-head">
+                    <div class="universe-title">
+                        <strong>全局投资标的库</strong>
+                        <span>这里的股票可复用于组合持仓、评分题目和收益 Top10。</span>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <button class="btn btn-secondary btn-small" type="button" onclick="addUniverseSymbol()">添加股票</button>
+                        <button class="btn btn-secondary btn-small" type="button" onclick="saveUniverseSymbols()">保存标的库</button>
+                    </div>
+                </div>
+                <div id="universeGrid" class="universe-grid"></div>
+            </div>
             <div id="holdingGrid" class="holding-grid"></div>
             <div class="hint" style="margin-top: 12px;">点击标的、名称、权重和评分回撤上限可直接编辑；权重在运行时自动归一化到 100%，评分会按 symbol 把单股回撤上限应用到对应题目。</div>
             </div>
@@ -3004,12 +3208,7 @@ STRATEGY_LAB_TEMPLATE = """
                 </div>
                 <div class="scan-actions">
                     <button class="btn btn-secondary btn-small" type="button" onclick="runSellParameterScan()">运行扫描</button>
-                    <label class="scan-mode">评分口径
-                        <select id="scanScoreMode" onchange="rerenderSellScan()">
-                            <option value="balanced" {% if default_config.default_scan_score_mode == 'balanced' %}selected{% endif %}>综合参数评分</option>
-                            <option value="return_drawdown" {% if default_config.default_scan_score_mode == 'return_drawdown' %}selected{% endif %}>仅收益&回撤</option>
-                        </select>
-                    </label>
+                    <span class="scan-note">评分口径：收益 90% / 回撤 10%</span>
                     <span class="scan-note">当前设置作为基准；点击热力格可把参数回填到实验配置。</span>
                 </div>
                 <div id="scanResult" class="scan-result">
@@ -3030,7 +3229,7 @@ STRATEGY_LAB_TEMPLATE = """
                     <div id="scan3dView" class="scan-view-hidden">
                         <div id="scan3dChart" class="scan-3d-chart"></div>
                     </div>
-                    <div class="scan-legend"><i></i><span id="scanLegendText">颜色按综合参数评分从低到高；蓝框是当前参数，绿框是本次扫描最佳。</span></div>
+                    <div class="scan-legend"><i></i><span id="scanLegendText">颜色按收益 90% / 回撤 10% 从低到高；蓝框是当前参数，绿框是本次扫描最佳。</span></div>
                 </div>
             </div>
             </div>
@@ -3038,16 +3237,16 @@ STRATEGY_LAB_TEMPLATE = """
 
         <div id="robustWorkspace" class="panel tab-hidden" data-tab-panel="robust">
             <div class="tool-head">
-                <h2>稳健 Top10</h2>
+                <h2>收益 Top10</h2>
                 <div style="display:flex;align-items:center;gap:8px;">
                     <span id="robustRange" class="small">读取下方共享题目矩阵，按勾选股票/组合与时间阶段评分。</span>
-                    <button class="btn btn-secondary btn-small" type="button" onclick="runRobustLeaderboard()">运行稳健 Top10</button>
+                    <button class="btn btn-secondary btn-small" type="button" onclick="runRobustLeaderboard()">本机计算 Top10</button>
                     <span class="code">TOP10</span>
                 </div>
             </div>
             <div class="tool-body">
-            <div class="hint">稳健 Top10 独立于卖出参数扫描；它会读取下方共享题目矩阵，先用代表性题目粗筛，再局部加密，最后只对当前勾选题目做全题验证。行情数据统一准备，避免每个候选重复请求外部 API。</div>
-            <div class="score-topic-panel" aria-label="稳健 Top10 共享题目">
+            <div class="hint">收益 Top10 独立于卖出参数扫描；它会读取下方共享题目矩阵，对全部候选参数和当前勾选题目使用同一套收益 90% / 回撤 10% 口径评分。行情数据统一准备，避免每个候选重复请求外部 API。</div>
+            <div class="score-topic-panel" aria-label="收益 Top10 共享题目">
                 <div class="score-topic-title">共享题目矩阵 <span data-score-topic-summary></span></div>
                 <div>
                     <div class="score-topic-options">
@@ -3079,20 +3278,51 @@ STRATEGY_LAB_TEMPLATE = """
                     </div>
                 </div>
             </div>
-            <div class="scan-panel" aria-label="稳健 Top10 控制">
+            <div class="scan-panel" aria-label="收益 Top10 控制">
                 <div class="scan-actions">
-                    <button class="btn btn-primary btn-small" type="button" onclick="runRobustLeaderboard()">运行稳健 Top10</button>
-                    <label class="scan-mode">稳健榜口径
-                        <select id="robustScoreMode">
-                            <option value="robust">稳健综合</option>
-                            <option value="return_drawdown">收益优先 80/20</option>
+                    <button class="btn btn-primary btn-small" type="button" onclick="runRobustLeaderboard()">本机计算 Top10</button>
+                    <button class="btn btn-secondary btn-small" type="button" onclick="runRobustLeaderboardOnServer()">小规模服务端 Top10</button>
+                    <div class="robust-strategy-picker" id="robustBuyStrategies" role="group" aria-label="收益 Top10 买入策略">
+                        <span>买入策略</span>
+                        <div class="robust-strategy-options">
+                            {% for key, label in buy_strategy_labels.items() %}
+                                <label class="robust-strategy-option">
+                                    <input type="checkbox" name="robustBuyStrategy" value="{{ key }}" onchange="syncRobustSelectors()" checked>
+                                    {{ label }}
+                                </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="robust-strategy-picker" id="robustSellStrategies" role="group" aria-label="收益 Top10 卖出策略">
+                        <span>卖出策略</span>
+                        <div class="robust-strategy-options">
+                            {% for key, label in sell_strategy_labels.items() %}
+                                <label class="robust-strategy-option">
+                                    <input type="checkbox" name="robustSellStrategy" value="{{ key }}" onchange="syncRobustSelectors()" checked>
+                                    {{ label }}
+                                </label>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <span class="scan-note">收益榜口径：收益 90% / 回撤 10%</span>
+                    <label class="scan-mode">核心买点优化候选
+                        <select id="robustCoreDipTimingFilter" onchange="syncRobustSelectors()">
+                            <option value="all" selected>全部</option>
+                            <option value="enabled">只看开启</option>
+                            <option value="disabled">只看关闭</option>
                         </select>
                     </label>
-                    <span class="scan-note">当前勾选题目会同时影响稳健 Top10 与策略评分。</span>
+                    <label class="scan-mode">并发度
+                        <input id="robustConcurrency" type="number" min="1" max="12" step="1" value="4" onchange="syncRobustSelectors()" style="width:72px;">
+                    </label>
+                    <button class="btn btn-secondary btn-small" type="button" onclick="runRobustConcurrencyProbe()">并发自检</button>
+                    <span id="robustEstimate" class="scan-note"></span>
+                    <span id="robustConcurrencyProbe" class="scan-note"></span>
+                    <span class="scan-note">当前勾选题目会同时影响收益 Top10 与策略评分。</span>
                 </div>
                 <div id="robustBoard" class="robust-board">
                     <div class="summary-title">
-                        <h2>稳健 Top10 结果</h2>
+                        <h2>收益 Top10 结果</h2>
                         <span id="robustResultMeta" class="small"></span>
                     </div>
                     <div id="robustStrip" class="robust-strip"></div>
@@ -3101,11 +3331,7 @@ STRATEGY_LAB_TEMPLATE = """
                             <thead>
                                 <tr>
                                     <th>策略 / 参数</th>
-                                    <th>稳健分</th>
-                                    <th>均分</th>
-                                    <th>P25 <button class="metric-help score-info-btn" type="button" aria-label="解释 P25" data-tooltip="P25\n所有题目得分的第 25 分位数。\n它代表偏弱场景里的保底表现，越高说明策略不容易只靠少数题目拉高均值。">?</button></th>
-                                    <th>Top10% <button class="metric-help score-info-btn" type="button" aria-label="解释 Top10%" data-tooltip="Top10%\n该策略在多少比例的题目中进入候选排名前 10%。\n这是强势命中率，越高说明跨股票/阶段更常排在前列。">?</button></th>
-                                    <th>Bottom10% <button class="metric-help score-info-btn" type="button" aria-label="解释 Bottom10%" data-tooltip="Bottom10%\n该策略在多少比例的题目中落入候选排名后 10%。\n这是踩坑率，越低说明跨股票/阶段更少垫底。">?</button></th>
+                                    <th>收益90/回撤10分</th>
                                     <th>均收益</th>
                                     <th>均回撤</th>
                                     <th>最强 / 最弱题目</th>
@@ -3216,18 +3442,7 @@ STRATEGY_LAB_TEMPLATE = """
                 </div>
             </div>
             <div class="tool-body">
-            <div class="hint">评分只比较收益率和最大回撤。若设置每月注入，收益率按累计投入计算；汇总表总分按平均收益、平均回撤归一化计算；卖出质量、卖出盈利、卖出回撤、现金复用只做观察诊断，不参与总分。题目矩阵单元格保留每个题目内部的归一化评分。期权叠加不参与评分。</div>
-            <div class="score-weight-panel" aria-label="评分权重">
-                <div class="score-weight-fields">
-                    <label>收益权重 %
-                        <input id="scoreReturnWeight" type="number" min="0" max="100" step="1" value="{{ default_config.default_score_return_weight_pct }}">
-                    </label>
-                    <label>回撤权重 %
-                        <input id="scoreDrawdownWeight" type="number" min="0" max="100" step="1" value="{{ default_config.default_score_drawdown_weight_pct }}">
-                    </label>
-                </div>
-                <div class="score-weight-note">运行评分时读取当前权重；后端会按比例归一化，例如 80 / 20 与 4 / 1 等价。</div>
-            </div>
+            <div class="hint">评分只比较收益率和最大回撤，固定按收益 90% / 回撤 10% 排名。若设置每月注入，收益率按累计投入计算；汇总表总分按平均收益、平均回撤归一化计算；卖出质量、卖出盈利、卖出回撤、现金复用只做观察诊断，不参与总分。题目矩阵单元格保留每个题目内部的归一化评分。期权叠加不参与评分。</div>
             <div class="score-sell-panel" aria-label="评分卖出策略">
                 <div class="score-topic-title">卖出策略组</div>
                 <label class="score-sell-select">
@@ -3407,9 +3622,11 @@ STRATEGY_LAB_TEMPLATE = """
 
     <script>
         const defaultPortfolio = {{ default_portfolio|tojson }};
+        const defaultInvestmentUniverse = {{ investment_universe|tojson }};
         const buyStrategyLabels = {{ buy_strategy_labels|tojson }};
         const sellStrategyLabels = {{ sell_strategy_labels|tojson }};
         const scorecardPortfolioLabels = {{ scorecard_portfolio_labels|tojson }};
+        const scorecardSymbolKeys = {{ scorecard_symbol_keys|tojson }};
         const scorecardPeriods = {{ scorecard_periods|tojson }};
         const strategyColors = ['#07689f', '#ff7e67', '#5aaeda', '#054d76', '#ff9a87', '#2e8fc4', '#a2d5f2', '#d95f4b', '#07547f', '#7fc2e8', '#c95442', '#2b769f'];
         const defaultSellStrategyKeys = Object.keys(sellStrategyLabels);
@@ -3419,12 +3636,15 @@ STRATEGY_LAB_TEMPLATE = """
         let lastSellScan = null;
         let lastRobustLeaderboard = null;
         let activeScanStageSell = null;
-        let activeScanScoreMode = {{ default_config.default_scan_score_mode|tojson }};
         let activeScanView = '2d';
         let activeTabName = 'setup';
         let lastLabSignature = null;
         let lastScorecardSignature = null;
         let scoreDetailContext = null;
+        let robustClientWorker = null;
+        let robustClientWorkers = [];
+        let robustClientResolve = null;
+        let robustClientReject = null;
         let runHistory = [];
         let experimentPresets = [];
         const urlParams = new URLSearchParams(window.location.search);
@@ -3595,6 +3815,151 @@ STRATEGY_LAB_TEMPLATE = """
             updateCommandBar();
         }
 
+        function initUniverseRows(universe = defaultInvestmentUniverse) {
+            const grid = document.getElementById('universeGrid');
+            if (!grid) {
+                return;
+            }
+            const rows = Array.isArray(universe) && universe.length ? universe : defaultInvestmentUniverse;
+            grid.innerHTML = rows.map((item, index) => `
+                <div class="universe-item" data-universe="${index}">
+                    <input data-field="symbol" value="${escapeHtml(item.symbol || '')}" aria-label="股票代码" onblur="syncUniverseToScoreTopics()">
+                    <input data-field="name" value="${escapeHtml(item.name || item.symbol || '')}" aria-label="显示名称" onblur="syncUniverseToScoreTopics()">
+                    <input data-field="max_drawdown_pct" type="number" min="1" max="100" step="0.5" value="${Number(item.max_drawdown_pct || readNumber('maxDrawdown') || 50)}" aria-label="评分回撤">
+                    <button class="btn btn-secondary btn-small universe-remove" type="button" onclick="removeUniverseSymbol(${index})">×</button>
+                </div>
+            `).join('');
+            syncUniverseToScoreTopics();
+        }
+
+        function readInvestmentUniverse() {
+            const grid = document.getElementById('universeGrid');
+            const rows = [];
+            const seen = new Set();
+            if (!grid) {
+                return rows;
+            }
+            grid.querySelectorAll('[data-universe]').forEach((row) => {
+                const symbol = (row.querySelector('[data-field="symbol"]').value || '').trim().toUpperCase();
+                if (!symbol || seen.has(symbol)) {
+                    return;
+                }
+                seen.add(symbol);
+                const name = (row.querySelector('[data-field="name"]').value || symbol).trim();
+                const maxDrawdown = Number(row.querySelector('[data-field="max_drawdown_pct"]').value || 0);
+                const item = { symbol, name };
+                if (maxDrawdown > 0) {
+                    item.max_drawdown_pct = maxDrawdown;
+                }
+                rows.push(item);
+            });
+            return rows;
+        }
+
+        function scorecardKeyForSymbol(symbol) {
+            const normalized = String(symbol || '').trim().toUpperCase();
+            return scorecardSymbolKeys[normalized] || `symbol_${normalized.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')}`;
+        }
+
+        function syncUniverseToScoreTopics() {
+            const universe = readInvestmentUniverse();
+            const topicContainers = document.querySelectorAll('.score-topic-options');
+            const labelByKey = new Map();
+            Object.keys(scorecardPortfolioLabels).forEach((key) => {
+                labelByKey.set(key, scorecardPortfolioLabels[key]);
+            });
+            universe.forEach((item) => {
+                labelByKey.set(scorecardKeyForSymbol(item.symbol), item.name || item.symbol);
+            });
+            topicContainers.forEach((container) => {
+                universe.forEach((item) => {
+                    const key = scorecardKeyForSymbol(item.symbol);
+                    let input = container.querySelector(`input[name="scoreTopic"][value="${key}"]`);
+                    if (!input) {
+                        const label = document.createElement('label');
+                        label.className = 'score-topic-option';
+                        label.innerHTML = `<input type="checkbox" name="scoreTopic" value="${escapeHtml(key)}" onchange="syncScorecardTopic(this)" checked> <span></span>`;
+                        input = label.querySelector('input');
+                        container.appendChild(label);
+                    }
+                    const label = input.closest('label');
+                    if (label) {
+                        const span = label.querySelector('span');
+                        if (span) {
+                            span.textContent = item.name || item.symbol;
+                        }
+                    }
+                });
+                Array.from(container.querySelectorAll('input[name="scoreTopic"]')).forEach((input) => {
+                    if (String(input.value).startsWith('symbol_') && !labelByKey.has(input.value)) {
+                        input.closest('label')?.remove();
+                    }
+                });
+            });
+            universe.forEach((item) => {
+                scorecardPortfolioLabels[scorecardKeyForSymbol(item.symbol)] = item.name || item.symbol;
+            });
+            updateScorecardQuestionHint();
+        }
+
+        function addUniverseSymbol(symbol = '', name = '', maxDrawdown = null) {
+            const universe = readInvestmentUniverse();
+            universe.push({
+                symbol,
+                name,
+                max_drawdown_pct: maxDrawdown || readNumber('maxDrawdown') || 50
+            });
+            initUniverseRows(universe);
+        }
+
+        function removeUniverseSymbol(index) {
+            const universe = readInvestmentUniverse();
+            universe.splice(index, 1);
+            initUniverseRows(universe);
+        }
+
+        function addUniverseSymbolToPortfolio(symbol) {
+            const item = readInvestmentUniverse().find((entry) => entry.symbol === symbol);
+            if (!item) {
+                return;
+            }
+            const portfolio = readPortfolio();
+            if (!portfolio.some((entry) => String(entry.symbol).toUpperCase() === item.symbol)) {
+                portfolio.push({
+                    symbol: item.symbol,
+                    name: item.name,
+                    weight: 10,
+                    max_drawdown_pct: item.max_drawdown_pct || readNumber('maxDrawdown') || 50
+                });
+                initPortfolioRows(portfolio);
+                updateCommandBar();
+            }
+        }
+
+        async function saveUniverseSymbols() {
+            const password = window.prompt('请输入配置密码，保存后刷新页面会保留这些全局标的。');
+            if (password === null) {
+                return;
+            }
+            const payload = strategyDefaultsPayload();
+            payload.default_investment_universe = readInvestmentUniverse();
+            setStatus('info', '正在保存全局标的库...');
+            try {
+                const response = await fetch('/api/strategy-lab/defaults', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password, defaults: payload })
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || '保存失败');
+                }
+                setStatus('success', '全局标的库已保存。');
+            } catch (error) {
+                setStatus('error', `全局标的库保存失败: ${error.message || error}`);
+            }
+        }
+
         function initPortfolioRows(portfolio = defaultPortfolio) {
             const grid = document.getElementById('holdingGrid');
             const rows = Array.isArray(portfolio) && portfolio.length ? portfolio : defaultPortfolio;
@@ -3623,6 +3988,10 @@ STRATEGY_LAB_TEMPLATE = """
                             <input type="number" min="1" max="100" step="0.5" data-row="${index}" data-field="max_drawdown_pct" value="${maxDrawdown}">
                         </label>
                     </div>
+                    <select onchange="addUniverseSymbolToPortfolio(this.value); this.value='';" aria-label="从全局标的库加入">
+                        <option value="">从标的库加入</option>
+                        ${readInvestmentUniverse().map((entry) => `<option value="${escapeHtml(entry.symbol)}">${escapeHtml(entry.name || entry.symbol)} · ${escapeHtml(entry.symbol)}</option>`).join('')}
+                    </select>
                     <div class="weight-bar"><span style="width:${pct}%"></span></div>
                 </div>`;
             }).join('');
@@ -3681,10 +4050,114 @@ STRATEGY_LAB_TEMPLATE = """
             return value === 'all' ? Object.keys(labels) : [value];
         }
 
+        function selectedMultiStrategies(id, labels) {
+            const element = document.getElementById(id);
+            if (!element) {
+                return Object.keys(labels);
+            }
+            const selected = Array.from(element.querySelectorAll('input[type="checkbox"]:checked')).map((option) => option.value);
+            return selected.length ? selected : Object.keys(labels);
+        }
+
+        function setMultiSelectValues(id, values, labels) {
+            const element = document.getElementById(id);
+            if (!element) {
+                return;
+            }
+            const selected = new Set(Array.isArray(values) && values.length ? values.map(String) : Object.keys(labels));
+            Array.from(element.querySelectorAll('input[type="checkbox"]')).forEach((option) => {
+                option.checked = selected.has(option.value);
+            });
+        }
+
         function selectedSellStrategies() {
             const scoreSelect = document.getElementById('scoreSellStrategy');
             const value = scoreSelect ? scoreSelect.value : document.getElementById('sellStrategy').value;
             return value === 'all' ? defaultSellStrategyKeys : [value];
+        }
+
+        function selectedRobustBuyStrategies() {
+            return selectedMultiStrategies('robustBuyStrategies', buyStrategyLabels);
+        }
+
+        function selectedRobustSellStrategies() {
+            return selectedMultiStrategies('robustSellStrategies', sellStrategyLabels);
+        }
+
+        function robustBuyVariantCount(strategy) {
+            const timingFilter = document.getElementById('robustCoreDipTimingFilter')?.value || 'all';
+            if (strategy === 'equal_slice') {
+                return 12;
+            }
+            if (strategy === 'linear_weighted_slice') {
+                return 3;
+            }
+            if (strategy === 'core_dip_dca') {
+                return timingFilter === 'all' ? 12 : 6;
+            }
+            return 1;
+        }
+
+        function robustSellVariantCount(buyStrategy, sellStrategy) {
+            const rearmMultiplier = (buyStrategy === 'pyramid_3' || buyStrategy === 'weekly_dca' || buyStrategy === 'salary_flow_dca' || buyStrategy === 'core_dip_dca') ? 5 : 1;
+            const gridVariantCount = 5 * 4 * 4;
+            const costVariantCount = 3 * 3 * 3;
+            if (sellStrategy === 'none') {
+                return 1;
+            }
+            if (sellStrategy === 'repair_step') {
+                if (buyStrategy === 'pyramid_3') {
+                    return 27 * rearmMultiplier;
+                }
+                if (buyStrategy === 'weekly_dca' || buyStrategy === 'salary_flow_dca' || buyStrategy === 'core_dip_dca') {
+                    return 5;
+                }
+                return 0;
+            }
+            if (sellStrategy === 'grid_rebound') {
+                return gridVariantCount * rearmMultiplier;
+            }
+            if (sellStrategy === 'cost_deleverage') {
+                return costVariantCount * rearmMultiplier;
+            }
+            return 0;
+        }
+
+        function estimateRobustWorkload() {
+            const buyStrategies = selectedRobustBuyStrategies();
+            const sellStrategies = selectedRobustSellStrategies();
+            const topicCount = selectedScorecardPortfolios().length;
+            const periodCount = selectedScorecardPeriods().length;
+            const taskCount = topicCount * periodCount;
+            const concurrency = Math.max(1, Number(document.getElementById('robustConcurrency')?.value || 1));
+            let candidateCount = 0;
+            buyStrategies.forEach((buyStrategy) => {
+                const buyVariants = robustBuyVariantCount(buyStrategy);
+                sellStrategies.forEach((sellStrategy) => {
+                    candidateCount += buyVariants * robustSellVariantCount(buyStrategy, sellStrategy);
+                });
+            });
+            const scorecardMultiplier = Math.max(1, buyStrategies.length * sellStrategies.length);
+            return {
+                taskCount,
+                candidateCount,
+                concurrency,
+                total: taskCount * candidateCount * scorecardMultiplier,
+            };
+        }
+
+        function robustEstimateText() {
+            const estimate = estimateRobustWorkload();
+            return ` 预估约 ${number(estimate.total)} 次组合演算。`;
+        }
+
+        function updateRobustEstimate() {
+            const node = document.getElementById('robustEstimate');
+            if (!node) {
+                return;
+            }
+            const estimate = estimateRobustWorkload();
+            node.innerHTML = `预估计算量 ${number(estimate.total)} 次 / 全候选全题 / 并发 ${number(estimate.concurrency)} ${scoreHelpButton('解释预估计算量', '预估计算量\\n按当前买入策略、卖出策略、共享题目数量和候选参数估算组合演算次数。\\nTop10 固定使用评分页口径：收益 90% / 回撤 10%。每个候选会放进当前勾选的全部买入/卖出策略集合里重新排名，因此会额外乘以策略组合数。\\n并发度只影响本机浏览器计算速度，不改变评分结果。\\n最终实际次数以运行结果里的“实际演算”统计为准。')}`;
         }
 
         function syncSellStrategy(changedSelect) {
@@ -3697,7 +4170,14 @@ STRATEGY_LAB_TEMPLATE = """
             } else if (changedSelect.id === 'scoreSellStrategy') {
                 setSelectValue('sellStrategy', value);
             }
+            lastRobustLeaderboard = null;
+            updateRobustEstimate();
             updateCommandBar();
+        }
+
+        function syncRobustSelectors() {
+            lastRobustLeaderboard = null;
+            updateScorecardQuestionHint();
         }
 
         function selectedScorecardPortfolios() {
@@ -3762,11 +4242,12 @@ STRATEGY_LAB_TEMPLATE = """
             const summaryText = `${topicCount * periodCount} 个题目：${topicCount} 个标的/组合 × ${periodCount} 档时间`;
             document.getElementById('scorecardRange').textContent = `${summaryText}。未填写日期时使用默认 252 / 756 / 1260 个交易日。`;
             if (!lastRobustLeaderboard) {
-                document.getElementById('robustRange').textContent = `${summaryText}；稳健 Top10 将只读取这些共享题目。`;
+                document.getElementById('robustRange').textContent = `${summaryText}；收益 Top10 将只读取这些共享题目。${robustEstimateText()}`;
             }
             document.querySelectorAll('[data-score-topic-summary]').forEach((node) => {
                 node.textContent = summaryText;
             });
+            updateRobustEstimate();
             updateCommandBar();
         }
 
@@ -3780,6 +4261,15 @@ STRATEGY_LAB_TEMPLATE = """
                 drawdown_basis: document.getElementById('drawdownBasis').value,
                 step_pct: readNumber('stepPct'),
                 equal_slice_allocation_pct: readNumber('equalSliceAllocation'),
+                core_dip_initial_core_pct: readNumber('coreDipInitialCorePct'),
+                core_dip_weekly_core_pct: readNumber('coreDipWeeklyCorePct'),
+                core_dip_cash_reserve_pct: readNumber('coreDipCashReservePct'),
+                core_dip_start_drawdown_pct: readNumber('coreDipStartDrawdownPct'),
+                core_dip_full_drawdown_pct: readNumber('coreDipFullDrawdownPct'),
+                core_dip_timing_enabled: document.getElementById('coreDipTimingEnabled').value === 'true',
+                core_dip_timing_max_delay_days: readNumber('coreDipTimingMaxDelayDays'),
+                core_dip_timing_rise_threshold_pct: readNumber('coreDipTimingRiseThresholdPct'),
+                core_dip_timing_near_low_pct: readNumber('coreDipTimingNearLowPct'),
                 trade_fee: readNumber('tradeFee'),
                 hkd_to_usd: readNumber('hkdToUsd'),
                 reserve_position_pct: readNumber('reservePosition'),
@@ -3787,6 +4277,18 @@ STRATEGY_LAB_TEMPLATE = """
                 repair_sell_cooldown_days: readNumber('repairSellCooldown'),
                 repair_stage_sell_pct: readNumber('repairStageSellPct'),
                 dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown'),
+                grid_rebound_step_pct: readNumber('gridReboundStep'),
+                grid_first_sell_pct: readNumber('gridFirstSellPct'),
+                grid_second_sell_pct: readNumber('gridSecondSellPct'),
+                grid_min_sell_amount: readNumber('gridMinSellAmount'),
+                cost_first_profit_pct: readNumber('costFirstProfitPct'),
+                cost_second_profit_pct: readNumber('costSecondProfitPct'),
+                cost_third_profit_pct: readNumber('costThirdProfitPct'),
+                cost_first_sell_pct: readNumber('costFirstSellPct'),
+                cost_second_sell_pct: readNumber('costSecondSellPct'),
+                cost_third_sell_pct: readNumber('costThirdSellPct'),
+                cost_deleverage_cooldown_days: readNumber('costDeleverageCooldown'),
+                cost_min_sell_amount: readNumber('costMinSellAmount'),
                 option_overlay: {
                     enabled: document.getElementById('optionEnabled').checked,
                     allocation_pct: readNumber('optionAllocation'),
@@ -3802,15 +4304,16 @@ STRATEGY_LAB_TEMPLATE = """
                 },
                 buy_strategies: selectedStrategies('buyStrategy', buyStrategyLabels),
                 sell_strategies: selectedSellStrategies(),
-                targets: readPortfolio()
+                targets: readPortfolio(),
+                investment_universe: readInvestmentUniverse()
             };
         }
 
         function currentExperimentPayload() {
             return {
                 ...buildLabPayload(),
-                return_weight: readNumber('scoreReturnWeight') / 100,
-                drawdown_weight: readNumber('scoreDrawdownWeight') / 100,
+                return_weight: 0.9,
+                drawdown_weight: 0.1,
                 scorecard_portfolio_keys: selectedScorecardPortfolios(),
                 scorecard_periods: scorecardPeriodPayload(),
                 buy_strategy: document.getElementById('scanBuyStrategy').value,
@@ -3818,8 +4321,7 @@ STRATEGY_LAB_TEMPLATE = """
                 sell_min_profit_values: parseScanValues('scanSellMinProfits', false, 100),
                 repair_sell_cooldown_values: parseScanValues('scanCooldowns', true),
                 repair_stage_sell_values: parseScanValues('scanStageSells', false, 100),
-                scan_score_mode: document.getElementById('scanScoreMode').value,
-                robust_score_mode: document.getElementById('robustScoreMode').value
+                ranking_formula: 'return_90_drawdown_10'
             };
         }
 
@@ -3859,7 +4361,7 @@ STRATEGY_LAB_TEMPLATE = """
                 setup: '实验配置',
                 results: '组合演算',
                 scorecard: '策略评分',
-                robust: '稳健 Top10',
+                robust: '收益 Top10',
                 scan: '参数扫描',
                 history: '运行历史'
             };
@@ -3902,9 +4404,9 @@ STRATEGY_LAB_TEMPLATE = """
             }
             if (activeTabName === 'robust') {
                 if (!lastRobustLeaderboard) {
-                    setFreshness('尚未运行稳健 Top10。', 'idle');
+                    setFreshness('尚未运行收益 Top10。', 'idle');
                 } else {
-                    setFreshness('稳健 Top10 结果来自当前页面会话；应用策略后可回到评分页横向比较。', 'synced');
+                    setFreshness('收益 Top10 结果来自当前页面会话；应用策略后可回到评分页横向比较。', 'synced');
                 }
                 return;
             }
@@ -3962,7 +4464,7 @@ STRATEGY_LAB_TEMPLATE = """
                 return `${item.kind_label || '参数扫描'} · ${summary.cell_count || 0} 个参数`;
             }
             if (item.kind === 'robust') {
-                return `${item.kind_label || '稳健 Top10'} · ${summary.leaderboard_count || 0} 个结果 / ${summary.task_count || 0} 题`;
+                return `${item.kind_label || '收益 Top10'} · ${summary.leaderboard_count || 0} 个结果 / ${summary.task_count || 0} 题`;
             }
             return item.kind_label || '运行记录';
         }
@@ -3981,7 +4483,7 @@ STRATEGY_LAB_TEMPLATE = """
                 return `${summary.buy_strategy_label || config.buy_strategy || '扫描'}；最佳 ${pctCompact(summary.best_sell_min_profit_pct)} 盈利 / ${number(summary.best_repair_sell_cooldown_days)} 日冷却 / ${pctCompact(summary.best_repair_stage_sell_pct)} 单档${warnings}`;
             }
             if (item.kind === 'robust') {
-                return `${summary.top_label || '最高稳健分 --'} 分数 ${number(summary.top_robust_score)}；均收 ${pctCompact(summary.top_return_pct)} / 均回撤 ${pctCompact(summary.top_drawdown_pct)}${warnings}`;
+                return `${summary.top_label || '最高收益榜分 --'} 分数 ${number(summary.top_score)}；均收 ${pctCompact(summary.top_return_pct)} / 均回撤 ${pctCompact(summary.top_drawdown_pct)}${warnings}`;
             }
             return warnings ? warnings.replace(/^；/, '') : '运行摘要';
         }
@@ -4249,6 +4751,15 @@ STRATEGY_LAB_TEMPLATE = """
             setSelectValue('drawdownBasis', payload.drawdown_basis);
             setFieldValue('stepPct', payload.step_pct);
             setFieldValue('equalSliceAllocation', payload.equal_slice_allocation_pct);
+            setFieldValue('coreDipInitialCorePct', payload.core_dip_initial_core_pct);
+            setFieldValue('coreDipWeeklyCorePct', payload.core_dip_weekly_core_pct);
+            setFieldValue('coreDipCashReservePct', payload.core_dip_cash_reserve_pct);
+            setFieldValue('coreDipStartDrawdownPct', payload.core_dip_start_drawdown_pct);
+            setFieldValue('coreDipFullDrawdownPct', payload.core_dip_full_drawdown_pct);
+            setSelectValue('coreDipTimingEnabled', String(Boolean(payload.core_dip_timing_enabled)));
+            setFieldValue('coreDipTimingMaxDelayDays', payload.core_dip_timing_max_delay_days);
+            setFieldValue('coreDipTimingRiseThresholdPct', payload.core_dip_timing_rise_threshold_pct);
+            setFieldValue('coreDipTimingNearLowPct', payload.core_dip_timing_near_low_pct);
             setFieldValue('tradeFee', payload.trade_fee);
             setFieldValue('hkdToUsd', payload.hkd_to_usd);
             setFieldValue('reservePosition', payload.reserve_position_pct);
@@ -4256,12 +4767,26 @@ STRATEGY_LAB_TEMPLATE = """
             setFieldValue('repairSellCooldown', payload.repair_sell_cooldown_days);
             setFieldValue('repairStageSellPct', payload.repair_stage_sell_pct);
             setFieldValue('dcaRearmDrawdown', payload.dca_rearm_drawdown_pct);
+            setFieldValue('gridReboundStep', payload.grid_rebound_step_pct);
+            setFieldValue('gridFirstSellPct', payload.grid_first_sell_pct);
+            setFieldValue('gridSecondSellPct', payload.grid_second_sell_pct);
+            setFieldValue('gridMinSellAmount', payload.grid_min_sell_amount);
+            setFieldValue('costFirstProfitPct', payload.cost_first_profit_pct);
+            setFieldValue('costSecondProfitPct', payload.cost_second_profit_pct);
+            setFieldValue('costThirdProfitPct', payload.cost_third_profit_pct);
+            setFieldValue('costFirstSellPct', payload.cost_first_sell_pct);
+            setFieldValue('costSecondSellPct', payload.cost_second_sell_pct);
+            setFieldValue('costThirdSellPct', payload.cost_third_sell_pct);
+            setFieldValue('costDeleverageCooldown', payload.cost_deleverage_cooldown_days);
+            setFieldValue('costMinSellAmount', payload.cost_min_sell_amount);
 
             const buySelector = strategySelectorFromPayload(payload.buy_strategies, Object.keys(buyStrategyLabels));
             setSelectValue('buyStrategy', buySelector);
+            setMultiSelectValues('robustBuyStrategies', payload.buy_strategies, buyStrategyLabels);
             const sellSelector = strategySelectorFromPayload(payload.score_sell_strategies || payload.sell_strategies, defaultSellStrategyKeys);
             setSelectValue('sellStrategy', sellSelector);
             setSelectValue('scoreSellStrategy', sellSelector);
+            setMultiSelectValues('robustSellStrategies', payload.score_sell_strategies || payload.sell_strategies, sellStrategyLabels);
 
             if (Array.isArray(payload.targets) && payload.targets.length) {
                 initPortfolioRows(payload.targets);
@@ -4281,12 +4806,6 @@ STRATEGY_LAB_TEMPLATE = """
             setFieldValue('optionTradeFee', option.trade_fee);
             setFieldValue('optionMaxTrades', option.max_trades_per_strategy);
 
-            if (payload.return_weight !== undefined) {
-                setFieldValue('scoreReturnWeight', Number(payload.return_weight || 0) * 100);
-            }
-            if (payload.drawdown_weight !== undefined) {
-                setFieldValue('scoreDrawdownWeight', Number(payload.drawdown_weight || 0) * 100);
-            }
             if (Array.isArray(payload.scorecard_portfolio_keys)) {
                 applyScorecardPortfolioKeys(payload.scorecard_portfolio_keys);
             }
@@ -4297,8 +4816,6 @@ STRATEGY_LAB_TEMPLATE = """
             applyScanValues('scanSellMinProfits', payload.sell_min_profit_values);
             applyScanValues('scanCooldowns', payload.repair_sell_cooldown_values);
             applyScanValues('scanStageSells', payload.repair_stage_sell_values);
-            setSelectValue('scanScoreMode', payload.scan_score_mode);
-            setSelectValue('robustScoreMode', payload.robust_score_mode);
 
             updateScorecardQuestionHint();
             updateCommandBar();
@@ -4358,6 +4875,8 @@ STRATEGY_LAB_TEMPLATE = """
             status.textContent = message;
         }
 
+        let activeStrategyJob = null;
+
         function updateJobPanel(job, fallbackTitle = '后台任务') {
             const panel = document.getElementById('jobPanel');
             if (!panel || !job) {
@@ -4367,13 +4886,30 @@ STRATEGY_LAB_TEMPLATE = """
                 run: '组合演算',
                 score: '策略评分',
                 scan: '参数扫描',
-                robust: '稳健 Top10'
+                robust: '收益 Top10'
             };
             panel.classList.add('show');
             document.getElementById('jobTitle').textContent = titleByKind[job.kind] || fallbackTitle;
             document.getElementById('jobStage').textContent = `${String(job.status || '').toUpperCase()} / ${String(job.stage || '').toUpperCase()}`;
             document.getElementById('jobProgress').style.width = `${Math.max(0, Math.min(100, Number(job.progress || 0)))}%`;
             document.getElementById('jobMessage').textContent = job.message || fallbackTitle;
+            const actions = document.getElementById('jobActions');
+            const pauseButton = document.getElementById('jobPauseButton');
+            const resumeButton = document.getElementById('jobResumeButton');
+            const cancelButton = document.getElementById('jobCancelButton');
+            const terminal = ['succeeded', 'failed', 'cancelled'].includes(String(job.status || ''));
+            if (actions) {
+                actions.classList.toggle('show', !terminal);
+            }
+            if (pauseButton) {
+                pauseButton.style.display = job.pause_requested ? 'none' : '';
+            }
+            if (resumeButton) {
+                resumeButton.style.display = job.pause_requested ? '' : 'none';
+            }
+            if (cancelButton) {
+                cancelButton.disabled = Boolean(job.cancel_requested);
+            }
         }
 
         function hideJobPanelLater() {
@@ -4382,7 +4918,93 @@ STRATEGY_LAB_TEMPLATE = """
                 if (panel) {
                     panel.classList.remove('show');
                 }
+                activeStrategyJob = null;
             }, 1800);
+        }
+
+        async function controlStrategyJob(action) {
+            if (!activeStrategyJob || !activeStrategyJob.id) {
+                return null;
+            }
+            const response = await fetch(`/api/strategy-lab/jobs/${encodeURIComponent(activeStrategyJob.id)}/${action}`, {
+                method: 'POST'
+            });
+            const payload = await response.json();
+            if (!response.ok || !payload.success) {
+                throw new Error(payload.message || '任务控制失败');
+            }
+            activeStrategyJob = payload.job;
+            updateJobPanel(activeStrategyJob);
+            return activeStrategyJob;
+        }
+
+        async function pauseStrategyJob() {
+            try {
+                if (robustClientWorker || robustClientWorkers.length) {
+                    if (robustClientWorker) {
+                        robustClientWorker.postMessage({ type: 'pause' });
+                    }
+                    robustClientWorkers.forEach((worker) => worker.postMessage({ type: 'pause' }));
+                    updateJobPanel({
+                        id: 'client-robust',
+                        kind: 'robust',
+                        status: 'running',
+                        stage: 'client',
+                        progress: 45,
+                        pause_requested: true,
+                        message: '本机 Top10 已暂停。'
+                    });
+                    setStatus('info', '本机 Top10 已暂停。');
+                    return;
+                }
+                await controlStrategyJob('pause');
+                setStatus('info', '后台任务已暂停。');
+            } catch (error) {
+                setStatus('error', `暂停失败: ${error.message || error}`);
+            }
+        }
+
+        async function resumeStrategyJob() {
+            try {
+                if (robustClientWorker || robustClientWorkers.length) {
+                    if (robustClientWorker) {
+                        robustClientWorker.postMessage({ type: 'resume' });
+                    }
+                    robustClientWorkers.forEach((worker) => worker.postMessage({ type: 'resume' }));
+                    updateJobPanel({
+                        id: 'client-robust',
+                        kind: 'robust',
+                        status: 'running',
+                        stage: 'client',
+                        progress: 45,
+                        pause_requested: false,
+                        message: '本机 Top10 已继续。'
+                    });
+                    setStatus('info', '本机 Top10 已继续。');
+                    return;
+                }
+                await controlStrategyJob('resume');
+                setStatus('info', '后台任务已继续。');
+            } catch (error) {
+                setStatus('error', `继续失败: ${error.message || error}`);
+            }
+        }
+
+        async function cancelStrategyJob() {
+            try {
+                if (robustClientWorker || robustClientWorkers.length) {
+                    if (robustClientWorker) {
+                        robustClientWorker.postMessage({ type: 'cancel' });
+                    }
+                    robustClientWorkers.forEach((worker) => worker.postMessage({ type: 'cancel' }));
+                    setStatus('info', '正在停止本机 Top10。');
+                    return;
+                }
+                await controlStrategyJob('cancel');
+                setStatus('info', '正在停止后台任务。');
+            } catch (error) {
+                setStatus('error', `停止失败: ${error.message || error}`);
+            }
         }
 
         async function runStrategyJob(kind, payload, options = {}) {
@@ -4397,6 +5019,7 @@ STRATEGY_LAB_TEMPLATE = """
                 throw new Error(created.message || '创建后台任务失败');
             }
             let job = created.job;
+            activeStrategyJob = job;
             updateJobPanel(job, options.title);
             const pollDelay = options.pollDelay || 900;
             for (;;) {
@@ -4409,6 +5032,10 @@ STRATEGY_LAB_TEMPLATE = """
                     hideJobPanelLater();
                     throw new Error(job.error || job.message || '后台任务失败');
                 }
+                if (job.status === 'cancelled') {
+                    hideJobPanelLater();
+                    throw new Error(job.error || job.message || '后台任务已取消');
+                }
                 await new Promise((resolve) => window.setTimeout(resolve, pollDelay));
                 const statusResponse = await fetch(`/api/strategy-lab/jobs/${encodeURIComponent(job.id)}`);
                 const statusPayload = await statusResponse.json();
@@ -4416,6 +5043,7 @@ STRATEGY_LAB_TEMPLATE = """
                     throw new Error(statusPayload.message || '读取后台任务失败');
                 }
                 job = statusPayload.job;
+                activeStrategyJob = job;
                 updateJobPanel(job, options.title);
             }
         }
@@ -4462,10 +5090,23 @@ STRATEGY_LAB_TEMPLATE = """
             return Number(value || 0).toFixed(1);
         }
 
-        function scanCellStyle(value, minValue, maxValue) {
-            const min = Number(minValue || 0);
-            const max = Number(maxValue || 0);
-            const ratio = Math.max(0, Math.min(1, max === min ? 1 : (Number(value || 0) - min) / (max - min)));
+        function normalizedRangeRatio(value, values) {
+            const parsed = (values || [])
+                .map((item) => Number(item))
+                .filter((item) => Number.isFinite(item));
+            if (!parsed.length) {
+                return 1;
+            }
+            const min = Math.min(...parsed);
+            const max = Math.max(...parsed);
+            if (min === max) {
+                return 1;
+            }
+            return clamp((Number(value || 0) - min) / (max - min), 0, 1);
+        }
+
+        function heatmapFillStyle(ratio, cssVar = '--scan-fill') {
+            const safeRatio = clamp(Number(ratio || 0), 0, 1);
             const stops = [
                 { at: 0.00, fill: [255, 184, 176], alpha: 0.92 },
                 { at: 0.42, fill: [255, 231, 184], alpha: 0.88 },
@@ -4475,16 +5116,20 @@ STRATEGY_LAB_TEMPLATE = """
             let start = stops[0];
             let end = stops[stops.length - 1];
             for (let i = 0; i < stops.length - 1; i += 1) {
-                if (ratio >= stops[i].at && ratio <= stops[i + 1].at) {
+                if (safeRatio >= stops[i].at && safeRatio <= stops[i + 1].at) {
                     start = stops[i];
                     end = stops[i + 1];
                     break;
                 }
             }
-            const local = start.at === end.at ? 0 : (ratio - start.at) / (end.at - start.at);
+            const local = start.at === end.at ? 0 : (safeRatio - start.at) / (end.at - start.at);
             const mix = (a, b) => Math.round(a + (b - a) * local);
             const alpha = start.alpha + (end.alpha - start.alpha) * local;
-            return `--scan-fill: rgba(${mix(start.fill[0], end.fill[0])}, ${mix(start.fill[1], end.fill[1])}, ${mix(start.fill[2], end.fill[2])}, ${alpha.toFixed(3)});`;
+            return `${cssVar}: rgba(${mix(start.fill[0], end.fill[0])}, ${mix(start.fill[1], end.fill[1])}, ${mix(start.fill[2], end.fill[2])}, ${alpha.toFixed(3)});`;
+        }
+
+        function scanCellStyle(value, minValue, maxValue) {
+            return heatmapFillStyle(normalizedRangeRatio(value, [minValue, maxValue]), '--scan-fill');
         }
 
         function normalizedScore(value, values) {
@@ -4498,13 +5143,7 @@ STRATEGY_LAB_TEMPLATE = """
         }
 
         function scanScoreWeights() {
-            const returnWeight = Math.max(0, readNumber('scoreReturnWeight'));
-            const drawdownWeight = Math.max(0, readNumber('scoreDrawdownWeight'));
-            const total = returnWeight + drawdownWeight;
-            if (total <= 0) {
-                return { return: 0.9, drawdown: 0.1 };
-            }
-            return { return: returnWeight / total, drawdown: drawdownWeight / total };
+            return { return: 0.9, drawdown: 0.1 };
         }
 
         function scanReturnDrawdownScore(cell, cells) {
@@ -4515,22 +5154,11 @@ STRATEGY_LAB_TEMPLATE = """
         }
 
         function scanDisplayScore(cell, cells) {
-            const returnDrawdownScore = scanReturnDrawdownScore(cell, cells);
-            if (activeScanScoreMode === 'return_drawdown') {
-                return returnDrawdownScore;
-            }
-            const returnScore = normalizedScore(cell.return_pct, cells.map((item) => item.return_pct));
-            const drawdownScore = normalizedScore(cell.max_drawdown_pct, cells.map((item) => item.max_drawdown_pct));
-            return (
-                returnScore * 0.45
-                + drawdownScore * 0.25
-                + Number(cell.sell_quality_score || 0) * 0.20
-                + Number(cell.cash_reuse_pct || 0) * 0.10
-            );
+            return scanReturnDrawdownScore(cell, cells);
         }
 
         function scanScoreLabel() {
-            return activeScanScoreMode === 'return_drawdown' ? '收益&回撤分' : '综合参数评分';
+            return '收益 90% / 回撤 10%';
         }
 
         function updateScanLegend() {
@@ -4599,38 +5227,22 @@ STRATEGY_LAB_TEMPLATE = """
             return Math.max(min, Math.min(max, value));
         }
 
-        function scoreDistanceStyle(strategy, cells) {
+        function scorecardCellHeatStyle(strategy, cells) {
             const returnValues = cells.map((item) => Number(item.return_pct || 0));
             const drawdownValues = cells.map((item) => Number(item.max_drawdown_pct || 0));
+            const scoreValues = cells.map((item) => Number(item.score || 0));
             const bestReturn = Math.max(...returnValues);
-            const bestDrawdown = Math.min(...drawdownValues);
+            const bestDrawdown = Math.max(...drawdownValues);
             const returnGap = Math.max(0, bestReturn - Number(strategy.return_pct || 0));
-            const drawdownGap = Math.max(0, Number(strategy.max_drawdown_pct || 0) - bestDrawdown);
-            const returnRatio = clamp(returnGap / 18, 0, 1);
-            const drawdownRatio = clamp(drawdownGap / 8, 0, 1);
-            const ratio = clamp(returnRatio * 0.58 + drawdownRatio * 0.42, 0, 1);
-            const stops = [
-                { at: 0.00, fill: [170, 230, 205], alpha: 0.96 },
-                { at: 0.28, fill: [214, 241, 226], alpha: 0.92 },
-                { at: 0.55, fill: [244, 248, 233], alpha: 0.86 },
-                { at: 0.78, fill: [255, 235, 194], alpha: 0.88 },
-                { at: 1.00, fill: [255, 199, 194], alpha: 0.94 }
-            ];
-            let start = stops[0];
-            let end = stops[stops.length - 1];
-            for (let i = 0; i < stops.length - 1; i += 1) {
-                if (ratio >= stops[i].at && ratio <= stops[i + 1].at) {
-                    start = stops[i];
-                    end = stops[i + 1];
-                    break;
-                }
-            }
-            const local = start.at === end.at ? 0 : (ratio - start.at) / (end.at - start.at);
-            const mix = (a, b) => Math.round(a + (b - a) * local);
-            const fill = start.fill.map((value, index) => mix(value, end.fill[index]));
-            const alpha = start.alpha + (end.alpha - start.alpha) * local;
+            const drawdownGap = Math.max(0, bestDrawdown - Number(strategy.max_drawdown_pct || 0));
+            const returnRatio = normalizedRangeRatio(strategy.return_pct, returnValues);
+            const drawdownRatio = normalizedRangeRatio(strategy.max_drawdown_pct, drawdownValues);
+            const scoreRatio = normalizedRangeRatio(strategy.score, scoreValues);
             return {
-                style: `--score-fill: rgba(${fill.join(',')}, ${alpha.toFixed(3)});`,
+                style: heatmapFillStyle(scoreRatio, '--score-fill'),
+                heatRatio: scoreRatio,
+                returnRatio,
+                drawdownRatio,
                 returnGap,
                 drawdownGap,
                 bestReturn,
@@ -4684,6 +5296,7 @@ STRATEGY_LAB_TEMPLATE = """
         function initScoreTooltip() {
             const containers = [
                 document.getElementById('scoreMatrixBody'),
+                document.getElementById('robustWorkspace'),
                 document.getElementById('robustBoard')
             ].filter(Boolean);
             if (!containers.length) {
@@ -5161,6 +5774,15 @@ STRATEGY_LAB_TEMPLATE = """
                 drawdown_basis: document.getElementById('drawdownBasis').value,
                 step_pct: readNumber('stepPct'),
                 equal_slice_allocation_pct: readNumber('equalSliceAllocation'),
+                core_dip_initial_core_pct: readNumber('coreDipInitialCorePct'),
+                core_dip_weekly_core_pct: readNumber('coreDipWeeklyCorePct'),
+                core_dip_cash_reserve_pct: readNumber('coreDipCashReservePct'),
+                core_dip_start_drawdown_pct: readNumber('coreDipStartDrawdownPct'),
+                core_dip_full_drawdown_pct: readNumber('coreDipFullDrawdownPct'),
+                core_dip_timing_enabled: document.getElementById('coreDipTimingEnabled').value === 'true',
+                core_dip_timing_max_delay_days: readNumber('coreDipTimingMaxDelayDays'),
+                core_dip_timing_rise_threshold_pct: readNumber('coreDipTimingRiseThresholdPct'),
+                core_dip_timing_near_low_pct: readNumber('coreDipTimingNearLowPct'),
                 trade_fee: readNumber('tradeFee'),
                 hkd_to_usd: readNumber('hkdToUsd'),
                 reserve_position_pct: readNumber('reservePosition'),
@@ -5168,14 +5790,27 @@ STRATEGY_LAB_TEMPLATE = """
                 repair_sell_cooldown_days: readNumber('repairSellCooldown'),
                 repair_stage_sell_pct: readNumber('repairStageSellPct'),
                 dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown'),
+                grid_rebound_step_pct: readNumber('gridReboundStep'),
+                grid_first_sell_pct: readNumber('gridFirstSellPct'),
+                grid_second_sell_pct: readNumber('gridSecondSellPct'),
+                grid_min_sell_amount: readNumber('gridMinSellAmount'),
+                cost_first_profit_pct: readNumber('costFirstProfitPct'),
+                cost_second_profit_pct: readNumber('costSecondProfitPct'),
+                cost_third_profit_pct: readNumber('costThirdProfitPct'),
+                cost_first_sell_pct: readNumber('costFirstSellPct'),
+                cost_second_sell_pct: readNumber('costSecondSellPct'),
+                cost_third_sell_pct: readNumber('costThirdSellPct'),
+                cost_deleverage_cooldown_days: readNumber('costDeleverageCooldown'),
+                cost_min_sell_amount: readNumber('costMinSellAmount'),
                 buy_strategies: selectedStrategies('buyStrategy', buyStrategyLabels),
                 sell_strategies: selectedSellStrategies(),
                 score_sell_strategies: selectedSellStrategies(),
-                return_weight: readNumber('scoreReturnWeight') / 100,
-                drawdown_weight: readNumber('scoreDrawdownWeight') / 100,
+                return_weight: 0.9,
+                drawdown_weight: 0.1,
                 scorecard_portfolio_keys: selectedScorecardPortfolios(),
                 scorecard_periods: scorecardPeriodPayload(),
-                targets: readPortfolio()
+                targets: readPortfolio(),
+                investment_universe: readInvestmentUniverse()
             };
         }
 
@@ -5188,18 +5823,39 @@ STRATEGY_LAB_TEMPLATE = """
                 default_trade_fee: readNumber('tradeFee'),
                 default_slice_step_pct: readNumber('stepPct'),
                 default_equal_slice_allocation_pct: readNumber('equalSliceAllocation'),
+                default_core_dip_initial_core_pct: readNumber('coreDipInitialCorePct'),
+                default_core_dip_weekly_core_pct: readNumber('coreDipWeeklyCorePct'),
+                default_core_dip_cash_reserve_pct: readNumber('coreDipCashReservePct'),
+                default_core_dip_start_drawdown_pct: readNumber('coreDipStartDrawdownPct'),
+                default_core_dip_full_drawdown_pct: readNumber('coreDipFullDrawdownPct'),
+                default_core_dip_timing_enabled: document.getElementById('coreDipTimingEnabled').value === 'true',
+                default_core_dip_timing_max_delay_days: readNumber('coreDipTimingMaxDelayDays'),
+                default_core_dip_timing_rise_threshold_pct: readNumber('coreDipTimingRiseThresholdPct'),
+                default_core_dip_timing_near_low_pct: readNumber('coreDipTimingNearLowPct'),
                 default_hkd_to_usd: readNumber('hkdToUsd'),
                 default_reserve_position_pct: readNumber('reservePosition'),
                 default_sell_min_profit_pct: readNumber('sellMinProfit'),
                 default_repair_sell_cooldown_days: readNumber('repairSellCooldown'),
                 default_repair_stage_sell_pct: readNumber('repairStageSellPct'),
                 default_dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown'),
+                default_grid_rebound_step_pct: readNumber('gridReboundStep'),
+                default_grid_first_sell_pct: readNumber('gridFirstSellPct'),
+                default_grid_second_sell_pct: readNumber('gridSecondSellPct'),
+                default_grid_min_sell_amount: readNumber('gridMinSellAmount'),
+                default_cost_first_profit_pct: readNumber('costFirstProfitPct'),
+                default_cost_second_profit_pct: readNumber('costSecondProfitPct'),
+                default_cost_third_profit_pct: readNumber('costThirdProfitPct'),
+                default_cost_first_sell_pct: readNumber('costFirstSellPct'),
+                default_cost_second_sell_pct: readNumber('costSecondSellPct'),
+                default_cost_third_sell_pct: readNumber('costThirdSellPct'),
+                default_cost_deleverage_cooldown_days: readNumber('costDeleverageCooldown'),
+                default_cost_min_sell_amount: readNumber('costMinSellAmount'),
                 default_drawdown_basis: document.getElementById('drawdownBasis').value,
                 default_buy_strategy: document.getElementById('buyStrategy').value,
                 default_sell_strategy: document.getElementById('sellStrategy').value,
                 default_score_sell_strategy: document.getElementById('scoreSellStrategy').value,
-                default_score_return_weight_pct: readNumber('scoreReturnWeight'),
-                default_score_drawdown_weight_pct: readNumber('scoreDrawdownWeight'),
+                default_score_return_weight_pct: 90,
+                default_score_drawdown_weight_pct: 10,
                 default_scorecard_portfolio_keys: selectedScorecardPortfolios(),
                 default_scorecard_periods: scorecardPeriodPayload(),
                 default_scan_buy_strategy: document.getElementById('scanBuyStrategy').value,
@@ -5207,7 +5863,6 @@ STRATEGY_LAB_TEMPLATE = """
         default_scan_sell_min_profit_values: document.getElementById('scanSellMinProfits').value,
         default_scan_repair_cooldown_values: document.getElementById('scanCooldowns').value,
         default_scan_repair_stage_sell_values: document.getElementById('scanStageSells').value,
-        default_scan_score_mode: document.getElementById('scanScoreMode').value,
                 default_option_enabled: document.getElementById('optionEnabled').checked,
                 default_option_allocation_pct: readNumber('optionAllocation'),
                 default_option_target_dte: readNumber('optionTargetDte'),
@@ -5219,7 +5874,8 @@ STRATEGY_LAB_TEMPLATE = """
                 default_option_exit_dte: readNumber('optionExitDte'),
                 default_option_trade_fee: readNumber('optionTradeFee'),
                 default_option_max_trades_per_strategy: readNumber('optionMaxTrades'),
-                default_portfolio: readPortfolio()
+                default_portfolio: readPortfolio(),
+                default_investment_universe: readInvestmentUniverse()
             };
         }
 
@@ -5283,7 +5939,7 @@ STRATEGY_LAB_TEMPLATE = """
                     if (!strategy) {
                         return '<td>--</td>';
                     }
-                    const styleInfo = scoreDistanceStyle(strategy, question.strategies);
+                    const styleInfo = scorecardCellHeatStyle(strategy, question.strategies);
                     const style = styleInfo.style;
                     const title = [
                         `${question.portfolio_label} ${question.period_label}`,
@@ -5294,6 +5950,9 @@ STRATEGY_LAB_TEMPLATE = """
                         `最大回撤: ${pct(strategy.max_drawdown_pct)}`,
                         `距本题最佳收益: ${pct(styleInfo.returnGap)}`,
                         `距本题最佳回撤: ${pct(styleInfo.drawdownGap)}`,
+                        `颜色分位: ${number(styleInfo.heatRatio * 100)}`,
+                        `收益分位: ${number(styleInfo.returnRatio * 100)}`,
+                        `回撤分位: ${number(styleInfo.drawdownRatio * 100)}`,
                         `收益分: ${scoreNumber(strategy.return_score)}`,
                         `回撤分: ${scoreNumber(strategy.drawdown_score)}`,
                         `卖出质量: ${number(strategy.sell_quality_score)}`,
@@ -5327,7 +5986,6 @@ STRATEGY_LAB_TEMPLATE = """
         }
 
         function rerenderSellScan() {
-            activeScanScoreMode = document.getElementById('scanScoreMode').value || 'balanced';
             if (lastSellScan) {
                 activeScanStageSell = null;
                 renderSellParameterScan(lastSellScan);
@@ -5351,7 +6009,6 @@ STRATEGY_LAB_TEMPLATE = """
 
         function renderSellParameterScan(data) {
             lastSellScan = data;
-            activeScanScoreMode = document.getElementById('scanScoreMode').value || 'balanced';
             const result = document.getElementById('scanResult');
             result.classList.add('show');
             document.getElementById('scanView2dBtn').classList.toggle('active', activeScanView === '2d');
@@ -5394,22 +6051,94 @@ STRATEGY_LAB_TEMPLATE = """
             }
         }
 
+        function scoreHelpButton(label, tooltip) {
+            return `<button class="metric-help score-info-btn robust-param-help" type="button" aria-label="${escapeHtml(label)}" data-tooltip="${escapeHtml(tooltip)}">?</button>`;
+        }
+
+        function robustGridSellParams(candidate) {
+            const step = candidate.grid_rebound_step_pct ?? readNumber('gridReboundStep');
+            const firstSell = candidate.grid_first_sell_pct ?? readNumber('gridFirstSellPct');
+            const secondSell = candidate.grid_second_sell_pct ?? readNumber('gridSecondSellPct');
+            const minAmount = candidate.grid_min_sell_amount ?? readNumber('gridMinSellAmount');
+            return [
+                `${pct(step)} 回弹 ${scoreHelpButton('解释网格回弹步长', '网格回弹步长\\n从平均买入回撤向上修复多少个百分点后触发卖出。\\n例如平均买在 20% 回撤、回弹步长 5%，第一档会在回撤修复到 15% 左右时尝试卖出。')}`,
+                `${pct(firstSell)} 第一档 ${scoreHelpButton('解释网格第一档卖出', '网格第一档卖出\\n非金字塔策略按整仓聚合计算，第一档触发时卖出当前可卖仓位的这个比例。\\n仍会受底仓比例和最小卖出额约束。')}`,
+                `${pct(secondSell)} 第二档 ${scoreHelpButton('解释网格第二档卖出', '网格第二档卖出\\n价格再修复一个回弹步长后，第二档卖出当前可卖仓位的这个比例。\\n现在一天最多触发一个整仓网格档位，避免快速反弹时同日连续减仓。')}`,
+                `最小 ${number(minAmount)} USD ${scoreHelpButton('解释网格最小卖出额', '网格最小卖出额\\n只约束非金字塔的整仓网格卖出。\\n若某次卖出金额低于这个值，会跳过该次交易，用来减少小额碎片成交。')}`
+            ].join(' / ');
+        }
+
+        function robustCostSellParams(candidate) {
+            const p1 = candidate.cost_first_profit_pct ?? readNumber('costFirstProfitPct');
+            const p2 = candidate.cost_second_profit_pct ?? readNumber('costSecondProfitPct');
+            const p3 = candidate.cost_third_profit_pct ?? readNumber('costThirdProfitPct');
+            const s1 = candidate.cost_first_sell_pct ?? readNumber('costFirstSellPct');
+            const s2 = candidate.cost_second_sell_pct ?? readNumber('costSecondSellPct');
+            const s3 = candidate.cost_third_sell_pct ?? readNumber('costThirdSellPct');
+            const cooldown = candidate.cost_deleverage_cooldown_days ?? readNumber('costDeleverageCooldown');
+            const minAmount = candidate.cost_min_sell_amount ?? readNumber('costMinSellAmount');
+            return [
+                `${pct(p1)} / ${pct(p2)} / ${pct(p3)} 盈利 ${scoreHelpButton('解释成本盈利档位', '成本盈利档位\\n按当前整仓平均成本计算浮盈率，到达第一、第二、第三档后依次触发去杠杆卖出。\\n同时仍受“最小卖出盈利”下限约束。')}`,
+                `${pct(s1)} + ${pct(s2)} + ${pct(s3)} 卖出 ${scoreHelpButton('解释成本卖出比例', '成本卖出比例\\n每个盈利档位触发时，按当前可卖仓位卖出对应比例。\\n细切/定投产生的小 lot 会合并成整仓卖出，避免每个 lot 单独切得过碎。')}`,
+                `${number(cooldown)} 日冷却 ${scoreHelpButton('解释成本卖出冷却', '成本卖出冷却\\n一次成本去杠杆卖出后，至少等待这些交易日才允许下一档卖出。\\n用于避免短时间连续减仓。')}`,
+                `最小 ${number(minAmount)} USD ${scoreHelpButton('解释成本最小卖出额', '成本最小卖出额\\n若本次成本去杠杆卖出金额低于该值，会跳过该次交易。\\n设为 0 表示不限制最小卖出额。')}`
+            ].join(' / ');
+        }
+
+        function robustCoreDipBuyParams(candidate) {
+            if (candidate.core_dip_initial_core_pct === null || candidate.core_dip_initial_core_pct === undefined) {
+                return '';
+            }
+            const bits = [
+                `初始 ${pct(candidate.core_dip_initial_core_pct)}`,
+                `周投 ${pct(candidate.core_dip_weekly_core_pct)}`,
+                `现金垫 ${pct(candidate.core_dip_cash_reserve_pct)}`,
+                `加仓 ${pct(candidate.core_dip_start_drawdown_pct)}-${pct(candidate.core_dip_full_drawdown_pct)}`
+            ];
+            if (candidate.core_dip_timing_enabled) {
+                bits.push(`买点优化 延迟${number(candidate.core_dip_timing_max_delay_days)}日 大涨${pct(candidate.core_dip_timing_rise_threshold_pct)} 近低${pct(candidate.core_dip_timing_near_low_pct)}`);
+            } else {
+                bits.push('买点优化 关闭');
+            }
+            return bits.join(' / ');
+        }
+
+        function robustTraversalSummary(data) {
+            const grid = (data.method && data.method.parameter_grid) || {};
+            const bits = [];
+            if ((data.sell_strategies || []).includes('grid_rebound')) {
+                bits.push(`网格: 步长 ${grid.grid_rebound_step_pct || []}，第一档 ${grid.grid_first_sell_pct || []}，第二档 ${grid.grid_second_sell_pct || []}，最小额沿用当前 ${grid.grid_min_sell_amount || []} USD`);
+            }
+            if ((data.sell_strategies || []).includes('cost_deleverage')) {
+                bits.push(`成本: 盈利组 ${JSON.stringify(grid.cost_profit_sets || [])}，卖出组 ${JSON.stringify(grid.cost_sell_sets || [])}，冷却 ${grid.cost_deleverage_cooldown_days || []}，最小额沿用当前 ${grid.cost_min_sell_amount || []} USD`);
+            }
+            if ((data.sell_strategies || []).includes('repair_step')) {
+                bits.push(`阶梯: 盈利 ${grid.sell_min_profit_pct || []}，冷却 ${grid.repair_sell_cooldown_days || []}，单档 ${grid.repair_stage_sell_pct || []}`);
+            }
+            if ((data.sell_strategies || []).some((item) => item !== 'none')) {
+                bits.push(`卖后重启: ${grid.dca_rearm_drawdown_pct || []}`);
+            }
+            return bits.join('\\n') || '本次只遍历不卖出策略，无卖出参数。';
+        }
+
         function renderRobustLeaderboard(data) {
             lastRobustLeaderboard = data;
             const board = document.getElementById('robustBoard');
             board.classList.add('show');
             const tasks = data.tasks || [];
             const counts = data.candidate_counts || {};
+            const simulations = data.simulation_counts || {};
             const method = data.method || {};
-            const modeLabel = method.score_mode === 'return_drawdown' ? '收益优先 80/20' : '稳健综合';
-            const rangeText = `${data.range.start} 至 ${data.range.end}；${tasks.length} 个题目；${modeLabel}`;
+            const modeLabel = '收益 90% / 回撤 10%';
+            const computeLabel = '全候选全题';
+            const rangeText = `${data.range.start} 至 ${data.range.end}；${tasks.length} 个题目；${modeLabel}；${computeLabel}`;
             document.getElementById('robustRange').textContent = rangeText;
-            document.getElementById('robustResultMeta').textContent = rangeText;
+            document.getElementById('robustResultMeta').innerHTML = `${escapeHtml(rangeText)} ${scoreHelpButton('解释本次遍历参数', robustTraversalSummary(data))}`;
             document.getElementById('robustStrip').innerHTML = `
-                <div class="robust-stat"><span>粗筛候选</span><strong>${number(counts.coarse)}</strong></div>
-                <div class="robust-stat"><span>局部加密候选</span><strong>${number(counts.fine)}</strong></div>
-                <div class="robust-stat"><span>最终验证候选</span><strong>${number(counts.final)}</strong></div>
-                <div class="robust-stat"><span>输出 Top</span><strong>${number((data.leaderboard || []).length)}</strong></div>
+                <div class="robust-stat"><span>候选组合 ${scoreHelpButton('解释候选组合', '候选组合\\n当前勾选买入策略、卖出策略和可调参数生成出的全部候选。\\n每个候选都会在当前勾选的全部题目上评分。')}</span><strong>${number(counts.total ?? counts.candidates ?? (data.candidate_pool || []).length)}</strong></div>
+                <div class="robust-stat"><span>实际演算 ${scoreHelpButton('解释实际演算次数', '实际演算次数\\n这是本次真实调用组合演算的次数。\\nTop10 现在只保留全候选全题路径，实际次数通常等于题目数乘以候选组合数。')}</span><strong>${number(simulations.total)}</strong></div>
+                <div class="robust-stat"><span>并发 ${scoreHelpButton('解释并发', '并发\\n浏览器会按候选组合分片交给多个 Web Worker 计算。\\n并发只改变速度，不改变评分口径和排序结果。')}</span><strong>${number(method.concurrency || 1)}</strong></div>
+                <div class="robust-stat"><span>输出 Top ${scoreHelpButton('解释输出 Top', '输出 Top\\n全部候选评分后，按收益榜分数排序，取页面请求的 Top N。\\n当前默认输出 Top10。')}</span><strong>${number((data.leaderboard || []).length)}</strong></div>
             `;
             const rows = (data.leaderboard || []).map((row) => {
                 const candidate = row.candidate || {};
@@ -5417,32 +6146,35 @@ STRATEGY_LAB_TEMPLATE = """
                 const weakest = row.weakest_task || {};
                 const buyParams = [
                     candidate.step_pct !== null && candidate.step_pct !== undefined ? `步长 ${pct(candidate.step_pct)}` : '',
-                    candidate.equal_slice_allocation_pct !== null && candidate.equal_slice_allocation_pct !== undefined ? `每步 ${pct(candidate.equal_slice_allocation_pct)}` : ''
+                    candidate.equal_slice_allocation_pct !== null && candidate.equal_slice_allocation_pct !== undefined ? `每步 ${pct(candidate.equal_slice_allocation_pct)}` : '',
+                    robustCoreDipBuyParams(candidate)
                 ].filter(Boolean).join(' / ');
                 const dcaRearmParam = candidate.dca_rearm_drawdown_pct !== null && candidate.dca_rearm_drawdown_pct !== undefined
-                    ? `DCA重启 ${pct(candidate.dca_rearm_drawdown_pct)}`
+                    ? `卖后重启 ${pct(candidate.dca_rearm_drawdown_pct)}`
                     : '';
                 const sellParams = [
                     candidate.sell_strategy === 'repair_step'
                         ? `${pct(candidate.sell_min_profit_pct)} 盈利 / ${number(candidate.repair_sell_cooldown_days)} 日冷却 / ${pct(candidate.repair_stage_sell_pct)} 单档`
-                        : '无阶梯参数',
+                        : candidate.sell_strategy === 'grid_rebound'
+                            ? robustGridSellParams(candidate)
+                            : candidate.sell_strategy === 'cost_deleverage'
+                                ? robustCostSellParams(candidate)
+                                : '无阶梯参数',
                     dcaRearmParam
+                        ? `${escapeHtml(dcaRearmParam)} ${scoreHelpButton('解释卖后重启', '卖后重启回撤\\n三档金字塔：整仓/网格/成本卖出后，回撤需要从卖出当天再加深这些百分点，已用过的买入档位才会重新打开。\\n定投类策略：后续买入发生在不低于这个回撤的位置时，整仓卖出档位会重新打开。\\n0% 表示卖出后只要仍在当前回撤附近即可重启。')}`
+                        : ''
                 ].filter(Boolean).join(' / ');
                 return `
                     <tr>
                         <td>
                             <strong>${escapeHtml(candidate.label || candidate.key || '--')}</strong>
                             ${buyParams ? `<div class="robust-task">${escapeHtml(buyParams)}</div>` : ''}
-                            <div class="robust-task">${escapeHtml(sellParams)}</div>
+                            <div class="robust-task">${sellParams}</div>
                             <div style="margin-top:8px;">
                                 <button class="btn btn-secondary btn-small" type="button" onclick="applyRobustCandidate('${escapeHtml(candidate.key)}')">应用参数并看全量评分</button>
                             </div>
                         </td>
-                        <td>${number(row.robust_score)}</td>
-                        <td>${number(row.mean_score)}</td>
-                        <td>${number(row.p25_score)}</td>
-                        <td>${pct(row.top10_rate)}</td>
-                        <td>${pct(row.bottom10_rate)}</td>
+                        <td>${number(row.score)}</td>
                         <td>${pct(row.avg_return_pct)}</td>
                         <td>${pct(row.avg_drawdown_pct)}</td>
                         <td>
@@ -5452,12 +6184,12 @@ STRATEGY_LAB_TEMPLATE = """
                     </tr>
                 `;
             }).join('');
-            document.getElementById('robustBody').innerHTML = rows || '<tr><td colspan="9">暂无稳健榜结果。</td></tr>';
+            document.getElementById('robustBody').innerHTML = rows || '<tr><td colspan="5">暂无收益 Top10 结果。</td></tr>';
         }
 
         function applyRobustCandidate(candidateKey) {
             if (!lastRobustLeaderboard) {
-                setStatus('error', '暂无稳健榜结果可应用。');
+                setStatus('error', '暂无收益 Top10 结果可应用。');
                 return;
             }
             const row = (lastRobustLeaderboard.leaderboard || []).find((item) => item.candidate && item.candidate.key === candidateKey);
@@ -5469,23 +6201,54 @@ STRATEGY_LAB_TEMPLATE = """
             setSelectValue('buyStrategy', 'all');
             setSelectValue('sellStrategy', 'all');
             setSelectValue('scoreSellStrategy', 'all');
+            setMultiSelectValues('robustBuyStrategies', [candidate.buy_strategy], buyStrategyLabels);
+            setMultiSelectValues('robustSellStrategies', [candidate.sell_strategy], sellStrategyLabels);
             if (candidate.step_pct !== null && candidate.step_pct !== undefined) {
                 setFieldValue('stepPct', candidate.step_pct);
             }
             if (candidate.equal_slice_allocation_pct !== null && candidate.equal_slice_allocation_pct !== undefined) {
                 setFieldValue('equalSliceAllocation', candidate.equal_slice_allocation_pct);
             }
+            if (candidate.core_dip_initial_core_pct !== null && candidate.core_dip_initial_core_pct !== undefined) {
+                setFieldValue('coreDipInitialCorePct', candidate.core_dip_initial_core_pct);
+                setFieldValue('coreDipWeeklyCorePct', candidate.core_dip_weekly_core_pct);
+                setFieldValue('coreDipCashReservePct', candidate.core_dip_cash_reserve_pct);
+                setFieldValue('coreDipStartDrawdownPct', candidate.core_dip_start_drawdown_pct);
+                setFieldValue('coreDipFullDrawdownPct', candidate.core_dip_full_drawdown_pct);
+                setSelectValue('coreDipTimingEnabled', String(Boolean(candidate.core_dip_timing_enabled)));
+                if (candidate.core_dip_timing_max_delay_days !== null && candidate.core_dip_timing_max_delay_days !== undefined) {
+                    setFieldValue('coreDipTimingMaxDelayDays', candidate.core_dip_timing_max_delay_days);
+                    setFieldValue('coreDipTimingRiseThresholdPct', candidate.core_dip_timing_rise_threshold_pct);
+                    setFieldValue('coreDipTimingNearLowPct', candidate.core_dip_timing_near_low_pct);
+                }
+            }
             if (candidate.sell_strategy === 'repair_step') {
                 setFieldValue('sellMinProfit', candidate.sell_min_profit_pct);
                 setFieldValue('repairSellCooldown', candidate.repair_sell_cooldown_days);
                 setFieldValue('repairStageSellPct', candidate.repair_stage_sell_pct);
+            }
+            if (candidate.sell_strategy === 'grid_rebound') {
+                setFieldValue('gridReboundStep', candidate.grid_rebound_step_pct);
+                setFieldValue('gridFirstSellPct', candidate.grid_first_sell_pct);
+                setFieldValue('gridSecondSellPct', candidate.grid_second_sell_pct);
+                setFieldValue('gridMinSellAmount', candidate.grid_min_sell_amount);
+            }
+            if (candidate.sell_strategy === 'cost_deleverage') {
+                setFieldValue('costFirstProfitPct', candidate.cost_first_profit_pct);
+                setFieldValue('costSecondProfitPct', candidate.cost_second_profit_pct);
+                setFieldValue('costThirdProfitPct', candidate.cost_third_profit_pct);
+                setFieldValue('costFirstSellPct', candidate.cost_first_sell_pct);
+                setFieldValue('costSecondSellPct', candidate.cost_second_sell_pct);
+                setFieldValue('costThirdSellPct', candidate.cost_third_sell_pct);
+                setFieldValue('costDeleverageCooldown', candidate.cost_deleverage_cooldown_days);
+                setFieldValue('costMinSellAmount', candidate.cost_min_sell_amount);
             }
             if (candidate.dca_rearm_drawdown_pct !== null && candidate.dca_rearm_drawdown_pct !== undefined) {
                 setFieldValue('dcaRearmDrawdown', candidate.dca_rearm_drawdown_pct);
             }
             updateCommandBar();
             activateTab('scorecard');
-            setStatus('success', '已应用稳健榜参数，并保持评分为全量策略。点击“运行评分”即可在全量组合里对比这组参数。');
+            setStatus('success', '已应用收益 Top10 参数，并保持评分为全量策略。点击“运行评分”即可在全量组合里对比这组参数。');
         }
 
         function setScanStage(value) {
@@ -5735,18 +6498,25 @@ STRATEGY_LAB_TEMPLATE = """
             }
         }
 
-        async function runRobustLeaderboard() {
-            setStatus('info', '正在运行稳健 Top10：先粗筛，再局部加密，最后做全题验证...');
+        function robustPayload() {
+            return {
+                ...scorecardPayload(),
+                start: document.getElementById('start').value,
+                end: document.getElementById('end').value,
+                buy_strategies: selectedRobustBuyStrategies(),
+                sell_strategies: selectedRobustSellStrategies(),
+                score_sell_strategies: selectedRobustSellStrategies(),
+                top_n: 10,
+                robust_concurrency: readNumber('robustConcurrency'),
+                core_dip_timing_filter: document.getElementById('robustCoreDipTimingFilter').value
+            };
+        }
+
+        async function runRobustLeaderboardOnServer() {
+            setStatus('info', '正在运行小规模服务端收益 Top10...');
             try {
-                const payload = {
-                    ...scorecardPayload(),
-                    start: document.getElementById('start').value,
-                    end: document.getElementById('end').value,
-                    top_n: 10,
-                    robust_score_mode: document.getElementById('robustScoreMode').value
-                };
-                const data = await runStrategyJob('robust', payload, {
-                    title: '稳健 Top10',
+                const data = await runStrategyJob('robust', robustPayload(), {
+                    title: '收益 Top10',
                     perfKey: 'apiScoreMs',
                     pollDelay: 1200
                 });
@@ -5755,13 +6525,829 @@ STRATEGY_LAB_TEMPLATE = """
                 updateCommandBar();
                 addRunHistory(
                     'robust',
-                    '稳健 Top10 完成',
+                    '收益 Top10 完成',
                     `${number((data.leaderboard || []).length)} 个结果；${number((data.tasks || []).length)} 个题目`
                 );
-                setStatus('success', '稳健 Top10 完成');
+                setStatus('success', '收益 Top10 完成');
             } catch (error) {
-                setStatus('error', `稳健 Top10 失败: ${error.message || error}`);
+                setStatus('error', `收益 Top10 失败: ${error.message || error}`);
             }
+        }
+
+        async function runRobustLeaderboard() {
+            setStatus('info', '正在准备本机收益 Top10 数据包...');
+            const apiStart = performance.now();
+            try {
+                const response = await fetch('/api/strategy-lab/robust/client-packet', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(robustPayload())
+                });
+                const result = await response.json();
+                setPerfMetric('apiScoreMs', performance.now() - apiStart);
+                if (!response.ok || !result.success) {
+                    throw new Error(result.message || '准备本机 Top10 数据失败');
+                }
+                updateJobPanel({
+                    id: 'client-robust',
+                    kind: 'robust',
+                    status: 'running',
+                    stage: 'client',
+                    progress: 12,
+                    pause_requested: false,
+                    message: '行情与候选已下发，浏览器正在本机计算。'
+                });
+                const data = await runClientRobustLeaderboard(result.packet);
+                renderRobustLeaderboard(data);
+                activateTab('robust');
+                updateCommandBar();
+                hideJobPanelLater();
+                addRunHistory(
+                    'robust',
+                    '本机收益 Top10 完成',
+                    `${number((data.leaderboard || []).length)} 个结果；${number((data.tasks || []).length)} 个题目`
+                );
+                setStatus('success', '本机收益 Top10 完成');
+            } catch (error) {
+                hideJobPanelLater();
+                setStatus('error', `本机收益 Top10 失败: ${error.message || error}`);
+            }
+        }
+
+        function runClientRobustLeaderboard(packet) {
+            if (robustClientWorker) {
+                robustClientWorker.terminate();
+            }
+            robustClientWorkers.forEach((worker) => worker.terminate());
+            robustClientWorkers = [];
+            const requestedConcurrency = Math.max(1, Math.min(12, Number(packet.robust_concurrency || 1)));
+            if (
+                requestedConcurrency > 1
+                && Array.isArray(packet.candidate_pool)
+                && packet.candidate_pool.length > requestedConcurrency
+            ) {
+                return runParallelClientRobustLeaderboard(packet, requestedConcurrency);
+            }
+            const workerSource = clientRobustWorkerSource();
+            robustClientWorker = new Worker(URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' })));
+            return new Promise((resolve, reject) => {
+                robustClientResolve = resolve;
+                robustClientReject = reject;
+                robustClientWorker.onmessage = (event) => {
+                    const message = event.data || {};
+                    if (message.type === 'progress') {
+                        updateJobPanel({
+                            id: 'client-robust',
+                            kind: 'robust',
+                            status: 'running',
+                            stage: message.stage || 'client',
+                            progress: message.progress || 0,
+                            pause_requested: Boolean(message.paused),
+                            message: message.message || '本机 Top10 计算中。'
+                        });
+                    } else if (message.type === 'done') {
+                        const worker = robustClientWorker;
+                        robustClientWorker = null;
+                        robustClientResolve = null;
+                        robustClientReject = null;
+                        if (worker) {
+                            worker.terminate();
+                        }
+                        resolve(message.data);
+                    } else if (message.type === 'cancelled') {
+                        const worker = robustClientWorker;
+                        robustClientWorker = null;
+                        robustClientResolve = null;
+                        robustClientReject = null;
+                        if (worker) {
+                            worker.terminate();
+                        }
+                        reject(new Error('本机 Top10 已停止'));
+                    } else if (message.type === 'error') {
+                        const worker = robustClientWorker;
+                        robustClientWorker = null;
+                        robustClientResolve = null;
+                        robustClientReject = null;
+                        if (worker) {
+                            worker.terminate();
+                        }
+                        reject(new Error(message.message || '本机 Top10 计算失败'));
+                    }
+                };
+                robustClientWorker.onerror = (error) => {
+                    const worker = robustClientWorker;
+                    robustClientWorker = null;
+                    robustClientResolve = null;
+                    robustClientReject = null;
+                    if (worker) {
+                        worker.terminate();
+                    }
+                    reject(error);
+                };
+                robustClientWorker.postMessage({ type: 'start', packet });
+            });
+        }
+
+        function robustConcurrencyProbeWorkerSource() {
+            return `
+self.onmessage = (event) => {
+  const iterations = Number((event.data || {}).iterations || 0);
+  const started = performance.now();
+  let acc = 0;
+  for (let i = 0; i < iterations; i += 1) {
+    acc += Math.sqrt((i % 1000) + 1) * Math.sin(i % 97);
+  }
+  postMessage({ elapsed_ms: performance.now() - started, checksum: acc });
+};
+`;
+        }
+
+        async function runRobustConcurrencyProbe() {
+            const node = document.getElementById('robustConcurrencyProbe');
+            const concurrency = Math.max(1, Math.min(12, Number(document.getElementById('robustConcurrency')?.value || 1)));
+            const hardware = Number(navigator.hardwareConcurrency || 0);
+            const workerCount = hardware > 0 ? Math.min(concurrency, hardware) : concurrency;
+            const iterations = 18000000;
+            if (node) {
+                node.textContent = `并发自检运行中：${workerCount} workers...`;
+            }
+            const source = robustConcurrencyProbeWorkerSource();
+            const started = performance.now();
+            const partials = await Promise.all(Array.from({ length: workerCount }, (_, index) => new Promise((resolve, reject) => {
+                const worker = new Worker(URL.createObjectURL(new Blob([source], { type: 'text/javascript' })));
+                worker.onmessage = (event) => {
+                    const data = event.data || {};
+                    worker.terminate();
+                    resolve({ index, elapsed_ms: Number(data.elapsed_ms || 0), checksum: Number(data.checksum || 0) });
+                };
+                worker.onerror = (error) => {
+                    worker.terminate();
+                    reject(error);
+                };
+                worker.postMessage({ iterations });
+            })));
+            const wallMs = performance.now() - started;
+            const workerMs = partials.reduce((sum, item) => sum + item.elapsed_ms, 0);
+            const speedup = wallMs > 0 ? workerMs / wallMs : 0;
+            const slowestMs = Math.max(...partials.map((item) => item.elapsed_ms));
+            const status = speedup >= Math.min(workerCount, 2) * 0.75 ? '多核并行可用' : '并行倍率偏低';
+            if (node) {
+                node.innerHTML = `${status}: ${workerCount} workers / 墙钟 ${number(wallMs)}ms / worker合计 ${number(workerMs)}ms / 倍率 ${speedup.toFixed(2)}x / 最慢 ${number(slowestMs)}ms`;
+            }
+            return { worker_count: workerCount, wall_ms: wallMs, worker_ms: workerMs, speedup, slowest_ms: slowestMs, samples: partials };
+        }
+
+        async function runParallelClientRobustLeaderboard(packet, concurrency) {
+            const workerSource = clientRobustWorkerSource();
+            const startedAt = performance.now();
+            const tasks = (packet.tasks || []).map((task) => ({ key: task.key, portfolio_key: task.portfolio_key, portfolio_label: task.portfolio_label, period_key: task.period_key, period_label: task.period_label, start: task.start, end: task.end }));
+            const candidates = packet.candidate_pool || [];
+            const topN = Math.max(1, Number(packet.method?.top_n || 10));
+            const chunks = Array.from({ length: concurrency }, () => []);
+            candidates.forEach((candidate, index) => {
+                chunks[index % concurrency].push(candidate);
+            });
+            const activeChunks = chunks.filter((chunk) => chunk.length);
+            return new Promise((resolve, reject) => {
+                let settled = false;
+                let completed = 0;
+                let weightedProgress = 0;
+                const partials = [];
+                const cleanup = () => {
+                    robustClientWorkers.forEach((worker) => worker.terminate());
+                    robustClientWorkers = [];
+                    robustClientResolve = null;
+                    robustClientReject = null;
+                };
+                robustClientResolve = resolve;
+                robustClientReject = reject;
+                activeChunks.forEach((chunk, workerIndex) => {
+                    const worker = new Worker(URL.createObjectURL(new Blob([workerSource], { type: 'text/javascript' })));
+                    robustClientWorkers.push(worker);
+                    const shardPacket = {
+                        ...packet,
+                        candidate_pool: chunk,
+                        method: {
+                            ...packet.method,
+                            shard_index: workerIndex,
+                            shard_count: activeChunks.length,
+                        }
+                    };
+                    worker.onmessage = (event) => {
+                        if (settled) return;
+                        const message = event.data || {};
+                        if (message.type === 'progress') {
+                            const shardProgress = Math.max(0, Math.min(100, Number(message.progress || 0)));
+                            weightedProgress = Math.max(weightedProgress, (completed / activeChunks.length) * 100 + (shardProgress / activeChunks.length));
+                            updateJobPanel({
+                                id: 'client-robust',
+                                kind: 'robust',
+                                status: 'running',
+                                stage: 'client',
+                                progress: 18 + 80 * Math.min(100, weightedProgress) / 100,
+                                pause_requested: Boolean(message.paused),
+                                message: `本机 Top10 并发 ${completed}/${activeChunks.length} 分片；${message.message || ''}`
+                            });
+                        } else if (message.type === 'done') {
+                            partials.push(message.data);
+                            completed += 1;
+                            if (completed === activeChunks.length) {
+                                settled = true;
+                                const rows = partials.flatMap((part) => part.leaderboard || []);
+                                const leaderboard = rows.sort((a, b) => Number(b.score || 0) - Number(a.score || 0)).slice(0, topN);
+                                cleanup();
+                                resolve({
+                                    ...packet,
+                                    method: { ...packet.method, name: 'client_parallel_full_candidate_return_90_drawdown_10_leaderboard', concurrency: activeChunks.length, elapsed_ms: performance.now() - startedAt },
+                                    tasks,
+                                    candidate_counts: { total: candidates.length },
+                                    simulation_counts: { total: (packet.tasks || []).length * candidates.length },
+                                    leaderboard,
+                                });
+                            }
+                        } else if (message.type === 'cancelled') {
+                            settled = true;
+                            cleanup();
+                            reject(new Error('本机 Top10 已停止'));
+                        } else if (message.type === 'error') {
+                            settled = true;
+                            cleanup();
+                            reject(new Error(message.message || '本机 Top10 计算失败'));
+                        }
+                    };
+                    worker.onerror = (error) => {
+                        if (settled) return;
+                        settled = true;
+                        cleanup();
+                        reject(error);
+                    };
+                    worker.postMessage({ type: 'start', packet: shardPacket });
+                });
+            });
+        }
+
+        function clientRobustWorkerSource() {
+            return `
+let paused = false;
+let cancelled = false;
+self.onmessage = (event) => {
+  const message = event.data || {};
+  if (message.type === 'pause') paused = true;
+  if (message.type === 'resume') paused = false;
+  if (message.type === 'cancel') cancelled = true;
+  if (message.type === 'start') run(message.packet).catch((error) => postMessage({ type: 'error', message: error.message || String(error) }));
+};
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+async function gate() {
+  if (cancelled) throw new Error('__cancelled__');
+  while (paused) {
+    postMessage({ type: 'progress', stage: 'paused', progress: 45, paused: true, message: '本机 Top10 已暂停。' });
+    await sleep(160);
+    if (cancelled) throw new Error('__cancelled__');
+  }
+}
+function num(value, fallback = 0) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }
+function pct(value) { return value * 100; }
+function clamp(value, lo, hi) { return Math.min(hi, Math.max(lo, value)); }
+function avg(values) { return values.length ? values.reduce((a, b) => a + Number(b || 0), 0) / values.length : 0; }
+function percentile(values, p) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = (sorted.length - 1) * Math.min(1, Math.max(0, p));
+  const lo = Math.floor(index), hi = Math.ceil(index);
+  if (lo === hi) return sorted[lo];
+  const r = index - lo;
+  return sorted[lo] * (1 - r) + sorted[hi] * r;
+}
+function normalize(value, values) {
+  const min = Math.min(...values), max = Math.max(...values);
+  if (Math.abs(max - min) < 1e-9) return 1;
+  return (value - min) / (max - min);
+}
+function priceUsd(symbol, price, inputs) { return String(symbol).endsWith('.HK') ? price * num(inputs.hkd_to_usd, 0.128) : price; }
+function drawdownPct(point, inputs) { return Math.abs((inputs.drawdown_basis === 'rolling_120' ? point.drawdown_120 : point.drawdown_ath) * 100); }
+function buildTranches(inputs, strategy) {
+  if (['weekly_dca', 'salary_flow_dca', 'core_dip_dca'].includes(strategy)) return [{ threshold_pct: 0, allocation_pct: 0 }];
+  const maxDd = Math.max(0.0001, num(inputs.max_drawdown_pct, 50));
+  const step = Math.max(0.0001, num(inputs.step_pct, 5));
+  if (strategy === 'pyramid_3') return [
+    { threshold_pct: maxDd * 0.2, allocation_pct: 20 },
+    { threshold_pct: maxDd * 0.5, allocation_pct: 30 },
+    { threshold_pct: maxDd, allocation_pct: 50 }
+  ];
+  const thresholds = [];
+  const count = Math.floor(maxDd / step);
+  for (let i = 1; i <= count; i += 1) thresholds.push(step * i);
+  if (!thresholds.length || Math.abs(thresholds[thresholds.length - 1] - maxDd) > 1e-9) thresholds.push(maxDd);
+  if (strategy === 'equal_slice') return thresholds.map((threshold) => ({ threshold_pct: threshold, allocation_pct: num(inputs.equal_slice_allocation_pct, 5) }));
+  const weightSum = thresholds.reduce((sum, _v, index) => sum + index + 1, 0);
+  return thresholds.map((threshold, index) => ({ threshold_pct: threshold, allocation_pct: (index + 1) / weightSum * 100 }));
+}
+function monthlyContributionDays(days) {
+  const seen = new Set(), result = [];
+  for (const day of days) {
+    const ym = day.slice(0, 7);
+    if (!seen.has(ym)) { seen.add(ym); result.push(day); }
+  }
+  return new Set(result.slice(1));
+}
+function weeklyDcaDays(points) {
+  const result = new Set(), seen = new Set();
+  for (const point of points) {
+    const d = new Date(point.date + 'T00:00:00Z');
+    const tmp = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    const day = tmp.getUTCDay() || 7;
+    tmp.setUTCDate(tmp.getUTCDate() + 4 - day);
+    const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+    const week = Math.ceil((((tmp - yearStart) / 86400000) + 1) / 7);
+    const key = tmp.getUTCFullYear() + '-' + week;
+    if (!seen.has(key)) { seen.add(key); result.add(point.date); }
+  }
+  return result;
+}
+function maxDrawdown(values) {
+  let peak = -Infinity, maxDd = 0;
+  for (const value of values) {
+    peak = Math.max(peak, value);
+    if (peak > 0) maxDd = Math.min(maxDd, value / peak - 1);
+  }
+  return pct(maxDd);
+}
+function avgCost(state) {
+  const lots = state.lots.filter((lot) => lot.remaining_shares > 0);
+  const shares = lots.reduce((sum, lot) => sum + lot.remaining_shares, 0);
+  return shares > 0 ? lots.reduce((sum, lot) => sum + lot.remaining_shares * lot.buy_price_usd, 0) / shares : 0;
+}
+function avgBuyDrawdown(state) {
+  const lots = state.lots.filter((lot) => lot.remaining_shares > 0);
+  const shares = lots.reduce((sum, lot) => sum + lot.remaining_shares, 0);
+  return shares > 0 ? lots.reduce((sum, lot) => sum + lot.remaining_shares * lot.buy_drawdown_pct, 0) / shares : 0;
+}
+function sellableShares(state, requested, inputs) {
+  const reserve = state.max_shares * num(inputs.reserve_position_pct, 25) / 100;
+  return Math.min(Math.max(0, requested), Math.max(0, state.shares - reserve));
+}
+function reduceLotsFifo(state, shares) {
+  let remaining = shares;
+  for (const lot of state.lots) {
+    if (remaining <= 0) break;
+    const sold = Math.min(lot.remaining_shares, remaining);
+    lot.remaining_shares -= sold;
+    remaining -= sold;
+  }
+}
+function recordBuy(state, point, inputs, tradeLog, buyStrategy, sellStrategy, grossAmount, drawdown, extra = {}) {
+  if (grossAmount <= 0) return false;
+  const fee = Math.min(num(inputs.trade_fee, 0.35), grossAmount);
+  const net = grossAmount - fee;
+  const px = priceUsd(state.symbol, point.close, inputs);
+  const shares = net > 0 && px > 0 ? net / px : 0;
+  state.cash -= grossAmount;
+  state.shares += shares;
+  state.invested += grossAmount;
+  state.fees += fee;
+  state.trades += 1;
+  state.buy_trades += 1;
+  state.max_shares = Math.max(state.max_shares, state.shares);
+  state.last_value = state.shares * px;
+  state.lots.push({ threshold_pct: num(extra.threshold_pct), buy_drawdown_pct: drawdown, buy_price_usd: px, initial_shares: shares, remaining_shares: shares, first_grid_sell_done: false, second_grid_sell_done: false, repair_sell_marks: {} });
+  const rearmed = rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy);
+  tradeLog.push({ action: 'buy', date: point.date, symbol: state.symbol, buy_strategy: buyStrategy, sell_strategy: sellStrategy, drawdown_pct: drawdown, gross_amount: grossAmount, fee, net_amount: net, shares, sell_cycle_rearmed: rearmed, ...extra });
+  return true;
+}
+function rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy) {
+  if (!['repair_step', 'grid_rebound', 'cost_deleverage'].includes(sellStrategy)) return false;
+  if (!Object.keys(state.sell_marks).length) return false;
+  if (drawdown + 1e-9 < Math.min(Math.max(0, num(inputs.dca_rearm_drawdown_pct)), num(inputs.max_drawdown_pct))) return false;
+  state.sell_marks = {};
+  return true;
+}
+function salaryMultiplier(drawdown) { return drawdown >= 30 ? 4 : drawdown >= 20 ? 3 : drawdown >= 10 ? 2 : drawdown >= 5 ? 1.4 : 1; }
+function salaryReserve(drawdown) { return drawdown >= 30 ? 0 : drawdown >= 20 ? 0.03 : drawdown >= 10 ? 0.05 : 0.08; }
+function salarySweep(drawdown) { return drawdown >= 30 ? 0.9 : drawdown >= 20 ? 0.7 : drawdown >= 10 ? 0.5 : drawdown >= 5 ? 0.35 : 0.2; }
+function coreBoost(drawdown, inputs) {
+  const start = Math.max(0, num(inputs.core_dip_start_drawdown_pct));
+  const full = Math.max(start, num(inputs.core_dip_full_drawdown_pct));
+  if (drawdown <= start) return 0;
+  if (drawdown >= full || full <= start) return 1;
+  return (drawdown - start) / (full - start);
+}
+function coreTimingAllowsBuy(point, recentPoints, drawdown, pendingDays, isInitial, inputs) {
+  if (!inputs.core_dip_timing_enabled) return { allowed: true, reason: 'disabled' };
+  if (isInitial) return { allowed: true, reason: 'initial_core' };
+  if (drawdown >= num(inputs.core_dip_start_drawdown_pct)) return { allowed: true, reason: 'drawdown_reached' };
+  const maxDelay = Math.max(0, Math.floor(num(inputs.core_dip_timing_max_delay_days)));
+  if (maxDelay <= 0 || pendingDays >= maxDelay) return { allowed: true, reason: 'delay_expired' };
+  const closes = (recentPoints || []).map((item) => num(item.close)).filter((value) => value > 0);
+  if (closes.length < 2) return { allowed: true, reason: 'insufficient_history' };
+  const previous = closes[closes.length - 2];
+  const dayChange = previous > 0 ? (num(point.close) / previous - 1) * 100 : 0;
+  const recentLow = Math.min(...closes);
+  const distanceFromLow = recentLow > 0 ? (num(point.close) / recentLow - 1) * 100 : 0;
+  if (dayChange <= 0) return { allowed: true, reason: 'down_day' };
+  if (distanceFromLow <= num(inputs.core_dip_timing_near_low_pct)) return { allowed: true, reason: 'near_recent_low' };
+  if (dayChange >= num(inputs.core_dip_timing_rise_threshold_pct)) return { allowed: false, reason: 'defer_after_rise' };
+  return { allowed: true, reason: 'normal' };
+}
+function executeDca(state, point, dcaDays, inputs, tradeLog, strategy, sellStrategy) {
+  const drawdown = drawdownPct(point, inputs);
+  if (strategy === 'weekly_dca') {
+    const gross = Math.min(state.dca_pending_cash, state.cash);
+    if (gross <= 0) return false;
+    state.dca_pending_cash = Math.max(0, state.dca_pending_cash - gross);
+    return recordBuy(state, point, inputs, tradeLog, strategy, sellStrategy, gross, drawdown);
+  }
+  const isDcaDay = dcaDays.has(point.date);
+  if (!isDcaDay && !(strategy === 'core_dip_dca' && state.core_dip_pending_cash > 0)) return false;
+  const monthlyAmount = num(inputs.monthly_contribution) * state.weight / 100;
+  if (strategy === 'salary_flow_dca') {
+    if (!isDcaDay || num(inputs.monthly_contribution) <= 0) return false;
+    const base = monthlyAmount / 4 * salaryMultiplier(drawdown);
+    const reserve = state.budget * salaryReserve(drawdown);
+    const available = Math.max(0, state.cash - reserve);
+    const extra = Math.max(0, available - base);
+    return recordBuy(state, point, inputs, tradeLog, strategy, sellStrategy, Math.min(base + extra * salarySweep(drawdown), available), drawdown);
+  }
+  const scheduled = monthlyAmount / 4;
+  const boost = coreBoost(drawdown, inputs);
+  const coreRatio = clamp(num(inputs.core_dip_weekly_core_pct) / 100, 0, 1);
+  const newCore = isDcaDay && num(inputs.monthly_contribution) > 0 ? scheduled * coreRatio : 0;
+  const dip = isDcaDay && num(inputs.monthly_contribution) > 0 ? scheduled * Math.max(0, 1 - coreRatio) * boost : 0;
+  let timing = { allowed: true, reason: 'disabled' };
+  let core = newCore;
+  if (inputs.core_dip_timing_enabled) {
+    state.core_dip_pending_cash += newCore;
+    if (state.core_dip_pending_cash > 0) state.core_dip_pending_days = state.core_dip_pending_days ? state.core_dip_pending_days + 1 : 1;
+    timing = coreTimingAllowsBuy(point, state.recent_points || [point], drawdown, state.core_dip_pending_days || 0, !state.buy_trades, inputs);
+    core = timing.allowed ? state.core_dip_pending_cash : 0;
+  }
+  const reserve = state.budget * Math.max(0.01, clamp(num(inputs.core_dip_cash_reserve_pct) / 100, 0, 1) * (1 - boost * 0.85));
+  const available = Math.max(0, state.cash - reserve);
+  let extra = Math.max(0, available - core - dip);
+  let initialCore = 0;
+  if (!state.buy_trades) {
+    initialCore = Math.min(extra, num(inputs.initial_cash) * state.weight / 100 * clamp(num(inputs.core_dip_initial_core_pct) / 100, 0, 1));
+    extra = Math.max(0, extra - initialCore);
+  }
+  const sweep = (timing.allowed || boost > 0 || initialCore > 0) ? extra * (boost <= 0 ? 0.12 : Math.min(0.9, 0.25 + boost * 0.65)) : 0;
+  const gross = Math.min(core + dip + initialCore + sweep, available);
+  const bought = recordBuy(state, point, inputs, tradeLog, strategy, sellStrategy, gross, drawdown, { core_amount: core, new_core_amount: newCore, pending_core_amount: 0, timing_reason: timing.reason, dip_amount: dip, initial_core_amount: initialCore });
+  if (bought && inputs.core_dip_timing_enabled && core > 0) {
+    state.core_dip_pending_cash = Math.max(0, state.core_dip_pending_cash - Math.min(core, gross));
+    if (state.core_dip_pending_cash <= 1e-9) { state.core_dip_pending_cash = 0; state.core_dip_pending_days = 0; }
+    const last = tradeLog[tradeLog.length - 1];
+    if (last) last.pending_core_amount = state.core_dip_pending_cash;
+  }
+  return bought;
+}
+function executeTranches(state, point, tranches, executed, inputs, tradeLog, buyStrategy, sellStrategy) {
+  const drawdown = drawdownPct(point, inputs);
+  let bought = false;
+  for (const tranche of tranches) {
+    const key = String(Math.round(tranche.threshold_pct * 1e8) / 1e8);
+    if (drawdown + 1e-9 < tranche.threshold_pct) continue;
+    const target = state.budget * tranche.allocation_pct / 100;
+    const already = executed[key] || 0;
+    if (buyStrategy === 'pyramid_3' && already > 0) continue;
+    const gross = buyStrategy === 'pyramid_3'
+      ? Math.min(target, state.cash)
+      : Math.min(Math.max(0, target - already), state.cash);
+    if (gross <= 0) { executed[key] = buyStrategy === 'pyramid_3' ? 1 : Math.max(already, target); continue; }
+    if (Object.keys(state.sell_marks).length) state.sell_marks = {};
+    bought = recordBuy(state, point, inputs, tradeLog, buyStrategy, sellStrategy, gross, drawdown, { threshold_pct: tranche.threshold_pct, allocation_pct: tranche.allocation_pct }) || bought;
+    executed[key] = buyStrategy === 'pyramid_3' ? 1 : already + gross;
+  }
+  return bought;
+}
+function recordSell(state, point, shares, inputs, tradeLog, sellStrategy, trigger, costBasis = null, lot = null) {
+  const px = priceUsd(state.symbol, point.close, inputs);
+  const gross = shares * px;
+  if (gross <= 0) return false;
+  const basis = costBasis ?? (lot ? lot.buy_price_usd * shares : avgCost(state) * shares);
+  const fee = Math.min(num(inputs.trade_fee, 0.35), gross);
+  state.cash += gross - fee;
+  state.shares -= shares;
+  if (state.shares < 1e-10) state.shares = 0;
+  state.fees += fee;
+  state.trades += 1;
+  state.sell_trades += 1;
+  state.sold_gross += gross;
+  state.last_value = state.shares * px;
+  tradeLog.push({ action: 'sell', date: point.date, symbol: state.symbol, sell_strategy: sellStrategy, trigger_value: trigger, drawdown_pct: drawdownPct(point, inputs), gross_amount: gross, fee, net_amount: gross - fee, shares, estimated_profit: basis > 0 ? gross - basis : 0, estimated_profit_pct: basis > 0 ? pct(gross / basis - 1) : 0 });
+  return true;
+}
+function markBuyRearmAfterPositionSell(state, point, inputs) {
+  const drawdown = drawdownPct(point, inputs);
+  const rearm = Math.min(Math.max(0, num(inputs.dca_rearm_drawdown_pct)), num(inputs.max_drawdown_pct));
+  state.buy_rearm_drawdown_pct = Math.min(num(inputs.max_drawdown_pct), drawdown + rearm);
+}
+function sellShares(state, point, requested, inputs, tradeLog, sellStrategy, trigger, minGross = 0) {
+  const shares = sellableShares(state, requested, inputs);
+  if (shares <= 0 || shares * priceUsd(state.symbol, point.close, inputs) + 1e-9 < minGross) return false;
+  const basis = avgCost(state) * shares;
+  reduceLotsFifo(state, shares);
+  const sold = recordSell(state, point, shares, inputs, tradeLog, sellStrategy, trigger, basis);
+  if (sold) markBuyRearmAfterPositionSell(state, point, inputs);
+  return sold;
+}
+function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog, tradeIndex) {
+  if (sellStrategy === 'none' || state.shares <= 0) return;
+  const current = priceUsd(state.symbol, point.close, inputs);
+  if (sellStrategy === 'repair_step') {
+    if (num(inputs.repair_sell_cooldown_days) > 0 && state.last_repair_sell_trade_index !== null && tradeIndex - state.last_repair_sell_trade_index < num(inputs.repair_sell_cooldown_days)) return;
+    const cost = avgCost(state);
+    if (cost <= 0 || current < cost * (1 + num(inputs.sell_min_profit_pct) / 100)) return;
+    const drawdown = drawdownPct(point, inputs), avgBuy = avgBuyDrawdown(state);
+    for (const [mark, threshold] of [['repair_50', avgBuy * 0.5], ['repair_20', avgBuy * 0.2], ['repair_ath', 0.5]]) {
+      if (state.sell_marks[mark] || drawdown > threshold + 1e-9) continue;
+      if (sellShares(state, point, state.shares * num(inputs.repair_stage_sell_pct) / 100, inputs, tradeLog, sellStrategy, threshold)) {
+        state.sell_marks[mark] = true; state.last_repair_sell_trade_index = tradeIndex; return;
+      }
+    }
+  } else if (sellStrategy === 'grid_rebound') {
+    const cost = avgCost(state);
+    if (cost <= 0 || current < cost * (1 + num(inputs.sell_min_profit_pct) / 100)) return;
+    const drawdown = drawdownPct(point, inputs), avgBuy = avgBuyDrawdown(state);
+    for (const [mark, threshold, sellPct] of [['grid_1', Math.max(0, avgBuy - num(inputs.grid_rebound_step_pct)), num(inputs.grid_first_sell_pct)], ['grid_2', Math.max(0, avgBuy - num(inputs.grid_rebound_step_pct) * 2), num(inputs.grid_second_sell_pct)]]) {
+      if (state.sell_marks[mark] || drawdown > threshold + 1e-9) continue;
+      if (sellShares(state, point, state.shares * sellPct / 100, inputs, tradeLog, sellStrategy, threshold, num(inputs.grid_min_sell_amount))) { state.sell_marks[mark] = true; return; }
+    }
+  } else if (sellStrategy === 'cost_deleverage') {
+    if (num(inputs.cost_deleverage_cooldown_days) > 0 && state.last_cost_deleverage_sell_trade_index !== null && tradeIndex - state.last_cost_deleverage_sell_trade_index < num(inputs.cost_deleverage_cooldown_days)) return;
+    const cost = avgCost(state);
+    if (cost <= 0) return;
+    const profit = current / cost * 100 - 100;
+    for (const [mark, threshold, sellPct] of [['cost_1', num(inputs.cost_first_profit_pct), num(inputs.cost_first_sell_pct)], ['cost_2', num(inputs.cost_second_profit_pct), num(inputs.cost_second_sell_pct)], ['cost_3', num(inputs.cost_third_profit_pct), num(inputs.cost_third_sell_pct)]]) {
+      if (state.sell_marks[mark] || profit < Math.max(threshold, num(inputs.sell_min_profit_pct))) continue;
+      if (sellShares(state, point, state.shares * sellPct / 100, inputs, tradeLog, sellStrategy, threshold, num(inputs.cost_min_sell_amount))) { state.sell_marks[mark] = true; state.last_cost_deleverage_sell_trade_index = tradeIndex; return; }
+    }
+  }
+}
+function candidateInputs(base, candidate) {
+  return { ...base,
+    step_pct: candidate.step_pct ?? base.step_pct,
+    equal_slice_allocation_pct: candidate.equal_slice_allocation_pct ?? base.equal_slice_allocation_pct,
+    core_dip_initial_core_pct: candidate.core_dip_initial_core_pct ?? base.core_dip_initial_core_pct,
+    core_dip_weekly_core_pct: candidate.core_dip_weekly_core_pct ?? base.core_dip_weekly_core_pct,
+    core_dip_cash_reserve_pct: candidate.core_dip_cash_reserve_pct ?? base.core_dip_cash_reserve_pct,
+    core_dip_start_drawdown_pct: candidate.core_dip_start_drawdown_pct ?? base.core_dip_start_drawdown_pct,
+    core_dip_full_drawdown_pct: candidate.core_dip_full_drawdown_pct ?? base.core_dip_full_drawdown_pct,
+    core_dip_timing_enabled: candidate.core_dip_timing_enabled ?? base.core_dip_timing_enabled,
+    core_dip_timing_max_delay_days: candidate.core_dip_timing_max_delay_days ?? base.core_dip_timing_max_delay_days,
+    core_dip_timing_rise_threshold_pct: candidate.core_dip_timing_rise_threshold_pct ?? base.core_dip_timing_rise_threshold_pct,
+    core_dip_timing_near_low_pct: candidate.core_dip_timing_near_low_pct ?? base.core_dip_timing_near_low_pct,
+    sell_min_profit_pct: candidate.sell_min_profit_pct ?? base.sell_min_profit_pct,
+    repair_sell_cooldown_days: candidate.repair_sell_cooldown_days ?? base.repair_sell_cooldown_days,
+    repair_stage_sell_pct: candidate.repair_stage_sell_pct ?? base.repair_stage_sell_pct,
+    dca_rearm_drawdown_pct: candidate.dca_rearm_drawdown_pct ?? base.dca_rearm_drawdown_pct,
+    grid_rebound_step_pct: candidate.grid_rebound_step_pct ?? base.grid_rebound_step_pct,
+    grid_first_sell_pct: candidate.grid_first_sell_pct ?? base.grid_first_sell_pct,
+    grid_second_sell_pct: candidate.grid_second_sell_pct ?? base.grid_second_sell_pct,
+    grid_min_sell_amount: candidate.grid_min_sell_amount ?? base.grid_min_sell_amount,
+    cost_first_profit_pct: candidate.cost_first_profit_pct ?? base.cost_first_profit_pct,
+    cost_second_profit_pct: candidate.cost_second_profit_pct ?? base.cost_second_profit_pct,
+    cost_third_profit_pct: candidate.cost_third_profit_pct ?? base.cost_third_profit_pct,
+    cost_first_sell_pct: candidate.cost_first_sell_pct ?? base.cost_first_sell_pct,
+    cost_second_sell_pct: candidate.cost_second_sell_pct ?? base.cost_second_sell_pct,
+    cost_third_sell_pct: candidate.cost_third_sell_pct ?? base.cost_third_sell_pct,
+    cost_deleverage_cooldown_days: candidate.cost_deleverage_cooldown_days ?? base.cost_deleverage_cooldown_days,
+    cost_min_sell_amount: candidate.cost_min_sell_amount ?? base.cost_min_sell_amount
+  };
+}
+function simulate(task, baseInputs, candidate) {
+  const inputs = candidateInputs(baseInputs, candidate);
+  const strategy = candidate.buy_strategy, sellStrategy = candidate.sell_strategy;
+  const pointByDay = {}, allDaySet = new Set(), dcaDays = {}, tradingIndex = {};
+  for (const [symbol, points] of Object.entries(task.price_points)) {
+    pointByDay[symbol] = {};
+    tradingIndex[symbol] = {};
+    points.forEach((point, index) => { pointByDay[symbol][point.date] = point; tradingIndex[symbol][point.date] = index; allDaySet.add(point.date); });
+    if (['salary_flow_dca', 'core_dip_dca'].includes(strategy)) dcaDays[symbol] = weeklyDcaDays(points);
+  }
+  const allDays = [...allDaySet].sort();
+  const contribDays = monthlyContributionDays(allDays);
+  const states = {};
+  for (const target of task.targets) {
+    const budget = num(inputs.initial_cash) * num(target.weight) / 100;
+    states[target.symbol] = { symbol: target.symbol, weight: num(target.weight), budget, cash: budget, shares: 0, invested: 0, fees: 0, trades: 0, buy_trades: 0, sell_trades: 0, sold_gross: 0, max_shares: 0, last_value: 0, lots: [], sell_marks: {}, last_repair_sell_trade_index: null, last_cost_deleverage_sell_trade_index: null, dca_pending_cash: strategy === 'weekly_dca' ? budget : 0, core_dip_pending_cash: 0, core_dip_pending_days: 0, recent_points: [], buy_rearm_drawdown_pct: null };
+  }
+  const executed = Object.fromEntries(task.targets.map((target) => [target.symbol, {}]));
+  let contributionCount = 0, totalMonthlyContributions = 0;
+  const portfolioValues = [], cashValues = [], tradeLog = [];
+  for (const day of allDays) {
+    if (num(inputs.monthly_contribution) > 0 && contribDays.has(day)) {
+      contributionCount += 1;
+      for (const target of task.targets) {
+        const contribution = num(inputs.monthly_contribution) * num(target.weight) / 100;
+        const state = states[target.symbol];
+        state.cash += contribution; state.budget += contribution;
+        if (strategy === 'weekly_dca') state.dca_pending_cash += contribution;
+        totalMonthlyContributions += contribution;
+      }
+    }
+    for (const [symbol, dayPoints] of Object.entries(pointByDay)) {
+      const point = dayPoints[day]; if (!point) continue;
+      const state = states[symbol];
+      state.recent_points = (state.recent_points || []).concat([point]).slice(-5);
+      state.last_value = state.shares * priceUsd(symbol, point.close, inputs);
+      const tradeIndex = tradingIndex[symbol][day];
+      let bought = false;
+      if (['weekly_dca', 'salary_flow_dca', 'core_dip_dca'].includes(strategy)) {
+        bought = executeDca(state, point, dcaDays[symbol] || new Set(), inputs, tradeLog, strategy, sellStrategy);
+      } else {
+        if (Object.keys(executed[symbol]).length && drawdownPct(point, inputs) <= 0.5) executed[symbol] = {};
+        if (Object.keys(executed[symbol]).length && state.buy_rearm_drawdown_pct !== null && state.buy_rearm_drawdown_pct !== undefined && drawdownPct(point, inputs) + 1e-9 >= state.buy_rearm_drawdown_pct) { executed[symbol] = {}; state.buy_rearm_drawdown_pct = null; }
+        const tranches = buildTranches({ ...inputs, max_drawdown_pct: targetMaxDrawdown(task.targets, symbol, inputs) }, strategy);
+        bought = executeTranches(state, point, tranches, executed[symbol], inputs, tradeLog, strategy, sellStrategy);
+      }
+      if (!bought) executeSells(state, point, inputs, strategy, sellStrategy, tradeLog, tradeIndex);
+    }
+    portfolioValues.push(Object.values(states).reduce((sum, state) => sum + state.cash + state.last_value, 0));
+    cashValues.push(Object.values(states).reduce((sum, state) => sum + state.cash, 0));
+  }
+  const finalValue = portfolioValues[portfolioValues.length - 1] || 0;
+  const totalContributed = num(inputs.initial_cash) + totalMonthlyContributions;
+  const metrics = sellMetrics(tradeLog, portfolioValues, cashValues);
+  return { return_pct: totalContributed > 0 ? pct(finalValue / totalContributed - 1) : 0, max_drawdown_pct: maxDrawdown(portfolioValues), trade_count: Object.values(states).reduce((sum, state) => sum + state.trades, 0), ...metrics };
+}
+function targetMaxDrawdown(targets, symbol, inputs) {
+  const target = targets.find((item) => item.symbol === symbol);
+  return target && target.max_drawdown_pct != null ? num(target.max_drawdown_pct) : num(inputs.max_drawdown_pct);
+}
+function sellMetrics(tradeLog, portfolioValues, cashValues) {
+  const buys = tradeLog.filter((t) => t.action === 'buy'), sells = tradeLog.filter((t) => t.action === 'sell');
+  const avgBuy = avg(buys.map((t) => t.drawdown_pct)), avgSell = avg(sells.map((t) => t.drawdown_pct)), avgProfit = avg(sells.map((t) => t.estimated_profit_pct));
+  const totalSellCash = sells.reduce((sum, t) => sum + num(t.net_amount), 0);
+  let sellPool = 0, reused = 0;
+  for (const trade of tradeLog) {
+    if (trade.action === 'sell') sellPool += num(trade.net_amount);
+    if (trade.action === 'buy' && sellPool > 0) { const r = Math.min(sellPool, num(trade.gross_amount)); reused += r; sellPool -= r; }
+  }
+  const cashReuse = totalSellCash > 0 ? pct(reused / totalSellCash) : 0;
+  const avgCash = avg(cashValues.map((cash, i) => portfolioValues[i] > 0 ? pct(cash / portfolioValues[i]) : 0));
+  const sellQuality = sells.length ? (clamp(avgProfit / 35, 0, 1) * 0.35 + clamp((30 - avgSell) / 30, 0, 1) * 0.30 + clamp(cashReuse / 100, 0, 1) * 0.20 + clamp((65 - avgCash) / 65, 0, 1) * 0.15) * 100 : 0;
+  return { avg_buy_drawdown_pct: avgBuy, avg_sell_drawdown_pct: avgSell, avg_sell_profit_pct: avgProfit, cash_reuse_pct: cashReuse, avg_cash_pct: avgCash, sell_quality_score: sellQuality };
+}
+function scoreTaskObservations(observations) {
+  const returns = observations.map((o) => o.return_pct), drawdowns = observations.map((o) => -o.max_drawdown_pct);
+  const weights = robustWeights();
+  observations.forEach((o) => {
+    const returnScore = normalize(o.return_pct, returns) * 100, drawdownScore = normalize(-o.max_drawdown_pct, drawdowns) * 100;
+    o.task_score = returnScore * weights.return + drawdownScore * weights.drawdown;
+  });
+  [...observations].sort((a, b) => b.task_score - a.task_score).forEach((o, index) => { o.task_rank = index + 1; });
+}
+function aggregate(candidate, observations) {
+  const scores = observations.map((o) => o.task_score).sort((a, b) => a - b), returns = observations.map((o) => o.return_pct), drawdowns = observations.map((o) => o.max_drawdown_pct), sells = observations.map((o) => o.sell_quality_score);
+  const mean = avg(scores);
+  const robust = mean;
+  const sorted = [...observations].sort((a, b) => a.task_score - b.task_score);
+  const weak = sorted[0], strong = sorted[sorted.length - 1];
+  const taskSummary = (o) => o ? { key: o.task.key, label: o.task.portfolio_label + ' / ' + o.task.period_label, score: o.task_score, return_pct: o.return_pct, max_drawdown_pct: o.max_drawdown_pct } : null;
+  return { candidate, score: robust, robust_score: robust, mean_score: mean, avg_return_pct: avg(returns), avg_drawdown_pct: avg(drawdowns), avg_sell_quality_score: avg(sells), task_count: observations.length, strongest_task: taskSummary(strong), weakest_task: taskSummary(weak) };
+}
+function robustWeights() { return { return: 0.9, drawdown: 0.1 }; }
+function scoreRowsLikeScorecard(rows) {
+  const weights = robustWeights();
+  const returns = rows.map((row) => row.avg_return_pct);
+  const drawdowns = rows.map((row) => row.avg_drawdown_pct);
+  rows.forEach((row) => {
+    const returnScore = normalize(row.avg_return_pct, returns) * 100;
+    const drawdownScore = normalize(row.avg_drawdown_pct, drawdowns) * 100;
+    const score = returnScore * weights.return + drawdownScore * weights.drawdown;
+    row.return_score = returnScore;
+    row.drawdown_score = drawdownScore;
+    row.mean_score = score;
+    row.score = score;
+    row.robust_score = score;
+  });
+}
+function scorecardStrategyCandidates(packet) {
+  const buys = packet.buy_strategies || [];
+  const sells = packet.sell_strategies || [];
+  const candidates = [];
+  for (const buy of buys) {
+    for (const sell of sells) {
+      candidates.push({ key: buy + '__' + sell, buy_strategy: buy, sell_strategy: sell });
+    }
+  }
+  return candidates;
+}
+function scoreCandidateLikeScorecardPage(tasks, baseInputs, tuningCandidate) {
+  const packet = self.robustPacket || {};
+  const tunedInputs = candidateInputs(baseInputs, tuningCandidate);
+  const strategyCandidates = scorecardStrategyCandidates(packet);
+  const targetKey = tuningCandidate.buy_strategy + '__' + tuningCandidate.sell_strategy;
+  const summary = new Map();
+  const targetObservations = [];
+  for (const task of tasks) {
+    const observations = [];
+    for (const strategyCandidate of strategyCandidates) {
+      const metrics = simulate(task, tunedInputs, strategyCandidate);
+      observations.push({ candidate: strategyCandidate, task, ...metrics });
+    }
+    scoreTaskObservations(observations);
+    for (const observation of observations) {
+      const key = String(observation.candidate.key);
+      if (!summary.has(key)) {
+        summary.set(key, {
+          key,
+          candidate: observation.candidate,
+          avg_return_pct: 0,
+          avg_drawdown_pct: 0,
+          question_count: 0
+        });
+      }
+      const row = summary.get(key);
+      row.avg_return_pct += observation.return_pct;
+      row.avg_drawdown_pct += observation.max_drawdown_pct;
+      row.question_count += 1;
+      if (key === targetKey) targetObservations.push({ ...observation, candidate: tuningCandidate });
+    }
+  }
+  const rows = [...summary.values()].map((row) => ({
+    ...row,
+    avg_return_pct: row.question_count ? row.avg_return_pct / row.question_count : 0,
+    avg_drawdown_pct: row.question_count ? row.avg_drawdown_pct / row.question_count : 0
+  }));
+  scoreRowsLikeScorecard(rows);
+  [...rows].sort((a, b) => b.score - a.score).forEach((row, index) => { row.scorecard_rank = index + 1; });
+  const target = rows.find((row) => row.key === targetKey) || rows[0] || {};
+  const sortedTargetTasks = [...targetObservations].sort((a, b) => a.task_score - b.task_score);
+  const weakest = sortedTargetTasks[0];
+  const strongest = sortedTargetTasks[sortedTargetTasks.length - 1];
+  const taskSummary = (o) => o ? { key: o.task.key, label: o.task.portfolio_label + ' / ' + o.task.period_label, score: o.task_score, return_pct: o.return_pct, max_drawdown_pct: o.max_drawdown_pct } : null;
+  const taskScores = targetObservations.map((item) => item.task_score).sort((a, b) => a - b);
+  return {
+    candidate: tuningCandidate,
+    score: target.score || 0,
+    robust_score: target.score || 0,
+    mean_score: avg(taskScores),
+    avg_return_pct: target.avg_return_pct || 0,
+    avg_drawdown_pct: target.avg_drawdown_pct || 0,
+    avg_sell_quality_score: 0,
+    task_count: targetObservations.length,
+    scorecard_rank: target.scorecard_rank || 0,
+    strongest_task: taskSummary(strongest),
+    weakest_task: taskSummary(weakest)
+  };
+}
+async function scoreCandidatesLikeScorecardPage(tasks, inputs, candidates, stage, progressStart, progressEnd) {
+  const rows = [];
+  const total = Math.max(1, candidates.length);
+  for (let index = 0; index < candidates.length; index += 1) {
+    await gate();
+    rows.push(scoreCandidateLikeScorecardPage(tasks, inputs, candidates[index]));
+    if ((index + 1) % 5 === 0 || index + 1 === candidates.length) {
+      postMessage({ type: 'progress', stage, progress: progressStart + (progressEnd - progressStart) * (index + 1) / total, message: stage + ': ' + (index + 1) + ' / ' + total });
+    }
+  }
+  return rows;
+}
+async function scoreCandidates(tasks, inputs, candidates, stage, progressStart, progressEnd) {
+  const byKey = new Map(candidates.map((c) => [String(c.key), []]));
+  let done = 0, total = Math.max(1, tasks.length * candidates.length);
+  for (const task of tasks) {
+    await gate();
+    const observations = [];
+    for (const candidate of candidates) {
+      await gate();
+      const metrics = simulate(task, inputs, candidate);
+      const observation = { candidate, task, ...metrics };
+      observations.push(observation);
+      byKey.get(String(candidate.key)).push(observation);
+      done += 1;
+      if (done % 25 === 0) postMessage({ type: 'progress', stage, progress: progressStart + (progressEnd - progressStart) * done / total, message: stage + ': ' + done + ' / ' + total });
+    }
+    scoreTaskObservations(observations);
+  }
+  const rows = candidates.map((candidate) => aggregate(candidate, byKey.get(String(candidate.key)) || []));
+  scoreRowsLikeScorecard(rows);
+  return rows;
+}
+async function run(packet) {
+  try {
+    self.robustPacket = packet;
+    const candidates = packet.candidate_pool || [];
+    postMessage({ type: 'progress', stage: 'full', progress: 18, message: '本机全候选全题计算...' });
+    const rows = await scoreCandidatesLikeScorecardPage(packet.tasks || [], packet.inputs, candidates, 'full', 18, 98);
+    const topN = Math.max(1, num(packet.method.top_n, 10));
+    const leaderboard = [...rows].sort((a, b) => b.score - a.score).slice(0, topN);
+    const data = {
+      ...packet,
+      method: { ...packet.method, name: 'client_full_candidate_return_90_drawdown_10_leaderboard' },
+      tasks: (packet.tasks || []).map((task) => ({ key: task.key, portfolio_key: task.portfolio_key, portfolio_label: task.portfolio_label, period_key: task.period_key, period_label: task.period_label, start: task.start, end: task.end })),
+      candidate_counts: { total: candidates.length },
+      simulation_counts: { total: (packet.tasks || []).length * candidates.length },
+      leaderboard
+    };
+    postMessage({ type: 'done', data });
+  } catch (error) {
+    if (error && error.message === '__cancelled__') postMessage({ type: 'cancelled' });
+    else postMessage({ type: 'error', message: error.message || String(error) });
+  }
+}
+`;
         }
 
         async function loadScorecardDetail(questionKey, buyStrategy, sellStrategy) {
@@ -5862,8 +7448,10 @@ STRATEGY_LAB_TEMPLATE = """
             }
         }
 
+        initUniverseRows();
         initPortfolioRows();
         updateScorecardQuestionHint();
+        updateRobustEstimate();
         initScoreTooltip();
         initCommandBarWatchers();
         refreshHistoryWorkspace();
@@ -6389,21 +7977,7 @@ def strategy_lab_page():
     lab_config = StrategyLabConfig.from_saved_defaults(strategy_config)
     end_date = datetime.now().date()
     start_date = end_date - timedelta(days=365 * 3)
-    scorecard_portfolios = [
-        {
-            "key": item["key"],
-            "label": item["label"],
-            "short_label": {
-                "tsm_100": "TSM",
-                "googl_100": "GOOGL",
-                "tsla_100": "TSLA",
-                "tencent_100": "腾讯",
-                "qqq_100": "QQQ",
-                "core_50_30_20": "当前组合",
-            }.get(str(item["key"]), str(item["label"])),
-        }
-        for item in SCORECARD_PORTFOLIOS
-    ]
+    scorecard_portfolios = _strategy_lab_scorecard_portfolios(lab_config)
     default_scorecard_portfolio_keys = lab_config.selected_scorecard_keys()
     period_overrides = {
         period.key: period
@@ -6420,14 +7994,17 @@ def strategy_lab_page():
             "enabled": bool(getattr(override, "enabled", True)),
         })
     default_portfolio = lab_config.portfolio_or_default()
+    investment_universe = lab_config.investment_universe_or_default()
     return render_template_string(
         STRATEGY_LAB_TEMPLATE,
         default_config=lab_config.to_legacy_defaults(),
         default_portfolio=default_portfolio,
+        investment_universe=investment_universe,
         buy_strategy_labels=STRATEGY_LABELS,
         sell_strategy_labels=SELL_STRATEGY_LABELS,
         scorecard_portfolios=scorecard_portfolios,
         scorecard_portfolio_labels={item["key"]: item["short_label"] for item in scorecard_portfolios},
+        scorecard_symbol_keys=_scorecard_symbol_keys(scorecard_portfolios),
         scorecard_periods=scorecard_periods,
         default_scorecard_portfolio_keys=default_scorecard_portfolio_keys,
         default_start=start_date.isoformat(),
@@ -6509,6 +8086,62 @@ def _apply_score_target_max_drawdowns(targets: list[dict[str, object]], max_draw
     return applied
 
 
+def _strategy_lab_scorecard_portfolios(lab_config: StrategyLabConfig) -> list[dict[str, object]]:
+    short_labels = {
+        "tsm_100": "TSM",
+        "googl_100": "GOOGL",
+        "tsla_100": "TSLA",
+        "tencent_100": "腾讯",
+        "qqq_100": "QQQ",
+        "core_50_30_20": "当前组合",
+    }
+    portfolios = [
+        {
+            "key": item["key"],
+            "label": item["label"],
+            "short_label": short_labels.get(str(item["key"]), str(item["label"]).replace("全仓 ", "")),
+            "targets": [dict(target) for target in item.get("targets", [])],
+        }
+        for item in SCORECARD_PORTFOLIOS
+    ]
+    known_keys = {str(item["key"]) for item in portfolios}
+    single_symbol_keys = _scorecard_symbol_keys(portfolios)
+    for item in lab_config.investment_universe_or_default():
+        symbol = normalize_longbridge_symbol(str(item.get("symbol", "")))
+        if not symbol:
+            continue
+        if symbol in single_symbol_keys:
+            continue
+        key = _scorecard_symbol_key(symbol)
+        if key in known_keys:
+            continue
+        name = str(item.get("name") or symbol).strip()
+        portfolios.append({
+            "key": key,
+            "label": f"全仓 {name}",
+            "short_label": name,
+            "targets": [{"symbol": symbol, "weight": 100.0, "name": name}],
+        })
+        known_keys.add(key)
+        single_symbol_keys[symbol] = key
+    return portfolios
+
+
+def _scorecard_symbol_keys(portfolios: list[dict[str, object]]) -> dict[str, str]:
+    symbol_keys: dict[str, str] = {}
+    for portfolio in portfolios:
+        targets = portfolio.get("targets")
+        if not isinstance(targets, list) or len(targets) != 1:
+            continue
+        target = targets[0]
+        if not isinstance(target, dict):
+            continue
+        symbol = normalize_longbridge_symbol(str(target.get("symbol", "")))
+        if symbol:
+            symbol_keys[symbol] = str(portfolio["key"])
+    return symbol_keys
+
+
 def _run_strategy_lab_payload(payload: dict[str, object]) -> dict[str, object]:
     start_date, end_date = parse_date_range(payload.get("start"), payload.get("end"))
     lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
@@ -6556,6 +8189,7 @@ def _run_strategy_score_payload(payload: dict[str, object]) -> dict[str, object]
         core_targets=targets,
         portfolio_keys=payload.get("scorecard_portfolio_keys"),
         scorecard_periods=payload.get("scorecard_periods"),
+        investment_universe=lab_config.investment_universe_or_default(),
         buy_strategies=payload.get("buy_strategies"),
         sell_strategies=sell_strategies,
         return_weight=return_weight,
@@ -6589,16 +8223,133 @@ def _run_strategy_robust_payload(payload: dict[str, object]) -> dict[str, object
     if targets is not None and not isinstance(targets, list):
         raise ValueError("targets 必须是数组")
     top_n = int(payload.get("top_n") or 10)
+    estimate = _estimate_robust_server_simulations(
+        payload.get("buy_strategies"),
+        payload.get("sell_strategies") or payload.get("score_sell_strategies"),
+        payload.get("scorecard_portfolio_keys"),
+        payload.get("scorecard_periods"),
+        str(payload.get("core_dip_timing_filter") or "all"),
+    )
+    if estimate > SERVER_ROBUST_MAX_SIMULATIONS:
+        raise ValueError(
+            "收益 Top10 当前组合预估需要 "
+            f"{estimate} 次服务端演算，超过服务器保护阈值 {SERVER_ROBUST_MAX_SIMULATIONS}。"
+            "请先减少勾选的买入/卖出策略或题目；客户端计算版准备好后可在本机浏览器运行大规模 Top10。"
+        )
     return run_longbridge_robust_leaderboard(
         lab_config.to_strategy_inputs(),
         end_date=end_date,
         core_targets=targets,
         portfolio_keys=payload.get("scorecard_portfolio_keys"),
         scorecard_periods=payload.get("scorecard_periods"),
+        investment_universe=lab_config.investment_universe_or_default(),
         buy_strategies=payload.get("buy_strategies"),
+        sell_strategies=payload.get("sell_strategies") or payload.get("score_sell_strategies"),
         top_n=top_n,
-        score_mode=str(payload.get("robust_score_mode") or "robust"),
+        return_weight=lab_config.score_weights()[0],
+        drawdown_weight=lab_config.score_weights()[1],
+        core_dip_timing_filter=str(payload.get("core_dip_timing_filter") or "all"),
+        control_checker=_strategy_lab_job_control_checker(str(payload.get("_job_id") or "")),
     )
+
+
+def _prepare_strategy_robust_client_payload(payload: dict[str, object]) -> dict[str, object]:
+    end_date = date.fromisoformat(payload.get("end")) if payload.get("end") else datetime.now().date()
+    lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+    targets = lab_config.portfolio_or_default()
+    if targets is not None and not isinstance(targets, list):
+        raise ValueError("targets 必须是数组")
+    packet = prepare_robust_leaderboard_packet(
+        lab_config.to_strategy_inputs(),
+        end_date=end_date,
+        core_targets=targets,
+        portfolio_keys=payload.get("scorecard_portfolio_keys"),
+        scorecard_periods=payload.get("scorecard_periods"),
+        investment_universe=lab_config.investment_universe_or_default(),
+        buy_strategies=payload.get("buy_strategies"),
+        sell_strategies=payload.get("sell_strategies") or payload.get("score_sell_strategies"),
+        top_n=int(payload.get("top_n") or 10),
+        return_weight=lab_config.score_weights()[0],
+        drawdown_weight=lab_config.score_weights()[1],
+        core_dip_timing_filter=str(payload.get("core_dip_timing_filter") or "all"),
+    )
+    try:
+        concurrency = int(float(payload.get("robust_concurrency") or 1))
+    except (TypeError, ValueError):
+        concurrency = 1
+    packet["robust_concurrency"] = max(1, min(12, concurrency))
+    return packet
+
+
+def _strategy_lab_job_control_checker(job_id: str) -> Callable[[], None] | None:
+    if not job_id:
+        return None
+
+    def check() -> None:
+        with strategy_lab_jobs_lock:
+            job = strategy_lab_jobs.get(job_id)
+            if not job:
+                raise StrategyLabComputationCancelled("任务不存在或已过期。")
+            if job.get("cancel_requested"):
+                raise StrategyLabComputationCancelled("任务已取消。")
+
+    def is_paused() -> bool:
+        with strategy_lab_jobs_lock:
+            job = strategy_lab_jobs.get(job_id)
+            return bool(job and job.get("pause_requested") and not job.get("cancel_requested"))
+
+    setattr(check, "is_paused", is_paused)
+    return check
+
+
+def _estimate_robust_server_simulations(
+    buy_strategies: object,
+    sell_strategies: object,
+    portfolio_keys: object,
+    scorecard_periods: object,
+    core_dip_timing_filter: str = "all",
+) -> int:
+    buys = [str(item) for item in buy_strategies] if isinstance(buy_strategies, list) and buy_strategies else list(STRATEGY_LABELS)
+    sells = [str(item) for item in sell_strategies] if isinstance(sell_strategies, list) and sell_strategies else list(SELL_STRATEGY_LABELS)
+    portfolio_count = len(portfolio_keys) if isinstance(portfolio_keys, list) and portfolio_keys else 4
+    if isinstance(scorecard_periods, list) and scorecard_periods:
+        period_count = len([period for period in scorecard_periods if not isinstance(period, dict) or period.get("enabled", True)])
+    else:
+        period_count = 3
+    task_count = max(1, portfolio_count * max(1, period_count))
+    candidate_count = 0
+    for buy in buys:
+        buy_variants = _robust_buy_variant_count(buy, core_dip_timing_filter)
+        for sell in sells:
+            candidate_count += buy_variants * _robust_sell_variant_count(buy, sell)
+    return task_count * candidate_count
+
+
+def _robust_buy_variant_count(buy_strategy: str, core_dip_timing_filter: str = "all") -> int:
+    if buy_strategy == "equal_slice":
+        return 12
+    if buy_strategy == "linear_weighted_slice":
+        return 3
+    if buy_strategy == "core_dip_dca":
+        return 12 if core_dip_timing_filter == "all" else 6
+    return 1
+
+
+def _robust_sell_variant_count(buy_strategy: str, sell_strategy: str) -> int:
+    rearm_multiplier = 5 if buy_strategy in {"pyramid_3", "weekly_dca", "salary_flow_dca", "core_dip_dca"} else 1
+    if sell_strategy == "none":
+        return 1
+    if sell_strategy == "repair_step":
+        if buy_strategy == "pyramid_3":
+            return 27 * rearm_multiplier
+        if buy_strategy in {"weekly_dca", "salary_flow_dca", "core_dip_dca"}:
+            return 5
+        return 0
+    if sell_strategy == "grid_rebound":
+        return 5 * 4 * 4 * rearm_multiplier
+    if sell_strategy == "cost_deleverage":
+        return 3 * 3 * 3 * rearm_multiplier
+    return 0
 
 
 def _strategy_lab_job_snapshot(job: dict[str, object]) -> dict[str, object]:
@@ -6609,6 +8360,8 @@ def _strategy_lab_job_snapshot(job: dict[str, object]) -> dict[str, object]:
         "stage": job.get("stage", ""),
         "message": job.get("message", ""),
         "progress": job.get("progress", 0),
+        "pause_requested": bool(job.get("pause_requested")),
+        "cancel_requested": bool(job.get("cancel_requested")),
         "created_at": job.get("created_at"),
         "updated_at": job.get("updated_at"),
         "started_at": job.get("started_at"),
@@ -6620,6 +8373,8 @@ def _strategy_lab_job_snapshot(job: dict[str, object]) -> dict[str, object]:
             snapshot["run_snapshot"] = job.get("run_snapshot")
     if job.get("status") == "failed":
         snapshot["error"] = job.get("error", "任务失败")
+    if job.get("status") == "cancelled":
+        snapshot["error"] = job.get("error", "任务已取消")
     return snapshot
 
 
@@ -6628,6 +8383,8 @@ def _update_strategy_lab_job(job_id: str, **updates: object) -> None:
         job = strategy_lab_jobs.get(job_id)
         if not job:
             return
+        if job.get("cancel_requested") and updates.get("status") not in {None, "cancelled"}:
+            updates.pop("status", None)
         job.update(updates)
         job["updated_at"] = datetime.now(timezone.utc).isoformat()
 
@@ -6645,6 +8402,21 @@ def _cleanup_strategy_lab_jobs(now: float | None = None) -> None:
 
 
 def _run_strategy_lab_job(job_id: str, runner: Callable[[dict[str, object]], dict[str, object]]) -> None:
+    with strategy_lab_jobs_lock:
+        initial_job = strategy_lab_jobs.get(job_id)
+        if not initial_job or initial_job.get("cancel_requested"):
+            if initial_job:
+                initial_job.update(
+                    {
+                        "status": "cancelled",
+                        "stage": "cancelled",
+                        "progress": 100,
+                        "message": "任务已取消。",
+                        "finished_at": datetime.now(timezone.utc).isoformat(),
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+            return
     _update_strategy_lab_job(
         job_id,
         status="running",
@@ -6657,6 +8429,8 @@ def _run_strategy_lab_job(job_id: str, runner: Callable[[dict[str, object]], dic
         with strategy_lab_jobs_lock:
             job = strategy_lab_jobs[job_id]
             payload = dict(job.get("payload") or {})
+        payload["_job_id"] = job_id
+        _raise_if_strategy_lab_job_cancelled(job_id)
         _update_strategy_lab_job(
             job_id,
             stage="market_data",
@@ -6664,12 +8438,14 @@ def _run_strategy_lab_job(job_id: str, runner: Callable[[dict[str, object]], dic
             message="准备行情数据；腾讯云网络较慢时会优先使用已有缓存。",
         )
         result = runner(payload)
+        _raise_if_strategy_lab_job_cancelled(job_id)
         with strategy_lab_jobs_lock:
             job = strategy_lab_jobs[job_id]
             kind = str(job.get("kind", ""))
         run_snapshot = None
+        snapshot_payload = {key: value for key, value in payload.items() if key != "_job_id"}
         try:
-            run_snapshot = save_run_snapshot(kind, payload, result, job_id=job_id)
+            run_snapshot = save_run_snapshot(kind, snapshot_payload, result, job_id=job_id)
         except Exception as snapshot_exc:
             run_snapshot = {"error": f"运行历史保存失败: {snapshot_exc}"}
         _update_strategy_lab_job(
@@ -6682,6 +8458,16 @@ def _run_strategy_lab_job(job_id: str, runner: Callable[[dict[str, object]], dic
             run_snapshot=run_snapshot,
             finished_at=datetime.now(timezone.utc).isoformat(),
         )
+    except StrategyLabComputationCancelled as exc:
+        _update_strategy_lab_job(
+            job_id,
+            status="cancelled",
+            stage="cancelled",
+            progress=100,
+            message="任务已取消。",
+            error=str(exc) or "任务已取消。",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+        )
     except Exception as exc:
         _update_strategy_lab_job(
             job_id,
@@ -6692,6 +8478,13 @@ def _run_strategy_lab_job(job_id: str, runner: Callable[[dict[str, object]], dic
             error=str(exc),
             finished_at=datetime.now(timezone.utc).isoformat(),
         )
+
+
+def _raise_if_strategy_lab_job_cancelled(job_id: str) -> None:
+    with strategy_lab_jobs_lock:
+        job = strategy_lab_jobs.get(job_id)
+        if job and job.get("cancel_requested"):
+            raise StrategyLabComputationCancelled("任务已取消。")
 
 
 def _create_strategy_lab_job(kind: str, payload: dict[str, object]) -> dict[str, object]:
@@ -6713,6 +8506,8 @@ def _create_strategy_lab_job(kind: str, payload: dict[str, object]) -> dict[str,
         "stage": "queued",
         "message": "任务已排队。",
         "progress": 0,
+        "pause_requested": False,
+        "cancel_requested": False,
         "payload": dict(payload),
         "created_at": now_iso,
         "updated_at": now_iso,
@@ -6746,6 +8541,18 @@ def api_strategy_lab_jobs():
         return _json_error(f"创建任务失败: {exc}", 500)
 
 
+@app.route('/api/strategy-lab/robust/client-packet', methods=['POST'])
+def api_strategy_lab_robust_client_packet():
+    payload = request.get_json(silent=True) or {}
+    try:
+        packet = _prepare_strategy_robust_client_payload(payload)
+        return jsonify({"success": True, "packet": packet})
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        return _json_error(f"准备本机 Top10 数据失败: {exc}", 500)
+
+
 @app.route('/api/strategy-lab/jobs/<job_id>', methods=['GET'])
 def api_strategy_lab_job_status(job_id: str):
     _cleanup_strategy_lab_jobs()
@@ -6753,6 +8560,61 @@ def api_strategy_lab_job_status(job_id: str):
         job = strategy_lab_jobs.get(job_id)
         if not job:
             return _json_error("任务不存在或已过期", 404)
+        snapshot = _strategy_lab_job_snapshot(job)
+    return jsonify({"success": True, "job": snapshot})
+
+
+@app.route('/api/strategy-lab/jobs/<job_id>/pause', methods=['POST'])
+def api_strategy_lab_job_pause(job_id: str):
+    _cleanup_strategy_lab_jobs()
+    with strategy_lab_jobs_lock:
+        job = strategy_lab_jobs.get(job_id)
+        if not job:
+            return _json_error("任务不存在或已过期", 404)
+        if job.get("status") in {"succeeded", "failed", "cancelled"}:
+            return jsonify({"success": True, "job": _strategy_lab_job_snapshot(job)})
+        job["pause_requested"] = True
+        job["message"] = "任务已暂停，可恢复或停止。"
+        job["updated_at"] = datetime.now(timezone.utc).isoformat()
+        snapshot = _strategy_lab_job_snapshot(job)
+    return jsonify({"success": True, "job": snapshot})
+
+
+@app.route('/api/strategy-lab/jobs/<job_id>/resume', methods=['POST'])
+def api_strategy_lab_job_resume(job_id: str):
+    _cleanup_strategy_lab_jobs()
+    with strategy_lab_jobs_lock:
+        job = strategy_lab_jobs.get(job_id)
+        if not job:
+            return _json_error("任务不存在或已过期", 404)
+        if job.get("status") in {"succeeded", "failed", "cancelled"}:
+            return jsonify({"success": True, "job": _strategy_lab_job_snapshot(job)})
+        job["pause_requested"] = False
+        job["message"] = "任务已恢复，继续计算。"
+        job["updated_at"] = datetime.now(timezone.utc).isoformat()
+        snapshot = _strategy_lab_job_snapshot(job)
+    return jsonify({"success": True, "job": snapshot})
+
+
+@app.route('/api/strategy-lab/jobs/<job_id>/cancel', methods=['POST'])
+def api_strategy_lab_job_cancel(job_id: str):
+    _cleanup_strategy_lab_jobs()
+    with strategy_lab_jobs_lock:
+        job = strategy_lab_jobs.get(job_id)
+        if not job:
+            return _json_error("任务不存在或已过期", 404)
+        if job.get("status") in {"succeeded", "failed", "cancelled"}:
+            return jsonify({"success": True, "job": _strategy_lab_job_snapshot(job)})
+        job["cancel_requested"] = True
+        job["pause_requested"] = False
+        if job.get("status") == "queued":
+            job["status"] = "cancelled"
+            job["stage"] = "cancelled"
+            job["progress"] = 100
+            job["finished_at"] = datetime.now(timezone.utc).isoformat()
+        job["message"] = "正在停止任务..."
+        job["error"] = "任务已取消。"
+        job["updated_at"] = datetime.now(timezone.utc).isoformat()
         snapshot = _strategy_lab_job_snapshot(job)
     return jsonify({"success": True, "job": snapshot})
 
@@ -6875,8 +8737,6 @@ def api_strategy_lab_score_detail():
         if sell_strategy not in SELL_STRATEGY_LABELS:
             return _json_error("未知卖出策略", 400)
 
-        portfolio_by_key = {str(item["key"]): item for item in SCORECARD_PORTFOLIOS}
-        period_by_key = {str(item["key"]): item for item in SCORECARD_PERIODS}
         custom_periods = payload.get("scorecard_periods")
         if custom_periods is not None and not isinstance(custom_periods, list):
             return _json_error("scorecard_periods 必须是数组", 400)
@@ -6886,6 +8746,13 @@ def api_strategy_lab_score_detail():
             if isinstance(item, dict)
         }
         lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+        resolved_portfolios = _resolve_scorecard_portfolios(
+            lab_config.portfolio_or_default(),
+            None,
+            lab_config.investment_universe_or_default(),
+        )
+        portfolio_by_key = {str(item["key"]): item for item in resolved_portfolios}
+        period_by_key = {str(item["key"]): item for item in SCORECARD_PERIODS}
         custom_targets = lab_config.portfolio_or_default()
         if custom_targets is not None and not isinstance(custom_targets, list):
             return _json_error("targets 必须是数组", 400)
