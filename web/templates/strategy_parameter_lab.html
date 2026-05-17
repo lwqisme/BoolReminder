@@ -674,6 +674,10 @@
             const core = definitions.core_dip_dca || {};
             const firstCostSet = (cost.parameter_space?.cost_profit_sets || [])[0] || [];
             const firstCoreSet = (core.parameter_space?.core_dip_param_sets || [])[0] || [];
+            const coreSetColumn = (index) => (core.parameter_space?.core_dip_param_sets || [])
+                .map((set) => Array.isArray(set) ? set[index] : undefined)
+                .filter((value) => value !== undefined && value !== null)
+                .filter((value, index, values) => values.findIndex((item) => Number(item) === Number(value)) === index);
             const rows = [
                 {
                     label: '步长候选',
@@ -704,6 +708,46 @@
                     label: '核心参数组',
                     values: firstCoreSet.length ? (core.parameter_space?.core_dip_param_sets || []) : [],
                     formatter: (value) => `[${(value || []).map(percentChip).join(', ')}]`
+                },
+                {
+                    label: '核心周投',
+                    values: coreSetColumn(1),
+                    formatter: percentChip
+                },
+                {
+                    label: '核心现金垫',
+                    values: coreSetColumn(2),
+                    formatter: percentChip
+                },
+                {
+                    label: '开始加仓',
+                    values: coreSetColumn(3),
+                    formatter: percentChip
+                },
+                {
+                    label: '满额加仓',
+                    values: coreSetColumn(4),
+                    formatter: percentChip
+                },
+                {
+                    label: '买点优化',
+                    values: core.parameter_space?.core_dip_timing_enabled || [],
+                    formatter: (value) => value ? '开启' : '关闭'
+                },
+                {
+                    label: '优化延迟日',
+                    values: core.parameter_space?.core_dip_timing_max_delay_days || [],
+                    formatter: (value) => `${number(value)}日`
+                },
+                {
+                    label: '大涨阈值',
+                    values: core.parameter_space?.core_dip_timing_rise_threshold_pct || [],
+                    formatter: percentChip
+                },
+                {
+                    label: '近低距离',
+                    values: core.parameter_space?.core_dip_timing_near_low_pct || [],
+                    formatter: percentChip
                 },
                 {
                     label: '卖后重启',

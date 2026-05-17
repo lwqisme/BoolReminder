@@ -16,6 +16,9 @@ from drawdown.position_strategy import (
     ROBUST_COST_COOLDOWNS,
     ROBUST_COST_PROFIT_SETS,
     ROBUST_COST_SELL_SETS,
+    ROBUST_CORE_DIP_TIMING_MAX_DELAY_DAYS,
+    ROBUST_CORE_DIP_TIMING_NEAR_LOW_VALUES,
+    ROBUST_CORE_DIP_TIMING_RISE_THRESHOLDS,
     ROBUST_DCA_REARM_DRAWDOWN_VALUES,
     ROBUST_EQUAL_SLICE_ALLOCATION_VALUES,
     ROBUST_GRID_FIRST_SELLS,
@@ -333,6 +336,9 @@ def _buy_definitions() -> dict[str, StrategyDefinition]:
             {
                 "core_dip_param_sets": [list(item) for item in ROBUST_CORE_DIP_PARAM_SETS],
                 "core_dip_timing_enabled": [False, True],
+                "core_dip_timing_max_delay_days": list(ROBUST_CORE_DIP_TIMING_MAX_DELAY_DAYS),
+                "core_dip_timing_rise_threshold_pct": list(ROBUST_CORE_DIP_TIMING_RISE_THRESHOLDS),
+                "core_dip_timing_near_low_pct": list(ROBUST_CORE_DIP_TIMING_NEAR_LOW_VALUES),
             },
         ),
     }
@@ -424,8 +430,8 @@ def _buy_param_variants(strategy_key: str, core_dip_timing_filter: str) -> list[
             timing_values = [True]
         elif core_dip_timing_filter == "disabled":
             timing_values = [False]
-        for timing_enabled in timing_values:
-            for initial_core, weekly_core, cash_reserve, start_drawdown, full_drawdown in ROBUST_CORE_DIP_PARAM_SETS:
+        for initial_core, weekly_core, cash_reserve, start_drawdown, full_drawdown in ROBUST_CORE_DIP_PARAM_SETS:
+            for timing_enabled in timing_values:
                 params = {
                     "core_dip_initial_core_pct": float(initial_core),
                     "core_dip_weekly_core_pct": float(weekly_core),
@@ -435,14 +441,20 @@ def _buy_param_variants(strategy_key: str, core_dip_timing_filter: str) -> list[
                     "core_dip_timing_enabled": bool(timing_enabled),
                 }
                 if timing_enabled:
-                    params.update(
-                        {
-                            "core_dip_timing_max_delay_days": 3,
-                            "core_dip_timing_rise_threshold_pct": 1.5,
-                            "core_dip_timing_near_low_pct": 2.0,
-                        }
-                    )
-                variants.append(params)
+                    for max_delay_days in ROBUST_CORE_DIP_TIMING_MAX_DELAY_DAYS:
+                        for rise_threshold in ROBUST_CORE_DIP_TIMING_RISE_THRESHOLDS:
+                            for near_low in ROBUST_CORE_DIP_TIMING_NEAR_LOW_VALUES:
+                                timing_params = dict(params)
+                                timing_params.update(
+                                    {
+                                        "core_dip_timing_max_delay_days": int(max_delay_days),
+                                        "core_dip_timing_rise_threshold_pct": float(rise_threshold),
+                                        "core_dip_timing_near_low_pct": float(near_low),
+                                    }
+                                )
+                                variants.append(timing_params)
+                else:
+                    variants.append(params)
         return variants
     return [{}]
 
@@ -612,7 +624,14 @@ def _buy_label(strategy_key: str, params: Mapping[str, object]) -> str:
                 f"加仓 {float(params.get('core_dip_start_drawdown_pct') or 0):g}-{float(params.get('core_dip_full_drawdown_pct') or 0):g}%",
             ]
         )
-        bits.append("买点优化 开启" if params.get("core_dip_timing_enabled") else "买点优化 关闭")
+        if params.get("core_dip_timing_enabled"):
+            bits.append(
+                f"买点优化 延迟{int(params.get('core_dip_timing_max_delay_days') or 0):g}日 "
+                f"大涨{float(params.get('core_dip_timing_rise_threshold_pct') or 0):g}% "
+                f"近低{float(params.get('core_dip_timing_near_low_pct') or 0):g}%"
+            )
+        else:
+            bits.append("买点优化 关闭")
     return f"{label} ({' / '.join(bits)})" if bits else label
 
 

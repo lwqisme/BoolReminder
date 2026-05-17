@@ -118,6 +118,9 @@ ROBUST_CORE_DIP_PARAM_SETS = [
     (90.0, 100.0, 5.0, 5.0, 15.0),
     (95.0, 100.0, 3.0, 3.0, 15.0),
 ]
+ROBUST_CORE_DIP_TIMING_MAX_DELAY_DAYS = [1, 3, 5]
+ROBUST_CORE_DIP_TIMING_RISE_THRESHOLDS = [1.0, 1.5, 2.5]
+ROBUST_CORE_DIP_TIMING_NEAR_LOW_VALUES = [1.0, 2.0, 3.0]
 
 
 class StrategyLabComputationCancelled(RuntimeError):
@@ -993,6 +996,11 @@ def _robust_parameter_grid_payload(inputs: StrategyInputs) -> dict[str, object]:
         "cost_sell_sets": ROBUST_COST_SELL_SETS,
         "cost_deleverage_cooldown_days": ROBUST_COST_COOLDOWNS,
         "cost_min_sell_amount": [inputs.cost_min_sell_amount],
+        "core_dip_param_sets": ROBUST_CORE_DIP_PARAM_SETS,
+        "core_dip_timing_enabled": [False, True],
+        "core_dip_timing_max_delay_days": ROBUST_CORE_DIP_TIMING_MAX_DELAY_DAYS,
+        "core_dip_timing_rise_threshold_pct": ROBUST_CORE_DIP_TIMING_RISE_THRESHOLDS,
+        "core_dip_timing_near_low_pct": ROBUST_CORE_DIP_TIMING_NEAR_LOW_VALUES,
     }
 
 
@@ -1492,7 +1500,7 @@ def _buy_param_variants(buy_strategy: str) -> list[dict[str, float | None]]:
             for allocation in (ROBUST_EQUAL_SLICE_ALLOCATION_VALUES if buy_strategy == "equal_slice" else [None])
         ]
     if buy_strategy == "core_dip_dca":
-        return [
+        disabled_variants = [
             {
                 "step_pct": None,
                 "equal_slice_allocation_pct": None,
@@ -1507,7 +1515,8 @@ def _buy_param_variants(buy_strategy: str) -> list[dict[str, float | None]]:
                 "core_dip_timing_near_low_pct": None,
             }
             for initial_core, weekly_core, cash_reserve, start_drawdown, full_drawdown in ROBUST_CORE_DIP_PARAM_SETS
-        ] + [
+        ]
+        enabled_variants = [
             {
                 "step_pct": None,
                 "equal_slice_allocation_pct": None,
@@ -1517,12 +1526,16 @@ def _buy_param_variants(buy_strategy: str) -> list[dict[str, float | None]]:
                 "core_dip_start_drawdown_pct": start_drawdown,
                 "core_dip_full_drawdown_pct": full_drawdown,
                 "core_dip_timing_enabled": True,
-                "core_dip_timing_max_delay_days": 3,
-                "core_dip_timing_rise_threshold_pct": 1.5,
-                "core_dip_timing_near_low_pct": 2.0,
+                "core_dip_timing_max_delay_days": max_delay_days,
+                "core_dip_timing_rise_threshold_pct": rise_threshold,
+                "core_dip_timing_near_low_pct": near_low,
             }
             for initial_core, weekly_core, cash_reserve, start_drawdown, full_drawdown in ROBUST_CORE_DIP_PARAM_SETS
+            for max_delay_days in ROBUST_CORE_DIP_TIMING_MAX_DELAY_DAYS
+            for rise_threshold in ROBUST_CORE_DIP_TIMING_RISE_THRESHOLDS
+            for near_low in ROBUST_CORE_DIP_TIMING_NEAR_LOW_VALUES
         ]
+        return disabled_variants + enabled_variants
     return [{
         "step_pct": None,
         "equal_slice_allocation_pct": None,

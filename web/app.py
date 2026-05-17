@@ -36,7 +36,10 @@ from drawdown.position_strategy import (
     _scorecard_symbol_key,
 )
 from drawdown.strategy_lab_config import StrategyLabConfig
-from drawdown.strategy_parameter_registry import strategy_registry_payload
+from drawdown.strategy_parameter_registry import (
+    expand_buy_parameter_variants,
+    strategy_registry_payload,
+)
 from drawdown.strategy_lab_history import (
     delete_experiment_preset,
     delete_run_snapshot,
@@ -2161,6 +2164,48 @@ STRATEGY_LAB_TEMPLATE = """
             font-family: var(--mono);
             font-size: 18px;
         }
+        .candidate-grid-summary {
+            display: grid;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .candidate-grid-row {
+            display: grid;
+            grid-template-columns: minmax(92px, 120px) minmax(0, 1fr);
+            gap: 8px;
+            align-items: start;
+            padding: 8px;
+            border: 1px solid rgba(133, 151, 169, 0.24);
+            border-radius: var(--radius-sm);
+            background: rgba(255, 255, 255, 0.64);
+        }
+        .candidate-grid-row strong {
+            color: var(--ink);
+            font-size: 12px;
+            line-height: 1.35;
+        }
+        .candidate-chip-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+        .candidate-chip {
+            display: inline-flex;
+            align-items: center;
+            min-height: 23px;
+            padding: 3px 7px;
+            border: 1px solid rgba(17, 103, 216, 0.18);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.82);
+            color: var(--blue);
+            font-family: var(--mono);
+            font-size: 11px;
+            font-weight: 900;
+        }
+        .candidate-chip.muted {
+            color: var(--muted);
+            border-color: rgba(99, 115, 134, 0.20);
+        }
         .robust-table td:first-child {
             min-width: 230px;
         }
@@ -3322,6 +3367,7 @@ STRATEGY_LAB_TEMPLATE = """
                     <span id="robustConcurrencyProbe" class="scan-note"></span>
                     <span class="scan-note">当前勾选题目会同时影响收益 Top10 与策略评分。</span>
                 </div>
+                <div id="robustCandidateGridSummary" class="candidate-grid-summary"></div>
                 <div id="robustBoard" class="robust-board">
                     <div class="summary-title">
                         <h2>收益 Top10 结果</h2>
@@ -3630,6 +3676,7 @@ STRATEGY_LAB_TEMPLATE = """
         const scorecardPortfolioLabels = {{ scorecard_portfolio_labels|tojson }};
         const scorecardSymbolKeys = {{ scorecard_symbol_keys|tojson }};
         const scorecardPeriods = {{ scorecard_periods|tojson }};
+        const strategyRegistry = {{ strategy_registry|tojson }};
         const strategyColors = ['#07689f', '#ff7e67', '#5aaeda', '#054d76', '#ff9a87', '#2e8fc4', '#a2d5f2', '#d95f4b', '#07547f', '#7fc2e8', '#c95442', '#2b769f'];
         const defaultSellStrategyKeys = Object.keys(sellStrategyLabels);
         let lastResult = null;
@@ -4086,30 +4133,81 @@ STRATEGY_LAB_TEMPLATE = """
             return selectedMultiStrategies('robustSellStrategies', sellStrategyLabels);
         }
 
+        function strategyDefinition(strategy) {
+            return (strategyRegistry.definitions || {})[strategy] || {};
+        }
+
+        function parameterValues(strategy, field) {
+            const values = strategyDefinition(strategy).parameter_space?.[field];
+            return Array.isArray(values) ? values : [];
+        }
+
+        function registryParameterGrid() {
+            return {
+                step_pct: parameterValues('equal_slice', 'step_pct'),
+                equal_slice_allocation_pct: parameterValues('equal_slice', 'equal_slice_allocation_pct'),
+                core_dip_param_sets: parameterValues('core_dip_dca', 'core_dip_param_sets'),
+                core_dip_timing_enabled: parameterValues('core_dip_dca', 'core_dip_timing_enabled'),
+                core_dip_timing_max_delay_days: parameterValues('core_dip_dca', 'core_dip_timing_max_delay_days'),
+                core_dip_timing_rise_threshold_pct: parameterValues('core_dip_dca', 'core_dip_timing_rise_threshold_pct'),
+                core_dip_timing_near_low_pct: parameterValues('core_dip_dca', 'core_dip_timing_near_low_pct'),
+                sell_min_profit_pct: parameterValues('repair_step', 'sell_min_profit_pct'),
+                repair_sell_cooldown_days: parameterValues('repair_step', 'repair_sell_cooldown_days'),
+                repair_stage_sell_pct: parameterValues('repair_step', 'repair_stage_sell_pct'),
+                dca_rearm_drawdown_pct: parameterValues('repair_step', 'dca_rearm_drawdown_pct'),
+                grid_rebound_step_pct: parameterValues('grid_rebound', 'grid_rebound_step_pct'),
+                grid_first_sell_pct: parameterValues('grid_rebound', 'grid_first_sell_pct'),
+                grid_second_sell_pct: parameterValues('grid_rebound', 'grid_second_sell_pct'),
+                cost_profit_sets: parameterValues('cost_deleverage', 'cost_profit_sets'),
+                cost_sell_sets: parameterValues('cost_deleverage', 'cost_sell_sets'),
+                cost_deleverage_cooldown_days: parameterValues('cost_deleverage', 'cost_deleverage_cooldown_days'),
+            };
+        }
+
+        function coreTimingVariantMultiplier(timingFilter) {
+            if (timingFilter === 'disabled') {
+                return 0;
+            }
+            return Math.max(1, parameterValues('core_dip_dca', 'core_dip_timing_max_delay_days').length)
+                * Math.max(1, parameterValues('core_dip_dca', 'core_dip_timing_rise_threshold_pct').length)
+                * Math.max(1, parameterValues('core_dip_dca', 'core_dip_timing_near_low_pct').length);
+        }
+
         function robustBuyVariantCount(strategy) {
             const timingFilter = document.getElementById('robustCoreDipTimingFilter')?.value || 'all';
             if (strategy === 'equal_slice') {
-                return 12;
+                return Math.max(1, parameterValues(strategy, 'step_pct').length)
+                    * Math.max(1, parameterValues(strategy, 'equal_slice_allocation_pct').length);
             }
             if (strategy === 'linear_weighted_slice') {
-                return 3;
+                return Math.max(1, parameterValues(strategy, 'step_pct').length);
             }
             if (strategy === 'core_dip_dca') {
-                return timingFilter === 'all' ? 12 : 6;
+                const coreSets = Math.max(1, parameterValues(strategy, 'core_dip_param_sets').length);
+                const disabledCount = timingFilter === 'enabled' ? 0 : coreSets;
+                const enabledCount = timingFilter === 'disabled' ? 0 : coreSets * coreTimingVariantMultiplier(timingFilter);
+                return disabledCount + enabledCount;
             }
             return 1;
         }
 
         function robustSellVariantCount(buyStrategy, sellStrategy) {
             const rearmMultiplier = (buyStrategy === 'pyramid_3' || buyStrategy === 'weekly_dca' || buyStrategy === 'salary_flow_dca' || buyStrategy === 'core_dip_dca') ? 5 : 1;
-            const gridVariantCount = 5 * 4 * 4;
-            const costVariantCount = 3 * 3 * 3;
+            const gridVariantCount = Math.max(1, parameterValues('grid_rebound', 'grid_rebound_step_pct').length)
+                * Math.max(1, parameterValues('grid_rebound', 'grid_first_sell_pct').length)
+                * Math.max(1, parameterValues('grid_rebound', 'grid_second_sell_pct').length);
+            const costVariantCount = Math.max(1, parameterValues('cost_deleverage', 'cost_profit_sets').length)
+                * Math.max(1, parameterValues('cost_deleverage', 'cost_sell_sets').length)
+                * Math.max(1, parameterValues('cost_deleverage', 'cost_deleverage_cooldown_days').length);
             if (sellStrategy === 'none') {
                 return 1;
             }
             if (sellStrategy === 'repair_step') {
                 if (buyStrategy === 'pyramid_3') {
-                    return 27 * rearmMultiplier;
+                    return Math.max(1, parameterValues('repair_step', 'sell_min_profit_pct').length)
+                        * Math.max(1, parameterValues('repair_step', 'repair_sell_cooldown_days').length)
+                        * Math.max(1, parameterValues('repair_step', 'repair_stage_sell_pct').length)
+                        * rearmMultiplier;
                 }
                 if (buyStrategy === 'weekly_dca' || buyStrategy === 'salary_flow_dca' || buyStrategy === 'core_dip_dca') {
                     return 5;
@@ -4139,12 +4237,11 @@ STRATEGY_LAB_TEMPLATE = """
                     candidateCount += buyVariants * robustSellVariantCount(buyStrategy, sellStrategy);
                 });
             });
-            const scorecardMultiplier = Math.max(1, buyStrategies.length * sellStrategies.length);
             return {
                 taskCount,
                 candidateCount,
                 concurrency,
-                total: taskCount * candidateCount * scorecardMultiplier,
+                total: taskCount * candidateCount,
             };
         }
 
@@ -4159,7 +4256,12 @@ STRATEGY_LAB_TEMPLATE = """
                 return;
             }
             const estimate = estimateRobustWorkload();
-            node.innerHTML = `预估计算量 ${number(estimate.total)} 次 / 全候选全题 / 并发 ${number(estimate.concurrency)} ${scoreHelpButton('解释预估计算量', '预估计算量\\n按当前买入策略、卖出策略、共享题目数量和候选参数估算组合演算次数。\\nTop10 固定使用评分页口径：收益 90% / 回撤 10%。每个候选会放进当前勾选的全部买入/卖出策略集合里重新排名，因此会额外乘以策略组合数。\\n并发度只影响本机浏览器计算速度，不改变评分结果。\\n最终实际次数以运行结果里的“实际演算”统计为准。')}`;
+            node.innerHTML = `预估计算量 ${number(estimate.total)} 次 / 全候选全题 / 并发 ${number(estimate.concurrency)} ${scoreHelpButton('解释预估计算量', '预估计算量\\n按当前买入策略、卖出策略、共享题目数量和候选参数估算组合演算次数。\\nTop10 固定使用评分页口径：收益 90% / 回撤 10%。候选组合已经包含买入策略、卖出策略和参数的交叉组合。\\n并发度只影响本机浏览器计算速度，不改变评分结果。\\n最终实际次数以运行结果里的“实际演算”统计为准。')}`;
+            renderRobustCandidateGridSummary({
+                buy_strategies: selectedRobustBuyStrategies(),
+                sell_strategies: selectedRobustSellStrategies(),
+                method: { parameter_grid: registryParameterGrid() },
+            });
         }
 
         function syncSellStrategy(changedSelect) {
@@ -6105,9 +6207,81 @@ STRATEGY_LAB_TEMPLATE = """
             return bits.join(' / ');
         }
 
+        function listCandidateValues(values, formatter = pct) {
+            const list = Array.isArray(values) ? values : [];
+            if (!list.length) {
+                return '<span class="candidate-chip muted">沿用基线</span>';
+            }
+            return list.map((value) => `<span class="candidate-chip">${escapeHtml(formatter(value))}</span>`).join('');
+        }
+
+        function renderRobustCandidateGridSummary(data) {
+            const grid = { ...registryParameterGrid(), ...((data.method && data.method.parameter_grid) || {}) };
+            const coreSets = Array.isArray(grid.core_dip_param_sets) ? grid.core_dip_param_sets : [];
+            const coreColumn = (index) => coreSets
+                .map((set) => Array.isArray(set) ? set[index] : undefined)
+                .filter((value) => value !== undefined && value !== null)
+                .filter((value, index, values) => values.findIndex((item) => Number(item) === Number(value)) === index);
+            const firstCostSet = (grid.cost_profit_sets || [])[0] || [];
+            const selectedBuy = new Set(data.buy_strategies || []);
+            const selectedSell = new Set(data.sell_strategies || []);
+            const rows = [];
+            if (selectedBuy.has('equal_slice') || selectedBuy.has('linear_weighted_slice')) {
+                rows.push({ label: '步长候选', values: grid.step_pct || parameterValues('equal_slice', 'step_pct'), formatter: pct });
+            }
+            if (selectedBuy.has('equal_slice')) {
+                rows.push({ label: '每步投入', values: grid.equal_slice_allocation_pct || parameterValues('equal_slice', 'equal_slice_allocation_pct'), formatter: pct });
+            }
+            if (selectedBuy.has('core_dip_dca')) {
+                rows.push(
+                    { label: '核心参数组', values: coreSets, formatter: (value) => `[${(value || []).map(pct).join(', ')}]` },
+                    { label: '核心周投', values: coreColumn(1), formatter: pct },
+                    { label: '核心现金垫', values: coreColumn(2), formatter: pct },
+                    { label: '开始加仓', values: coreColumn(3), formatter: pct },
+                    { label: '满额加仓', values: coreColumn(4), formatter: pct },
+                    { label: '买点优化', values: grid.core_dip_timing_enabled || [], formatter: (value) => value ? '开启' : '关闭' },
+                    { label: '优化延迟日', values: grid.core_dip_timing_max_delay_days || [], formatter: (value) => `${number(value)}日` },
+                    { label: '大涨阈值', values: grid.core_dip_timing_rise_threshold_pct || [], formatter: pct },
+                    { label: '近低距离', values: grid.core_dip_timing_near_low_pct || [], formatter: pct }
+                );
+            }
+            if (selectedSell.has('repair_step')) {
+                rows.push({ label: '修复卖出', values: grid.sell_min_profit_pct || [], formatter: (value) => `${number(value)}%盈利` });
+            }
+            if (selectedSell.has('grid_rebound')) {
+                rows.push({ label: '网格回弹', values: grid.grid_rebound_step_pct || [], formatter: (value) => `${number(value)}%步长` });
+            }
+            if (selectedSell.has('cost_deleverage')) {
+                rows.push({ label: '成本盈利组', values: firstCostSet.length ? (grid.cost_profit_sets || []) : [], formatter: (value) => `[${(value || []).map(pct).join(', ')}]` });
+            }
+            if ([...selectedSell].some((item) => item !== 'none')) {
+                rows.push({ label: '卖后重启', values: grid.dca_rearm_drawdown_pct || [], formatter: pct });
+            }
+            const node = document.getElementById('robustCandidateGridSummary');
+            if (!node) {
+                return;
+            }
+            node.innerHTML = rows.map((row) => `
+                <div class="candidate-grid-row">
+                    <strong>${escapeHtml(row.label)}</strong>
+                    <div class="candidate-chip-list">${listCandidateValues(row.values, row.formatter)}</div>
+                </div>
+            `).join('');
+        }
+
         function robustTraversalSummary(data) {
             const grid = (data.method && data.method.parameter_grid) || {};
             const bits = [];
+            if ((data.buy_strategies || []).includes('equal_slice') || (data.buy_strategies || []).includes('linear_weighted_slice')) {
+                bits.push(`买入步长: ${grid.step_pct || parameterValues('equal_slice', 'step_pct') || []}`);
+            }
+            if ((data.buy_strategies || []).includes('equal_slice')) {
+                bits.push(`等距每步投入: ${grid.equal_slice_allocation_pct || parameterValues('equal_slice', 'equal_slice_allocation_pct') || []}`);
+            }
+            if ((data.buy_strategies || []).includes('core_dip_dca')) {
+                bits.push(`核心参数组: ${JSON.stringify(grid.core_dip_param_sets || [])}`);
+                bits.push(`买点优化: ${grid.core_dip_timing_enabled || []}；延迟 ${grid.core_dip_timing_max_delay_days || []}；大涨 ${grid.core_dip_timing_rise_threshold_pct || []}；近低 ${grid.core_dip_timing_near_low_pct || []}`);
+            }
             if ((data.sell_strategies || []).includes('grid_rebound')) {
                 bits.push(`网格: 步长 ${grid.grid_rebound_step_pct || []}，第一档 ${grid.grid_first_sell_pct || []}，第二档 ${grid.grid_second_sell_pct || []}，最小额沿用当前 ${grid.grid_min_sell_amount || []} USD`);
             }
@@ -6136,6 +6310,7 @@ STRATEGY_LAB_TEMPLATE = """
             const rangeText = `${data.range.start} 至 ${data.range.end}；${tasks.length} 个题目；${modeLabel}；${computeLabel}`;
             document.getElementById('robustRange').textContent = rangeText;
             document.getElementById('robustResultMeta').innerHTML = `${escapeHtml(rangeText)} ${scoreHelpButton('解释本次遍历参数', robustTraversalSummary(data))}`;
+            renderRobustCandidateGridSummary(data);
             document.getElementById('robustStrip').innerHTML = `
                 <div class="robust-stat"><span>候选组合 ${scoreHelpButton('解释候选组合', '候选组合\\n当前勾选买入策略、卖出策略和可调参数生成出的全部候选。\\n每个候选都会在当前勾选的全部题目上评分。')}</span><strong>${number(counts.total ?? counts.candidates ?? (data.candidate_pool || []).length)}</strong></div>
                 <div class="robust-stat"><span>实际演算 ${scoreHelpButton('解释实际演算次数', '实际演算次数\\n这是本次真实调用组合演算的次数。\\nTop10 现在只保留全候选全题路径，实际次数通常等于题目数乘以候选组合数。')}</span><strong>${number(simulations.total)}</strong></div>
@@ -8055,7 +8230,6 @@ def strategy_parameter_lab_page():
     return render_template(
         "strategy_parameter_lab.html",
         **_strategy_lab_page_context(),
-        strategy_registry=strategy_registry_payload(),
     )
 
 
@@ -8095,6 +8269,7 @@ def _strategy_lab_page_context() -> dict[str, object]:
         "default_scorecard_portfolio_keys": default_scorecard_portfolio_keys,
         "default_start": start_date.isoformat(),
         "default_end": end_date.isoformat(),
+        "strategy_registry": strategy_registry_payload(),
     }
 
 
@@ -8467,13 +8642,12 @@ def _estimate_robust_server_simulations(
 
 
 def _robust_buy_variant_count(buy_strategy: str, core_dip_timing_filter: str = "all") -> int:
-    if buy_strategy == "equal_slice":
-        return 12
-    if buy_strategy == "linear_weighted_slice":
-        return 3
-    if buy_strategy == "core_dip_dca":
-        return 12 if core_dip_timing_filter == "all" else 6
-    return 1
+    return len(
+        expand_buy_parameter_variants(
+            [buy_strategy],
+            core_dip_timing_filter=core_dip_timing_filter,
+        )
+    )
 
 
 def _robust_sell_variant_count(buy_strategy: str, sell_strategy: str) -> int:

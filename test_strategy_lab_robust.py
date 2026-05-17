@@ -142,7 +142,10 @@ class StrategyLabRobustTest(unittest.TestCase):
         self.assertTrue(any(candidate.get("core_dip_initial_core_pct") is not None for candidate in candidates))
         self.assertTrue(any(candidate.get("core_dip_timing_enabled") for candidate in candidates))
         self.assertTrue(any("买点优化" in candidate["label"] for candidate in candidates))
-        self.assertGreaterEqual(result["candidate_counts"]["total"], 12)
+        self.assertEqual(result["candidate_counts"]["total"], 168)
+        self.assertEqual(result["method"]["parameter_grid"]["core_dip_timing_max_delay_days"], [1, 3, 5])
+        self.assertEqual(result["method"]["parameter_grid"]["core_dip_timing_rise_threshold_pct"], [1.0, 1.5, 2.5])
+        self.assertEqual(result["method"]["parameter_grid"]["core_dip_timing_near_low_pct"], [1.0, 2.0, 3.0])
 
     def test_robust_leaderboard_can_filter_core_dip_timing_candidates(self):
         def fake_fetch(_ctx, _symbol, _start, _end):
@@ -164,6 +167,7 @@ class StrategyLabRobustTest(unittest.TestCase):
         self.assertTrue(candidates)
         self.assertTrue(all(candidate.get("core_dip_timing_enabled") for candidate in candidates))
         self.assertTrue(all("买点优化" in candidate["label"] for candidate in candidates))
+        self.assertEqual(result["candidate_counts"]["total"], 162)
 
     def test_robust_leaderboard_respects_selected_sell_strategies(self):
         def fake_fetch(_ctx, _symbol, _start, _end):
