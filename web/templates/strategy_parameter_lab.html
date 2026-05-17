@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parameter Lab - Strategy Lab</title>
+    <style>
+        :root {
+            --bg: #f3f6f8;
+            --surface: #ffffff;
+            --surface-2: #eef3f7;
+            --ink: #17212b;
+            --muted: #637386;
+            --line: #cfdae4;
+            --blue: #1d64c8;
+            --green: #047857;
+            --amber: #b7791f;
+            --red: #c24135;
+            --shadow: 0 10px 26px rgba(22, 34, 47, 0.08);
+            --mono: "Cascadia Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+            --sans: "Aptos", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background:
+                linear-gradient(90deg, rgba(29, 100, 200, 0.06) 1px, transparent 1px),
+                linear-gradient(180deg, rgba(4, 120, 87, 0.045) 1px, transparent 1px),
+                var(--bg);
+            background-size: 28px 28px;
+            color: var(--ink);
+            font-family: var(--sans);
+            font-size: 14px;
+        }
+        button, input, select, textarea { font: inherit; }
+        button {
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: var(--surface);
+            color: var(--ink);
+            min-height: 34px;
+            padding: 7px 10px;
+            font-weight: 800;
+            cursor: pointer;
+        }
+        button:hover { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(29, 100, 200, 0.10); }
+        button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+        button.danger { background: #fff5f4; border-color: rgba(194, 65, 53, 0.35); color: var(--red); }
+        button.ghost { background: var(--surface-2); }
+        input, select, textarea {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #fff;
+            color: var(--ink);
+            padding: 8px 9px;
+            min-height: 34px;
+        }
+        textarea { min-height: 94px; resize: vertical; font-family: var(--mono); font-size: 12px; line-height: 1.45; }
+        label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 800; }
+        .shell {
+            display: grid;
+            grid-template-columns: minmax(320px, 392px) minmax(0, 1fr);
+            min-height: 100vh;
+        }
+        .side {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow: auto;
+            padding: 18px;
+            border-right: 1px solid var(--line);
+            background: rgba(247, 250, 252, 0.94);
+            backdrop-filter: blur(14px);
+        }
+        .main { min-width: 0; padding: 18px; }
+        .topbar {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+        .title h1 { margin: 0; font-size: 28px; letter-spacing: 0; }
+        .title p { margin: 5px 0 0; color: var(--muted); }
+        .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+        .actions a {
+            display: inline-flex;
+            align-items: center;
+            min-height: 34px;
+            padding: 7px 10px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            color: var(--ink);
+            text-decoration: none;
+            background: var(--surface);
+            font-weight: 800;
+        }
+        .panel {
+            background: rgba(255, 255, 255, 0.94);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+        .panel-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 12px 12px 8px;
+            border-bottom: 1px solid rgba(207, 218, 228, 0.65);
+        }
+        .panel-head h2 { margin: 0; font-size: 14px; }
+        .panel-body { padding: 12px; }
+        .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+        .field-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+        .check-grid label {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            min-height: 34px;
+            padding: 7px 8px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #fff;
+            color: var(--ink);
+        }
+        .check-grid input { width: auto; min-height: 0; accent-color: var(--blue); }
+        .period-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+        .period-row {
+            display: grid;
+            grid-template-columns: auto minmax(82px, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+            gap: 7px;
+            align-items: end;
+            padding: 8px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #fff;
+        }
+        .period-row input[type="checkbox"] { width: auto; min-height: 0; margin-bottom: 9px; accent-color: var(--blue); }
+        .runbar {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .status {
+            min-height: 42px;
+            padding: 10px 12px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--surface);
+            color: var(--muted);
+        }
+        .status strong { color: var(--ink); }
+        .progress {
+            height: 8px;
+            border-radius: 999px;
+            background: #dbe4ec;
+            overflow: hidden;
+            margin-top: 7px;
+        }
+        .progress span { display: block; width: 0%; height: 100%; background: linear-gradient(90deg, var(--blue), var(--green)); }
+        .stat-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+        .stat {
+            min-height: 74px;
+            padding: 10px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--surface);
+        }
+        .stat span { display: block; color: var(--muted); font-size: 12px; font-weight: 800; }
+        .stat strong { display: block; margin-top: 4px; font-size: 22px; font-family: var(--mono); }
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .toolbar .left, .toolbar .right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .toolbar label { display: flex; align-items: center; gap: 6px; grid-auto-flow: column; }
+        .toolbar select { width: auto; min-width: 110px; }
+        .matrix-wrap {
+            width: 100%;
+            overflow: auto;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: var(--shadow);
+            max-height: calc(100vh - 250px);
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border-bottom: 1px solid #e0e8ef; border-right: 1px solid #e0e8ef; padding: 8px; vertical-align: top; }
+        th { position: sticky; top: 0; z-index: 2; background: #edf3f8; text-align: left; font-size: 12px; }
+        th:first-child, td:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 1;
+            min-width: 320px;
+            max-width: 380px;
+            background: #fff;
+        }
+        th:first-child { z-index: 3; background: #edf3f8; }
+        .strategy-name { font-weight: 900; line-height: 1.3; }
+        .strategy-meta { margin-top: 5px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+        .row-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+        .row-actions button { min-height: 28px; padding: 5px 7px; font-size: 12px; }
+        .score-cell { min-width: 152px; background: var(--cell-bg, #fff); }
+        .score-rank { display: flex; align-items: baseline; justify-content: space-between; gap: 7px; font-family: var(--mono); font-weight: 900; }
+        .score-rank span { color: var(--muted); font-size: 11px; }
+        .cell-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 6px; }
+        .cell-metrics b { display: block; padding: 4px 5px; border-radius: 5px; background: rgba(255,255,255,0.62); font-size: 11px; }
+        .cell-metrics b:first-child { color: var(--blue); }
+        .cell-metrics b:last-child { color: var(--red); }
+        .drawer {
+            position: fixed;
+            right: 18px;
+            bottom: 18px;
+            width: min(620px, calc(100vw - 36px));
+            max-height: min(760px, calc(100vh - 36px));
+            overflow: auto;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fff;
+            box-shadow: 0 24px 70px rgba(21, 31, 45, 0.22);
+            display: none;
+            z-index: 20;
+        }
+        .drawer.show { display: block; }
+        .drawer pre {
+            white-space: pre-wrap;
+            word-break: break-word;
+            margin: 0;
+            padding: 10px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #f7fafc;
+            font-family: var(--mono);
+            font-size: 12px;
+        }
+        .mini-table th, .mini-table td { font-size: 12px; padding: 6px; }
+        .hidden { display: none !important; }
+        @media (max-width: 980px) {
+            .shell { grid-template-columns: 1fr; }
+            .side { position: static; height: auto; }
+            .field-grid, .field-grid.three, .stat-grid { grid-template-columns: 1fr; }
+            .runbar { grid-template-columns: 1fr; }
+            .topbar { display: grid; }
+            .actions { justify-content: flex-start; }
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <aside class="side">
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>Parameter Lab</h2>
+                    <span style="font-family:var(--mono);font-size:12px;color:var(--muted);">90/10</span>
+                </div>
+                <div class="panel-body">
+                    <div class="field-grid">
+                        <label>结束日期
+                            <input id="end" type="date" value="{{ default_end }}">
+                        </label>
+                        <label>并发 Worker
+                            <input id="workerCount" type="number" min="1" max="12" step="1" value="4">
+                        </label>
+                        <label>初始资金 USD
+                            <input id="initialCash" type="number" min="1" step="100" value="{{ default_config.default_initial_cash }}">
+                        </label>
+                        <label>月注入 USD
+                            <input id="monthlyContribution" type="number" min="0" step="100" value="{{ default_config.default_monthly_contribution }}">
+                        </label>
+                        <label>最大回撤 %
+                            <input id="maxDrawdown" type="number" min="1" max="100" step="1" value="{{ default_config.default_max_drawdown_pct }}">
+                        </label>
+                        <label>回撤基准
+                            <select id="drawdownBasis">
+                                <option value="ath" {% if default_config.default_drawdown_basis == 'ath' %}selected{% endif %}>ATH</option>
+                                <option value="rolling_120" {% if default_config.default_drawdown_basis == 'rolling_120' %}selected{% endif %}>120D</option>
+                            </select>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head"><h2>评分题目</h2><button type="button" class="ghost" onclick="refreshUniverseTopics()">刷新题目</button></div>
+                <div class="panel-body">
+                    <div id="scoreTopics" class="check-grid">
+                        {% for item in scorecard_portfolios %}
+                            <label class="base-topic">
+                                <input type="checkbox" name="scoreTopic" value="{{ item.key }}" {% if item.key in default_scorecard_portfolio_keys %}checked{% endif %}>
+                                {{ item.short_label }}
+                            </label>
+                        {% endfor %}
+                    </div>
+                    <div class="period-grid" style="margin-top:10px;">
+                        {% for period in scorecard_periods %}
+                            <div class="period-row">
+                                <input type="checkbox" data-period="{{ period.key }}" data-field="enabled" {% if period.enabled %}checked{% endif %} aria-label="{{ period.label }}">
+                                <label>名称<input data-period="{{ period.key }}" data-field="label" value="{{ period.label }}"></label>
+                                <label>开始<input type="date" data-period="{{ period.key }}" data-field="start" value="{{ period.start }}"></label>
+                                <label>结束<input type="date" data-period="{{ period.key }}" data-field="end" value="{{ period.end }}"></label>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head"><h2>策略集合</h2><button type="button" class="ghost" onclick="selectAllStrategies()">全选</button></div>
+                <div class="panel-body">
+                    <label style="margin-bottom:7px;">买入策略</label>
+                    <div class="check-grid" id="buyStrategies">
+                        {% for key, label in buy_strategy_labels.items() %}
+                            <label><input type="checkbox" name="buyStrategy" value="{{ key }}" checked>{{ label }}</label>
+                        {% endfor %}
+                    </div>
+                    <label style="margin:12px 0 7px;">卖出策略</label>
+                    <div class="check-grid" id="sellStrategies">
+                        {% for key, label in sell_strategy_labels.items() %}
+                            <label><input type="checkbox" name="sellStrategy" value="{{ key }}" checked>{{ label }}</label>
+                        {% endfor %}
+                    </div>
+                    <label style="margin-top:10px;">核心买点优化
+                        <select id="coreDipTimingFilter">
+                            <option value="all">全部</option>
+                            <option value="disabled">关闭</option>
+                            <option value="enabled">开启</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head"><h2>组合与标的库</h2></div>
+                <div class="panel-body">
+                    <label>当前组合
+                        <textarea id="portfolioText">{{ default_portfolio|tojson }}</textarea>
+                    </label>
+                    <label style="margin-top:10px;">投资标的库
+                        <textarea id="universeText">{{ investment_universe|tojson }}</textarea>
+                    </label>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-head"><h2>参数基线</h2></div>
+                <div class="panel-body">
+                    <div class="field-grid">
+                        <label>步长 %<input id="stepPct" type="number" step="0.5" value="{{ default_config.default_slice_step_pct }}"></label>
+                        <label>每步投入 %<input id="equalSliceAllocation" type="number" step="0.5" value="{{ default_config.default_equal_slice_allocation_pct }}"></label>
+                        <label>手续费 USD<input id="tradeFee" type="number" step="0.01" value="{{ default_config.default_trade_fee }}"></label>
+                        <label>HKD/USD<input id="hkdToUsd" type="number" step="0.001" value="{{ default_config.default_hkd_to_usd }}"></label>
+                        <label>底仓 %<input id="reservePosition" type="number" step="1" value="{{ default_config.default_reserve_position_pct }}"></label>
+                        <label>卖后重启 %<input id="dcaRearmDrawdown" type="number" step="0.5" value="{{ default_config.default_dca_rearm_drawdown_pct }}"></label>
+                        <label>最小盈利 %<input id="sellMinProfit" type="number" step="0.5" value="{{ default_config.default_sell_min_profit_pct }}"></label>
+                        <label>修复冷却<input id="repairSellCooldown" type="number" step="1" value="{{ default_config.default_repair_sell_cooldown_days }}"></label>
+                        <label>单档卖出 %<input id="repairStageSellPct" type="number" step="0.5" value="{{ default_config.default_repair_stage_sell_pct }}"></label>
+                        <label>网格步长 %<input id="gridReboundStep" type="number" step="0.5" value="{{ default_config.default_grid_rebound_step_pct }}"></label>
+                        <label>网格一档 %<input id="gridFirstSellPct" type="number" step="1" value="{{ default_config.default_grid_first_sell_pct }}"></label>
+                        <label>网格二档 %<input id="gridSecondSellPct" type="number" step="1" value="{{ default_config.default_grid_second_sell_pct }}"></label>
+                        <label>网格最小额<input id="gridMinSellAmount" type="number" step="10" value="{{ default_config.default_grid_min_sell_amount }}"></label>
+                        <label>成本一档盈利<input id="costFirstProfitPct" type="number" step="0.5" value="{{ default_config.default_cost_first_profit_pct }}"></label>
+                        <label>成本二档盈利<input id="costSecondProfitPct" type="number" step="0.5" value="{{ default_config.default_cost_second_profit_pct }}"></label>
+                        <label>成本三档盈利<input id="costThirdProfitPct" type="number" step="0.5" value="{{ default_config.default_cost_third_profit_pct }}"></label>
+                        <label>成本一档卖<input id="costFirstSellPct" type="number" step="1" value="{{ default_config.default_cost_first_sell_pct }}"></label>
+                        <label>成本二档卖<input id="costSecondSellPct" type="number" step="1" value="{{ default_config.default_cost_second_sell_pct }}"></label>
+                        <label>成本三档卖<input id="costThirdSellPct" type="number" step="1" value="{{ default_config.default_cost_third_sell_pct }}"></label>
+                        <label>成本冷却<input id="costDeleverageCooldown" type="number" step="1" value="{{ default_config.default_cost_deleverage_cooldown_days }}"></label>
+                        <label>成本最小额<input id="costMinSellAmount" type="number" step="10" value="{{ default_config.default_cost_min_sell_amount }}"></label>
+                    </div>
+                    <div class="field-grid" style="margin-top:9px;">
+                        <label>核心初始 %<input id="coreDipInitialCorePct" type="number" step="1" value="{{ default_config.default_core_dip_initial_core_pct }}"></label>
+                        <label>核心周投 %<input id="coreDipWeeklyCorePct" type="number" step="1" value="{{ default_config.default_core_dip_weekly_core_pct }}"></label>
+                        <label>核心现金垫 %<input id="coreDipCashReservePct" type="number" step="1" value="{{ default_config.default_core_dip_cash_reserve_pct }}"></label>
+                        <label>开始加仓 %<input id="coreDipStartDrawdownPct" type="number" step="0.5" value="{{ default_config.default_core_dip_start_drawdown_pct }}"></label>
+                        <label>满额加仓 %<input id="coreDipFullDrawdownPct" type="number" step="0.5" value="{{ default_config.default_core_dip_full_drawdown_pct }}"></label>
+                        <label>买点优化
+                            <select id="coreDipTimingEnabled">
+                                <option value="false" {% if not default_config.default_core_dip_timing_enabled %}selected{% endif %}>关闭</option>
+                                <option value="true" {% if default_config.default_core_dip_timing_enabled %}selected{% endif %}>开启</option>
+                            </select>
+                        </label>
+                        <label>优化延迟日<input id="coreDipTimingMaxDelayDays" type="number" step="1" value="{{ default_config.default_core_dip_timing_max_delay_days }}"></label>
+                        <label>大涨阈值 %<input id="coreDipTimingRiseThresholdPct" type="number" step="0.1" value="{{ default_config.default_core_dip_timing_rise_threshold_pct }}"></label>
+                        <label>近低距离 %<input id="coreDipTimingNearLowPct" type="number" step="0.1" value="{{ default_config.default_core_dip_timing_near_low_pct }}"></label>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main">
+            <div class="topbar">
+                <div class="title">
+                    <h1>参数实验室</h1>
+                    <p>Strategy + params full lab</p>
+                </div>
+                <div class="actions">
+                    <a href="/strategy-lab">主实验室</a>
+                    <a href="/">BOLL 首页</a>
+                    <a href="/api/strategy-lab/parameter-lab/registry">Registry JSON</a>
+                </div>
+            </div>
+
+            <div class="runbar">
+                <div class="status" id="status">
+                    <strong>Ready</strong>
+                    <div id="statusText">等待运行。</div>
+                    <div class="progress"><span id="progressBar"></span></div>
+                </div>
+                <div class="actions">
+                    <button class="primary" type="button" onclick="runParameterLab()">运行 Parameter Lab</button>
+                    <button type="button" onclick="pauseParameterLab()">暂停</button>
+                    <button type="button" onclick="resumeParameterLab()">继续</button>
+                    <button class="danger" type="button" onclick="cancelParameterLab()">停止</button>
+                </div>
+            </div>
+
+            <div class="stat-grid">
+                <div class="stat"><span>候选组合</span><strong id="statCandidates">--</strong></div>
+                <div class="stat"><span>评分题目</span><strong id="statTopics">--</strong></div>
+                <div class="stat"><span>实际演算</span><strong id="statSimulations">--</strong></div>
+                <div class="stat"><span>Worker</span><strong id="statWorkers">--</strong></div>
+                <div class="stat"><span>墙钟</span><strong id="statWall">--</strong></div>
+            </div>
+
+            <div class="toolbar">
+                <div class="left">
+                    <strong id="resultTitle">尚未运行</strong>
+                    <span id="resultMeta" style="color:var(--muted);"></span>
+                </div>
+                <div class="right">
+                    <label>显示
+                        <select id="rowLimit" onchange="renderParameterMatrix()">
+                            <option value="100">Top 100</option>
+                            <option value="300" selected>Top 300</option>
+                            <option value="1000">Top 1000</option>
+                            <option value="all">全部</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+
+            <div class="matrix-wrap">
+                <table id="matrixTable">
+                    <thead id="matrixHead"><tr><th>策略参数组合</th></tr></thead>
+                    <tbody id="matrixBody"><tr><td>尚未运行。</td></tr></tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <div class="drawer" id="detailDrawer">
+        <div class="panel-head">
+            <h2 id="detailTitle">参数详情</h2>
+            <button type="button" onclick="closeDetail()">关闭</button>
+        </div>
+        <div class="panel-body">
+            <div id="detailMetrics" class="stat-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));"></div>
+            <h2 style="font-size:14px;">参数快照</h2>
+            <pre id="detailJson"></pre>
+            <h2 style="font-size:14px;">题目结果</h2>
+            <div class="matrix-wrap" style="max-height:260px;box-shadow:none;">
+                <table class="mini-table">
+                    <thead><tr><th>题目</th><th>Rank</th><th>Score</th><th>收益</th><th>回撤</th></tr></thead>
+                    <tbody id="detailCells"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const buyStrategyLabels = {{ buy_strategy_labels|tojson }};
+        const sellStrategyLabels = {{ sell_strategy_labels|tojson }};
+        const scorecardPortfolioLabels = {{ scorecard_portfolio_labels|tojson }};
+        const scorecardSymbolKeys = {{ scorecard_symbol_keys|tojson }};
+        const strategyRegistry = {{ strategy_registry|tojson }};
+        let currentRun = null;
+        let lastParameterResult = null;
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        }
+        function number(value, digits = 2) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return '--';
+            return n.toLocaleString(undefined, { maximumFractionDigits: digits });
+        }
+        function pct(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return '--';
+            return `${number(n)}%`;
+        }
+        function readNumber(id) {
+            const n = Number(document.getElementById(id)?.value);
+            return Number.isFinite(n) ? n : 0;
+        }
+        function selectedValues(name) {
+            return Array.from(document.querySelectorAll(`input[name="${name}"]:checked`)).map((input) => input.value);
+        }
+        function setStatus(title, text, progress = null) {
+            document.querySelector('#status strong').textContent = title;
+            document.getElementById('statusText').textContent = text;
+            if (progress !== null) document.getElementById('progressBar').style.width = `${Math.max(0, Math.min(100, progress))}%`;
+        }
+        function parseJsonTextarea(id, fallback) {
+            try {
+                const value = JSON.parse(document.getElementById(id).value || '[]');
+                return Array.isArray(value) ? value : fallback;
+            } catch (_error) {
+                return fallback;
+            }
+        }
+        function readPortfolio() {
+            return parseJsonTextarea('portfolioText', []);
+        }
+        function readInvestmentUniverse() {
+            return parseJsonTextarea('universeText', []);
+        }
+        function scorecardKeyForSymbol(symbol) {
+            const normalized = String(symbol || '').trim().toUpperCase();
+            return scorecardSymbolKeys[normalized] || `symbol_${normalized.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')}`;
+        }
+        function refreshUniverseTopics() {
+            const container = document.getElementById('scoreTopics');
+            const existingChecked = new Set(selectedValues('scoreTopic'));
+            const existing = new Set(Array.from(container.querySelectorAll('input[name="scoreTopic"]')).map((input) => input.value));
+            readInvestmentUniverse().forEach((item) => {
+                const symbol = String(item.symbol || '').trim().toUpperCase();
+                if (!symbol) return;
+                const key = scorecardKeyForSymbol(symbol);
+                if (existing.has(key)) return;
+                const label = document.createElement('label');
+                label.innerHTML = `<input type="checkbox" name="scoreTopic" value="${escapeHtml(key)}" ${existingChecked.has(key) ? 'checked' : ''}> ${escapeHtml(item.name || symbol)}`;
+                container.appendChild(label);
+                existing.add(key);
+                scorecardPortfolioLabels[key] = item.name || symbol;
+            });
+        }
+        function scorecardPeriodPayload() {
+            const keys = Array.from(new Set(Array.from(document.querySelectorAll('[data-period]')).map((input) => input.dataset.period)));
+            return keys.map((key) => {
+                const field = (name) => document.querySelector(`[data-period="${key}"][data-field="${name}"]`);
+                return {
+                    key,
+                    enabled: Boolean(field('enabled')?.checked),
+                    label: field('label')?.value || key,
+                    start: field('start')?.value || '',
+                    end: field('end')?.value || ''
+                };
+            });
+        }
+        function parameterLabPayload() {
+            return {
+                end: document.getElementById('end').value,
+                initial_cash: readNumber('initialCash'),
+                monthly_contribution: readNumber('monthlyContribution'),
+                max_drawdown_pct: readNumber('maxDrawdown'),
+                drawdown_basis: document.getElementById('drawdownBasis').value,
+                step_pct: readNumber('stepPct'),
+                equal_slice_allocation_pct: readNumber('equalSliceAllocation'),
+                trade_fee: readNumber('tradeFee'),
+                hkd_to_usd: readNumber('hkdToUsd'),
+                reserve_position_pct: readNumber('reservePosition'),
+                sell_min_profit_pct: readNumber('sellMinProfit'),
+                repair_sell_cooldown_days: readNumber('repairSellCooldown'),
+                repair_stage_sell_pct: readNumber('repairStageSellPct'),
+                dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown'),
+                grid_rebound_step_pct: readNumber('gridReboundStep'),
+                grid_first_sell_pct: readNumber('gridFirstSellPct'),
+                grid_second_sell_pct: readNumber('gridSecondSellPct'),
+                grid_min_sell_amount: readNumber('gridMinSellAmount'),
+                cost_first_profit_pct: readNumber('costFirstProfitPct'),
+                cost_second_profit_pct: readNumber('costSecondProfitPct'),
+                cost_third_profit_pct: readNumber('costThirdProfitPct'),
+                cost_first_sell_pct: readNumber('costFirstSellPct'),
+                cost_second_sell_pct: readNumber('costSecondSellPct'),
+                cost_third_sell_pct: readNumber('costThirdSellPct'),
+                cost_deleverage_cooldown_days: readNumber('costDeleverageCooldown'),
+                cost_min_sell_amount: readNumber('costMinSellAmount'),
+                core_dip_initial_core_pct: readNumber('coreDipInitialCorePct'),
+                core_dip_weekly_core_pct: readNumber('coreDipWeeklyCorePct'),
+                core_dip_cash_reserve_pct: readNumber('coreDipCashReservePct'),
+                core_dip_start_drawdown_pct: readNumber('coreDipStartDrawdownPct'),
+                core_dip_full_drawdown_pct: readNumber('coreDipFullDrawdownPct'),
+                core_dip_timing_enabled: document.getElementById('coreDipTimingEnabled').value === 'true',
+                core_dip_timing_max_delay_days: readNumber('coreDipTimingMaxDelayDays'),
+                core_dip_timing_rise_threshold_pct: readNumber('coreDipTimingRiseThresholdPct'),
+                core_dip_timing_near_low_pct: readNumber('coreDipTimingNearLowPct'),
+                buy_strategies: selectedValues('buyStrategy'),
+                sell_strategies: selectedValues('sellStrategy'),
+                score_sell_strategies: selectedValues('sellStrategy'),
+                return_weight: 0.9,
+                drawdown_weight: 0.1,
+                scorecard_portfolio_keys: selectedValues('scoreTopic'),
+                scorecard_periods: scorecardPeriodPayload(),
+                targets: readPortfolio(),
+                investment_universe: readInvestmentUniverse(),
+                parameter_lab_concurrency: readNumber('workerCount'),
+                core_dip_timing_filter: document.getElementById('coreDipTimingFilter').value
+            };
+        }
+        function selectAllStrategies() {
+            document.querySelectorAll('input[name="buyStrategy"], input[name="sellStrategy"]').forEach((input) => { input.checked = true; });
+        }
+
+        async function runParameterLab() {
+            cancelParameterLab(false);
+            refreshUniverseTopics();
+            const payload = parameterLabPayload();
+            setStatus('Preparing', '正在准备行情数据包。', 4);
+            const started = performance.now();
+            try {
+                const response = await fetch('/api/strategy-lab/parameter-lab/packet', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) throw new Error(result.message || '准备数据包失败');
+                const packet = result.packet;
+                document.getElementById('statCandidates').textContent = number((packet.candidate_pool || []).length, 0);
+                document.getElementById('statTopics').textContent = number((packet.tasks || []).length, 0);
+                document.getElementById('statSimulations').textContent = number((packet.candidate_pool || []).length * (packet.tasks || []).length, 0);
+                const data = await runWorkerPool(packet, performance.now());
+                lastParameterResult = data;
+                renderParameterMatrix();
+                const wall = performance.now() - started;
+                document.getElementById('statWall').textContent = `${number(wall, 0)}ms`;
+                setStatus('Completed', `完成 ${number(data.rows.length, 0)} 个参数组合。`, 100);
+            } catch (error) {
+                setStatus('Error', error.message || String(error), 100);
+            } finally {
+                currentRun = null;
+            }
+        }
+
+        function runWorkerPool(packet, startedAt) {
+            const allCandidates = packet.candidate_pool || [];
+            const tasks = packet.tasks || [];
+            const requested = Math.max(1, Math.min(12, Number(packet.parameter_lab_concurrency || 1)));
+            const hardware = Number(navigator.hardwareConcurrency || requested);
+            const workerCount = Math.max(1, Math.min(requested, hardware || requested, allCandidates.length || 1));
+            const chunks = Array.from({ length: workerCount }, () => []);
+            allCandidates.forEach((candidate, index) => chunks[index % workerCount].push(candidate));
+            const activeChunks = chunks.filter((chunk) => chunk.length);
+            const totalSimulations = Math.max(1, allCandidates.length * tasks.length);
+            document.getElementById('statWorkers').textContent = number(activeChunks.length, 0);
+            setStatus('Running', `启动 ${activeChunks.length} 个 workers。`, 8);
+            return new Promise((resolve, reject) => {
+                const workers = [];
+                const partialRows = [];
+                const workerStats = activeChunks.map((chunk, index) => ({
+                    worker_index: index,
+                    chunk_size: chunk.length,
+                    completed_simulations: 0,
+                    elapsed_ms: 0
+                }));
+                let done = 0;
+                let settled = false;
+                const cleanup = () => {
+                    workers.forEach((worker) => worker.terminate());
+                };
+                currentRun = { workers, reject, cancelled: false };
+                activeChunks.forEach((chunk, workerIndex) => {
+                    const worker = new Worker('/static/strategy_parameter_lab_worker.js');
+                    workers.push(worker);
+                    worker.onmessage = (event) => {
+                        if (settled) return;
+                        const message = event.data || {};
+                        if (message.type === 'progress') {
+                            workerStats[workerIndex].completed_simulations = Number(message.completed_simulations || workerStats[workerIndex].completed_simulations || 0);
+                            const completed = workerStats.reduce((sum, item) => sum + item.completed_simulations, 0);
+                            setStatus('Running', `完成 ${number(completed, 0)} / ${number(totalSimulations, 0)}；worker ${workerIndex + 1}: ${message.message || ''}`, 10 + completed / totalSimulations * 84);
+                        } else if (message.type === 'done') {
+                            workerStats[workerIndex].completed_simulations = Number(message.completed_simulations || 0);
+                            workerStats[workerIndex].elapsed_ms = Number(message.elapsed_ms || 0);
+                            partialRows.push(...(message.rows || []));
+                            done += 1;
+                            if (done === activeChunks.length) {
+                                settled = true;
+                                cleanup();
+                                resolve(scoreParameterResults(packet, partialRows, workerStats, performance.now() - startedAt));
+                            }
+                        } else if (message.type === 'cancelled') {
+                            settled = true;
+                            cleanup();
+                            reject(new Error('Parameter Lab 已停止'));
+                        } else if (message.type === 'error') {
+                            settled = true;
+                            cleanup();
+                            reject(new Error(message.message || 'Worker 计算失败'));
+                        }
+                    };
+                    worker.onerror = (error) => {
+                        if (settled) return;
+                        settled = true;
+                        cleanup();
+                        reject(error);
+                    };
+                    worker.postMessage({
+                        type: 'start',
+                        worker_index: workerIndex,
+                        packet: { ...packet, candidate_pool: chunk }
+                    });
+                });
+            });
+        }
+
+        function pauseParameterLab() {
+            if (!currentRun) return;
+            currentRun.workers.forEach((worker) => worker.postMessage({ type: 'pause' }));
+            setStatus('Paused', '本机 workers 已暂停。', null);
+        }
+        function resumeParameterLab() {
+            if (!currentRun) return;
+            currentRun.workers.forEach((worker) => worker.postMessage({ type: 'resume' }));
+            setStatus('Running', '继续本机计算。', null);
+        }
+        function cancelParameterLab(showStatus = true) {
+            if (!currentRun) return;
+            currentRun.cancelled = true;
+            currentRun.workers.forEach((worker) => {
+                worker.postMessage({ type: 'cancel' });
+                worker.terminate();
+            });
+            if (currentRun.reject) currentRun.reject(new Error('Parameter Lab 已停止'));
+            currentRun = null;
+            if (showStatus) setStatus('Stopped', '本次计算已停止。', 100);
+        }
+
+        function normalize(value, values) {
+            if (!values.length) return 1;
+            const min = Math.min(...values);
+            const max = Math.max(...values);
+            if (Math.abs(max - min) < 1e-9) return 1;
+            return (Number(value || 0) - min) / (max - min);
+        }
+        function scoreParameterResults(packet, partialRows, workerStats, wallMs) {
+            const candidates = [];
+            const observations = [];
+            partialRows.forEach((row) => {
+                candidates.push(row.candidate);
+                (row.observations || []).forEach((cell) => observations.push({ ...cell, candidate: row.candidate }));
+            });
+            const byTopic = new Map();
+            observations.forEach((cell) => {
+                const key = String(cell.topic_key);
+                if (!byTopic.has(key)) byTopic.set(key, []);
+                byTopic.get(key).push(cell);
+            });
+            byTopic.forEach((cells) => {
+                const returns = cells.map((cell) => Number(cell.return_pct || 0));
+                const drawdowns = cells.map((cell) => Number(cell.max_drawdown_pct || 0));
+                cells.forEach((cell) => {
+                    cell.return_score = normalize(cell.return_pct, returns) * 100;
+                    cell.drawdown_score = normalize(cell.max_drawdown_pct, drawdowns) * 100;
+                    cell.topic_score = cell.return_score * 0.9 + cell.drawdown_score * 0.1;
+                });
+                [...cells].sort((a, b) => b.topic_score - a.topic_score).forEach((cell, index) => { cell.topic_rank = index + 1; });
+            });
+            const byCandidate = new Map();
+            candidates.forEach((candidate) => {
+                byCandidate.set(candidate.key, { key: candidate.key, candidate, cells: [] });
+            });
+            observations.forEach((cell) => {
+                const row = byCandidate.get(cell.candidate_key);
+                if (row) row.cells.push(cell);
+            });
+            const avg = (values) => values.length ? values.reduce((a, b) => a + Number(b || 0), 0) / values.length : 0;
+            const rows = Array.from(byCandidate.values()).map((row) => {
+                row.avg_return_pct = avg(row.cells.map((cell) => cell.return_pct));
+                row.avg_drawdown_pct = avg(row.cells.map((cell) => cell.max_drawdown_pct));
+                row.avg_topic_score = avg(row.cells.map((cell) => cell.topic_score));
+                row.final_score = row.avg_topic_score;
+                return row;
+            }).sort((a, b) => b.final_score - a.final_score);
+            rows.forEach((row, index) => { row.final_rank = index + 1; });
+            return {
+                ...packet,
+                rows,
+                observations,
+                worker_metrics: {
+                    worker_count: workerStats.length,
+                    chunks_completed_per_worker: workerStats.map((item) => item.chunk_size),
+                    worker_elapsed_ms: workerStats.map((item) => item.elapsed_ms),
+                    wall_ms: wallMs,
+                    cpu_work_estimate_ms: workerStats.reduce((sum, item) => sum + item.elapsed_ms, 0)
+                }
+            };
+        }
+
+        function heatStyle(score) {
+            const ratio = Math.max(0, Math.min(1, Number(score || 0) / 100));
+            const hue = ratio < 0.5 ? 8 + ratio * 86 : 51 + (ratio - 0.5) * 86;
+            return `--cell-bg: linear-gradient(145deg, hsla(${hue}, 70%, 84%, 0.88), rgba(255,255,255,0.84));`;
+        }
+        function renderParameterMatrix() {
+            const data = lastParameterResult;
+            if (!data) return;
+            const tasks = data.tasks || [];
+            const limitValue = document.getElementById('rowLimit').value;
+            const limit = limitValue === 'all' ? data.rows.length : Number(limitValue || 300);
+            const rows = data.rows.slice(0, limit);
+            document.getElementById('resultTitle').textContent = `${number(data.rows.length, 0)} rows`;
+            const metrics = data.worker_metrics || {};
+            document.getElementById('resultMeta').textContent = `worker ${number(metrics.worker_count, 0)} / CPU ${number(metrics.cpu_work_estimate_ms, 0)}ms / wall ${number(metrics.wall_ms, 0)}ms`;
+            document.getElementById('matrixHead').innerHTML = `
+                <tr>
+                    <th>策略参数组合</th>
+                    ${tasks.map((task) => `<th>${escapeHtml(task.portfolio_label)}<br>${escapeHtml(task.period_label)}</th>`).join('')}
+                </tr>
+            `;
+            const body = rows.map((row) => {
+                const cellsByTopic = new Map(row.cells.map((cell) => [cell.topic_key, cell]));
+                const cellHtml = tasks.map((task) => {
+                    const cell = cellsByTopic.get(task.key);
+                    if (!cell) return '<td class="score-cell">--</td>';
+                    const title = [
+                        `${task.portfolio_label} / ${task.period_label}`,
+                        `rank #${number(cell.topic_rank, 0)}`,
+                        `score ${number(cell.topic_score)}`,
+                        `return ${pct(cell.return_pct)}`,
+                        `drawdown ${pct(cell.max_drawdown_pct)}`,
+                        `return score ${number(cell.return_score)}`,
+                        `drawdown score ${number(cell.drawdown_score)}`,
+                        `trades ${number(cell.trade_count, 0)}`
+                    ].join('\n');
+                    return `
+                        <td class="score-cell" style="${heatStyle(cell.topic_score)}" title="${escapeHtml(title)}">
+                            <div class="score-rank"><strong>#${number(cell.topic_rank, 0)}</strong><span>${number(cell.topic_score)}</span></div>
+                            <div class="cell-metrics"><b>${pct(cell.return_pct)}</b><b>${pct(cell.max_drawdown_pct)}</b></div>
+                        </td>
+                    `;
+                }).join('');
+                return `
+                    <tr>
+                        <td>
+                            <div class="strategy-name">#${number(row.final_rank, 0)} ${escapeHtml(row.candidate.label || row.key)}</div>
+                            <div class="strategy-meta">Final ${number(row.final_score)} / Avg return ${pct(row.avg_return_pct)} / Avg DD ${pct(row.avg_drawdown_pct)}</div>
+                            <div class="strategy-meta">${escapeHtml(row.candidate.buy_strategy)} + ${escapeHtml(row.candidate.sell_strategy)}</div>
+                            <div class="row-actions">
+                                <button type="button" onclick="openRowDetail('${escapeHtml(row.key)}')">参数</button>
+                                <button type="button" onclick="applyParameterRow('${escapeHtml(row.key)}')">应用到主实验室</button>
+                            </div>
+                        </td>
+                        ${cellHtml}
+                    </tr>
+                `;
+            }).join('');
+            document.getElementById('matrixBody').innerHTML = body || '<tr><td>没有可显示的结果。</td></tr>';
+        }
+        function findRow(key) {
+            return lastParameterResult ? lastParameterResult.rows.find((row) => row.key === key) : null;
+        }
+        function openRowDetail(key) {
+            const row = findRow(key);
+            if (!row) return;
+            document.getElementById('detailTitle').textContent = row.candidate.label || row.key;
+            document.getElementById('detailMetrics').innerHTML = `
+                <div class="stat"><span>Final</span><strong>${number(row.final_score)}</strong></div>
+                <div class="stat"><span>Avg Return</span><strong>${pct(row.avg_return_pct)}</strong></div>
+                <div class="stat"><span>Avg DD</span><strong>${pct(row.avg_drawdown_pct)}</strong></div>
+            `;
+            document.getElementById('detailJson').textContent = JSON.stringify(row.candidate.parameter_snapshot || row.candidate, null, 2);
+            document.getElementById('detailCells').innerHTML = row.cells.map((cell) => `
+                <tr>
+                    <td>${escapeHtml(cell.portfolio_label)} / ${escapeHtml(cell.period_label)}</td>
+                    <td>#${number(cell.topic_rank, 0)}</td>
+                    <td>${number(cell.topic_score)}</td>
+                    <td>${pct(cell.return_pct)}</td>
+                    <td>${pct(cell.max_drawdown_pct)}</td>
+                </tr>
+            `).join('');
+            document.getElementById('detailDrawer').classList.add('show');
+        }
+        function closeDetail() {
+            document.getElementById('detailDrawer').classList.remove('show');
+        }
+        function applyParameterRow(key) {
+            const row = findRow(key);
+            if (!row) return;
+            localStorage.setItem('strategyLabPendingParameterCandidate', JSON.stringify({
+                candidate: row.candidate,
+                payload: parameterLabPayload(),
+                source: 'parameter-lab',
+                applied_at: new Date().toISOString()
+            }));
+            window.location.href = '/strategy-lab?apply_parameter_lab=1';
+        }
+
+        refreshUniverseTopics();
+        document.getElementById('workerCount').value = Math.max(1, Math.min(8, Number(navigator.hardwareConcurrency || 4)));
+        document.getElementById('resultMeta').textContent = `registry ${strategyRegistry.version}`;
+    </script>
+</body>
+</html>

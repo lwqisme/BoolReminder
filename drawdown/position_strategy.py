@@ -1225,24 +1225,13 @@ def _robust_candidate_pool(
     inputs: StrategyInputs,
     core_dip_timing_filter: str,
 ) -> list[dict[str, object]]:
-    if core_dip_timing_filter not in {"all", "enabled", "disabled"}:
-        raise ValueError("核心买点优化候选必须是 all、enabled 或 disabled。")
-    repair_params = [
-        (profit, cooldown, stage)
-        for profit in ROBUST_REPAIR_SELL_MIN_PROFITS
-        for cooldown in ROBUST_REPAIR_COOLDOWNS
-        for stage in ROBUST_REPAIR_STAGE_SELLS
-    ]
-    candidates = (
-        _non_repair_candidates(selected_buy_strategies)
-        + _repair_candidates(selected_buy_strategies, repair_params)
-        + _dca_repair_candidates(selected_buy_strategies, inputs)
-        + _grid_rebound_candidates(selected_buy_strategies, inputs)
-        + _cost_deleverage_candidates(selected_buy_strategies, inputs)
-    )
-    return _filter_core_dip_timing_candidates(
-        _dedupe_candidates(_filter_candidates_by_sell_strategy(candidates, selected_sell_strategies)),
-        core_dip_timing_filter,
+    from drawdown.strategy_parameter_registry import expand_strategy_candidate_payloads
+
+    return expand_strategy_candidate_payloads(
+        selected_buy_strategies,
+        selected_sell_strategies,
+        inputs,
+        core_dip_timing_filter=core_dip_timing_filter,
     )
 
 

@@ -230,6 +230,35 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("drawdown_boost", html)
         self.assertIn("卖后重启回撤", html)
 
+    def test_parameter_lab_page_exposes_full_matrix_worker_flow(self):
+        with app.test_client() as client:
+            html = client.get("/strategy-lab/parameter-lab").get_data(as_text=True)
+
+        self.assertIn("Strategy + params full lab", html)
+        self.assertIn("/api/strategy-lab/parameter-lab/packet", html)
+        self.assertIn("new Worker('/static/strategy_parameter_lab_worker.js')", html)
+        self.assertIn("function runWorkerPool(packet, startedAt)", html)
+        self.assertIn("function scoreParameterResults(packet, partialRows, workerStats, wallMs)", html)
+        self.assertIn("chunks_completed_per_worker", html)
+        self.assertIn("cpu_work_estimate_ms", html)
+        self.assertIn('id="matrixHead"', html)
+        self.assertIn('id="matrixBody"', html)
+        self.assertIn("topic_rank", html)
+        self.assertIn("topic_score", html)
+        self.assertIn("parameter_snapshot", html)
+        self.assertIn("strategyLabPendingParameterCandidate", html)
+        self.assertIn("应用到主实验室", html)
+
+    def test_strategy_lab_can_consume_parameter_lab_apply_payload(self):
+        with app.test_client() as client:
+            html = client.get("/strategy-lab").get_data(as_text=True)
+
+        self.assertIn('/strategy-lab/parameter-lab', html)
+        self.assertIn("function applyPendingParameterLabCandidate()", html)
+        self.assertIn("localStorage.getItem('strategyLabPendingParameterCandidate')", html)
+        self.assertIn("applyRunConfigPayload(payload)", html)
+        self.assertIn("已应用 Parameter Lab 参数，并恢复原评分题目与周期", html)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from web.app import (
     _estimate_robust_server_simulations,
+    _prepare_strategy_parameter_lab_payload,
     _prepare_strategy_robust_client_payload,
     _run_strategy_robust_payload,
     _run_strategy_score_payload,
@@ -146,6 +147,31 @@ class StrategyLabScorePayloadTest(unittest.TestCase):
 
         self.assertEqual(packet, {"tasks": [], "robust_concurrency": 4})
         self.assertTrue(prepare.called)
+
+    def test_parameter_lab_packet_endpoint_returns_registry_and_cache_metadata(self):
+        with patch(
+            "web.app.prepare_robust_leaderboard_packet",
+            return_value={"tasks": [], "candidate_pool": [], "range": {"start": "2025-01-01", "end": "2026-01-01"}},
+        ) as prepare:
+            packet = _prepare_strategy_parameter_lab_payload({
+                "end": "2026-05-14",
+                "buy_strategies": ["salary_flow_dca"],
+                "sell_strategies": ["cost_deleverage"],
+                "parameter_lab_concurrency": 6,
+                "scorecard_portfolio_keys": ["tsla_100"],
+                "scorecard_periods": [{"key": "1y", "enabled": True}],
+                "targets": [{"symbol": "TSLA.US", "weight": 100}],
+            })
+
+        self.assertEqual(packet["parameter_lab_concurrency"], 6)
+        self.assertEqual(packet["payload_schema"], "strategy_parameter_lab_packet_v1")
+        self.assertEqual(packet["method"]["name"], "client_strategy_parameter_lab_packet")
+        self.assertEqual(packet["method"]["aggregate_formula"], "average_topic_score")
+        self.assertIn("registry", packet)
+        self.assertIn("cache_metadata", packet)
+        kwargs = prepare.call_args.kwargs
+        self.assertEqual(kwargs["buy_strategies"], ["salary_flow_dca"])
+        self.assertEqual(kwargs["sell_strategies"], ["cost_deleverage"])
 
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from flask import Flask, render_template_string, jsonify, request, session, redirect, url_for, send_from_directory
+from flask import Flask, render_template, render_template_string, jsonify, request, session, redirect, url_for, send_from_directory
 from typing import Callable, Optional
 from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlencode
@@ -36,6 +36,7 @@ from drawdown.position_strategy import (
     _scorecard_symbol_key,
 )
 from drawdown.strategy_lab_config import StrategyLabConfig
+from drawdown.strategy_parameter_registry import strategy_registry_payload
 from drawdown.strategy_lab_history import (
     delete_experiment_preset,
     delete_run_snapshot,
@@ -2733,6 +2734,7 @@ STRATEGY_LAB_TEMPLATE = """
                 <p>按交易日时序演算股票回撤加仓、卖出规则和期权影子仓位。</p>
             </div>
             <div class="header-actions">
+                <a href="/strategy-lab/parameter-lab" class="btn btn-secondary">参数实验室</a>
                 <a href="/" class="btn btn-secondary">BOLL 首页</a>
                 <a href="/drawdown" class="btn btn-secondary">Drawdown</a>
             </div>
@@ -6251,6 +6253,76 @@ STRATEGY_LAB_TEMPLATE = """
             setStatus('success', '已应用收益 Top10 参数，并保持评分为全量策略。点击“运行评分”即可在全量组合里对比这组参数。');
         }
 
+        function applyPendingParameterLabCandidate() {
+            const raw = localStorage.getItem('strategyLabPendingParameterCandidate');
+            if (!raw) {
+                return;
+            }
+            localStorage.removeItem('strategyLabPendingParameterCandidate');
+            let pending = null;
+            try {
+                pending = JSON.parse(raw);
+            } catch (error) {
+                setStatus('error', 'Parameter Lab 参数读取失败。');
+                return;
+            }
+            const payload = pending && pending.payload;
+            const candidate = pending && pending.candidate;
+            if (payload && typeof payload === 'object') {
+                applyRunConfigPayload(payload);
+            }
+            if (!candidate || typeof candidate !== 'object') {
+                setStatus('error', 'Parameter Lab 参数缺少候选快照。');
+                return;
+            }
+            if (candidate.step_pct !== null && candidate.step_pct !== undefined) {
+                setFieldValue('stepPct', candidate.step_pct);
+            }
+            if (candidate.equal_slice_allocation_pct !== null && candidate.equal_slice_allocation_pct !== undefined) {
+                setFieldValue('equalSliceAllocation', candidate.equal_slice_allocation_pct);
+            }
+            if (candidate.core_dip_initial_core_pct !== null && candidate.core_dip_initial_core_pct !== undefined) {
+                setFieldValue('coreDipInitialCorePct', candidate.core_dip_initial_core_pct);
+                setFieldValue('coreDipWeeklyCorePct', candidate.core_dip_weekly_core_pct);
+                setFieldValue('coreDipCashReservePct', candidate.core_dip_cash_reserve_pct);
+                setFieldValue('coreDipStartDrawdownPct', candidate.core_dip_start_drawdown_pct);
+                setFieldValue('coreDipFullDrawdownPct', candidate.core_dip_full_drawdown_pct);
+                setSelectValue('coreDipTimingEnabled', String(Boolean(candidate.core_dip_timing_enabled)));
+                if (candidate.core_dip_timing_max_delay_days !== null && candidate.core_dip_timing_max_delay_days !== undefined) {
+                    setFieldValue('coreDipTimingMaxDelayDays', candidate.core_dip_timing_max_delay_days);
+                    setFieldValue('coreDipTimingRiseThresholdPct', candidate.core_dip_timing_rise_threshold_pct);
+                    setFieldValue('coreDipTimingNearLowPct', candidate.core_dip_timing_near_low_pct);
+                }
+            }
+            if (candidate.sell_strategy === 'repair_step') {
+                setFieldValue('sellMinProfit', candidate.sell_min_profit_pct);
+                setFieldValue('repairSellCooldown', candidate.repair_sell_cooldown_days);
+                setFieldValue('repairStageSellPct', candidate.repair_stage_sell_pct);
+            }
+            if (candidate.sell_strategy === 'grid_rebound') {
+                setFieldValue('gridReboundStep', candidate.grid_rebound_step_pct);
+                setFieldValue('gridFirstSellPct', candidate.grid_first_sell_pct);
+                setFieldValue('gridSecondSellPct', candidate.grid_second_sell_pct);
+                setFieldValue('gridMinSellAmount', candidate.grid_min_sell_amount);
+            }
+            if (candidate.sell_strategy === 'cost_deleverage') {
+                setFieldValue('costFirstProfitPct', candidate.cost_first_profit_pct);
+                setFieldValue('costSecondProfitPct', candidate.cost_second_profit_pct);
+                setFieldValue('costThirdProfitPct', candidate.cost_third_profit_pct);
+                setFieldValue('costFirstSellPct', candidate.cost_first_sell_pct);
+                setFieldValue('costSecondSellPct', candidate.cost_second_sell_pct);
+                setFieldValue('costThirdSellPct', candidate.cost_third_sell_pct);
+                setFieldValue('costDeleverageCooldown', candidate.cost_deleverage_cooldown_days);
+                setFieldValue('costMinSellAmount', candidate.cost_min_sell_amount);
+            }
+            if (candidate.dca_rearm_drawdown_pct !== null && candidate.dca_rearm_drawdown_pct !== undefined) {
+                setFieldValue('dcaRearmDrawdown', candidate.dca_rearm_drawdown_pct);
+            }
+            updateCommandBar();
+            activateTab('scorecard');
+            setStatus('success', '已应用 Parameter Lab 参数，并恢复原评分题目与周期。点击“运行评分”可复核。');
+        }
+
         function setScanStage(value) {
             activeScanStageSell = Number(value);
             if (lastSellScan) {
@@ -7457,6 +7529,7 @@ async function run(packet) {
         refreshHistoryWorkspace();
         updateCommandBar();
         initPerfPanel();
+        applyPendingParameterLabCandidate();
     </script>
 </body>
 </html>
@@ -7973,6 +8046,20 @@ def api_drawdown_generate():
 @app.route('/strategy-lab')
 def strategy_lab_page():
     """组合仓位策略实验室。"""
+    return render_template_string(STRATEGY_LAB_TEMPLATE, **_strategy_lab_page_context())
+
+
+@app.route('/strategy-lab/parameter-lab')
+def strategy_parameter_lab_page():
+    """策略参数全量实验室。"""
+    return render_template(
+        "strategy_parameter_lab.html",
+        **_strategy_lab_page_context(),
+        strategy_registry=strategy_registry_payload(),
+    )
+
+
+def _strategy_lab_page_context() -> dict[str, object]:
     strategy_config = _get_position_strategy_config()
     lab_config = StrategyLabConfig.from_saved_defaults(strategy_config)
     end_date = datetime.now().date()
@@ -7995,21 +8082,20 @@ def strategy_lab_page():
         })
     default_portfolio = lab_config.portfolio_or_default()
     investment_universe = lab_config.investment_universe_or_default()
-    return render_template_string(
-        STRATEGY_LAB_TEMPLATE,
-        default_config=lab_config.to_legacy_defaults(),
-        default_portfolio=default_portfolio,
-        investment_universe=investment_universe,
-        buy_strategy_labels=STRATEGY_LABELS,
-        sell_strategy_labels=SELL_STRATEGY_LABELS,
-        scorecard_portfolios=scorecard_portfolios,
-        scorecard_portfolio_labels={item["key"]: item["short_label"] for item in scorecard_portfolios},
-        scorecard_symbol_keys=_scorecard_symbol_keys(scorecard_portfolios),
-        scorecard_periods=scorecard_periods,
-        default_scorecard_portfolio_keys=default_scorecard_portfolio_keys,
-        default_start=start_date.isoformat(),
-        default_end=end_date.isoformat(),
-    )
+    return {
+        "default_config": lab_config.to_legacy_defaults(),
+        "default_portfolio": default_portfolio,
+        "investment_universe": investment_universe,
+        "buy_strategy_labels": STRATEGY_LABELS,
+        "sell_strategy_labels": SELL_STRATEGY_LABELS,
+        "scorecard_portfolios": scorecard_portfolios,
+        "scorecard_portfolio_labels": {item["key"]: item["short_label"] for item in scorecard_portfolios},
+        "scorecard_symbol_keys": _scorecard_symbol_keys(scorecard_portfolios),
+        "scorecard_periods": scorecard_periods,
+        "default_scorecard_portfolio_keys": default_scorecard_portfolio_keys,
+        "default_start": start_date.isoformat(),
+        "default_end": end_date.isoformat(),
+    }
 
 
 @app.route('/demo/strategy-lab')
@@ -8278,6 +8364,61 @@ def _prepare_strategy_robust_client_payload(payload: dict[str, object]) -> dict[
     except (TypeError, ValueError):
         concurrency = 1
     packet["robust_concurrency"] = max(1, min(12, concurrency))
+    return packet
+
+
+def _prepare_strategy_parameter_lab_payload(payload: dict[str, object]) -> dict[str, object]:
+    end_date = date.fromisoformat(payload.get("end")) if payload.get("end") else datetime.now().date()
+    lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+    targets = lab_config.portfolio_or_default()
+    if targets is not None and not isinstance(targets, list):
+        raise ValueError("targets 必须是数组")
+    packet = prepare_robust_leaderboard_packet(
+        lab_config.to_strategy_inputs(),
+        end_date=end_date,
+        core_targets=targets,
+        portfolio_keys=payload.get("scorecard_portfolio_keys"),
+        scorecard_periods=payload.get("scorecard_periods"),
+        investment_universe=lab_config.investment_universe_or_default(),
+        buy_strategies=payload.get("buy_strategies"),
+        sell_strategies=payload.get("sell_strategies") or payload.get("score_sell_strategies"),
+        top_n=int(payload.get("top_n") or 1000000),
+        return_weight=lab_config.score_weights()[0],
+        drawdown_weight=lab_config.score_weights()[1],
+        core_dip_timing_filter=str(payload.get("core_dip_timing_filter") or "all"),
+    )
+    try:
+        concurrency = int(float(payload.get("parameter_lab_concurrency") or payload.get("robust_concurrency") or 1))
+    except (TypeError, ValueError):
+        concurrency = 1
+    packet["parameter_lab_concurrency"] = max(1, min(12, concurrency))
+    packet["method"] = {
+        **dict(packet.get("method") or {}),
+        "name": "client_strategy_parameter_lab_packet",
+        "ranking_formula": "return_90_drawdown_10",
+        "score_formula": "90% return + 10% drawdown",
+        "aggregate_formula": "average_topic_score",
+        "worker_chunking": "strategy_combination_ranges",
+    }
+    packet["registry"] = strategy_registry_payload()
+    packet["cache_metadata"] = {
+        "market_data": {
+            "provider": "Longbridge",
+            "cache_mode": "local-cache-or-fresh-fetch",
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+            "range": packet.get("range", {}),
+            "market_data_version": "longbridge:"
+            + str((packet.get("range") or {}).get("start", ""))
+            + ":"
+            + str((packet.get("range") or {}).get("end", "")),
+        },
+        "simulation_results": {
+            "cache_mode": "browser-session",
+            "algorithm_version": "parameter-lab-v1",
+            "strategy_definition_version": strategy_registry_payload()["version"],
+        },
+    }
+    packet["payload_schema"] = "strategy_parameter_lab_packet_v1"
     return packet
 
 
@@ -8551,6 +8692,23 @@ def api_strategy_lab_robust_client_packet():
         return _json_error(str(exc), 400)
     except Exception as exc:
         return _json_error(f"准备本机 Top10 数据失败: {exc}", 500)
+
+
+@app.route('/api/strategy-lab/parameter-lab/registry', methods=['GET'])
+def api_strategy_lab_parameter_registry():
+    return jsonify({"success": True, "registry": strategy_registry_payload()})
+
+
+@app.route('/api/strategy-lab/parameter-lab/packet', methods=['POST'])
+def api_strategy_lab_parameter_lab_packet():
+    payload = request.get_json(silent=True) or {}
+    try:
+        packet = _prepare_strategy_parameter_lab_payload(payload)
+        return jsonify({"success": True, "packet": packet})
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        return _json_error(f"准备参数实验室数据失败: {exc}", 500)
 
 
 @app.route('/api/strategy-lab/jobs/<job_id>', methods=['GET'])
