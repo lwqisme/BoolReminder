@@ -3,11 +3,15 @@ Flask Web应用
 提供Web界面查看结果、更新token、手动触发分析
 """
 
+import dataclasses
+import gzip
+import hashlib
 import os
 import sys
 import math
 import threading
 import time
+import traceback
 import uuid
 from pathlib import Path
 from flask import Flask, render_template, render_template_string, jsonify, request, session, redirect, url_for, send_from_directory
@@ -19,25 +23,43 @@ from urllib.parse import urlencode
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.config_manager import ConfigManager
 from drawdown.generate_drawdown_report import TradeOverlay, normalize_longbridge_symbol, render_longbridge_drawdown_from_overlays
-from drawdown.option_overlay import apply_option_overlay
+from drawdown.option_overlay import (
+    US_OPTION_UNDERLYINGS,
+    OptionOverlaySettings,
+    apply_option_overlay,
+    batch_fetch_option_data,
+    scan_option_variants,
+    _base_symbol as _option_base_symbol,
+)
+from drawdown.option_provider import create_option_provider
+from drawdown.strategy_parameter_registry import expand_option_parameter_variants
 from drawdown.position_strategy import (
     SCORECARD_PERIODS,
     SCORECARD_PORTFOLIOS,
     SELL_STRATEGY_LABELS,
     STRATEGY_LABELS,
+    StrategyInputs,
     StrategyLabComputationCancelled,
+    _build_robust_tasks,
+    _fetch_scorecard_points,
+    _strategy_inputs_payload,
     prepare_robust_leaderboard_packet,
     parse_date_range,
     run_longbridge_strategy_lab,
     run_longbridge_robust_leaderboard,
     run_longbridge_strategy_scorecard,
     run_longbridge_sell_parameter_scan,
+    parse_portfolio_targets,
     _resolve_scorecard_portfolios,
+    _resolve_scorecard_periods,
     _scorecard_symbol_key,
 )
 from drawdown.strategy_lab_config import StrategyLabConfig
 from drawdown.strategy_parameter_registry import (
+    BUY_PARAMETER_FIELDS,
+    SELL_PARAMETER_FIELDS,
     expand_buy_parameter_variants,
+    strategy_parameter_lab_manifest_payload,
     strategy_registry_payload,
 )
 from drawdown.strategy_lab_history import (
@@ -123,6 +145,278 @@ def init_app():
 
 def _json_error(message: str, status_code: int):
     return jsonify({"success": False, "message": message}), status_code
+
+
+def _parameter_lab_log(event: str, **fields: object) -> None:
+    app.logger.info("[parameter-lab] %s %s", event, fields)
+
+
+def _parameter_lab_warn(event: str, **fields: object) -> None:
+    app.logger.warning("[parameter-lab] %s %s", event, fields)
+
+
+def _parameter_lab_error(event: str, **fields: object) -> None:
+    app.logger.error("[parameter-lab] %s %s", event, fields)
+
+
+def _json_response_with_optional_gzip(payload: dict[str, object], status_code: int = 200):
+    body = app.json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    payload_hash = hashlib.sha256(body).hexdigest()
+    response_body = body
+    compressed = False
+    if "gzip" in request.headers.get("Accept-Encoding", "").lower():
+        gzip_body = gzip.compress(body, compresslevel=5)
+        if len(gzip_body) < len(body):
+            response_body = gzip_body
+            compressed = True
+    response = app.response_class(response_body, status=status_code, mimetype="application/json")
+    response.headers["Content-Length"] = str(len(response_body))
+    response.headers["X-Uncompressed-Length"] = str(len(body))
+    response.headers["X-Compressed-Length"] = str(len(response_body))
+    response.headers["X-Payload-Hash"] = payload_hash
+    if compressed:
+        response.headers["Content-Encoding"] = "gzip"
+        response.headers["Vary"] = "Accept-Encoding"
+    return response
+
+
+PARAMETER_LAB_PAYLOAD_SCHEMA = "strategy_parameter_lab_packet_v3"
+PARAMETER_LAB_LARGE_RUN_GUARDRAIL = int(os.environ.get("STRATEGY_PARAMETER_LAB_LARGE_RUN_GUARDRAIL", "50000"))
+
+def _parameter_lab_price_series_from_tasks(tasks: list[dict[str, object]]) -> tuple[dict[str, object], int]:
+    rows_by_symbol: dict[str, dict[str, float]] = {}
+    def iso_day(value: object) -> str:
+        if hasattr(value, "date") and callable(getattr(value, "date")):
+            try:
+                value = value.date()
+            except (TypeError, ValueError):
+                pass
+        return value.isoformat() if hasattr(value, "isoformat") else str(value or "")
+
+    for task in tasks:
+        price_points = task.get("price_points")
+        if not isinstance(price_points, dict):
+            continue
+        for symbol, raw_points in price_points.items():
+            if not isinstance(raw_points, list):
+                continue
+            symbol_rows = rows_by_symbol.setdefault(str(symbol), {})
+            for raw_point in raw_points:
+                if isinstance(raw_point, dict):
+                    day = iso_day(raw_point.get("date"))
+                    close_value = raw_point.get("close")
+                else:
+                    day = iso_day(getattr(raw_point, "date", None))
+                    close_value = getattr(raw_point, "close", None)
+                if not day:
+                    continue
+                try:
+                    symbol_rows[day] = float(close_value or 0.0)
+                except (TypeError, ValueError):
+                    continue
+    series: dict[str, object] = {}
+    row_count = 0
+    for symbol in sorted(rows_by_symbol):
+        dates = sorted(rows_by_symbol[symbol])
+        closes = [rows_by_symbol[symbol][day] for day in dates]
+        row_count += len(dates)
+        series[symbol] = {"dates": dates, "closes": closes}
+    return series, row_count
+
+
+def _parameter_lab_variant_schema(*fields: str) -> list[str]:
+    return ["variant_id", "variant_key", "strategy_key", *fields]
+
+
+PARAMETER_LAB_BUY_VARIANT_SCHEMA = _parameter_lab_variant_schema(*BUY_PARAMETER_FIELDS)
+PARAMETER_LAB_SELL_VARIANT_SCHEMA = _parameter_lab_variant_schema(*SELL_PARAMETER_FIELDS)
+PARAMETER_LAB_CANDIDATE_SCHEMA = ["candidate_id", "buy_variant_id", "sell_variant_id"]
+
+
+def _compact_parameter_lab_task(task: dict[str, object]) -> dict[str, object]:
+    price_points = task.get("price_points") if isinstance(task.get("price_points"), dict) else {}
+    targets = task.get("targets") if isinstance(task.get("targets"), list) else []
+    symbols = [
+        str(target.get("symbol") if isinstance(target, dict) else getattr(target, "symbol", ""))
+        for target in targets
+        if (isinstance(target, dict) and target.get("symbol")) or getattr(target, "symbol", "")
+    ]
+    if not symbols:
+        symbols = sorted(str(symbol) for symbol in price_points)
+    compact_targets = []
+    for target in targets:
+        if isinstance(target, dict):
+            compact_targets.append(
+                {
+                    "symbol": target.get("symbol"),
+                    "weight": target.get("weight"),
+                    "name": target.get("name"),
+                    "max_drawdown_pct": target.get("max_drawdown_pct"),
+                }
+            )
+        else:
+            compact_targets.append(
+                {
+                    "symbol": getattr(target, "symbol", None),
+                    "weight": getattr(target, "weight", None),
+                    "name": getattr(target, "name", None),
+                    "max_drawdown_pct": getattr(target, "max_drawdown_pct", None),
+                }
+            )
+    start = task.get("start")
+    end = task.get("end")
+    return {
+        "key": task.get("key"),
+        "portfolio_key": task.get("portfolio_key"),
+        "portfolio_label": task.get("portfolio_label"),
+        "period_key": task.get("period_key"),
+        "period_label": task.get("period_label"),
+        "start": start.isoformat() if hasattr(start, "isoformat") else start,
+        "end": end.isoformat() if hasattr(end, "isoformat") else end,
+        "symbols": symbols,
+        "targets": compact_targets,
+    }
+
+
+def _compact_parameter_lab_packet(packet: dict[str, object], manifest: dict[str, object]) -> dict[str, object]:
+    tasks = packet.get("tasks") if isinstance(packet.get("tasks"), list) else []
+    price_series, price_row_count = _parameter_lab_price_series_from_tasks(tasks)
+    compact_tasks = [_compact_parameter_lab_task(task) for task in tasks if isinstance(task, dict)]
+    market_data_hash = hashlib.sha256(
+        app.json.dumps(price_series, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    compact = dict(packet)
+    compact["payload_schema"] = PARAMETER_LAB_PAYLOAD_SCHEMA
+    compact.pop("candidate_pool", None)
+    compact["tasks"] = compact_tasks
+    compact["market_data"] = {
+        "schema": "symbol_dates_closes_v1",
+        "symbols": price_series,
+        "price_row_count": price_row_count,
+        "hash": market_data_hash,
+    }
+    compact["market_data_hash"] = market_data_hash
+    compact["price_row_count"] = price_row_count
+    compact["buy_variant_schema"] = list(manifest.get("buy_variant_schema") or PARAMETER_LAB_BUY_VARIANT_SCHEMA)
+    compact["sell_variant_schema"] = list(manifest.get("sell_variant_schema") or PARAMETER_LAB_SELL_VARIANT_SCHEMA)
+    compact["candidate_schema"] = list(manifest.get("candidate_schema") or PARAMETER_LAB_CANDIDATE_SCHEMA)
+    compact["buy_variants"] = list(manifest.get("buy_variants") or [])
+    compact["sell_variants"] = list(manifest.get("sell_variants") or [])
+    compact["candidate_rows"] = list(manifest.get("candidate_rows") or [])
+    compact["candidate_manifest_hash"] = str(manifest.get("candidate_manifest_hash") or "")
+    compact["candidate_counts"] = dict(manifest.get("candidate_counts") or {"total": 0})
+    compact["simulation_counts"] = {"total": len(compact["candidate_rows"]) * len(compact_tasks)}
+    return compact
+
+
+def _build_parameter_lab_manifest(
+    inputs,
+    selected_buy_strategies,
+    selected_sell_strategies,
+    core_dip_timing_filter: str,
+) -> dict[str, object]:
+    return strategy_parameter_lab_manifest_payload(
+        selected_buy_strategies,
+        selected_sell_strategies,
+        inputs,
+        core_dip_timing_filter=core_dip_timing_filter,
+    )
+
+
+def _count_estimated_trading_rows(start_date: date, end_date: date) -> int:
+    if start_date > end_date:
+        return 0
+    days = 0
+    current = start_date
+    while current <= end_date:
+        if current.weekday() < 5:
+            days += 1
+        current += timedelta(days=1)
+    return days
+
+
+def _estimate_strategy_parameter_lab_payload(payload: dict[str, object]) -> dict[str, object]:
+    end_date = date.fromisoformat(payload.get("end")) if payload.get("end") else datetime.now().date()
+    lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+    targets = lab_config.portfolio_or_default()
+    if targets is not None and not isinstance(targets, list):
+        raise ValueError("targets 必须是数组")
+    inputs = lab_config.to_strategy_inputs()
+    selected_buy_strategies = payload.get("buy_strategies")
+    selected_sell_strategies = payload.get("sell_strategies") or payload.get("score_sell_strategies")
+    manifest = _build_parameter_lab_manifest(
+        inputs,
+        selected_buy_strategies,
+        selected_sell_strategies,
+        str(payload.get("core_dip_timing_filter") or "all"),
+    )
+    scorecard_portfolios = _resolve_scorecard_portfolios(
+        targets,
+        payload.get("scorecard_portfolio_keys"),
+        lab_config.investment_universe_or_default(),
+    )
+    resolved_periods = _resolve_scorecard_periods(end_date, payload.get("scorecard_periods"))
+    symbol_set = {
+        target.symbol
+        for portfolio in scorecard_portfolios
+        for target in parse_portfolio_targets(portfolio["targets"])
+    }
+    start_date = min(period["fetch_start"] for period in resolved_periods)
+    fetch_end_date = max(period["end"] for period in resolved_periods)
+    estimated_price_row_count = len(symbol_set) * _count_estimated_trading_rows(start_date, fetch_end_date)
+    task_count = len(scorecard_portfolios) * len(resolved_periods)
+    estimate_probe = {
+        "payload_schema": PARAMETER_LAB_PAYLOAD_SCHEMA,
+        "range": {"start": start_date.isoformat(), "end": fetch_end_date.isoformat()},
+        "buy_variant_schema": manifest["buy_variant_schema"],
+        "sell_variant_schema": manifest["sell_variant_schema"],
+        "candidate_schema": manifest["candidate_schema"],
+        "buy_variants": manifest["buy_variants"],
+        "sell_variants": manifest["sell_variants"],
+        "candidate_rows": manifest["candidate_rows"],
+        "tasks": [
+            {
+                "portfolio_key": portfolio["key"],
+                "period_key": period["key"],
+                "symbols": sorted(
+                    target.symbol
+                    for target in parse_portfolio_targets(portfolio["targets"])
+                ),
+            }
+            for portfolio in scorecard_portfolios
+            for period in resolved_periods
+        ],
+        "market_data": {
+            "schema": "symbol_dates_closes_v1",
+            "symbol_count": len(symbol_set),
+            "estimated_price_row_count": estimated_price_row_count,
+        },
+    }
+    estimated_packet_bytes = len(app.json.dumps(estimate_probe, separators=(",", ":")).encode("utf-8"))
+    try:
+        requested_concurrency = int(float(payload.get("parameter_lab_concurrency") or payload.get("robust_concurrency") or 1))
+    except (TypeError, ValueError):
+        requested_concurrency = 1
+    candidate_count = int((manifest.get("candidate_counts") or {}).get("total", 0))
+    return {
+        "payload_schema": PARAMETER_LAB_PAYLOAD_SCHEMA,
+        "candidate_count": candidate_count,
+        "buy_variant_count": len(manifest.get("buy_variants") or []),
+        "sell_variant_count": len(manifest.get("sell_variants") or []),
+        "task_count": task_count,
+        "estimated_simulations": candidate_count * task_count,
+        "symbol_count": len(symbol_set),
+        "estimated_price_row_count": estimated_price_row_count,
+        "estimated_packet_bytes": estimated_packet_bytes,
+        "large_run_guardrail": PARAMETER_LAB_LARGE_RUN_GUARDRAIL,
+        "requires_confirmation": candidate_count * task_count > PARAMETER_LAB_LARGE_RUN_GUARDRAIL,
+        "recommended_worker_count": (
+            max(1, min(2, requested_concurrency))
+            if candidate_count * task_count > PARAMETER_LAB_LARGE_RUN_GUARDRAIL
+            else max(1, min(12, requested_concurrency))
+        ),
+        "range": {"start": start_date.isoformat(), "end": fetch_end_date.isoformat()},
+    }
 
 
 def _get_trade_sync_config() -> dict:
@@ -651,31 +945,33 @@ DRAWDOWN_TEMPLATE = """
     <title>Drawdown - BoolReminder</title>
     <style>
         :root {
-            --paper: #fafafa;
-            --blue: #07689f;
-            --coral: #ff7e67;
-            --panel: #fafafa;
-            --border: #c7e4f5;
-            --border-strong: #87c6e8;
-            --ink: #06324c;
-            --muted: #58778d;
-            --accent: #ff7e67;
-            --accent-strong: #e8644f;
-            --blue-dark: #054d76;
-            --shadow: 0 20px 48px rgba(7, 104, 159, 0.18);
-            --paper-shadow: 0 12px 30px rgba(7, 104, 159, 0.12);
+            --bg: #f2f0ed;
+            --paper: #f2f0ed;
+            --card: rgba(255, 255, 255, 0.92);
+            --panel: rgba(255, 255, 255, 0.92);
+            --ink: #1c1a18;
+            --muted: #78716c;
+            --accent: #0d7377;
+            --accent-strong: #095c5f;
+            --accent-warm: #c27a5c;
+            --accent-warm-strong: #a86448;
+            --border: rgba(28, 26, 24, 0.10);
+            --border-strong: rgba(13, 115, 119, 0.28);
+            --shadow: 0 20px 48px rgba(28, 26, 24, 0.10);
+            --paper-shadow: 0 12px 30px rgba(28, 26, 24, 0.08);
+            --warning: #92400e;
         }
         * { box-sizing: border-box; }
         body {
             margin: 0;
             min-height: 100vh;
-            background:
-                radial-gradient(circle at 10% 0%, rgba(162, 213, 242, 0.78), transparent 34%),
-                radial-gradient(circle at 92% 8%, rgba(255, 126, 103, 0.24), transparent 30%),
-                linear-gradient(180deg, #fafafa 0%, #e9f6fc 48%, #d9effa 100%);
             color: var(--ink);
-            font-family: "Aptos", "IBM Plex Sans", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+            font-family: "Iowan Old Style", "Palatino Linotype", "Noto Serif SC", serif;
             font-size: 14px;
+            background:
+                radial-gradient(circle at top left, rgba(194, 122, 92, 0.10), transparent 32%),
+                radial-gradient(circle at 85% 20%, rgba(13, 115, 119, 0.08), transparent 30%),
+                linear-gradient(180deg, #faf7f4 0%, var(--bg) 100%);
         }
         .container { max-width: 960px; margin: 0 auto; padding: 26px; }
         .header {
@@ -685,15 +981,14 @@ DRAWDOWN_TEMPLATE = """
             gap: 18px;
             margin-bottom: 20px;
             padding: 24px;
-            border: 1px solid rgba(162, 213, 242, 0.48);
+            border: 1px solid rgba(23, 33, 33, 0.10);
             border-radius: 8px;
             background:
-                linear-gradient(135deg, rgba(255, 126, 103, 0.22), transparent 34%),
-                linear-gradient(115deg, #07689f 0%, #0b75ae 58%, #a2d5f2 100%);
+                linear-gradient(115deg, #0d7377 0%, #18878b 58%, #5aafb3 100%);
             color: #fafafa;
             box-shadow: var(--shadow);
         }
-        .header-title { margin: 0; font-family: "Avenir Next", "Noto Sans SC", sans-serif; font-size: 28px; line-height: 1.15; }
+        .header-title { margin: 0; font-family: "Iowan Old Style", "Palatino Linotype", "Noto Serif SC", serif; font-size: 28px; line-height: 1.15; }
         .header-sub { margin: 8px 0 0; color: #eaf6fc; font-size: 13px; line-height: 1.5; }
         .header-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; align-items: flex-start; }
         .btn {
@@ -702,26 +997,26 @@ DRAWDOWN_TEMPLATE = """
             justify-content: center;
             min-height: 36px;
             padding: 8px 14px;
-            background: linear-gradient(180deg, #ff8c77, var(--accent-strong));
+            background: linear-gradient(180deg, #c27a5c, var(--accent-warm-strong));
             color: #fafafa;
-            border: 1px solid var(--accent);
+            border: 1px solid var(--accent-warm);
             border-radius: 7px;
             cursor: pointer;
             text-decoration: none;
             font-weight: 700;
             font-size: 13px;
             white-space: nowrap;
-            box-shadow: 0 8px 16px rgba(255, 126, 103, 0.24);
+            box-shadow: 0 8px 16px rgba(194, 122, 92, 0.24);
         }
-        .btn:hover { background: linear-gradient(180deg, #ff9b89, #df5f4a); }
+        .btn:hover { background: linear-gradient(180deg, #d4947a, #a86448); }
         .btn-secondary { background: rgba(250, 250, 250, 0.12); color: #fafafa; border-color: rgba(250, 250, 250, 0.36); box-shadow: none; }
         .btn-secondary:hover { background: rgba(250, 250, 250, 0.22); border-color: rgba(250, 250, 250, 0.58); }
-        .btn-blue { background: linear-gradient(180deg, #07689f, var(--blue-dark)); border-color: var(--blue); box-shadow: 0 8px 16px rgba(7, 104, 159, 0.24); }
-        .btn-blue:hover { background: linear-gradient(180deg, #0b75ae, #054d76); }
+        .btn-blue { background: linear-gradient(180deg, #0d7377, var(--accent-strong)); border-color: var(--accent); box-shadow: 0 8px 16px rgba(13, 115, 119, 0.24); }
+        .btn-blue:hover { background: linear-gradient(180deg, #18878b, #095c5f); }
         .panel {
             background:
-                linear-gradient(180deg, rgba(162, 213, 242, 0.18), transparent 32%),
-                var(--panel);
+                linear-gradient(180deg, rgba(13, 115, 119, 0.08), transparent 32%),
+                var(--card);
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 19px;
@@ -736,46 +1031,46 @@ DRAWDOWN_TEMPLATE = """
             padding: 8px 10px;
             border: 1px solid var(--border-strong);
             border-radius: 7px;
-            background: #fafafa;
+            background: #faf7f3;
             color: var(--ink);
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
         }
-        .field-row input[type="text"]:focus { outline: 3px solid rgba(162, 213, 242, 0.58); border-color: var(--blue); }
+        .field-row input[type="text"]:focus { outline: 3px solid rgba(13, 115, 119, 0.30); border-color: var(--accent); }
         .field-row input[type="date"] {
             min-height: 38px;
             padding: 8px 10px;
             border: 1px solid var(--border-strong);
             border-radius: 7px;
             min-width: 160px;
-            background: #fafafa;
+            background: #faf7f3;
             color: var(--ink);
             box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
         }
-        .field-row input[type="date"]:focus { outline: 3px solid rgba(162, 213, 242, 0.58); border-color: var(--blue); }
+        .field-row input[type="date"]:focus { outline: 3px solid rgba(13, 115, 119, 0.30); border-color: var(--accent); }
         .field-row label { color: var(--muted); font-size: 13px; white-space: nowrap; cursor: pointer; }
         .field-row input[type="checkbox"] { accent-color: var(--accent); margin-right: 4px; }
         .preset-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
         .preset-btn {
             min-height: 30px;
             padding: 5px 12px;
-            border: 1px solid rgba(7, 104, 159, 0.18);
+            border: 1px solid rgba(13, 115, 119, 0.18);
             border-radius: 999px;
-            background: rgba(250, 250, 250, 0.82);
-            color: var(--blue);
+            background: rgba(245, 240, 232, 0.82);
+            color: var(--accent);
             font-weight: 700;
             font-size: 13px;
             cursor: pointer;
             transition: background 140ms ease, border-color 140ms ease;
         }
-        .preset-btn:hover { border-color: var(--coral); background: #fafafa; }
+        .preset-btn:hover { border-color: var(--accent-warm); background: #f5f0e8; }
         .symbols { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
         .symbol-chip {
             display: inline-flex;
             align-items: center;
             padding: 6px 12px;
-            background: rgba(7, 104, 159, 0.08);
-            color: var(--blue);
-            border: 1px solid rgba(7, 104, 159, 0.22);
+            background: rgba(13, 115, 119, 0.08);
+            color: var(--accent);
+            border: 1px solid rgba(13, 115, 119, 0.22);
             border-radius: 999px;
             text-decoration: none;
             font-size: 13px;
@@ -783,13 +1078,13 @@ DRAWDOWN_TEMPLATE = """
             cursor: pointer;
             transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
         }
-        .symbol-chip:hover { background: rgba(7, 104, 159, 0.15); border-color: var(--blue); transform: translateY(-1px); }
-        .symbol-chip.secondary { background: rgba(5, 182, 163, 0.08); color: #0f766e; border-color: rgba(5, 182, 163, 0.28); }
-        .symbol-chip.secondary:hover { background: rgba(5, 182, 163, 0.16); border-color: #0f766e; }
-        .symbol-chip.muted { background: rgba(88, 119, 141, 0.1); color: var(--muted); border-color: rgba(88, 119, 141, 0.22); }
-        .symbol-chip.muted:hover { background: rgba(88, 119, 141, 0.18); border-color: var(--muted); }
+        .symbol-chip:hover { background: rgba(13, 115, 119, 0.15); border-color: var(--accent); transform: translateY(-1px); }
+        .symbol-chip.secondary { background: rgba(194, 122, 92, 0.08); color: #a86448; border-color: rgba(194, 122, 92, 0.28); }
+        .symbol-chip.secondary:hover { background: rgba(194, 122, 92, 0.16); border-color: #a86448; }
+        .symbol-chip.muted { background: rgba(92, 96, 95, 0.10); color: var(--muted); border-color: rgba(92, 96, 95, 0.22); }
+        .symbol-chip.muted:hover { background: rgba(92, 96, 95, 0.18); border-color: var(--muted); }
         .panel-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
-        .panel-title strong { font-size: 15px; color: var(--blue); font-weight: 800; }
+        .panel-title strong { font-size: 15px; color: var(--accent); font-weight: 800; }
         .panel-count { color: var(--muted); font-size: 13px; }
         .hint {
             color: var(--muted);
@@ -798,11 +1093,11 @@ DRAWDOWN_TEMPLATE = """
             margin-top: 10px;
             padding: 10px 12px;
             border-left: 4px solid var(--accent);
-            background: rgba(162, 213, 242, 0.22);
+            background: rgba(194, 122, 92, 0.08);
             border-radius: 0 8px 8px 0;
         }
         .empty { color: var(--muted); padding: 10px 0; font-size: 13px; }
-        .error { color: #b94d3b; font-size: 13px; padding: 10px 0; }
+        .error { color: var(--warning); font-size: 13px; padding: 10px 0; }
         @media (max-width: 720px) {
             .container { padding: 16px; }
             .header { flex-direction: column; align-items: flex-start; }
@@ -3047,8 +3342,8 @@ STRATEGY_LAB_TEMPLATE = """
                     <div class="fieldset-title">仓位与合约</div>
                     <div class="grid">
                         <div>
-                            <label for="optionAllocation">期权资金比例 %</label>
-                            <input id="optionAllocation" type="number" min="0" max="100" step="1" value="{{ default_config.default_option_allocation_pct }}">
+                            <label for="optionWalletPct">期权钱包比例 %</label>
+                            <input id="optionWalletPct" type="number" min="0" max="100" step="1" value="{{ default_config.default_option_wallet_pct }}">
                         </div>
                         <div>
                             <label for="optionMoneyness">行权价规则</label>
@@ -3372,6 +3667,12 @@ STRATEGY_LAB_TEMPLATE = """
                     <div class="summary-title">
                         <h2>收益 Top10 结果</h2>
                         <span id="robustResultMeta" class="small"></span>
+                        <label style="margin-left:12px;">排名
+                            <select id="robustRankMethod" onchange="renderRobustLeaderboard(lastRobustLeaderboard)">
+                                <option value="normalized" selected>题内归一化</option>
+                                <option value="raw">原始加权分</option>
+                            </select>
+                        </label>
                     </div>
                     <div id="robustStrip" class="robust-strip"></div>
                     <div class="table-wrap">
@@ -3379,7 +3680,7 @@ STRATEGY_LAB_TEMPLATE = """
                             <thead>
                                 <tr>
                                     <th>策略 / 参数</th>
-                                    <th>收益90/回撤10分</th>
+                                    <th id="robustScoreHeader">收益90/回撤10分</th>
                                     <th>均收益</th>
                                     <th>均回撤</th>
                                     <th>最强 / 最弱题目</th>
@@ -3486,6 +3787,12 @@ STRATEGY_LAB_TEMPLATE = """
                 <div style="display:flex;align-items:center;gap:8px;">
                     <span id="scorecardRange" class="small">12 个题目：全仓 TSM / GOOGL / TSLA / 当前组合，分别跑近 252 / 756 / 1260 个交易日。</span>
                     <button class="btn btn-secondary btn-small" type="button" onclick="runScorecard()">运行评分</button>
+                    <label style="margin-left:4px;">排名
+                        <select id="scorecardRankMethod" onchange="if(lastScorecard)renderScorecard(lastScorecard)">
+                            <option value="normalized" selected>题内归一化</option>
+                            <option value="raw">原始加权分</option>
+                        </select>
+                    </label>
                     <span class="code">SCORE</span>
                 </div>
             </div>
@@ -3541,7 +3848,7 @@ STRATEGY_LAB_TEMPLATE = """
                         <tr>
                             <th>排名</th>
                             <th>策略组合</th>
-                            <th>总分</th>
+                            <th id="scorecardScoreHeader">总分</th>
                             <th>平均收益</th>
                             <th>平均回撤</th>
                             <th>卖出质量</th>
@@ -4395,7 +4702,7 @@ STRATEGY_LAB_TEMPLATE = """
                 cost_min_sell_amount: readNumber('costMinSellAmount'),
                 option_overlay: {
                     enabled: document.getElementById('optionEnabled').checked,
-                    allocation_pct: readNumber('optionAllocation'),
+                    wallet_pct: readNumber('optionWalletPct'),
                     target_dte: readNumber('optionTargetDte'),
                     min_dte: readNumber('optionMinDte'),
                     max_dte: readNumber('optionMaxDte'),
@@ -4899,7 +5206,7 @@ STRATEGY_LAB_TEMPLATE = """
 
             const option = payload.option_overlay || {};
             setOptionEnabled(option.enabled);
-            setFieldValue('optionAllocation', option.allocation_pct);
+            setFieldValue('optionWalletPct', option.wallet_pct);
             setFieldValue('optionTargetDte', option.target_dte);
             setFieldValue('optionMinDte', option.min_dte);
             setFieldValue('optionMaxDte', option.max_dte);
@@ -5968,7 +6275,7 @@ STRATEGY_LAB_TEMPLATE = """
         default_scan_repair_cooldown_values: document.getElementById('scanCooldowns').value,
         default_scan_repair_stage_sell_values: document.getElementById('scanStageSells').value,
                 default_option_enabled: document.getElementById('optionEnabled').checked,
-                default_option_allocation_pct: readNumber('optionAllocation'),
+                default_option_wallet_pct: readNumber('optionWalletPct'),
                 default_option_target_dte: readNumber('optionTargetDte'),
                 default_option_min_dte: readNumber('optionMinDte'),
                 default_option_max_dte: readNumber('optionMaxDte'),
@@ -6011,14 +6318,23 @@ STRATEGY_LAB_TEMPLATE = """
         function renderScorecard(data) {
             const perfStart = performance.now();
             lastScorecard = data;
+            const rankMethod = document.getElementById('scorecardRankMethod').value;
+            const scoreHeader = document.getElementById('scorecardScoreHeader');
+            if (scoreHeader) scoreHeader.textContent = rankMethod === 'raw' ? '原始加权分' : '总分';
+            const sortKey = rankMethod === 'raw' ? '_raw' : 'score';
+            const sorted = [...(data.summary || [])].sort((a, b) => {
+                const va = sortKey === '_raw' ? (a.avg_return_pct || 0) * 0.9 + (a.avg_drawdown_pct || 0) * 0.1 : (a.score || 0);
+                const vb = sortKey === '_raw' ? (b.avg_return_pct || 0) * 0.9 + (b.avg_drawdown_pct || 0) * 0.1 : (b.score || 0);
+                return vb - va;
+            });
             const warnings = data.warnings && data.warnings.length ? `；${data.warnings.join('；')}` : '';
             const topicLabels = (data.portfolios || []).map((key) => scorecardPortfolioLabels[key] || key).join(' / ');
             document.getElementById('scorecardRange').textContent = `${data.range.start} 至 ${data.range.end}；题目 ${topicLabels}；周期按最近 252 / 756 / 1260 个交易日截取；当前组合使用首页组合权重，单股题目读取对应 symbol 的评分回撤上限；收益权重 ${number(data.weights.return * 100)}%，回撤权重 ${number(data.weights.drawdown * 100)}%${warnings}`;
-            document.getElementById('scorecardBody').innerHTML = data.summary.map((item, index) => `
+            document.getElementById('scorecardBody').innerHTML = sorted.map((item, index) => `
                 <tr>
                     <td>${index + 1}</td>
                     <td>${escapeHtml(item.label)}</td>
-                    <td>${number(item.score)}</td>
+                    <td>${number(rankMethod === 'raw' ? ((item.avg_return_pct || 0) * 0.9 + (item.avg_drawdown_pct || 0) * 0.1) : item.score)}</td>
                     <td>${pct(item.avg_return_pct)}</td>
                     <td>${pct(item.avg_drawdown_pct)}</td>
                     <td>${number(item.avg_sell_quality_score)}</td>
@@ -6037,7 +6353,7 @@ STRATEGY_LAB_TEMPLATE = """
                     ${data.questions.map((question) => `<th>${escapeHtml(question.portfolio_label)}<br>${escapeHtml(question.period_label)}</th>`).join('')}
                 </tr>
             `;
-            document.getElementById('scoreMatrixBody').innerHTML = data.summary.map((item) => {
+            document.getElementById('scoreMatrixBody').innerHTML = sorted.map((item) => {
                 const cells = data.questions.map((question) => {
                     const strategy = (question.strategies || []).find((entry) => entry.key === item.key);
                     if (!strategy) {
@@ -6317,7 +6633,12 @@ STRATEGY_LAB_TEMPLATE = """
                 <div class="robust-stat"><span>并发 ${scoreHelpButton('解释并发', '并发\\n浏览器会按候选组合分片交给多个 Web Worker 计算。\\n并发只改变速度，不改变评分口径和排序结果。')}</span><strong>${number(method.concurrency || 1)}</strong></div>
                 <div class="robust-stat"><span>输出 Top ${scoreHelpButton('解释输出 Top', '输出 Top\\n全部候选评分后，按收益榜分数排序，取页面请求的 Top N。\\n当前默认输出 Top10。')}</span><strong>${number((data.leaderboard || []).length)}</strong></div>
             `;
-            const rows = (data.leaderboard || []).map((row) => {
+            const rankMethod = document.getElementById('robustRankMethod').value;
+            const sortKey = rankMethod === 'raw' ? 'raw_score' : 'score';
+            const headerEl = document.getElementById('robustScoreHeader');
+            if (headerEl) headerEl.textContent = rankMethod === 'raw' ? '原始加权分' : '收益90/回撤10分';
+            const sorted = [...(data.leaderboard || [])].sort((a, b) => Number(b[sortKey] || 0) - Number(a[sortKey] || 0));
+            const rows = sorted.map((row) => {
                 const candidate = row.candidate || {};
                 const strongest = row.strongest_task || {};
                 const weakest = row.weakest_task || {};
@@ -6351,7 +6672,7 @@ STRATEGY_LAB_TEMPLATE = """
                                 <button class="btn btn-secondary btn-small" type="button" onclick="applyRobustCandidate('${escapeHtml(candidate.key)}')">应用参数并看全量评分</button>
                             </div>
                         </td>
-                        <td>${number(row.score)}</td>
+                        <td>${number(rankMethod === 'raw' ? (row.raw_score ?? row.score) : row.score)}</td>
                         <td>${pct(row.avg_return_pct)}</td>
                         <td>${pct(row.avg_drawdown_pct)}</td>
                         <td>
@@ -6495,7 +6816,19 @@ STRATEGY_LAB_TEMPLATE = """
             }
             updateCommandBar();
             activateTab('scorecard');
-            setStatus('success', '已应用 Parameter Lab 参数，并恢复原评分题目与周期。点击“运行评分”可复核。');
+            setStatus('success', '已应用 Parameter Lab 参数，并恢复原评分题目与周期。点击"运行评分"可复核。');
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('auto_run_lab') === '1') {
+                const topicKey = pending && pending.topic_key;
+                const cand = pending && pending.candidate;
+                if (topicKey && cand) {
+                    setTimeout(() => {
+                        loadScorecardDetail(topicKey, cand.buy_strategy, cand.sell_strategy);
+                    }, 500);
+                } else {
+                    setTimeout(() => runLab(), 500);
+                }
+            }
         }
 
         function setScanStage(value) {
@@ -7436,10 +7769,10 @@ function sellMetrics(tradeLog, portfolioValues, cashValues) {
   return { avg_buy_drawdown_pct: avgBuy, avg_sell_drawdown_pct: avgSell, avg_sell_profit_pct: avgProfit, cash_reuse_pct: cashReuse, avg_cash_pct: avgCash, sell_quality_score: sellQuality };
 }
 function scoreTaskObservations(observations) {
-  const returns = observations.map((o) => o.return_pct), drawdowns = observations.map((o) => -o.max_drawdown_pct);
+  const returns = observations.map((o) => o.return_pct), drawdowns = observations.map((o) => o.max_drawdown_pct);
   const weights = robustWeights();
   observations.forEach((o) => {
-    const returnScore = normalize(o.return_pct, returns) * 100, drawdownScore = normalize(-o.max_drawdown_pct, drawdowns) * 100;
+    const returnScore = normalize(o.return_pct, returns) * 100, drawdownScore = normalize(o.max_drawdown_pct, drawdowns) * 100;
     o.task_score = returnScore * weights.return + drawdownScore * weights.drawdown;
   });
   [...observations].sort((a, b) => b.task_score - a.task_score).forEach((o, index) => { o.task_rank = index + 1; });
@@ -7451,10 +7784,10 @@ function aggregate(candidate, observations) {
   const sorted = [...observations].sort((a, b) => a.task_score - b.task_score);
   const weak = sorted[0], strong = sorted[sorted.length - 1];
   const taskSummary = (o) => o ? { key: o.task.key, label: o.task.portfolio_label + ' / ' + o.task.period_label, score: o.task_score, return_pct: o.return_pct, max_drawdown_pct: o.max_drawdown_pct } : null;
-  return { candidate, score: robust, robust_score: robust, mean_score: mean, avg_return_pct: avg(returns), avg_drawdown_pct: avg(drawdowns), avg_sell_quality_score: avg(sells), task_count: observations.length, strongest_task: taskSummary(strong), weakest_task: taskSummary(weak) };
+  return { candidate, score: robust, robust_score: robust, mean_score: mean, raw_score: avg(returns) * 0.9 + avg(drawdowns) * 0.1, avg_return_pct: avg(returns), avg_drawdown_pct: avg(drawdowns), avg_sell_quality_score: avg(sells), task_count: observations.length, strongest_task: taskSummary(strong), weakest_task: taskSummary(weak) };
 }
 function robustWeights() { return { return: 0.9, drawdown: 0.1 }; }
-function scoreRowsLikeScorecard(rows) {
+function _unused_scoreRowsLikeScorecard(rows) {
   const weights = robustWeights();
   const returns = rows.map((row) => row.avg_return_pct);
   const drawdowns = rows.map((row) => row.avg_drawdown_pct);
@@ -7502,22 +7835,30 @@ function scoreCandidateLikeScorecardPage(tasks, baseInputs, tuningCandidate) {
           candidate: observation.candidate,
           avg_return_pct: 0,
           avg_drawdown_pct: 0,
+          task_score_sum: 0,
           question_count: 0
         });
       }
       const row = summary.get(key);
       row.avg_return_pct += observation.return_pct;
       row.avg_drawdown_pct += observation.max_drawdown_pct;
+      row.task_score_sum += observation.task_score;
       row.question_count += 1;
       if (key === targetKey) targetObservations.push({ ...observation, candidate: tuningCandidate });
     }
   }
-  const rows = [...summary.values()].map((row) => ({
-    ...row,
-    avg_return_pct: row.question_count ? row.avg_return_pct / row.question_count : 0,
-    avg_drawdown_pct: row.question_count ? row.avg_drawdown_pct / row.question_count : 0
-  }));
-  scoreRowsLikeScorecard(rows);
+  const rows = [...summary.values()].map((row) => {
+    const n = row.question_count || 1;
+    const score = row.task_score_sum / n;
+    return {
+      ...row,
+      avg_return_pct: row.avg_return_pct / n,
+      avg_drawdown_pct: row.avg_drawdown_pct / n,
+      score,
+      robust_score: score,
+      mean_score: score
+    };
+  });
   [...rows].sort((a, b) => b.score - a.score).forEach((row, index) => { row.scorecard_rank = index + 1; });
   const target = rows.find((row) => row.key === targetKey) || rows[0] || {};
   const sortedTargetTasks = [...targetObservations].sort((a, b) => a.task_score - b.task_score);
@@ -7525,11 +7866,13 @@ function scoreCandidateLikeScorecardPage(tasks, baseInputs, tuningCandidate) {
   const strongest = sortedTargetTasks[sortedTargetTasks.length - 1];
   const taskSummary = (o) => o ? { key: o.task.key, label: o.task.portfolio_label + ' / ' + o.task.period_label, score: o.task_score, return_pct: o.return_pct, max_drawdown_pct: o.max_drawdown_pct } : null;
   const taskScores = targetObservations.map((item) => item.task_score).sort((a, b) => a - b);
+  const rawScore = (target.avg_return_pct || 0) * 0.9 + (target.avg_drawdown_pct || 0) * 0.1;
   return {
     candidate: tuningCandidate,
     score: target.score || 0,
     robust_score: target.score || 0,
     mean_score: avg(taskScores),
+    raw_score: rawScore,
     avg_return_pct: target.avg_return_pct || 0,
     avg_drawdown_pct: target.avg_drawdown_pct || 0,
     avg_sell_quality_score: 0,
@@ -7569,7 +7912,6 @@ async function scoreCandidates(tasks, inputs, candidates, stage, progressStart, 
     scoreTaskObservations(observations);
   }
   const rows = candidates.map((candidate) => aggregate(candidate, byKey.get(String(candidate.key)) || []));
-  scoreRowsLikeScorecard(rows);
   return rows;
 }
 async function run(packet) {
@@ -8514,6 +8856,363 @@ def _run_strategy_robust_payload(payload: dict[str, object]) -> dict[str, object
     )
 
 
+def _option_dte_targets_and_windows(
+    payload: dict[str, object],
+    *,
+    default_target: int = 250,
+) -> tuple[list[int], list[tuple[int, int, int]]]:
+    """Parse option DTE fields.
+
+    New requests send option_dte_min/target/max. Legacy option_dtes continues to
+    mean each target with a target +/- 60 day search window.
+    """
+    has_window = any(
+        key in payload and payload.get(key) not in (None, "")
+        for key in ("option_dte_min", "option_dte_target", "option_dte_max")
+    )
+    if has_window:
+        target = int(float(payload.get("option_dte_target") or default_target))
+        min_dte = int(float(payload.get("option_dte_min") or max(1, target - 60)))
+        max_dte = int(float(payload.get("option_dte_max") or target + 60))
+        if min_dte <= 0 or max_dte <= 0 or min_dte > max_dte:
+            raise ValueError("期权 DTE 窗口无效。")
+        if target < min_dte or target > max_dte:
+            raise ValueError("目标 DTE 必须在最小/最大 DTE 范围内。")
+        return [target], [(min_dte, target, max_dte)]
+
+    if payload.get("option_dtes") in (None, ""):
+        if default_target == 250:
+            return [250], [(200, 250, 300)]
+        return [default_target], [(max(1, default_target - 60), default_target, default_target + 60)]
+
+    raw = str(payload.get("option_dtes"))
+    targets = [int(x.strip()) for x in raw.split(",") if x.strip()]
+    if not targets:
+        targets = [default_target]
+    return targets, [(max(1, target - 60), target, target + 60) for target in targets]
+
+
+def _prepare_option_parameter_lab_packet(payload: dict[str, object]) -> dict[str, object]:
+    """Build option-scan packet.
+
+    Two modes:
+    - If stock_strategies in payload → client-provided trades, skip stock sim
+    - Otherwise → run Longbridge stock sim on server
+
+    Service duties (must be server-side due to API keys):
+      Option chain + history via Polygon → contracts + price bars
+
+    Client duties:
+      Option replay variants → Web Workers in browser
+    """
+    packet_started = time.perf_counter()
+
+    # ── End date (for option data cutoff) ────────────────────────────
+    start_date, end_date = parse_date_range(payload.get("start"), payload.get("end"))
+
+    # ── Parse option parameters ──────────────────────────────────────
+    opt_wallet_raw = str(payload.get("option_wallet_pcts") or payload.get("option_allocations") or "10,20,30")
+    opt_trade_alloc_raw = str(payload.get("option_trade_allocations") or "20,30,40,50")
+    opt_moneyness_raw = str(payload.get("option_moneyness_values") or "otm_10")
+    opt_pt_raw = str(payload.get("option_profit_takes") or "100")
+    opt_pts_raw = str(payload.get("option_profit_take_sells") or "50")
+    opt_exit_raw = str(payload.get("option_exit_dtes") or "60")
+
+    def _pf(raw: str) -> list[float]:
+        return [float(x.strip()) for x in raw.split(",") if x.strip()]
+    def _pi(raw: str) -> list[int]:
+        return [int(x.strip()) for x in raw.split(",") if x.strip()]
+
+    moneyness_values = [x.strip() for x in opt_moneyness_raw.split(",") if x.strip()]
+    dte_targets, dte_windows = _option_dte_targets_and_windows(payload, default_target=250)
+
+    # ── Expand option variants ───────────────────────────────────────
+    option_variants = expand_option_parameter_variants(
+        moneyness_values, dte_targets, _pf(opt_wallet_raw),
+        _pf(opt_trade_alloc_raw), _pf(opt_pt_raw), _pf(opt_pts_raw), _pi(opt_exit_raw),
+        dte_windows=dte_windows,
+    )
+    t_variants = time.perf_counter()
+
+    # ── Stock strategies: client-provided or server-computed ──────────
+    client_strategies = payload.get("stock_strategies")
+    single_params = payload.get("single_candidate_params")
+    if client_strategies is not None and isinstance(client_strategies, list) and len(client_strategies) > 0:
+        # Cell-level scan: client sent pre-computed trades, skip Longbridge sim
+        stock_result_strategies = client_strategies
+    elif isinstance(single_params, dict) and single_params:
+        # Cell-level scan: client sent specific parameter values → run 1 sim
+        lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+        targets = lab_config.portfolio_or_default()
+        if targets is not None and not isinstance(targets, list):
+            raise ValueError("targets 必须是数组")
+        buy_key = str(single_params.get("buy_strategy_key", "") or "")
+        sell_key = str(single_params.get("sell_strategy_key", "") or "")
+        if not buy_key or not sell_key:
+            raise ValueError("single_candidate_params 必须包含 buy_strategy_key 和 sell_strategy_key")
+        # Merge parameter overrides into inputs
+        base_inputs = lab_config.to_strategy_inputs()
+        overrides = {k: v for k, v in (single_params.get("parameters") or {}).items() if hasattr(base_inputs, k)}
+        inputs = dataclasses.replace(base_inputs, **overrides)
+        stock_result = run_longbridge_strategy_lab(
+            targets, inputs,
+            start_date=start_date, end_date=end_date,
+            buy_strategies=[buy_key], sell_strategies=[sell_key],
+        )
+        stock_result_strategies = stock_result.get("strategies", [])
+    else:
+        # Full scan: run Longbridge stock simulation on server
+        lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+        targets = lab_config.portfolio_or_default()
+        if targets is not None and not isinstance(targets, list):
+            raise ValueError("targets 必须是数组")
+        buy_strategies = payload.get("buy_strategies") or list(STRATEGY_LABELS.keys())
+        sell_strategies = payload.get("sell_strategies") or payload.get("score_sell_strategies") or list(SELL_STRATEGY_LABELS.keys())
+        stock_result = run_longbridge_strategy_lab(
+            targets, lab_config.to_strategy_inputs(),
+            start_date=start_date, end_date=end_date,
+            buy_strategies=buy_strategies, sell_strategies=sell_strategies,
+        )
+        stock_result_strategies = stock_result.get("strategies", [])
+
+    t_stock = time.perf_counter()
+
+    # ── Collect buy trades for option data fetch ─────────────────────
+    all_buy_trades: list[dict] = []
+    for strategy in stock_result_strategies:
+        for trade in strategy.get("trades", []):
+            if trade.get("action") == "buy":
+                underlying = _option_base_symbol(str(trade.get("symbol", "")))
+                if underlying in US_OPTION_UNDERLYINGS:
+                    all_buy_trades.append(trade)
+
+    # ── Fetch option chain + history (Polygon API key) ───────────────
+    global config_manager
+    if config_manager is None:
+        config_manager = ConfigManager()
+    provider_config = config_manager.get_option_provider_config()
+    provider = create_option_provider(provider_config)
+    lookup, warnings = batch_fetch_option_data(
+        all_buy_trades, OptionOverlaySettings(), provider, moneyness_values, dte_targets, end_date,
+        dte_windows=dte_windows,
+    )
+    t_option = time.perf_counter()
+
+    _parameter_lab_log("option_packet_stages",
+        elapsed_variants_ms=round((t_variants - packet_started) * 1000, 1),
+        elapsed_stock_ms=round((t_stock - t_variants) * 1000, 1),
+        elapsed_option_ms=round((t_option - t_stock) * 1000, 1),
+        buy_trade_count=len(all_buy_trades),
+    )
+
+    # ── Serialize lookup ─────────────────────────────────────────────
+    serializable_lookup: dict[str, object] = {}
+    for key, value in lookup.items():
+        composite = "|".join(str(k) for k in key)
+        if value is None:
+            serializable_lookup[composite] = None
+            continue
+        contract = value["contract"]
+        bars = value["bars"]
+        serializable_lookup[composite] = {
+            "contract": {"ticker": contract.ticker, "underlying": contract.underlying,
+                         "expiration": contract.expiration.isoformat(), "strike": contract.strike,
+                         "contract_type": contract.contract_type},
+            "bars": [{"date": b.date.isoformat(), "open": b.open, "high": b.high,
+                      "low": b.low, "close": b.close, "volume": b.volume} for b in bars],
+        }
+
+    # ── Build per-strategy trades (with stock_sell_date) ─────────────
+    stock_strategies: list[dict] = []
+    for strategy in stock_result_strategies:
+        sk = str(strategy.get("strategy_key", ""))
+        sl = str(strategy.get("strategy_label", ""))
+        trades = strategy.get("trades") or []
+        sd_map: dict[str, list[str]] = {}
+        for t in trades:
+            if t.get("action") == "sell":
+                sd_map.setdefault(str(t.get("symbol", "")), []).append(str(t.get("date", "")))
+        bt: list[dict] = []
+        for t in trades:
+            action = str(t.get("action", ""))
+            sym = str(t.get("symbol", ""))
+            u = _option_base_symbol(sym)
+            if u not in US_OPTION_UNDERLYINGS: continue
+
+            if action == "buy":
+                bd = str(t.get("date", ""))
+                ssd = ""
+                for sd in sorted(sd_map.get(sym, [])):
+                    if sd >= bd: ssd = sd; break
+                bt.append({"symbol": sym, "date": bd,
+                           "price": float(t.get("price", 0)),
+                           "gross_amount": float(t.get("gross_amount", 0)),
+                           "stock_sell_date": ssd,
+                           "action": "buy"})
+            elif action == "sell":
+                bt.append({"symbol": sym, "date": str(t.get("date", "")),
+                           "action": "sell"})
+        stock_strategies.append({"strategy_key": sk, "strategy_label": sl, "trades": bt})
+
+    initial_cash = float(payload.get("initial_cash", 20000))
+    monthly_contribution = float(payload.get("monthly_contribution", 1000))
+    return {
+        "end_date": end_date.isoformat(),
+        "stock_strategies": stock_strategies,
+        "option_data_lookup": serializable_lookup,
+        "option_variants": option_variants,
+        "dte_windows": [
+            {"min_dte": mn, "target_dte": tgt, "max_dte": mx}
+            for mn, tgt, mx in dte_windows
+        ],
+        "stock_inputs": {"initial_cash": initial_cash, "monthly_contribution": monthly_contribution},
+        "warnings": warnings,
+        "elapsed_ms": round((time.perf_counter() - packet_started) * 1000, 1),
+    }
+
+
+def _run_option_parameter_scan(payload: dict[str, object]) -> dict[str, object]:
+    """Job runner: run stock sim → option parameter scan with pre-fetched data."""
+    import json as _json
+
+    job_id = str(payload.get("_job_id", ""))
+    check = _strategy_lab_job_control_checker(job_id)
+
+    # ── Parse stock strategy config ──────────────────────────────────
+    lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+    targets = lab_config.portfolio_or_default()
+    if targets is not None and not isinstance(targets, list):
+        raise ValueError("targets 必须是数组")
+
+    start_date, end_date = parse_date_range(payload.get("start"), payload.get("end"))
+    buy_strategies = payload.get("buy_strategies") or list(STRATEGY_LABELS.keys())
+    sell_strategies = payload.get("sell_strategies") or payload.get("score_sell_strategies") or list(SELL_STRATEGY_LABELS.keys())
+
+    # ── Stage: running_stock ─────────────────────────────────────────
+    if check:
+        check()
+    _update_strategy_lab_job(job_id, stage="running_stock", progress=10, message="运行股票策略模拟…")
+    stock_result = run_longbridge_strategy_lab(
+        targets, lab_config.to_strategy_inputs(),
+        start_date=start_date, end_date=end_date,
+        buy_strategies=buy_strategies, sell_strategies=sell_strategies,
+    )
+
+    # ── Parse option parameters ──────────────────────────────────────
+    opt_wallet_raw = str(payload.get("option_wallet_pcts") or payload.get("option_allocations") or "10,15,20,25,30")
+    opt_trade_alloc_raw = str(payload.get("option_trade_allocations") or "20,30,40,50")
+    opt_moneyness_raw = str(payload.get("option_moneyness_values") or "otm_10")
+    opt_pt_raw = str(payload.get("option_profit_takes") or "100")
+    opt_pts_raw = str(payload.get("option_profit_take_sells") or "25,50,75,100")
+    opt_exit_raw = str(payload.get("option_exit_dtes") or "60")
+
+    def _parse_floats(raw: str) -> list[float]:
+        return [float(x.strip()) for x in raw.split(",") if x.strip()]
+
+    def _parse_ints(raw: str) -> list[int]:
+        return [int(x.strip()) for x in raw.split(",") if x.strip()]
+
+    wallet_pcts = _parse_floats(opt_wallet_raw)
+    trade_allocations = _parse_floats(opt_trade_alloc_raw)
+    dte_targets, dte_windows = _option_dte_targets_and_windows(payload, default_target=250)
+    moneyness_values = [x.strip() for x in opt_moneyness_raw.split(",") if x.strip()]
+    profit_takes = _parse_floats(opt_pt_raw)
+    profit_take_sells = _parse_floats(opt_pts_raw)
+    exit_dtes = _parse_ints(opt_exit_raw)
+
+    # ── Stage: fetching_options ──────────────────────────────────────
+    if check:
+        check()
+    _update_strategy_lab_job(job_id, stage="fetching_options", progress=20,
+                              message="批次抓取期权合约与历史数据…")
+
+    # Create provider
+    global config_manager
+    if config_manager is None:
+        config_manager = ConfigManager()
+    provider_config = config_manager.get_option_provider_config()
+    provider = create_option_provider(provider_config)
+
+    # Expand option variants
+    option_variants = expand_option_parameter_variants(
+        moneyness_values, dte_targets, wallet_pcts, trade_allocations,
+        profit_takes, profit_take_sells, exit_dtes, dte_windows=dte_windows,
+    )
+
+    # ── Stage: scanning_variants ─────────────────────────────────────
+    if check:
+        check()
+    _update_strategy_lab_job(job_id, stage="scanning_variants", progress=30,
+                              message=f"扫描 {len(option_variants)} 个期权参数组合…")
+
+    scan_result = scan_option_variants(
+        stock_result, option_variants, provider,
+        moneyness_values, dte_targets, end_date,
+        stock_inputs=lab_config.to_strategy_inputs(),
+    )
+
+    # ── Build result matrix for frontend ─────────────────────────────
+    matrix: list[dict[str, object]] = []
+    for res in scan_result.get("results", []):
+        variant = res.get("variant") or {}
+        agg = res.get("aggregate_metrics") or {}
+        per_strategy_returns = [
+            s.get("option_metrics", {}).get("return_pct", 0)
+            for s in (res.get("per_strategy") or [])
+        ]
+        matrix.append({
+            "variant_index": res.get("variant_index", 0),
+            "label": variant.get("label", ""),
+            "wallet_pct": variant.get("wallet_pct"),
+            "trade_allocation_pct": variant.get("trade_allocation_pct"),
+            "target_dte": variant.get("target_dte"),
+            "min_dte": variant.get("min_dte"),
+            "max_dte": variant.get("max_dte"),
+            "moneyness": variant.get("moneyness"),
+            "profit_take_pct": variant.get("profit_take_pct"),
+            "profit_take_sell_pct": variant.get("profit_take_sell_pct"),
+            "exit_dte": variant.get("exit_dte"),
+            "avg_return_pct": round(agg.get("avg_return_pct", 0), 2),
+            "max_return_pct": round(agg.get("max_return_pct", 0), 2),
+            "min_return_pct": round(agg.get("min_return_pct", 0), 2),
+            "combined_return_pct": round(agg.get("combined_return_pct", 0), 2),
+            "total_premium": round(agg.get("total_premium", 0), 2),
+            "total_value": round(agg.get("total_value", 0), 2),
+            "strategy_returns": [round(r, 2) for r in per_strategy_returns],
+        })
+
+    # Sort by combined return descending
+    matrix.sort(key=lambda r: float(r.get("combined_return_pct", 0)), reverse=True)
+
+    return {
+        "stock_result": {
+            "range": stock_result.get("range", {}),
+            "strategies": [
+                {"strategy_key": s.get("strategy_key", ""),
+                 "strategy_label": s.get("strategy_label", ""),
+                 "metrics": s.get("metrics", {})}
+                for s in stock_result.get("strategies", [])
+            ],
+        },
+        "option_scan": {
+            "variant_count": len(option_variants),
+            "moneyness_values": moneyness_values,
+            "dte_targets": dte_targets,
+            "dte_windows": [
+                {"min_dte": mn, "target_dte": tgt, "max_dte": mx}
+                for mn, tgt, mx in dte_windows
+            ],
+            "wallet_pcts": wallet_pcts,
+            "trade_allocations": trade_allocations,
+            "profit_takes": profit_takes,
+            "profit_take_sells": profit_take_sells,
+            "exit_dtes": exit_dtes,
+            "matrix": matrix,
+            "warnings": scan_result.get("warnings", []),
+        },
+    }
+
+
 def _prepare_strategy_robust_client_payload(payload: dict[str, object]) -> dict[str, object]:
     end_date = date.fromisoformat(payload.get("end")) if payload.get("end") else datetime.now().date()
     lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
@@ -8543,44 +9242,76 @@ def _prepare_strategy_robust_client_payload(payload: dict[str, object]) -> dict[
 
 
 def _prepare_strategy_parameter_lab_payload(payload: dict[str, object]) -> dict[str, object]:
+    packet_started = time.perf_counter()
     end_date = date.fromisoformat(payload.get("end")) if payload.get("end") else datetime.now().date()
     lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
     targets = lab_config.portfolio_or_default()
     if targets is not None and not isinstance(targets, list):
         raise ValueError("targets 必须是数组")
-    packet = prepare_robust_leaderboard_packet(
-        lab_config.to_strategy_inputs(),
-        end_date=end_date,
-        core_targets=targets,
-        portfolio_keys=payload.get("scorecard_portfolio_keys"),
-        scorecard_periods=payload.get("scorecard_periods"),
-        investment_universe=lab_config.investment_universe_or_default(),
-        buy_strategies=payload.get("buy_strategies"),
-        sell_strategies=payload.get("sell_strategies") or payload.get("score_sell_strategies"),
-        top_n=int(payload.get("top_n") or 1000000),
-        return_weight=lab_config.score_weights()[0],
-        drawdown_weight=lab_config.score_weights()[1],
-        core_dip_timing_filter=str(payload.get("core_dip_timing_filter") or "all"),
+    run_id = str(payload.get("run_id") or "").strip()
+    selected_buy_strategies = payload.get("buy_strategies")
+    selected_sell_strategies = payload.get("sell_strategies") or payload.get("score_sell_strategies")
+    requested_concurrency_raw = payload.get("parameter_lab_concurrency") or payload.get("robust_concurrency") or 1
+    _parameter_lab_log(
+        "packet_prepare_start",
+        run_id=run_id,
+        end=end_date.isoformat(),
+        buy_strategies=selected_buy_strategies,
+        sell_strategies=selected_sell_strategies,
+        scorecard_portfolio_keys=payload.get("scorecard_portfolio_keys"),
+        scorecard_period_count=len(payload.get("scorecard_periods") or []) if isinstance(payload.get("scorecard_periods"), list) else None,
+        requested_concurrency=requested_concurrency_raw,
     )
+    inputs = lab_config.to_strategy_inputs()
+    manifest = _build_parameter_lab_manifest(
+        inputs,
+        selected_buy_strategies,
+        selected_sell_strategies,
+        str(payload.get("core_dip_timing_filter") or "all"),
+    )
+    scorecard_portfolios = _resolve_scorecard_portfolios(
+        targets,
+        payload.get("scorecard_portfolio_keys"),
+        lab_config.investment_universe_or_default(),
+    )
+    resolved_periods = _resolve_scorecard_periods(end_date, payload.get("scorecard_periods"))
+    if not scorecard_portfolios or not resolved_periods:
+        raise ValueError("没有可用于参数实验室的题目。")
+    start_date = min(period["fetch_start"] for period in resolved_periods)
+    fetch_end_date = max(period["end"] for period in resolved_periods)
+    full_points_by_symbol, warnings = _fetch_scorecard_points(scorecard_portfolios, start_date, fetch_end_date)
+    tasks = _build_robust_tasks(scorecard_portfolios, resolved_periods, full_points_by_symbol)
+    if not tasks:
+        raise ValueError("没有可用于参数实验室的题目。")
+    candidate_count = int((manifest.get("candidate_counts") or {}).get("total", 0))
+    packet = {
+        "range": {"start": start_date.isoformat(), "end": fetch_end_date.isoformat()},
+        "inputs": _strategy_inputs_payload(inputs),
+        "method": {
+            "name": "client_strategy_parameter_lab_packet",
+            "ranking_formula": "return_90_drawdown_10",
+            "score_formula": "90% return + 10% drawdown",
+            "aggregate_formula": "average_topic_score",
+            "worker_chunking": "queued_candidate_batches",
+        },
+        "buy_strategies": list(selected_buy_strategies or STRATEGY_LABELS.keys()),
+        "sell_strategies": list(selected_sell_strategies or SELL_STRATEGY_LABELS.keys()),
+        "candidate_counts": dict(manifest.get("candidate_counts") or {"total": candidate_count}),
+        "simulation_counts": {"total": candidate_count * len(tasks)},
+        "tasks": tasks,
+        "warnings": warnings,
+    }
     try:
         concurrency = int(float(payload.get("parameter_lab_concurrency") or payload.get("robust_concurrency") or 1))
     except (TypeError, ValueError):
         concurrency = 1
     packet["parameter_lab_concurrency"] = max(1, min(12, concurrency))
-    packet["method"] = {
-        **dict(packet.get("method") or {}),
-        "name": "client_strategy_parameter_lab_packet",
-        "ranking_formula": "return_90_drawdown_10",
-        "score_formula": "90% return + 10% drawdown",
-        "aggregate_formula": "average_topic_score",
-        "worker_chunking": "strategy_combination_ranges",
-    }
-    packet["registry"] = strategy_registry_payload()
+    registry = strategy_registry_payload()
+    packet["registry"] = registry
     packet["cache_metadata"] = {
         "market_data": {
             "provider": "Longbridge",
             "cache_mode": "local-cache-or-fresh-fetch",
-            "fetched_at": datetime.now(timezone.utc).isoformat(),
             "range": packet.get("range", {}),
             "market_data_version": "longbridge:"
             + str((packet.get("range") or {}).get("start", ""))
@@ -8589,12 +9320,45 @@ def _prepare_strategy_parameter_lab_payload(payload: dict[str, object]) -> dict[
         },
         "simulation_results": {
             "cache_mode": "browser-session",
-            "algorithm_version": "parameter-lab-v1",
-            "strategy_definition_version": strategy_registry_payload()["version"],
+            "algorithm_version": "parameter-lab-v3",
+            "strategy_definition_version": registry["version"],
         },
     }
-    packet["payload_schema"] = "strategy_parameter_lab_packet_v1"
+    packet = _compact_parameter_lab_packet(packet, manifest)
+    if run_id:
+        packet["run_id"] = run_id
+    simulation_counts = packet.get("simulation_counts") if isinstance(packet.get("simulation_counts"), dict) else {}
+    candidate_counts = packet.get("candidate_counts") if isinstance(packet.get("candidate_counts"), dict) else {}
+    _parameter_lab_log(
+        "packet_prepare_done",
+        run_id=run_id,
+        elapsed_ms=round((time.perf_counter() - packet_started) * 1000, 3),
+        candidate_count=candidate_counts.get("total"),
+        task_count=len(packet.get("tasks") or []) if isinstance(packet.get("tasks"), list) else None,
+        price_row_count=packet.get("price_row_count"),
+        payload_schema=packet.get("payload_schema"),
+        market_data_hash=packet.get("market_data_hash"),
+        simulation_total=simulation_counts.get("total"),
+        concurrency=packet.get("parameter_lab_concurrency"),
+        buy_strategies=packet.get("buy_strategies"),
+        sell_strategies=packet.get("sell_strategies"),
+    )
     return packet
+
+
+def _parameter_lab_candidate_count(packet: dict[str, object]) -> int:
+    candidate_rows = packet.get("candidate_rows")
+    if isinstance(candidate_rows, list):
+        return len(candidate_rows)
+    candidate_counts = packet.get("candidate_counts")
+    if isinstance(candidate_counts, dict):
+        total = candidate_counts.get("total")
+        if total is not None:
+            try:
+                return int(total)
+            except (TypeError, ValueError):
+                return 0
+    return 0
 
 
 def _strategy_lab_job_control_checker(job_id: str) -> Callable[[], None] | None:
@@ -8873,16 +9637,148 @@ def api_strategy_lab_parameter_registry():
     return jsonify({"success": True, "registry": strategy_registry_payload()})
 
 
+@app.route('/api/strategy-lab/parameter-lab/estimate', methods=['POST'])
+def api_strategy_lab_parameter_lab_estimate():
+    payload = request.get_json(silent=True) or {}
+    started = time.perf_counter()
+    run_id = str(payload.get("run_id") or "").strip()
+    try:
+        estimate = _estimate_strategy_parameter_lab_payload(payload)
+        response = _json_response_with_optional_gzip({"success": True, "estimate": estimate, "run_id": run_id})
+        response.headers["X-Candidate-Count"] = str(estimate.get("candidate_count", 0))
+        response.headers["X-Task-Count"] = str(estimate.get("task_count", 0))
+        response.headers["X-Price-Row-Count"] = str(estimate.get("estimated_price_row_count", 0))
+        response.headers["X-Estimated-Simulations"] = str(estimate.get("estimated_simulations", 0))
+        response.headers["X-Estimated-Packet-Bytes"] = str(estimate.get("estimated_packet_bytes", 0))
+        _parameter_lab_log(
+            "estimate_request_done",
+            run_id=run_id,
+            elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+            candidate_count=estimate.get("candidate_count"),
+            task_count=estimate.get("task_count"),
+            estimated_simulations=estimate.get("estimated_simulations"),
+            estimated_price_row_count=estimate.get("estimated_price_row_count"),
+            estimated_packet_bytes=estimate.get("estimated_packet_bytes"),
+            payload_hash=response.headers.get("X-Payload-Hash"),
+            response_bytes=response.headers.get("Content-Length"),
+            response_uncompressed_bytes=response.headers.get("X-Uncompressed-Length"),
+            response_compressed_bytes=response.headers.get("X-Compressed-Length"),
+        )
+        return response
+    except ValueError as exc:
+        _parameter_lab_warn(
+            "estimate_request_value_error",
+            run_id=run_id,
+            elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+            message=str(exc),
+        )
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        _parameter_lab_error(
+            "estimate_request_error",
+            run_id=run_id,
+            elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+            message=str(exc),
+            stack=traceback.format_exc(),
+        )
+        return _json_error(f"预估参数实验室数据失败: {exc}", 500)
+
+
 @app.route('/api/strategy-lab/parameter-lab/packet', methods=['POST'])
 def api_strategy_lab_parameter_lab_packet():
     payload = request.get_json(silent=True) or {}
+    started = time.perf_counter()
+    run_id = str(payload.get("run_id") or "").strip()
+    _parameter_lab_log(
+        "packet_request_start",
+        run_id=run_id,
+        content_length=request.content_length,
+        remote_addr=request.headers.get("X-Forwarded-For", request.remote_addr),
+    )
     try:
         packet = _prepare_strategy_parameter_lab_payload(payload)
-        return jsonify({"success": True, "packet": packet})
+        response = _json_response_with_optional_gzip({"success": True, "packet": packet, "run_id": packet.get("run_id", run_id)})
+        response.headers["X-Candidate-Count"] = str(_parameter_lab_candidate_count(packet))
+        candidate_counts = packet.get("candidate_counts") if isinstance(packet.get("candidate_counts"), dict) else {}
+        response.headers["X-Buy-Variant-Count"] = str(candidate_counts.get("buy_variants", 0))
+        response.headers["X-Sell-Variant-Count"] = str(candidate_counts.get("sell_variants", 0))
+        response.headers["X-Task-Count"] = str(len(packet.get("tasks") or []) if isinstance(packet.get("tasks"), list) else 0)
+        response.headers["X-Price-Row-Count"] = str(packet.get("price_row_count") or 0)
+        simulation_counts = packet.get("simulation_counts") if isinstance(packet.get("simulation_counts"), dict) else {}
+        response.headers["X-Estimated-Simulations"] = str(simulation_counts.get("total", 0))
+        _parameter_lab_log(
+            "packet_request_done",
+            run_id=run_id,
+            elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+            candidate_count=_parameter_lab_candidate_count(packet),
+            buy_variant_count=candidate_counts.get("buy_variants"),
+            sell_variant_count=candidate_counts.get("sell_variants"),
+            task_count=len(packet.get("tasks") or []) if isinstance(packet.get("tasks"), list) else None,
+            price_row_count=packet.get("price_row_count"),
+            payload_schema=packet.get("payload_schema"),
+            market_data_hash=packet.get("market_data_hash"),
+            payload_hash=response.headers.get("X-Payload-Hash"),
+            concurrency=packet.get("parameter_lab_concurrency"),
+            buy_strategies=packet.get("buy_strategies"),
+            sell_strategies=packet.get("sell_strategies"),
+            response_encoding=response.headers.get("Content-Encoding", "identity"),
+            response_bytes=response.headers.get("Content-Length"),
+            response_uncompressed_bytes=response.headers.get("X-Uncompressed-Length"),
+            response_compressed_bytes=response.headers.get("X-Compressed-Length"),
+        )
+        return response
     except ValueError as exc:
+        _parameter_lab_warn(
+            "packet_request_value_error",
+            run_id=run_id,
+            elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+            message=str(exc),
+        )
         return _json_error(str(exc), 400)
     except Exception as exc:
+        _parameter_lab_error(
+            "packet_request_error",
+            run_id=run_id,
+            elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+            message=str(exc),
+            stack=traceback.format_exc(),
+        )
         return _json_error(f"准备参数实验室数据失败: {exc}", 500)
+
+
+@app.route('/api/strategy-lab/parameter-lab/option-packet', methods=['POST'])
+def api_strategy_lab_parameter_lab_option_packet():
+    """Prepare option-scan packet for client-side Web Worker replay."""
+    payload = request.get_json(silent=True) or {}
+    started = time.perf_counter()
+    _parameter_lab_log("option_packet_start",
+        buy_strategies=payload.get("buy_strategies"),
+        sell_strategies=payload.get("sell_strategies") or payload.get("score_sell_strategies"),
+        has_stock_strategies=bool(payload.get("stock_strategies")),
+    )
+    try:
+        packet = _prepare_option_parameter_lab_packet(payload)
+        option_variants = packet.get("option_variants")
+        variant_count = len(option_variants) if isinstance(option_variants, list) else 0
+        _parameter_lab_log("option_packet_done",
+            elapsed_ms=round((time.perf_counter() - started) * 1000, 1),
+            variant_count=variant_count,
+            strategy_count=len(packet.get("stock_strategies", [])),
+            warnings=len(packet.get("warnings", [])),
+        )
+        response = _json_response_with_optional_gzip({
+            "success": True,
+            "packet": packet,
+        })
+        response.headers["X-Option-Variant-Count"] = str(variant_count)
+        response.headers["X-Server-Elapsed-Ms"] = str(packet.get("elapsed_ms", 0))
+        return response
+    except ValueError as exc:
+        _parameter_lab_warn("option_packet_value_error", error=str(exc))
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        _parameter_lab_error("option_packet_error", error=str(exc))
+        return _json_error(f"准备期权扫描数据失败: {exc}", 500)
 
 
 @app.route('/api/strategy-lab/jobs/<job_id>', methods=['GET'])

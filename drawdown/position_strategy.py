@@ -122,6 +122,20 @@ ROBUST_CORE_DIP_TIMING_MAX_DELAY_DAYS = [1, 3, 5]
 ROBUST_CORE_DIP_TIMING_RISE_THRESHOLDS = [1.0, 1.5, 2.5]
 ROBUST_CORE_DIP_TIMING_NEAR_LOW_VALUES = [1.0, 2.0, 3.0]
 
+# Option parameter scan constants
+OPTION_PARAMETER_FIELDS = (
+    "wallet_pct", "trade_allocation_pct", "min_dte", "target_dte", "max_dte",
+    "moneyness", "profit_take_pct", "profit_take_sell_pct", "exit_dte",
+)
+
+ROBUST_OPTION_WALLET_PCTS = [10.0, 15.0, 20.0, 25.0, 30.0]
+ROBUST_OPTION_TRADE_ALLOCATIONS = [20.0, 30.0, 40.0, 50.0]
+ROBUST_OPTION_DTE_TARGETS = [250]
+ROBUST_OPTION_MONEYNESS = ["otm_10"]
+ROBUST_OPTION_PROFIT_TAKES = [100.0]
+ROBUST_OPTION_PROFIT_TAKE_SELLS = [50.0]
+ROBUST_OPTION_EXIT_DTES = [60]
+
 
 class StrategyLabComputationCancelled(RuntimeError):
     """Raised when a long-running Strategy Lab computation is cancelled."""

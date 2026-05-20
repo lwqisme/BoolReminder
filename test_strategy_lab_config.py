@@ -145,6 +145,17 @@ class StrategyLabConfigTest(unittest.TestCase):
                 strategy_lab_default_dict(),
             )
 
+    def test_legacy_option_allocation_default_maps_to_wallet_pct(self):
+        config = StrategyLabConfig.from_saved_defaults(
+            {
+                **strategy_lab_default_dict(),
+                "default_option_wallet_pct": "",
+                "default_option_allocation_pct": 35,
+            }
+        )
+
+        self.assertEqual(config.option_wallet_pct, 35.0)
+
 
 if __name__ == "__main__":
     unittest.main()

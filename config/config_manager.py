@@ -220,6 +220,14 @@ class ConfigManager:
             "api_key": polygon_config.get("api_key", "")
         }
 
+    def get_option_provider_config(self) -> dict:
+        """获取期权数据提供方配置"""
+        polygon_config = self.get("polygon", {})
+        return {
+            "provider": polygon_config.get("option_provider", "polygon"),
+            "polygon_api_key": polygon_config.get("api_key", ""),
+        }
+
     def get_email_config(self) -> Dict[str, Any]:
         """获取邮件配置"""
         email_config = self.get("email", {})

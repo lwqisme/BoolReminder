@@ -1,7 +1,15 @@
+import gzip
+import json
 import unittest
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
+from drawdown.generate_drawdown_report import CachedDailyCandle
+from drawdown.position_strategy import StrategyInputs, prepare_robust_leaderboard_packet
+from drawdown.strategy_parameter_registry import expand_strategy_candidate_payloads
 from web.app import (
+    PARAMETER_LAB_PAYLOAD_SCHEMA,
+    _estimate_strategy_parameter_lab_payload,
     _estimate_robust_server_simulations,
     _prepare_strategy_parameter_lab_payload,
     _prepare_strategy_robust_client_payload,
@@ -9,6 +17,28 @@ from web.app import (
     _run_strategy_score_payload,
     app,
 )
+
+
+def synthetic_candles(count: int = 260) -> list[CachedDailyCandle]:
+    start = datetime(2025, 1, 1)
+    return [
+        CachedDailyCandle(start + timedelta(days=index), 100 + (index % 17) - index * 0.03)
+        for index in range(count)
+    ]
+
+
+def synthetic_parameter_lab_task(symbol: str = "TSLA.US") -> dict[str, object]:
+    return {
+        "key": "synthetic__1y",
+        "portfolio_key": "synthetic",
+        "portfolio_label": f"全仓 {symbol}",
+        "period_key": "1y",
+        "period_label": "近 1 年",
+        "start": datetime(2025, 1, 1).date(),
+        "end": datetime(2025, 12, 31).date(),
+        "targets": [{"symbol": symbol, "weight": 100.0, "name": symbol, "max_drawdown_pct": None}],
+        "price_points": {symbol: [{"date": "2025-01-01", "close": 100.0}]},
+    }
 
 
 class StrategyLabScorePayloadTest(unittest.TestCase):
@@ -148,30 +178,163 @@ class StrategyLabScorePayloadTest(unittest.TestCase):
         self.assertEqual(packet, {"tasks": [], "robust_concurrency": 4})
         self.assertTrue(prepare.called)
 
-    def test_parameter_lab_packet_endpoint_returns_registry_and_cache_metadata(self):
-        with patch(
-            "web.app.prepare_robust_leaderboard_packet",
-            return_value={"tasks": [], "candidate_pool": [], "range": {"start": "2025-01-01", "end": "2026-01-01"}},
-        ) as prepare:
-            packet = _prepare_strategy_parameter_lab_payload({
-                "end": "2026-05-14",
-                "buy_strategies": ["salary_flow_dca"],
-                "sell_strategies": ["cost_deleverage"],
-                "parameter_lab_concurrency": 6,
-                "scorecard_portfolio_keys": ["tsla_100"],
-                "scorecard_periods": [{"key": "1y", "enabled": True}],
-                "targets": [{"symbol": "TSLA.US", "weight": 100}],
-            })
+    def test_parameter_lab_packet_endpoint_returns_v3_manifest_and_cache_metadata(self):
+        with patch("web.app._fetch_scorecard_points", return_value=({"TSLA.US": []}, [])):
+            with patch("web.app._build_robust_tasks", return_value=[synthetic_parameter_lab_task("TSLA.US")]):
+                packet = _prepare_strategy_parameter_lab_payload({
+                    "end": "2026-05-14",
+                    "buy_strategies": ["salary_flow_dca"],
+                    "sell_strategies": ["cost_deleverage"],
+                    "run_id": "plab-test-run",
+                    "parameter_lab_concurrency": 6,
+                    "scorecard_portfolio_keys": ["tsla_100"],
+                    "scorecard_periods": [{"key": "1y", "enabled": True}],
+                    "targets": [{"symbol": "TSLA.US", "weight": 100}],
+                })
 
         self.assertEqual(packet["parameter_lab_concurrency"], 6)
-        self.assertEqual(packet["payload_schema"], "strategy_parameter_lab_packet_v1")
+        self.assertEqual(packet["run_id"], "plab-test-run")
+        self.assertEqual(packet["payload_schema"], PARAMETER_LAB_PAYLOAD_SCHEMA)
         self.assertEqual(packet["method"]["name"], "client_strategy_parameter_lab_packet")
         self.assertEqual(packet["method"]["aggregate_formula"], "average_topic_score")
         self.assertIn("registry", packet)
         self.assertIn("cache_metadata", packet)
-        kwargs = prepare.call_args.kwargs
-        self.assertEqual(kwargs["buy_strategies"], ["salary_flow_dca"])
-        self.assertEqual(kwargs["sell_strategies"], ["cost_deleverage"])
+        self.assertIn("market_data", packet)
+        self.assertEqual(packet["candidate_schema"], ["candidate_id", "buy_variant_id", "sell_variant_id"])
+        self.assertIn("buy_variants", packet)
+        self.assertIn("sell_variants", packet)
+        self.assertIn("candidate_rows", packet)
+        self.assertNotIn("candidate_pool", packet)
+        self.assertNotIn("price_points", packet["tasks"][0])
+
+    def test_parameter_lab_packet_endpoint_gzips_large_packet_response(self):
+        large_warning = "x" * 2048
+        with patch("web.app._fetch_scorecard_points", return_value=({"TSLA.US": []}, [large_warning] * 8)):
+            with patch("web.app._build_robust_tasks", return_value=[synthetic_parameter_lab_task("TSLA.US")]):
+                with app.test_client() as client:
+                    response = client.post(
+                        "/api/strategy-lab/parameter-lab/packet",
+                        json={
+                            "end": "2026-05-14",
+                            "buy_strategies": ["salary_flow_dca"],
+                            "sell_strategies": ["cost_deleverage"],
+                            "run_id": "plab-gzip-test",
+                            "parameter_lab_concurrency": 6,
+                            "scorecard_portfolio_keys": ["tsla_100"],
+                            "scorecard_periods": [{"key": "1y", "enabled": True}],
+                            "targets": [{"symbol": "TSLA.US", "weight": 100}],
+                        },
+                        headers={"Accept-Encoding": "gzip"},
+                    )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers.get("Content-Encoding"), "gzip")
+        payload = json.loads(gzip.decompress(response.data).decode("utf-8"))
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["run_id"], "plab-gzip-test")
+        self.assertGreater(int(response.headers["X-Uncompressed-Length"]), len(response.data))
+        self.assertIn("X-Payload-Hash", response.headers)
+
+    def test_parameter_lab_estimate_uses_registry_candidate_expansion(self):
+        payload = {
+            "end": "2025-12-31",
+            "buy_strategies": ["salary_flow_dca"],
+            "sell_strategies": ["repair_step"],
+            "scorecard_portfolio_keys": ["tsm_100"],
+            "scorecard_periods": [{"key": "1y", "label": "一年", "start": "2025-01-01", "end": "2025-12-31"}],
+            "targets": [{"symbol": "TSM.US", "weight": 100}],
+        }
+
+        estimate = _estimate_strategy_parameter_lab_payload(payload)
+        expected_candidates = expand_strategy_candidate_payloads(
+            ["salary_flow_dca"],
+            ["repair_step"],
+            StrategyInputs(),
+        )
+
+        self.assertEqual(estimate["payload_schema"], PARAMETER_LAB_PAYLOAD_SCHEMA)
+        self.assertEqual(estimate["candidate_count"], len(expected_candidates))
+        self.assertEqual(estimate["task_count"], 1)
+        self.assertEqual(estimate["estimated_simulations"], len(expected_candidates))
+
+    def test_parameter_lab_packet_endpoint_is_deterministic_for_repeated_gzip_requests(self):
+        payload = {
+            "end": "2025-12-31",
+            "buy_strategies": ["salary_flow_dca"],
+            "sell_strategies": ["grid_rebound"],
+            "run_id": "plab-stable-size",
+            "parameter_lab_concurrency": 4,
+            "scorecard_portfolio_keys": ["tsm_100"],
+            "scorecard_periods": [{"key": "1y", "label": "一年", "start": "2025-01-01", "end": "2025-12-31"}],
+            "targets": [{"symbol": "TSM.US", "weight": 100}],
+        }
+
+        with patch("drawdown.position_strategy.build_longbridge_quote_context", return_value=object()):
+            with patch("drawdown.position_strategy.fetch_longbridge_daily_candles", return_value=synthetic_candles(365)):
+                with app.test_client() as client:
+                    first = client.post(
+                        "/api/strategy-lab/parameter-lab/packet",
+                        json=payload,
+                        headers={"Accept-Encoding": "gzip"},
+                    )
+                    second = client.post(
+                        "/api/strategy-lab/parameter-lab/packet",
+                        json=payload,
+                        headers={"Accept-Encoding": "gzip"},
+                    )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(first.headers.get("X-Payload-Hash"), second.headers.get("X-Payload-Hash"))
+        self.assertEqual(first.headers.get("X-Uncompressed-Length"), second.headers.get("X-Uncompressed-Length"))
+        self.assertEqual(first.headers.get("X-Candidate-Count"), second.headers.get("X-Candidate-Count"))
+        self.assertEqual(first.headers.get("X-Task-Count"), "1")
+        self.assertGreater(int(first.headers.get("X-Price-Row-Count", "0")), 0)
+        self.assertEqual(len(first.data), len(second.data))
+        self.assertLessEqual(
+            int(second.headers["X-Uncompressed-Length"]),
+            int(first.headers["X-Uncompressed-Length"]),
+        )
+        packet = json.loads(gzip.decompress(first.data).decode("utf-8"))["packet"]
+        self.assertEqual(packet["payload_schema"], PARAMETER_LAB_PAYLOAD_SCHEMA)
+        self.assertIn("market_data", packet)
+        self.assertGreater(packet["price_row_count"], 0)
+        self.assertNotIn("price_points", packet["tasks"][0])
+        self.assertIn("buy_variants", packet)
+        self.assertIn("sell_variants", packet)
+        self.assertIn("candidate_rows", packet)
+        self.assertNotIn("candidate_pool", packet)
+
+    def test_parameter_lab_v3_packet_is_substantially_smaller_than_v1_shape(self):
+        payload = {
+            "end": "2025-12-31",
+            "buy_strategies": ["salary_flow_dca"],
+            "sell_strategies": ["grid_rebound"],
+            "parameter_lab_concurrency": 4,
+            "scorecard_portfolio_keys": ["tsm_100"],
+            "scorecard_periods": [{"key": "1y", "label": "一年", "start": "2025-01-01", "end": "2025-12-31"}],
+            "targets": [{"symbol": "TSM.US", "weight": 100}],
+        }
+
+        with patch("drawdown.position_strategy.build_longbridge_quote_context", return_value=object()):
+            with patch("drawdown.position_strategy.fetch_longbridge_daily_candles", return_value=synthetic_candles(365)):
+                v1_packet = prepare_robust_leaderboard_packet(
+                    StrategyInputs(),
+                    end_date=datetime(2025, 12, 31).date(),
+                    portfolio_keys=["tsm_100"],
+                    scorecard_periods=payload["scorecard_periods"],
+                    buy_strategies=["salary_flow_dca"],
+                    sell_strategies=["grid_rebound"],
+                    top_n=1000000,
+                )
+                v3_packet = _prepare_strategy_parameter_lab_payload(payload)
+
+        v1_size = len(json.dumps(v1_packet, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+        v3_size = len(json.dumps(v3_packet, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+        self.assertEqual(v3_packet["payload_schema"], PARAMETER_LAB_PAYLOAD_SCHEMA)
+        self.assertNotIn("candidate_pool", v3_packet)
+        self.assertLess(v3_size, v1_size * 0.30)
 
 
 if __name__ == "__main__":

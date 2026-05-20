@@ -1,29 +1,95 @@
 let paused = false;
 let cancelled = false;
+let activeRunId = '';
+let workerState = null;
+
+function diagnosticLog(event, fields = {}) {
+  console.info('[parameter-lab-worker]', { event, ...fields });
+}
+
+function diagnosticError(event, fields = {}) {
+  console.error('[parameter-lab-worker]', { event, ...fields });
+}
 
 self.onmessage = (event) => {
   const message = event.data || {};
-  if (message.type === 'pause') paused = true;
-  if (message.type === 'resume') paused = false;
-  if (message.type === 'cancel') cancelled = true;
+  const messageRunId = message.run_id || (message.packet || {}).run_id || activeRunId || '';
+  if (message.type === 'pause') {
+    paused = true;
+    diagnosticLog('pause', { run_id: messageRunId, worker_index: Number(message.worker_index || 0) });
+  }
+  if (message.type === 'resume') {
+    paused = false;
+    diagnosticLog('resume', { run_id: messageRunId, worker_index: Number(message.worker_index || 0) });
+  }
+  if (message.type === 'cancel') {
+    cancelled = true;
+    diagnosticLog('cancel', { run_id: messageRunId, worker_index: Number(message.worker_index || 0) });
+  }
   if (message.type === 'start') {
-    run(message.packet || {}, Number(message.worker_index || 0))
+    paused = false;
+    cancelled = false;
+    const startRunId = messageRunId;
+    activeRunId = startRunId;
+    initRun(message.packet || {}, Number(message.worker_index || 0), startRunId, Number(message.total_simulations || 0))
       .catch((error) => {
-        if (error && error.message === '__cancelled__') {
-          postMessage({ type: 'cancelled', worker_index: Number(message.worker_index || 0) });
-        } else {
-          postMessage({ type: 'error', worker_index: Number(message.worker_index || 0), message: error.message || String(error) });
-        }
+        postRunError(error, startRunId, Number(message.worker_index || 0));
+      });
+  }
+  if (message.type === 'batch') {
+    const batchRunId = messageRunId;
+    processBatch(message, Number(message.worker_index || 0), batchRunId)
+      .catch((error) => {
+        postRunError(error, batchRunId, Number(message.worker_index || 0));
+      });
+  }
+  if (message.type === 'finish') {
+    const finishRunId = messageRunId;
+    finishRun(Number(message.worker_index || 0), finishRunId)
+      .catch((error) => {
+        postRunError(error, finishRunId, Number(message.worker_index || 0));
       });
   }
 };
 
+function postRunError(error, runId, workerIndex) {
+  if (error && error.message === '__cancelled__') {
+    postMessage({ type: 'cancelled', run_id: runId, worker_index: workerIndex });
+    return;
+  }
+  const context = error && error.__parameter_lab_context ? error.__parameter_lab_context : {};
+  postMessage({
+    type: 'error',
+    run_id: runId,
+    worker_index: workerIndex,
+    stage: context.stage || 'run_error',
+    candidate_index: context.candidate_index,
+    candidate_key: context.candidate_key,
+    task_index: context.task_index,
+    task_key: context.task_key,
+    batch_id: context.batch_id,
+    elapsed_ms: context.elapsed_ms,
+    completed_simulations: context.completed_simulations,
+    total_simulations: context.total_simulations,
+    message: error && error.message ? error.message : String(error),
+    stack: error && error.stack ? String(error.stack) : '',
+    context
+  });
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function gate(workerIndex) {
+async function gate(workerIndex, runId) {
   if (cancelled) throw new Error('__cancelled__');
   while (paused) {
-    postMessage({ type: 'progress', worker_index: workerIndex, stage: 'paused', paused: true, message: 'Parameter Lab worker paused.' });
+    postMessage({
+      type: 'progress',
+      run_id: runId,
+      worker_index: workerIndex,
+      stage: 'paused',
+      paused: true,
+      message: 'Parameter Lab worker paused.'
+    });
     await sleep(160);
     if (cancelled) throw new Error('__cancelled__');
   }
@@ -45,6 +111,39 @@ function clamp(value, lo, hi) {
 function avg(values) {
   return values.length ? values.reduce((a, b) => a + Number(b || 0), 0) / values.length : 0;
 }
+
+const BUY_PARAMETER_FIELDS = [
+  'step_pct',
+  'equal_slice_allocation_pct',
+  'core_dip_initial_core_pct',
+  'core_dip_weekly_core_pct',
+  'core_dip_cash_reserve_pct',
+  'core_dip_start_drawdown_pct',
+  'core_dip_full_drawdown_pct',
+  'core_dip_timing_enabled',
+  'core_dip_timing_max_delay_days',
+  'core_dip_timing_rise_threshold_pct',
+  'core_dip_timing_near_low_pct'
+];
+
+const SELL_PARAMETER_FIELDS = [
+  'sell_min_profit_pct',
+  'repair_sell_cooldown_days',
+  'repair_stage_sell_pct',
+  'grid_rebound_step_pct',
+  'grid_first_sell_pct',
+  'grid_second_sell_pct',
+  'grid_min_sell_amount',
+  'cost_first_profit_pct',
+  'cost_second_profit_pct',
+  'cost_third_profit_pct',
+  'cost_first_sell_pct',
+  'cost_second_sell_pct',
+  'cost_third_sell_pct',
+  'cost_deleverage_cooldown_days',
+  'cost_min_sell_amount',
+  'dca_rearm_drawdown_pct'
+];
 
 function priceUsd(symbol, price, inputs) {
   return String(symbol).endsWith('.HK') ? price * num(inputs.hkd_to_usd, 0.128) : price;
@@ -104,6 +203,249 @@ function weeklyDcaDays(points) {
     }
   }
   return result;
+}
+
+function rebuildPricePoints(dates, closes, start, end) {
+  const rows = [];
+  const startKey = String(start || '');
+  const endKey = String(end || '');
+  for (let index = 0; index < dates.length; index += 1) {
+    const day = String(dates[index] || '');
+    if (!day) continue;
+    if (startKey && day < startKey) continue;
+    if (endKey && day > endKey) continue;
+    const close = num(closes[index]);
+    if (close <= 0) continue;
+    rows.push({ date: day, close });
+  }
+  let rollingPeak = -Infinity;
+  for (let index = 0; index < rows.length; index += 1) {
+    const point = rows[index];
+    rollingPeak = Math.max(rollingPeak, point.close);
+    let windowPeak = -Infinity;
+    const windowStart = Math.max(0, index - 119);
+    for (let windowIndex = windowStart; windowIndex <= index; windowIndex += 1) {
+      windowPeak = Math.max(windowPeak, rows[windowIndex].close);
+    }
+    point.rolling_peak = rollingPeak;
+    point.drawdown_ath = rollingPeak > 0 ? point.close / rollingPeak - 1 : 0;
+    point.rolling_120_peak = windowPeak;
+    point.drawdown_120 = windowPeak > 0 ? point.close / windowPeak - 1 : 0;
+  }
+  return rows;
+}
+
+function inflateTask(task, marketData) {
+  if (task.price_points && typeof task.price_points === 'object') return task;
+  const symbols = marketData && marketData.symbols ? marketData.symbols : {};
+  const taskSymbols = Array.isArray(task.symbols) && task.symbols.length
+    ? task.symbols
+    : (task.targets || []).map((target) => target.symbol).filter(Boolean);
+  const pricePoints = {};
+  for (const symbol of taskSymbols) {
+    const series = symbols[symbol] || {};
+    const dates = Array.isArray(series.dates) ? series.dates : [];
+    const closes = Array.isArray(series.closes) ? series.closes : [];
+    pricePoints[symbol] = rebuildPricePoints(dates, closes, task.start, task.end);
+  }
+  return { ...task, price_points: pricePoints };
+}
+
+function buildTaskContext(task) {
+  const pointByDay = {};
+  const allDaySet = new Set();
+  const dcaDays = {};
+  const tradingIndex = {};
+  for (const [symbol, points] of Object.entries(task.price_points || {})) {
+    pointByDay[symbol] = {};
+    tradingIndex[symbol] = {};
+    points.forEach((point, index) => {
+      pointByDay[symbol][point.date] = point;
+      tradingIndex[symbol][point.date] = index;
+      allDaySet.add(point.date);
+    });
+    dcaDays[symbol] = weeklyDcaDays(points);
+  }
+  const allDays = [...allDaySet].sort();
+  return {
+    ...task,
+    allDays,
+    contribDays: monthlyContributionDays(allDays),
+    pointByDay,
+    dcaDays,
+    tradingIndex
+  };
+}
+
+function buildTaskContexts(packet) {
+  const marketData = packet.market_data || {};
+  return (packet.tasks || [])
+    .map((task) => inflateTask(task, marketData))
+    .map((task) => buildTaskContext(task));
+}
+
+function schemaIndexMap(schema) {
+  const map = {};
+  (Array.isArray(schema) ? schema : []).forEach((field, index) => {
+    map[String(field)] = index;
+  });
+  return map;
+}
+
+function inflateVariant(row, schema, fields) {
+  const indexMap = schemaIndexMap(schema);
+  const variant = {};
+  fields.forEach((field) => {
+    const index = indexMap[field];
+    if (index === undefined) return;
+    variant[field] = row[index];
+  });
+  return variant;
+}
+
+function formatCompact(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return '0';
+  return Number.isInteger(n) ? String(n) : String(Number(n.toPrecision(6))).replace(/\.0+$/, '');
+}
+
+function buildCandidateKey(buyStrategy, sellStrategy, buyParams, sellParams) {
+  const parts = [buyStrategy];
+  if (buyParams.step_pct !== null && buyParams.step_pct !== undefined) parts.push(`step${formatCompact(buyParams.step_pct)}`);
+  if (buyParams.equal_slice_allocation_pct !== null && buyParams.equal_slice_allocation_pct !== undefined) parts.push(`alloc${formatCompact(buyParams.equal_slice_allocation_pct)}`);
+  if (buyParams.core_dip_initial_core_pct !== null && buyParams.core_dip_initial_core_pct !== undefined) {
+    parts.push(`ci${formatCompact(buyParams.core_dip_initial_core_pct)}`);
+    parts.push(`cw${formatCompact(buyParams.core_dip_weekly_core_pct)}`);
+    parts.push(`cr${formatCompact(buyParams.core_dip_cash_reserve_pct)}`);
+    parts.push(`csd${formatCompact(buyParams.core_dip_start_drawdown_pct)}`);
+    parts.push(`cfd${formatCompact(buyParams.core_dip_full_drawdown_pct)}`);
+    if (buyParams.core_dip_timing_enabled) {
+      parts.push(`ctd${formatCompact(Math.trunc(num(buyParams.core_dip_timing_max_delay_days)))}`);
+      parts.push(`ctr${formatCompact(buyParams.core_dip_timing_rise_threshold_pct)}`);
+      parts.push(`ctl${formatCompact(buyParams.core_dip_timing_near_low_pct)}`);
+    }
+  }
+  parts.push(sellStrategy);
+  if (sellStrategy === 'repair_step') {
+    parts.push(`p${formatCompact(sellParams.sell_min_profit_pct)}`);
+    parts.push(`c${formatCompact(Math.trunc(num(sellParams.repair_sell_cooldown_days)))}`);
+    parts.push(`s${formatCompact(sellParams.repair_stage_sell_pct)}`);
+  }
+  if (sellStrategy === 'grid_rebound') {
+    parts.push(`g${formatCompact(sellParams.grid_rebound_step_pct)}`);
+    parts.push(`g1${formatCompact(sellParams.grid_first_sell_pct)}`);
+    parts.push(`g2${formatCompact(sellParams.grid_second_sell_pct)}`);
+    parts.push(`gmin${formatCompact(sellParams.grid_min_sell_amount)}`);
+  }
+  if (sellStrategy === 'cost_deleverage') {
+    const profits = [
+      sellParams.cost_first_profit_pct,
+      sellParams.cost_second_profit_pct,
+      sellParams.cost_third_profit_pct
+    ];
+    const sells = [
+      sellParams.cost_first_sell_pct,
+      sellParams.cost_second_sell_pct,
+      sellParams.cost_third_sell_pct
+    ];
+    parts.push(`cp${profits.map(formatCompact).join('-')}`);
+    parts.push(`cs${sells.map(formatCompact).join('-')}`);
+    parts.push(`cc${formatCompact(Math.trunc(num(sellParams.cost_deleverage_cooldown_days)))}`);
+    parts.push(`cmin${formatCompact(sellParams.cost_min_sell_amount)}`);
+  }
+  if (sellParams.dca_rearm_drawdown_pct !== null && sellParams.dca_rearm_drawdown_pct !== undefined) {
+    parts.push(`rearm${formatCompact(sellParams.dca_rearm_drawdown_pct)}`);
+  }
+  return parts.join('__');
+}
+
+function buildBuyLabel(strategyKey, params, labels = {}) {
+  const label = labels[strategyKey] || strategyKey;
+  const bits = [];
+  if (params.step_pct !== null && params.step_pct !== undefined) bits.push(`步长 ${formatCompact(params.step_pct)}%`);
+  if (params.equal_slice_allocation_pct !== null && params.equal_slice_allocation_pct !== undefined) bits.push(`每步 ${formatCompact(params.equal_slice_allocation_pct)}%`);
+  if (params.core_dip_initial_core_pct !== null && params.core_dip_initial_core_pct !== undefined) {
+    bits.push(`初始 ${formatCompact(params.core_dip_initial_core_pct)}%`);
+    bits.push(`周投 ${formatCompact(params.core_dip_weekly_core_pct)}%`);
+    bits.push(`现金垫 ${formatCompact(params.core_dip_cash_reserve_pct)}%`);
+    bits.push(`加仓 ${formatCompact(params.core_dip_start_drawdown_pct)}-${formatCompact(params.core_dip_full_drawdown_pct)}%`);
+    if (params.core_dip_timing_enabled) {
+      bits.push(`买点优化 延迟${formatCompact(Math.trunc(num(params.core_dip_timing_max_delay_days)))}日 大涨${formatCompact(params.core_dip_timing_rise_threshold_pct)}% 近低${formatCompact(params.core_dip_timing_near_low_pct)}%`);
+    } else {
+      bits.push('买点优化 关闭');
+    }
+  }
+  return bits.length ? `${label} (${bits.join(' / ')})` : label;
+}
+
+function buildSellLabel(strategyKey, params, labels = {}) {
+  let label;
+  if (strategyKey === 'repair_step') {
+    label = `阶梯修复 ${formatCompact(params.sell_min_profit_pct)}%盈利 ${formatCompact(Math.trunc(num(params.repair_sell_cooldown_days)))}日冷却 ${formatCompact(params.repair_stage_sell_pct)}%单档`;
+  } else if (strategyKey === 'grid_rebound') {
+    label = `网格回弹 ${formatCompact(params.grid_rebound_step_pct)}%步长 ${formatCompact(params.grid_first_sell_pct)}%+${formatCompact(params.grid_second_sell_pct)}%卖出`;
+  } else if (strategyKey === 'cost_deleverage') {
+    const profits = [
+      params.cost_first_profit_pct,
+      params.cost_second_profit_pct,
+      params.cost_third_profit_pct
+    ];
+    const sells = [
+      params.cost_first_sell_pct,
+      params.cost_second_sell_pct,
+      params.cost_third_sell_pct
+    ];
+    label = `成本去杠杆 ${profits.map((value) => `${formatCompact(value)}%`).join('/')} 盈利 ${sells.map((value) => `${formatCompact(value)}%`).join('+')} 卖出 ${formatCompact(Math.trunc(num(params.cost_deleverage_cooldown_days)))}日冷却`;
+  } else {
+    label = labels[strategyKey] || strategyKey;
+  }
+  if (params.dca_rearm_drawdown_pct !== null && params.dca_rearm_drawdown_pct !== undefined) {
+    label = `${label} / 卖后重启 ${formatCompact(params.dca_rearm_drawdown_pct)}%回撤`;
+  }
+  return label;
+}
+
+function inflateCandidate(packet, candidateRow) {
+  const candidateSchema = schemaIndexMap(packet.candidate_schema || []);
+  const buyVariants = Array.isArray(packet.buy_variants) ? packet.buy_variants : [];
+  const sellVariants = Array.isArray(packet.sell_variants) ? packet.sell_variants : [];
+  const buySchema = packet.buy_variant_schema || [];
+  const sellSchema = packet.sell_variant_schema || [];
+  const buyVariantIndex = candidateRow[candidateSchema.buy_variant_id];
+  const sellVariantIndex = candidateRow[candidateSchema.sell_variant_id];
+  const buyRow = buyVariants[buyVariantIndex] || [];
+  const sellRow = sellVariants[sellVariantIndex] || [];
+  const buyVariant = inflateVariant(buyRow, buySchema, BUY_PARAMETER_FIELDS);
+  const sellVariant = inflateVariant(sellRow, sellSchema, SELL_PARAMETER_FIELDS);
+  const candidateId = candidateRow[candidateSchema.candidate_id];
+  const buyVariantKey = buyRow[1] || `buy:${buyVariantIndex}`;
+  const sellVariantKey = sellRow[1] || `sell:${sellVariantIndex}`;
+  const buyStrategy = buyRow[2] || '';
+  const sellStrategy = sellRow[2] || '';
+  const registry = packet.registry || {};
+  const labels = registry.labels || {};
+  const buyLabels = labels.buy || registry.buy_strategy_labels || {};
+  const sellLabels = labels.sell || registry.sell_strategy_labels || {};
+  const buyLabel = buildBuyLabel(buyStrategy, buyVariant, buyLabels);
+  const sellLabel = buildSellLabel(sellStrategy, sellVariant, sellLabels);
+  const candidate = {
+    key: buildCandidateKey(buyStrategy, sellStrategy, buyVariant, sellVariant),
+    candidate_id: candidateId,
+    combination_key: `${buyVariantKey}__${sellVariantKey}`,
+    label: `${buyLabel} / ${sellLabel}`,
+    buy_strategy: buyStrategy,
+    sell_strategy: sellStrategy,
+    buy_variant_key: buyVariantKey,
+    sell_variant_key: sellVariantKey,
+    strategy_definition_version: packet.registry?.version || '',
+    ...buyVariant,
+    ...sellVariant
+  };
+  return candidate;
+}
+
+function inflateCandidateBatch(packet, rows) {
+  return (Array.isArray(rows) ? rows : []).map((row) => inflateCandidate(packet, row));
 }
 
 function maxDrawdown(values) {
@@ -172,6 +514,7 @@ function recordBuy(state, point, inputs, tradeLog, buyStrategy, sellStrategy, gr
     action: 'buy',
     date: point.date,
     symbol: state.symbol,
+    price: point.close,
     buy_strategy: buyStrategy,
     sell_strategy: sellStrategy,
     drawdown_pct: drawdown,
@@ -497,22 +840,11 @@ function simulate(task, baseInputs, candidate) {
   const inputs = candidateInputs(baseInputs, candidate);
   const strategy = candidate.buy_strategy;
   const sellStrategy = candidate.sell_strategy;
-  const pointByDay = {};
-  const allDaySet = new Set();
-  const dcaDays = {};
-  const tradingIndex = {};
-  for (const [symbol, points] of Object.entries(task.price_points)) {
-    pointByDay[symbol] = {};
-    tradingIndex[symbol] = {};
-    points.forEach((point, index) => {
-      pointByDay[symbol][point.date] = point;
-      tradingIndex[symbol][point.date] = index;
-      allDaySet.add(point.date);
-    });
-    if (['salary_flow_dca', 'core_dip_dca'].includes(strategy)) dcaDays[symbol] = weeklyDcaDays(points);
-  }
-  const allDays = [...allDaySet].sort();
-  const contribDays = monthlyContributionDays(allDays);
+  const pointByDay = task.pointByDay || {};
+  const allDays = task.allDays || [];
+  const contribDays = task.contribDays || new Set();
+  const dcaDays = task.dcaDays || {};
+  const tradingIndex = task.tradingIndex || {};
   const states = {};
   for (const target of task.targets) {
     const budget = num(inputs.initial_cash) * num(target.weight) / 100;
@@ -596,57 +928,224 @@ function simulate(task, baseInputs, candidate) {
     max_drawdown_pct: maxDrawdown(portfolioValues),
     trade_count: Object.values(states).reduce((sum, state) => sum + state.trades, 0),
     contribution_count: contributionCount,
+    trade_log: tradeLog,
     ...metrics
   };
 }
 
-async function run(packet, workerIndex) {
-  const candidates = packet.candidate_pool || [];
-  const tasks = packet.tasks || [];
-  const inputs = packet.inputs || {};
+async function initRun(packet, workerIndex, runId, declaredTotal) {
+  runId = runId || packet.run_id || '';
+  const started = performance.now();
+  const taskContexts = buildTaskContexts(packet);
+  const diagnostics = packet.diagnostics || {};
+  workerState = {
+    runId,
+    workerIndex,
+    inputs: packet.inputs || {},
+    packet,
+    taskContexts,
+    diagnostics,
+    include_trades: Boolean(packet.include_trades),
+    started,
+    completed_simulations: 0,
+    total_simulations: Math.max(1, Number(declaredTotal || 0)),
+    last_progress_at: 0
+  };
+  diagnosticLog('start', {
+    run_id: runId,
+    worker_index: workerIndex,
+    task_count: taskContexts.length,
+    total_simulations: workerState.total_simulations,
+    payload_schema: packet.payload_schema || ''
+  });
+  postMessage({
+    type: 'start',
+    run_id: runId,
+    worker_index: workerIndex,
+    task_count: taskContexts.length,
+    total_simulations: workerState.total_simulations
+  });
+  postMessage({
+    type: 'ready',
+    run_id: runId,
+    worker_index: workerIndex,
+    task_count: taskContexts.length,
+    completed_simulations: 0,
+    elapsed_ms: performance.now() - started
+  });
+}
+
+async function processBatch(message, workerIndex, runId) {
+  if (!workerState || workerState.runId !== runId) {
+    throw new Error('Worker 尚未初始化。');
+  }
+  if (workerState.busy) {
+    throw new Error('Worker 正在处理上一批候选。');
+  }
+  workerState.busy = true;
+  const candidateRows = Array.isArray(message.candidate_rows) ? message.candidate_rows : [];
+  const candidates = inflateCandidateBatch(workerState.packet || {}, candidateRows);
+  const batchId = message.batch_id || '';
+  const taskContexts = workerState.taskContexts || [];
+  const diagnostics = workerState.diagnostics || {};
+  const verboseSimulationLogs = Boolean(diagnostics.verbose_simulation_logs);
+  const progressEvery = Math.max(1, Number(diagnostics.progress_every || 50));
+  const progressMinMs = Math.max(0, Number(diagnostics.progress_min_ms || 500));
   const started = performance.now();
   const rows = [];
-  const total = Math.max(1, candidates.length * tasks.length);
-  let completed = 0;
-  for (const candidate of candidates) {
-    await gate(workerIndex);
-    const observations = [];
-    for (const task of tasks) {
-      await gate(workerIndex);
-      const metrics = simulate(task, inputs, candidate);
-      observations.push({
-        candidate_key: candidate.key,
-        combination_key: candidate.combination_key || candidate.key,
-        topic_key: task.key,
-        task_key: task.key,
-        portfolio_key: task.portfolio_key,
-        portfolio_label: task.portfolio_label,
-        period_key: task.period_key,
-        period_label: task.period_label,
-        start: task.start,
-        end: task.end,
-        ...metrics
-      });
-      completed += 1;
-      if (completed % 10 === 0 || completed === total) {
-        postMessage({
-          type: 'progress',
-          worker_index: workerIndex,
-          stage: 'simulate',
-          completed_simulations: completed,
-          total_simulations: total,
-          message: `${completed} / ${total}`
-        });
+  const batchTotal = Math.max(1, candidates.length * taskContexts.length);
+  let batchCompleted = 0;
+  postMessage({
+    type: 'batch_start',
+    run_id: runId,
+    worker_index: workerIndex,
+    batch_id: batchId,
+    candidate_count: candidates.length,
+    task_count: taskContexts.length,
+    batch_total_simulations: batchTotal,
+    completed_simulations: workerState.completed_simulations,
+    total_simulations: workerState.total_simulations
+  });
+  try {
+    for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex += 1) {
+      const candidate = candidates[candidateIndex];
+      await gate(workerIndex, runId);
+      const observations = [];
+      for (let taskIndex = 0; taskIndex < taskContexts.length; taskIndex += 1) {
+        const task = taskContexts[taskIndex];
+        await gate(workerIndex, runId);
+        const simulateStarted = performance.now();
+        if (verboseSimulationLogs) {
+          diagnosticLog('simulate_start', {
+            run_id: runId,
+            worker_index: workerIndex,
+            batch_id: batchId,
+            candidate_index: candidateIndex,
+            candidate_key: candidate.key,
+            task_index: taskIndex,
+            task_key: task.key
+          });
+        }
+        let metrics;
+        try {
+          metrics = simulate(task, workerState.inputs, candidate);
+        } catch (error) {
+          const context = {
+            stage: 'simulate_error',
+            run_id: runId,
+            worker_index: workerIndex,
+            batch_id: batchId,
+            candidate_index: candidateIndex,
+            candidate_key: candidate.key,
+            task_index: taskIndex,
+            task_key: task.key,
+            elapsed_ms: performance.now() - simulateStarted,
+            completed_simulations: workerState.completed_simulations,
+            total_simulations: workerState.total_simulations,
+            message: error && error.message ? error.message : String(error),
+            stack: error && error.stack ? String(error.stack) : ''
+          };
+          diagnosticError('simulate_error', context);
+          if (error && typeof error === 'object') error.__parameter_lab_context = context;
+          throw error;
+        }
+        const obs = {
+          candidate_id: candidate.candidate_id,
+          candidate_key: candidate.key,
+          combination_key: candidate.combination_key || candidate.key,
+          topic_key: task.key,
+          task_key: task.key,
+          portfolio_key: task.portfolio_key,
+          portfolio_label: task.portfolio_label,
+          period_key: task.period_key,
+          period_label: task.period_label,
+          start: task.start,
+          end: task.end,
+          ...metrics
+        };
+        if (workerState.include_trades && metrics.trade_log) {
+          obs.trade_log = metrics.trade_log;
+        }
+        observations.push(obs);
+        batchCompleted += 1;
+        workerState.completed_simulations += 1;
+        const simulateElapsed = performance.now() - simulateStarted;
+        if (verboseSimulationLogs) {
+          diagnosticLog('simulate_done', {
+            run_id: runId,
+            worker_index: workerIndex,
+            batch_id: batchId,
+            candidate_index: candidateIndex,
+            candidate_key: candidate.key,
+            task_index: taskIndex,
+            task_key: task.key,
+            elapsed_ms: simulateElapsed,
+            completed_simulations: workerState.completed_simulations,
+            total_simulations: workerState.total_simulations
+          });
+        } else if (simulateElapsed >= Number(diagnostics.slow_simulation_ms || 3000)) {
+          diagnosticLog('simulate_slow', {
+            run_id: runId,
+            worker_index: workerIndex,
+            batch_id: batchId,
+            candidate_index: candidateIndex,
+            candidate_key: candidate.key,
+            task_index: taskIndex,
+            task_key: task.key,
+            elapsed_ms: simulateElapsed,
+            completed_simulations: workerState.completed_simulations,
+            total_simulations: workerState.total_simulations
+          });
+        }
+        const now = performance.now();
+        if (
+          batchCompleted === batchTotal
+          || (workerState.completed_simulations % progressEvery === 0 && now - workerState.last_progress_at >= progressMinMs)
+        ) {
+          workerState.last_progress_at = now;
+          postMessage({
+            type: 'progress',
+            run_id: runId,
+            worker_index: workerIndex,
+            batch_id: batchId,
+            stage: 'simulate',
+            completed_simulations: workerState.completed_simulations,
+            batch_completed_simulations: batchCompleted,
+            batch_total_simulations: batchTotal,
+            total_simulations: workerState.total_simulations,
+            message: `${batchCompleted} / ${batchTotal}`
+          });
+        }
       }
+      rows.push({ candidate_id: candidate.candidate_id, candidate_key: candidate.key, observations });
     }
-    rows.push({ candidate, observations });
+    workerState.busy = false;
+    postMessage({
+      type: 'batch_done',
+      run_id: runId,
+      worker_index: workerIndex,
+      batch_id: batchId,
+      rows,
+      completed_simulations: workerState.completed_simulations,
+      batch_completed_simulations: batchCompleted,
+      batch_total_simulations: batchTotal,
+      chunk_size: candidates.length,
+      elapsed_ms: performance.now() - started
+    });
+  } catch (error) {
+    workerState.busy = false;
+    throw error;
   }
+}
+
+async function finishRun(workerIndex, runId) {
+  if (!workerState || workerState.runId !== runId) return;
+  await gate(workerIndex, runId);
   postMessage({
     type: 'done',
+    run_id: runId,
     worker_index: workerIndex,
-    rows,
-    completed_simulations: completed,
-    chunk_size: candidates.length,
-    elapsed_ms: performance.now() - started
+    completed_simulations: workerState.completed_simulations,
+    elapsed_ms: performance.now() - workerState.started
   });
 }

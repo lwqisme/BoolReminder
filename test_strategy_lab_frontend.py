@@ -1,10 +1,32 @@
 import re
 import unittest
 
-from web.app import app
+from web.app import app, _option_dte_targets_and_windows
 
 
 class StrategyLabFrontendTest(unittest.TestCase):
+    def test_option_dte_parser_keeps_legacy_option_dtes_as_target_windows(self):
+        targets, windows = _option_dte_targets_and_windows({"option_dtes": "365,500"})
+
+        self.assertEqual(targets, [365, 500])
+        self.assertEqual(windows, [(305, 365, 425), (440, 500, 560)])
+
+    def test_option_dte_parser_accepts_explicit_human_window(self):
+        targets, windows = _option_dte_targets_and_windows({
+            "option_dte_min": 200,
+            "option_dte_target": 250,
+            "option_dte_max": 300,
+        })
+
+        self.assertEqual(targets, [250])
+        self.assertEqual(windows, [(200, 250, 300)])
+
+    def test_option_dte_parser_defaults_to_human_window(self):
+        targets, windows = _option_dte_targets_and_windows({})
+
+        self.assertEqual(targets, [250])
+        self.assertEqual(windows, [(200, 250, 300)])
+
     def test_scorecard_detail_button_opens_visible_results_detail(self):
         with app.test_client() as client:
             html = client.get("/strategy-lab").get_data(as_text=True)
@@ -246,7 +268,7 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("/api/strategy-lab/parameter-lab/packet", html)
         self.assertIn("new Worker('/static/strategy_parameter_lab_worker.js')", html)
         self.assertIn("function runWorkerPool(packet, startedAt)", html)
-        self.assertIn("function scoreParameterResults(packet, partialRows, workerStats, wallMs)", html)
+        self.assertIn("function scoreParameterResults(packet, partialRows, workerStats, wallMs, candidateIndex = null)", html)
         self.assertIn("chunks_completed_per_worker", html)
         self.assertIn("cpu_work_estimate_ms", html)
         self.assertIn('id="matrixHead"', html)
@@ -266,7 +288,8 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("卖后重启", html)
         self.assertIn("topic_rank", html)
         self.assertIn("topic_score", html)
-        self.assertIn("parameter_snapshot", html)
+        self.assertIn("candidateDetailPayload", html)
+        self.assertIn("/api/strategy-lab/parameter-lab/estimate", html)
         self.assertIn("strategyLabPendingParameterCandidate", html)
         self.assertIn("应用到主实验室", html)
 

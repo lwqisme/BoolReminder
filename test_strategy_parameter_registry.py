@@ -5,6 +5,7 @@ from drawdown.strategy_parameter_registry import (
     STRATEGY_DEFINITION_VERSION,
     expand_buy_parameter_variants,
     expand_strategy_candidate_payloads,
+    strategy_parameter_lab_manifest_payload,
     strategy_registry_payload,
 )
 
@@ -90,6 +91,24 @@ class StrategyParameterRegistryTest(unittest.TestCase):
         self.assertEqual(core_space["core_dip_timing_max_delay_days"], [1, 3, 5])
         self.assertEqual(core_space["core_dip_timing_rise_threshold_pct"], [1.0, 1.5, 2.5])
         self.assertEqual(core_space["core_dip_timing_near_low_pct"], [1.0, 2.0, 3.0])
+
+    def test_manifest_candidate_rows_match_full_candidate_expansion(self):
+        manifest = strategy_parameter_lab_manifest_payload(
+            ["salary_flow_dca", "equal_slice"],
+            ["grid_rebound"],
+            StrategyInputs(),
+        )
+        candidates = expand_strategy_candidate_payloads(
+            ["salary_flow_dca", "equal_slice"],
+            ["grid_rebound"],
+            StrategyInputs(),
+        )
+
+        self.assertEqual(manifest["candidate_schema"], ["candidate_id", "buy_variant_id", "sell_variant_id"])
+        self.assertEqual(len(manifest["candidate_rows"]), len(candidates))
+        self.assertLess(len(manifest["buy_variants"]), len(candidates))
+        self.assertLess(len(manifest["sell_variants"]), len(candidates))
+        self.assertIn("candidate_manifest_hash", manifest)
 
 
 if __name__ == "__main__":

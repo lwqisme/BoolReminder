@@ -75,15 +75,16 @@ DEFAULT_STRATEGY_LAB_DEFAULTS: dict[str, object] = {
     "default_scan_repair_cooldown_values": "0,15,30,45,60",
     "default_scan_repair_stage_sell_values": "8,12,16,20,25",
     "default_option_enabled": False,
-    "default_option_allocation_pct": 20,
-    "default_option_target_dte": 365,
-    "default_option_min_dte": 300,
-    "default_option_max_dte": 450,
-    "default_option_moneyness": "atm",
+    "default_option_wallet_pct": 20,
+    "default_option_target_dte": 250,
+    "default_option_min_dte": 200,
+    "default_option_max_dte": 300,
+    "default_option_moneyness": "otm_10",
     "default_option_profit_take_pct": 100,
     "default_option_profit_take_sell_pct": 50,
-    "default_option_exit_dte": 120,
+    "default_option_exit_dte": 60,
     "default_option_trade_fee": 0.35,
+    "default_option_trade_allocation_pct": 30,
     "default_option_max_trades_per_strategy": 20,
     "default_portfolio": [],
     "default_investment_universe": [],
@@ -157,14 +158,15 @@ class StrategyLabConfig:
     scan_repair_cooldown_values: str = "0,15,30,45,60"
     scan_repair_stage_sell_values: str = "8,12,16,20,25"
     option_enabled: bool = False
-    option_allocation_pct: float = 20.0
-    option_target_dte: int = 365
-    option_min_dte: int = 300
-    option_max_dte: int = 450
-    option_moneyness: str = "atm"
+    option_wallet_pct: float = 20.0
+    option_trade_allocation_pct: float = 30.0
+    option_target_dte: int = 250
+    option_min_dte: int = 200
+    option_max_dte: int = 300
+    option_moneyness: str = "otm_10"
     option_profit_take_pct: float = 100.0
     option_profit_take_sell_pct: float = 50.0
-    option_exit_dte: int = 120
+    option_exit_dte: int = 60
     option_trade_fee: float = 0.35
     option_max_trades_per_strategy: int = 20
     portfolio: list[dict[str, object]] = field(default_factory=list)
@@ -221,7 +223,11 @@ class StrategyLabConfig:
             scan_repair_cooldown_values=_read_text(raw, "default_scan_repair_cooldown_values"),
             scan_repair_stage_sell_values=_read_text(raw, "default_scan_repair_stage_sell_values"),
             option_enabled=_read_bool(raw, "default_option_enabled"),
-            option_allocation_pct=_read_float(raw, "default_option_allocation_pct"),
+            option_wallet_pct=_read_float(
+                raw,
+                "default_option_wallet_pct",
+                _read_float(raw, "default_option_allocation_pct", float(_default("default_option_wallet_pct"))),
+            ),
             option_target_dte=_read_int(raw, "default_option_target_dte"),
             option_min_dte=_read_int(raw, "default_option_min_dte"),
             option_max_dte=_read_int(raw, "default_option_max_dte"),
@@ -230,6 +236,7 @@ class StrategyLabConfig:
             option_profit_take_sell_pct=_read_float(raw, "default_option_profit_take_sell_pct"),
             option_exit_dte=_read_int(raw, "default_option_exit_dte"),
             option_trade_fee=_read_float(raw, "default_option_trade_fee"),
+            option_trade_allocation_pct=_read_float(raw, "default_option_trade_allocation_pct"),
             option_max_trades_per_strategy=_read_int(raw, "default_option_max_trades_per_strategy"),
             portfolio=_read_portfolio(raw.get("default_portfolio")),
             investment_universe=_read_investment_universe(raw.get("default_investment_universe")),
@@ -427,7 +434,11 @@ class StrategyLabConfig:
             scan_repair_cooldown_values=base_config.scan_repair_cooldown_values,
             scan_repair_stage_sell_values=base_config.scan_repair_stage_sell_values,
             option_enabled=_read_bool(option_payload, "enabled", base_config.option_enabled),
-            option_allocation_pct=_read_float(option_payload, "allocation_pct", base_config.option_allocation_pct),
+            option_wallet_pct=_read_float(
+                option_payload,
+                "wallet_pct",
+                _read_float(option_payload, "allocation_pct", base_config.option_wallet_pct),
+            ),
             option_target_dte=_read_int(option_payload, "target_dte", base_config.option_target_dte),
             option_min_dte=_read_int(option_payload, "min_dte", base_config.option_min_dte),
             option_max_dte=_read_int(option_payload, "max_dte", base_config.option_max_dte),
@@ -440,6 +451,11 @@ class StrategyLabConfig:
             ),
             option_exit_dte=_read_int(option_payload, "exit_dte", base_config.option_exit_dte),
             option_trade_fee=_read_float(option_payload, "trade_fee", base_config.option_trade_fee),
+            option_trade_allocation_pct=_read_float(
+                option_payload,
+                "trade_allocation_pct",
+                base_config.option_trade_allocation_pct,
+            ),
             option_max_trades_per_strategy=_read_int(
                 option_payload,
                 "max_trades_per_strategy",
@@ -556,7 +572,8 @@ class StrategyLabConfig:
     def option_settings(self) -> OptionOverlaySettings:
         return OptionOverlaySettings(
             enabled=self.option_enabled,
-            allocation_pct=self.option_allocation_pct,
+            wallet_pct=self.option_wallet_pct,
+            trade_allocation_pct=self.option_trade_allocation_pct,
             target_dte=self.option_target_dte,
             min_dte=self.option_min_dte,
             max_dte=self.option_max_dte,
@@ -635,7 +652,7 @@ class StrategyLabConfig:
             "default_scan_repair_cooldown_values": self.scan_repair_cooldown_values,
             "default_scan_repair_stage_sell_values": self.scan_repair_stage_sell_values,
             "default_option_enabled": self.option_enabled,
-            "default_option_allocation_pct": self.option_allocation_pct,
+            "default_option_wallet_pct": self.option_wallet_pct,
             "default_option_target_dte": self.option_target_dte,
             "default_option_min_dte": self.option_min_dte,
             "default_option_max_dte": self.option_max_dte,
@@ -644,6 +661,7 @@ class StrategyLabConfig:
             "default_option_profit_take_sell_pct": self.option_profit_take_sell_pct,
             "default_option_exit_dte": self.option_exit_dte,
             "default_option_trade_fee": self.option_trade_fee,
+            "default_option_trade_allocation_pct": self.option_trade_allocation_pct,
             "default_option_max_trades_per_strategy": self.option_max_trades_per_strategy,
             "default_portfolio": [dict(item) for item in self.portfolio],
             "default_investment_universe": [dict(item) for item in self.investment_universe],

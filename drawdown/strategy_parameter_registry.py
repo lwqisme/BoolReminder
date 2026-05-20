@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 from dataclasses import dataclass
 from typing import Iterable, Mapping
 
 from drawdown.position_strategy import (
     LOT_SELL_BUY_STRATEGIES,
+    OPTION_PARAMETER_FIELDS,
     POSITION_SELL_REARM_STRATEGIES,
     REARM_BUY_STRATEGIES,
     ROBUST_BUY_STEP_VALUES,
@@ -24,6 +26,13 @@ from drawdown.position_strategy import (
     ROBUST_GRID_FIRST_SELLS,
     ROBUST_GRID_REBOUND_STEPS,
     ROBUST_GRID_SECOND_SELLS,
+    ROBUST_OPTION_WALLET_PCTS,
+    ROBUST_OPTION_TRADE_ALLOCATIONS,
+    ROBUST_OPTION_DTE_TARGETS,
+    ROBUST_OPTION_MONEYNESS,
+    ROBUST_OPTION_PROFIT_TAKES,
+    ROBUST_OPTION_PROFIT_TAKE_SELLS,
+    ROBUST_OPTION_EXIT_DTES,
     ROBUST_REPAIR_COOLDOWNS,
     ROBUST_REPAIR_SELL_MIN_PROFITS,
     ROBUST_REPAIR_STAGE_SELLS,
@@ -67,6 +76,10 @@ SELL_PARAMETER_FIELDS = (
     "cost_min_sell_amount",
     "dca_rearm_drawdown_pct",
 )
+
+PARAMETER_LAB_BUY_VARIANT_SCHEMA = ("variant_id", "variant_key", "strategy_key", *BUY_PARAMETER_FIELDS)
+PARAMETER_LAB_SELL_VARIANT_SCHEMA = ("variant_id", "variant_key", "strategy_key", *SELL_PARAMETER_FIELDS)
+PARAMETER_LAB_CANDIDATE_SCHEMA = ("candidate_id", "buy_variant_id", "sell_variant_id")
 
 
 @dataclass(frozen=True)
@@ -267,6 +280,83 @@ def expand_strategy_candidate_payloads(
             core_dip_timing_filter=core_dip_timing_filter,
         )
     ]
+
+
+def strategy_parameter_lab_manifest_payload(
+    buy_strategies: Iterable[str] | None,
+    sell_strategies: Iterable[str] | None,
+    inputs: StrategyInputs | None = None,
+    *,
+    core_dip_timing_filter: str = "all",
+) -> dict[str, object]:
+    inputs = inputs or StrategyInputs()
+    combinations = expand_strategy_combinations(
+        buy_strategies,
+        sell_strategies,
+        inputs,
+        core_dip_timing_filter=core_dip_timing_filter,
+    )
+    buy_variants: list[list[object]] = []
+    sell_variants: list[list[object]] = []
+    buy_variant_ids: dict[str, int] = {}
+    sell_variant_ids: dict[str, int] = {}
+    candidate_rows: list[list[int]] = []
+    for candidate_id, combination in enumerate(combinations):
+        buy_variant = combination.buy_variant
+        sell_variant = combination.sell_variant
+        buy_variant_id = buy_variant_ids.get(buy_variant.variant_key)
+        if buy_variant_id is None:
+            buy_variant_id = len(buy_variants)
+            buy_variant_ids[buy_variant.variant_key] = buy_variant_id
+            buy_variants.append(_parameter_lab_buy_variant_row(buy_variant_id, buy_variant))
+        sell_variant_id = sell_variant_ids.get(sell_variant.variant_key)
+        if sell_variant_id is None:
+            sell_variant_id = len(sell_variants)
+            sell_variant_ids[sell_variant.variant_key] = sell_variant_id
+            sell_variants.append(_parameter_lab_sell_variant_row(sell_variant_id, sell_variant))
+        candidate_rows.append([candidate_id, buy_variant_id, sell_variant_id])
+    manifest = {
+        "buy_variant_schema": list(PARAMETER_LAB_BUY_VARIANT_SCHEMA),
+        "sell_variant_schema": list(PARAMETER_LAB_SELL_VARIANT_SCHEMA),
+        "candidate_schema": list(PARAMETER_LAB_CANDIDATE_SCHEMA),
+        "buy_variants": buy_variants,
+        "sell_variants": sell_variants,
+        "candidate_rows": candidate_rows,
+    }
+    manifest["candidate_manifest_hash"] = _parameter_lab_manifest_hash(manifest)
+    manifest["candidate_counts"] = {
+        "total": len(candidate_rows),
+        "buy_variants": len(buy_variants),
+        "sell_variants": len(sell_variants),
+    }
+    return manifest
+
+
+def _parameter_lab_buy_variant_row(variant_id: int, variant: ParameterVariant) -> list[object]:
+    row: list[object] = [variant_id, variant.variant_key, variant.strategy_key]
+    row.extend(variant.parameters.get(field) for field in BUY_PARAMETER_FIELDS)
+    return row
+
+
+def _parameter_lab_sell_variant_row(variant_id: int, variant: ParameterVariant) -> list[object]:
+    row: list[object] = [variant_id, variant.variant_key, variant.strategy_key]
+    row.extend(variant.parameters.get(field) for field in SELL_PARAMETER_FIELDS)
+    return row
+
+
+def _parameter_lab_manifest_hash(manifest: Mapping[str, object]) -> str:
+    digest_payload = {
+        "strategy_definition_version": STRATEGY_DEFINITION_VERSION,
+        "buy_variant_schema": list(manifest.get("buy_variant_schema") or []),
+        "sell_variant_schema": list(manifest.get("sell_variant_schema") or []),
+        "candidate_schema": list(manifest.get("candidate_schema") or []),
+        "buy_variants": manifest.get("buy_variants") or [],
+        "sell_variants": manifest.get("sell_variants") or [],
+        "candidate_rows": manifest.get("candidate_rows") or [],
+    }
+    return hashlib.sha256(
+        json.dumps(digest_payload, ensure_ascii=True, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).hexdigest()
 
 
 def apply_candidate_to_inputs(inputs: StrategyInputs, candidate: Mapping[str, object]) -> StrategyInputs:
@@ -733,3 +823,74 @@ def _validate_keys(raw: Iterable[str], labels: Mapping[str, str], item_label: st
     if not selected:
         raise ValueError(f"至少需要选择一个{item_label}。")
     return selected
+
+
+# ── option parameter scan ───────────────────────────────────────────────
+
+
+def expand_option_parameter_variants(
+    moneyness_values: list[str] | None = None,
+    dte_targets: list[int] | None = None,
+    wallet_pcts: list[float] | None = None,
+    trade_allocations: list[float] | None = None,
+    profit_takes: list[float] | None = None,
+    profit_take_sells: list[float] | None = None,
+    exit_dtes: list[int] | None = None,
+    dte_windows: list[tuple[int, int, int]] | None = None,
+) -> list[dict[str, object]]:
+    """Return Cartesian product of all option parameter values (wallet model)."""
+    moneyness_values = moneyness_values or list(ROBUST_OPTION_MONEYNESS)
+    dte_targets = dte_targets or list(ROBUST_OPTION_DTE_TARGETS)
+    if dte_windows is None:
+        dte_windows = [
+            (200, 250, 300) if dte == 250 else (max(1, dte - 60), dte, dte + 60)
+            for dte in dte_targets
+        ]
+    wallet_pcts = wallet_pcts or list(ROBUST_OPTION_WALLET_PCTS)
+    trade_allocations = trade_allocations or list(ROBUST_OPTION_TRADE_ALLOCATIONS)
+    profit_takes = profit_takes or list(ROBUST_OPTION_PROFIT_TAKES)
+    profit_take_sells = profit_take_sells or list(ROBUST_OPTION_PROFIT_TAKE_SELLS)
+    exit_dtes = exit_dtes or list(ROBUST_OPTION_EXIT_DTES)
+
+    variants: list[dict[str, object]] = []
+    for idx, (wp, ta, dte_window, mn, pt, pts, exit_dte) in enumerate(
+        itertools.product(wallet_pcts, trade_allocations, dte_windows,
+                          moneyness_values, profit_takes, profit_take_sells, exit_dtes)
+    ):
+        min_dte, dte, max_dte = dte_window
+        variants.append({
+            "variant_index": idx,
+            "wallet_pct": wp,
+            "trade_allocation_pct": ta,
+            "min_dte": min_dte,
+            "target_dte": dte,
+            "max_dte": max_dte,
+            "moneyness": mn,
+            "profit_take_pct": pt,
+            "profit_take_sell_pct": pts,
+            "exit_dte": exit_dte,
+            "label": f"W{wp}%/T{ta}%/{min_dte}-{dte}-{max_dte}d/{mn}/TP{pt}%/Sell{pts}%/Exit{exit_dte}d",
+        })
+    return variants
+
+
+def option_parameter_lab_manifest(
+    moneyness_values: list[str] | None = None,
+    dte_targets: list[int] | None = None,
+    wallet_pcts: list[float] | None = None,
+    trade_allocations: list[float] | None = None,
+    profit_takes: list[float] | None = None,
+    profit_take_sells: list[float] | None = None,
+    exit_dtes: list[int] | None = None,
+    dte_windows: list[tuple[int, int, int]] | None = None,
+) -> dict[str, object]:
+    """Return option parameter lab manifest for candidate count estimation."""
+    variants = expand_option_parameter_variants(
+        moneyness_values, dte_targets, wallet_pcts, trade_allocations,
+        profit_takes, profit_take_sells, exit_dtes, dte_windows=dte_windows,
+    )
+    return {
+        "option_variant_count": len(variants),
+        "option_variant_schema": list(OPTION_PARAMETER_FIELDS),
+        "option_variants": variants,
+    }

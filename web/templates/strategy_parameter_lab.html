@@ -217,6 +217,25 @@
         }
         .stat span { display: block; color: var(--muted); font-size: 12px; font-weight: 800; }
         .stat strong { display: block; margin-top: 4px; font-size: 22px; font-family: var(--mono); }
+        .estimate-strip {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            padding: 10px 12px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.92);
+            color: var(--muted);
+        }
+        .estimate-strip strong { color: var(--ink); }
+        .estimate-strip button { min-height: 30px; padding: 5px 8px; }
+        .estimate-strip.warn {
+            border-color: rgba(183, 121, 31, 0.44);
+            background: #fff9ed;
+            color: #7a4b13;
+        }
         .toolbar {
             display: flex;
             flex-wrap: wrap;
@@ -374,9 +393,9 @@
                     </div>
                     <label style="margin-top:10px;">核心买点优化
                         <select id="coreDipTimingFilter">
-                            <option value="all">全部</option>
-                            <option value="disabled">关闭</option>
+                            <option value="disabled" selected>关闭</option>
                             <option value="enabled">开启</option>
+                            <option value="all">全部</option>
                         </select>
                     </label>
                 </div>
@@ -439,6 +458,55 @@
                     </div>
                 </div>
             </div>
+
+            <div class="panel">
+                <div class="panel-head"><h2>期权参数扫描</h2></div>
+                <div class="panel-body">
+                    <label style="margin-bottom:8px;">
+                        <input id="optionScanEnabled" type="checkbox" onchange="toggleOptionScanPanel()">
+                        启用期权叠加扫描 (LEAPS Call)
+                    </label>
+                    <div id="optionScanPanel" style="display:none;">
+                        <div class="field-grid three">
+                            <label>钱包比例 %
+                                <input id="optWalletPct" value="10,20,30" placeholder="逗号分隔">
+                            </label>
+                            <label>每笔投入 %
+                                <input id="optTradeAllocation" value="20,30,40,50" placeholder="逗号分隔">
+                            </label>
+                            <label>最小DTE
+                                <input id="optDteMin" value="200" placeholder="200">
+                            </label>
+                            <label>目标DTE
+                                <input id="optDteTarget" value="250" placeholder="250">
+                            </label>
+                            <label>最大DTE
+                                <input id="optDteMax" value="300" placeholder="300">
+                            </label>
+                            <label>行权价规则
+                                <input id="optMoneyness" value="otm_10" placeholder="逗号分隔">
+                            </label>
+                            <label>止盈阈值 %
+                                <input id="optProfitTake" value="100" placeholder="逗号分隔">
+                            </label>
+                            <label>止盈卖出 %
+                                <input id="optProfitTakeSell" value="50" placeholder="逗号分隔">
+                            </label>
+                            <label>退出DTE
+                                <input id="optExitDte" value="60" placeholder="逗号分隔">
+                            </label>
+                        </div>
+                        <div class="estimate-strip" style="margin-top:10px;">
+                            <strong>期权候选</strong>
+                            <span id="optCandidateCount">--</span>
+                        </div>
+                        <button class="primary" type="button" onclick="runOptionParameterScan()"
+                                style="margin-top:10px; width:100%;">
+                            扫描期权参数
+                        </button>
+                    </div>
+                </div>
+            </div>
         </aside>
 
         <main class="main">
@@ -476,12 +544,24 @@
                 <div class="stat"><span>墙钟</span><strong id="statWall">--</strong></div>
             </div>
 
+            <div class="estimate-strip" id="estimateStrip">
+                <strong>预估</strong>
+                <span id="estimateText">尚未估算。</span>
+                <button type="button" onclick="estimateParameterLabFromButton()">预估</button>
+            </div>
+
             <div class="toolbar">
                 <div class="left">
                     <strong id="resultTitle">尚未运行</strong>
                     <span id="resultMeta" style="color:var(--muted);"></span>
                 </div>
                 <div class="right">
+                    <label>排名
+                        <select id="rankMethod" onchange="renderParameterMatrix()">
+                            <option value="normalized" selected>题内归一化</option>
+                            <option value="raw">原始加权分</option>
+                        </select>
+                    </label>
                     <label>显示
                         <select id="rowLimit" onchange="renderParameterMatrix()">
                             <option value="100">Top 100</option>
@@ -499,6 +579,45 @@
                     <tbody id="matrixBody"><tr><td>尚未运行。</td></tr></tbody>
                 </table>
             </div>
+
+            <div id="optionResultSection" style="display:none; margin-top: 20px;">
+                <div class="panel">
+                    <div class="panel-head">
+                        <h2>期权参数对比</h2>
+                        <span id="optionResultMeta"></span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="toolbar">
+                            <div class="left">
+                                <strong id="optionResultTitle">尚未运行</strong>
+                                <span id="optionResultWarnings" style="color:var(--amber);font-size:12px;"></span>
+                            </div>
+                            <div class="right">
+                                <label>排名
+                                    <select id="optionRankMethod" onchange="renderOptionMatrix()">
+                                        <option value="combined_return" selected>组合收益率</option>
+                                        <option value="avg_return">平均收益率</option>
+                                        <option value="max_return">最高收益率</option>
+                                    </select>
+                                </label>
+                                <label>显示
+                                    <select id="optionRowLimit" onchange="renderOptionMatrix()">
+                                        <option value="20" selected>Top 20</option>
+                                        <option value="50">Top 50</option>
+                                        <option value="all">全部</option>
+                                    </select>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="matrix-wrap" style="max-height: calc(100vh - 500px);">
+                            <table>
+                                <thead id="optionMatrixHead"><tr><th>期权参数组合</th></tr></thead>
+                                <tbody id="optionMatrixBody"><tr><td>尚未扫描。</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -509,6 +628,19 @@
         </div>
         <div class="panel-body">
             <div id="detailMetrics" class="stat-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));"></div>
+
+            <!-- Cell 级期权扫描 -->
+            <div id="optionScanSection" style="display:none;">
+                <h2 style="font-size:14px;">期权扫描</h2>
+                <span id="optionScanStatus"></span>
+                <table id="optionMiniTable" class="mini-table" style="display:none;">
+                    <thead><tr>
+                        <th>参数组合</th><th>期权收益%</th><th>组合收益%</th><th>vs纯股票</th>
+                    </tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
             <h2 style="font-size:14px;">参数快照</h2>
             <pre id="detailJson"></pre>
             <h2 style="font-size:14px;">题目结果</h2>
@@ -521,6 +653,7 @@
         </div>
     </div>
 
+    <script src="/static/vendor/plotly-2.35.2.min.js"></script>
     <script>
         const buyStrategyLabels = {{ buy_strategy_labels|tojson }};
         const sellStrategyLabels = {{ sell_strategy_labels|tojson }};
@@ -529,6 +662,41 @@
         const strategyRegistry = {{ strategy_registry|tojson }};
         let currentRun = null;
         let lastParameterResult = null;
+        let lastParameterEstimate = null;
+        let lastParameterPacket = null;
+        let workerCountTouched = false;
+        const PARAMETER_LAB_LARGE_RUN_GUARDRAIL = 50000;
+        const parameterFields = [
+            'step_pct',
+            'equal_slice_allocation_pct',
+            'core_dip_initial_core_pct',
+            'core_dip_weekly_core_pct',
+            'core_dip_cash_reserve_pct',
+            'core_dip_start_drawdown_pct',
+            'core_dip_full_drawdown_pct',
+            'core_dip_timing_enabled',
+            'core_dip_timing_max_delay_days',
+            'core_dip_timing_rise_threshold_pct',
+            'core_dip_timing_near_low_pct',
+            'sell_min_profit_pct',
+            'repair_sell_cooldown_days',
+            'repair_stage_sell_pct',
+            'grid_rebound_step_pct',
+            'grid_first_sell_pct',
+            'grid_second_sell_pct',
+            'grid_min_sell_amount',
+            'cost_first_profit_pct',
+            'cost_second_profit_pct',
+            'cost_third_profit_pct',
+            'cost_first_sell_pct',
+            'cost_second_sell_pct',
+            'cost_third_sell_pct',
+            'cost_deleverage_cooldown_days',
+            'cost_min_sell_amount',
+            'dca_rearm_drawdown_pct'
+        ];
+        const buyParameterFields = parameterFields.slice(0, 11);
+        const sellParameterFields = parameterFields.slice(11);
 
         function escapeHtml(value) {
             return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -537,6 +705,53 @@
             const n = Number(value);
             if (!Number.isFinite(n)) return '--';
             return n.toLocaleString(undefined, { maximumFractionDigits: digits });
+        }
+        function createParameterLabRunId() {
+            if (window.crypto && typeof window.crypto.randomUUID === 'function') return `plab-${window.crypto.randomUUID()}`;
+            return `plab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        }
+        function parameterLabVerboseDiagnostics() {
+            const params = new URLSearchParams(window.location.search);
+            if (params.get('plab_debug') === 'verbose') return true;
+            try {
+                return window.localStorage && window.localStorage.getItem('parameterLabVerboseDiagnostics') === '1';
+            } catch (_error) {
+                return false;
+            }
+        }
+        function parameterLabLog(event, fields = {}) {
+            console.info('[parameter-lab]', { event, ...fields });
+        }
+        function parameterLabWarn(event, fields = {}) {
+            console.warn('[parameter-lab]', { event, ...fields });
+        }
+        function parameterLabError(event, fields = {}) {
+            console.error('[parameter-lab]', { event, ...fields });
+        }
+        function summarizeWorkerMessage(message) {
+            return {
+                type: message.type,
+                run_id: message.run_id,
+                worker_index: message.worker_index,
+                stage: message.stage,
+                batch_id: message.batch_id,
+                completed_simulations: message.completed_simulations,
+                total_simulations: message.total_simulations,
+                batch_completed_simulations: message.batch_completed_simulations,
+                batch_total_simulations: message.batch_total_simulations,
+                candidate_index: message.candidate_index,
+                candidate_key: message.candidate_key,
+                task_index: message.task_index,
+                task_key: message.task_key,
+                rows_count: Array.isArray(message.rows) ? message.rows.length : undefined,
+                message: message.message
+            };
+        }
+        function round(value, digits = 2) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return 0;
+            const factor = Math.pow(10, digits);
+            return Math.round(n * factor) / factor;
         }
         function pct(value) {
             const n = Number(value);
@@ -763,24 +978,313 @@
             `).join('');
         }
 
+        function formatBytes(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n) || n <= 0) return '--';
+            if (n < 1024) return `${number(n, 0)} B`;
+            if (n < 1024 * 1024) return `${number(n / 1024, 1)} KB`;
+            return `${number(n / 1024 / 1024, 1)} MB`;
+        }
+        function setEstimateText(estimate) {
+            const strip = document.getElementById('estimateStrip');
+            if (!estimate) {
+                strip.classList.remove('warn');
+                document.getElementById('estimateText').textContent = '尚未估算。';
+                return;
+            }
+            const simulations = Number(estimate.estimated_simulations || 0);
+            strip.classList.toggle('warn', Boolean(estimate.requires_confirmation));
+            document.getElementById('estimateText').textContent = [
+                `${number(estimate.candidate_count, 0)} 候选`,
+                `${number(estimate.task_count, 0)} 题目`,
+                `${number(simulations, 0)} 次演算`,
+                `${number(estimate.estimated_price_row_count, 0)} 行价格`,
+                `约 ${formatBytes(estimate.estimated_packet_bytes)}`
+            ].join(' / ');
+            document.getElementById('statCandidates').textContent = number(estimate.candidate_count, 0);
+            document.getElementById('statTopics').textContent = number(estimate.task_count, 0);
+            document.getElementById('statSimulations').textContent = number(simulations, 0);
+        }
+        async function estimateParameterLab(existingPayload = null, runId = '') {
+            refreshUniverseTopics();
+            const payload = existingPayload || parameterLabPayload();
+            if (runId) payload.run_id = runId;
+            setStatus('Estimating', '正在预估候选规模。', 2);
+            const started = performance.now();
+            const response = await fetch('/api/strategy-lab/parameter-lab/estimate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.message || '预估失败');
+            lastParameterEstimate = result.estimate || null;
+            parameterLabLog('estimate_done', {
+                run_id: runId,
+                elapsed_ms: performance.now() - started,
+                estimate: lastParameterEstimate,
+                payload_hash: response.headers.get('x-payload-hash')
+            });
+            setEstimateText(lastParameterEstimate);
+            setStatus('Ready', '预估完成，可以运行。', 4);
+            return lastParameterEstimate;
+        }
+        async function estimateParameterLabFromButton() {
+            try {
+                await estimateParameterLab();
+            } catch (error) {
+                parameterLabError('estimate_error', {
+                    message: error.message || String(error),
+                    stack: error && error.stack ? String(error.stack) : ''
+                });
+                setStatus('Error', error.message || String(error), 100);
+            }
+        }
+        function applyLargeRunWorkerGuard(estimate) {
+            const recommended = Number(estimate && estimate.recommended_worker_count);
+            if (!Number.isFinite(recommended) || recommended <= 0) return;
+            const input = document.getElementById('workerCount');
+            const current = Number(input.value || 1);
+            if (!workerCountTouched && current > recommended) input.value = String(recommended);
+        }
+        function confirmLargeRunIfNeeded(estimate) {
+            if (!estimate || !estimate.requires_confirmation) return true;
+            applyLargeRunWorkerGuard(estimate);
+            const guardrail = Number(estimate.large_run_guardrail || PARAMETER_LAB_LARGE_RUN_GUARDRAIL);
+            return window.confirm(
+                `本次预估需要 ${number(estimate.estimated_simulations, 0)} 次演算，超过默认保护线 ${number(guardrail, 0)}。继续运行会占用较多 CPU。`
+            );
+        }
+        function progressEveryFor(totalSimulations) {
+            const total = Number(totalSimulations || 0);
+            if (total >= 200000) return 1000;
+            if (total >= 50000) return 500;
+            if (total >= 10000) return 200;
+            if (total >= 1000) return 50;
+            return 10;
+        }
+        function candidateBatchSizeFor(totalCandidates, taskCount) {
+            const tasks = Math.max(1, Number(taskCount || 1));
+            const targetSimulations = tasks >= 8 ? 120 : 240;
+            const bySimulation = Math.max(1, Math.floor(targetSimulations / tasks));
+            return Math.max(1, Math.min(64, bySimulation, Math.max(1, Number(totalCandidates || 1))));
+        }
+        function schemaIndexMap(schema) {
+            const map = {};
+            (Array.isArray(schema) ? schema : []).forEach((field, index) => { map[String(field)] = index; });
+            return map;
+        }
+        function inflateVariant(row, schema, fields) {
+            const indexMap = schemaIndexMap(schema);
+            const variant = {};
+            fields.forEach((field) => {
+                const index = indexMap[field];
+                if (index !== undefined) variant[field] = row[index];
+            });
+            return variant;
+        }
+        function formatCompact(value) {
+            const n = Number(value || 0);
+            if (!Number.isFinite(n)) return '0';
+            return Number.isInteger(n) ? String(n) : String(Number(n.toPrecision(6))).replace(/\.0+$/, '');
+        }
+        function buildCandidateKey(buyStrategy, sellStrategy, buyParams, sellParams) {
+            const parts = [buyStrategy];
+            if (buyParams.step_pct !== null && buyParams.step_pct !== undefined) parts.push(`step${formatCompact(buyParams.step_pct)}`);
+            if (buyParams.equal_slice_allocation_pct !== null && buyParams.equal_slice_allocation_pct !== undefined) parts.push(`alloc${formatCompact(buyParams.equal_slice_allocation_pct)}`);
+            if (buyParams.core_dip_initial_core_pct !== null && buyParams.core_dip_initial_core_pct !== undefined) {
+                parts.push(`ci${formatCompact(buyParams.core_dip_initial_core_pct)}`);
+                parts.push(`cw${formatCompact(buyParams.core_dip_weekly_core_pct)}`);
+                parts.push(`cr${formatCompact(buyParams.core_dip_cash_reserve_pct)}`);
+                parts.push(`csd${formatCompact(buyParams.core_dip_start_drawdown_pct)}`);
+                parts.push(`cfd${formatCompact(buyParams.core_dip_full_drawdown_pct)}`);
+                if (buyParams.core_dip_timing_enabled) {
+                    parts.push(`ctd${formatCompact(Math.trunc(Number(buyParams.core_dip_timing_max_delay_days || 0)))}`);
+                    parts.push(`ctr${formatCompact(buyParams.core_dip_timing_rise_threshold_pct)}`);
+                    parts.push(`ctl${formatCompact(buyParams.core_dip_timing_near_low_pct)}`);
+                }
+            }
+            parts.push(sellStrategy);
+            if (sellStrategy === 'repair_step') {
+                parts.push(`p${formatCompact(sellParams.sell_min_profit_pct)}`);
+                parts.push(`c${formatCompact(Math.trunc(Number(sellParams.repair_sell_cooldown_days || 0)))}`);
+                parts.push(`s${formatCompact(sellParams.repair_stage_sell_pct)}`);
+            }
+            if (sellStrategy === 'grid_rebound') {
+                parts.push(`g${formatCompact(sellParams.grid_rebound_step_pct)}`);
+                parts.push(`g1${formatCompact(sellParams.grid_first_sell_pct)}`);
+                parts.push(`g2${formatCompact(sellParams.grid_second_sell_pct)}`);
+                parts.push(`gmin${formatCompact(sellParams.grid_min_sell_amount)}`);
+            }
+            if (sellStrategy === 'cost_deleverage') {
+                const profits = [sellParams.cost_first_profit_pct, sellParams.cost_second_profit_pct, sellParams.cost_third_profit_pct];
+                const sells = [sellParams.cost_first_sell_pct, sellParams.cost_second_sell_pct, sellParams.cost_third_sell_pct];
+                parts.push(`cp${profits.map(formatCompact).join('-')}`);
+                parts.push(`cs${sells.map(formatCompact).join('-')}`);
+                parts.push(`cc${formatCompact(Math.trunc(Number(sellParams.cost_deleverage_cooldown_days || 0)))}`);
+                parts.push(`cmin${formatCompact(sellParams.cost_min_sell_amount)}`);
+            }
+            if (sellParams.dca_rearm_drawdown_pct !== null && sellParams.dca_rearm_drawdown_pct !== undefined) parts.push(`rearm${formatCompact(sellParams.dca_rearm_drawdown_pct)}`);
+            return parts.join('__');
+        }
+        function buildBuyLabel(strategyKey, params) {
+            const label = buyStrategyLabels[strategyKey] || strategyKey;
+            const bits = [];
+            if (params.step_pct !== null && params.step_pct !== undefined) bits.push(`步长 ${formatCompact(params.step_pct)}%`);
+            if (params.equal_slice_allocation_pct !== null && params.equal_slice_allocation_pct !== undefined) bits.push(`每步 ${formatCompact(params.equal_slice_allocation_pct)}%`);
+            if (params.core_dip_initial_core_pct !== null && params.core_dip_initial_core_pct !== undefined) {
+                bits.push(`初始 ${formatCompact(params.core_dip_initial_core_pct)}%`);
+                bits.push(`周投 ${formatCompact(params.core_dip_weekly_core_pct)}%`);
+                bits.push(`现金垫 ${formatCompact(params.core_dip_cash_reserve_pct)}%`);
+                bits.push(`加仓 ${formatCompact(params.core_dip_start_drawdown_pct)}-${formatCompact(params.core_dip_full_drawdown_pct)}%`);
+                if (params.core_dip_timing_enabled) {
+                    bits.push(`买点优化 延迟${formatCompact(Math.trunc(Number(params.core_dip_timing_max_delay_days || 0)))}日 大涨${formatCompact(params.core_dip_timing_rise_threshold_pct)}% 近低${formatCompact(params.core_dip_timing_near_low_pct)}%`);
+                } else {
+                    bits.push('买点优化 关闭');
+                }
+            }
+            return bits.length ? `${label} (${bits.join(' / ')})` : label;
+        }
+        function buildSellLabel(strategyKey, params) {
+            let label;
+            if (strategyKey === 'repair_step') {
+                label = `阶梯修复 ${formatCompact(params.sell_min_profit_pct)}%盈利 ${formatCompact(Math.trunc(Number(params.repair_sell_cooldown_days || 0)))}日冷却 ${formatCompact(params.repair_stage_sell_pct)}%单档`;
+            } else if (strategyKey === 'grid_rebound') {
+                label = `网格回弹 ${formatCompact(params.grid_rebound_step_pct)}%步长 ${formatCompact(params.grid_first_sell_pct)}%+${formatCompact(params.grid_second_sell_pct)}%卖出`;
+            } else if (strategyKey === 'cost_deleverage') {
+                const profits = [params.cost_first_profit_pct, params.cost_second_profit_pct, params.cost_third_profit_pct];
+                const sells = [params.cost_first_sell_pct, params.cost_second_sell_pct, params.cost_third_sell_pct];
+                label = `成本去杠杆 ${profits.map((value) => `${formatCompact(value)}%`).join('/')} 盈利 ${sells.map((value) => `${formatCompact(value)}%`).join('+')} 卖出 ${formatCompact(Math.trunc(Number(params.cost_deleverage_cooldown_days || 0)))}日冷却`;
+            } else {
+                label = sellStrategyLabels[strategyKey] || strategyKey;
+            }
+            if (params.dca_rearm_drawdown_pct !== null && params.dca_rearm_drawdown_pct !== undefined) label = `${label} / 卖后重启 ${formatCompact(params.dca_rearm_drawdown_pct)}%回撤`;
+            return label;
+        }
+        function inflateCandidate(packet, candidateRow) {
+            const candidateSchema = schemaIndexMap(packet.candidate_schema || []);
+            const buyRows = packet.buy_variants || [];
+            const sellRows = packet.sell_variants || [];
+            const buyVariantId = candidateRow[candidateSchema.buy_variant_id];
+            const sellVariantId = candidateRow[candidateSchema.sell_variant_id];
+            const buyRow = buyRows[buyVariantId] || [];
+            const sellRow = sellRows[sellVariantId] || [];
+            const buyParams = inflateVariant(buyRow, packet.buy_variant_schema || [], buyParameterFields);
+            const sellParams = inflateVariant(sellRow, packet.sell_variant_schema || [], sellParameterFields);
+            const buyStrategy = buyRow[2] || '';
+            const sellStrategy = sellRow[2] || '';
+            const key = buildCandidateKey(buyStrategy, sellStrategy, buyParams, sellParams);
+            return {
+                key,
+                candidate_id: candidateRow[candidateSchema.candidate_id],
+                combination_key: `${buyRow[1] || `buy:${buyVariantId}`}__${sellRow[1] || `sell:${sellVariantId}`}`,
+                label: `${buildBuyLabel(buyStrategy, buyParams)} / ${buildSellLabel(sellStrategy, sellParams)}`,
+                buy_strategy: buyStrategy,
+                sell_strategy: sellStrategy,
+                buy_variant_key: buyRow[1],
+                sell_variant_key: sellRow[1],
+                strategy_definition_version: packet.registry?.version || strategyRegistry.version || '',
+                ...buyParams,
+                ...sellParams
+            };
+        }
+        function buildCandidateIndex(packet) {
+            const rows = packet.candidate_rows || [];
+            const candidates = rows.map((row) => inflateCandidate(packet, row));
+            const byKey = new Map(candidates.map((candidate) => [candidate.key, candidate]));
+            const byId = new Map(candidates.map((candidate) => [String(candidate.candidate_id), candidate]));
+            return { rows, candidates, byKey, byId };
+        }
+        function candidateDetailPayload(candidate) {
+            const parameters = {};
+            parameterFields.forEach((field) => {
+                if (candidate[field] !== null && candidate[field] !== undefined) parameters[field] = candidate[field];
+            });
+            return {
+                key: candidate.key,
+                combination_key: candidate.combination_key,
+                label: candidate.label,
+                buy_strategy: {
+                    key: candidate.buy_strategy,
+                    label: buyStrategyLabels[candidate.buy_strategy] || candidate.buy_strategy,
+                    variant_key: candidate.buy_variant_key,
+                    definition: (strategyRegistry.definitions || {})[candidate.buy_strategy] || null
+                },
+                sell_strategy: {
+                    key: candidate.sell_strategy,
+                    label: sellStrategyLabels[candidate.sell_strategy] || candidate.sell_strategy,
+                    variant_key: candidate.sell_variant_key,
+                    definition: (strategyRegistry.definitions || {})[candidate.sell_strategy] || null
+                },
+                parameters
+            };
+        }
+
         async function runParameterLab() {
             cancelParameterLab(false);
             refreshUniverseTopics();
+            const runId = createParameterLabRunId();
             const payload = parameterLabPayload();
-            setStatus('Preparing', '正在准备行情数据包。', 4);
+            payload.run_id = runId;
             const started = performance.now();
             try {
+                const estimate = await estimateParameterLab(payload, runId);
+                if (!confirmLargeRunIfNeeded(estimate)) {
+                    setStatus('Needs confirmation', '已取消大规模运行。', 4);
+                    return;
+                }
+                payload.parameter_lab_concurrency = readNumber('workerCount');
+                setStatus('Preparing', '正在准备行情数据包。', 4);
+                parameterLabLog('packet_request_start', {
+                    run_id: runId,
+                    requested_concurrency: payload.parameter_lab_concurrency,
+                    buy_strategies: payload.buy_strategies,
+                    sell_strategies: payload.sell_strategies,
+                    scorecard_portfolio_keys: payload.scorecard_portfolio_keys,
+                    scorecard_period_count: (payload.scorecard_periods || []).filter((period) => period.enabled).length
+                });
                 const response = await fetch('/api/strategy-lab/parameter-lab/packet', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
+                parameterLabLog('packet_response_headers', {
+                    run_id: runId,
+                    status: response.status,
+                    elapsed_ms: performance.now() - started,
+                    content_length: response.headers.get('content-length'),
+                    content_encoding: response.headers.get('content-encoding') || 'identity',
+                    x_uncompressed_length: response.headers.get('x-uncompressed-length'),
+                    x_compressed_length: response.headers.get('x-compressed-length')
+                });
+                const parseStarted = performance.now();
                 const result = await response.json();
+                parameterLabLog('packet_response_json_parsed', {
+                    run_id: runId,
+                    parse_ms: performance.now() - parseStarted,
+                    elapsed_ms: performance.now() - started
+                });
                 if (!response.ok || !result.success) throw new Error(result.message || '准备数据包失败');
-                const packet = result.packet;
-                document.getElementById('statCandidates').textContent = number((packet.candidate_pool || []).length, 0);
-                document.getElementById('statTopics').textContent = number((packet.tasks || []).length, 0);
-                document.getElementById('statSimulations').textContent = number((packet.candidate_pool || []).length * (packet.tasks || []).length, 0);
+                const packet = { ...result.packet, run_id: result.run_id || (result.packet || {}).run_id || runId };
+                lastParameterPacket = packet;
+                const candidateCount = (packet.candidate_rows || []).length;
+                const taskCount = (packet.tasks || []).length;
+                parameterLabLog('packet_request_done', {
+                    run_id: packet.run_id,
+                    status: response.status,
+                    elapsed_ms: performance.now() - started,
+                    candidate_count: candidateCount,
+                    buy_variant_count: (packet.buy_variants || []).length,
+                    sell_variant_count: (packet.sell_variants || []).length,
+                    task_count: taskCount,
+                    total_simulations: candidateCount * taskCount,
+                    concurrency: packet.parameter_lab_concurrency,
+                    buy_strategies: packet.buy_strategies,
+                    sell_strategies: packet.sell_strategies
+                });
+                document.getElementById('statCandidates').textContent = number(candidateCount, 0);
+                document.getElementById('statTopics').textContent = number(taskCount, 0);
+                document.getElementById('statSimulations').textContent = number(candidateCount * taskCount, 0);
                 const data = await runWorkerPool(packet, performance.now());
                 lastParameterResult = data;
                 renderParameterMatrix();
@@ -788,65 +1292,296 @@
                 document.getElementById('statWall').textContent = `${number(wall, 0)}ms`;
                 setStatus('Completed', `完成 ${number(data.rows.length, 0)} 个参数组合。`, 100);
             } catch (error) {
+                parameterLabError('run_error', {
+                    run_id: runId,
+                    elapsed_ms: performance.now() - started,
+                    message: error.message || String(error),
+                    stack: error && error.stack ? String(error.stack) : ''
+                });
                 setStatus('Error', error.message || String(error), 100);
             } finally {
-                currentRun = null;
+                if (currentRun && currentRun.run_id === runId) currentRun = null;
             }
         }
 
         function runWorkerPool(packet, startedAt) {
-            const allCandidates = packet.candidate_pool || [];
+            const runId = packet.run_id || createParameterLabRunId();
+            packet.run_id = runId;
+            const candidateRows = packet.candidate_rows || [];
             const tasks = packet.tasks || [];
+            const candidateIndex = buildCandidateIndex(packet);
             const requested = Math.max(1, Math.min(12, Number(packet.parameter_lab_concurrency || 1)));
             const hardware = Number(navigator.hardwareConcurrency || requested);
-            const workerCount = Math.max(1, Math.min(requested, hardware || requested, allCandidates.length || 1));
-            const chunks = Array.from({ length: workerCount }, () => []);
-            allCandidates.forEach((candidate, index) => chunks[index % workerCount].push(candidate));
-            const activeChunks = chunks.filter((chunk) => chunk.length);
-            const totalSimulations = Math.max(1, allCandidates.length * tasks.length);
-            document.getElementById('statWorkers').textContent = number(activeChunks.length, 0);
-            setStatus('Running', `启动 ${activeChunks.length} 个 workers。`, 8);
+            const workerCount = Math.max(1, Math.min(requested, hardware || requested, candidateRows.length || 1));
+            const totalSimulations = Math.max(1, candidateRows.length * tasks.length);
+            const batchSize = candidateBatchSizeFor(candidateRows.length, tasks.length);
+            const batchQueue = [];
+            for (let index = 0; index < candidateRows.length; index += batchSize) {
+                batchQueue.push({
+                    batch_id: `batch-${index / batchSize + 1}`,
+                    candidate_rows: candidateRows.slice(index, index + batchSize)
+                });
+            }
+            const totalBatches = batchQueue.length;
+            const workerPacketBase = {
+                run_id: runId,
+                inputs: packet.inputs || {},
+                tasks,
+                market_data: packet.market_data || {},
+                payload_schema: packet.payload_schema || '',
+                registry: packet.registry || {},
+                buy_variant_schema: packet.buy_variant_schema || [],
+                sell_variant_schema: packet.sell_variant_schema || [],
+                candidate_schema: packet.candidate_schema || [],
+                buy_variants: packet.buy_variants || [],
+                sell_variants: packet.sell_variants || [],
+                diagnostics: {
+                    verbose_simulation_logs: parameterLabVerboseDiagnostics(),
+                    progress_every: progressEveryFor(totalSimulations),
+                    progress_min_ms: totalSimulations >= 50000 ? 900 : 500,
+                    slow_simulation_ms: 3000
+                }
+            };
+            document.getElementById('statWorkers').textContent = number(workerCount, 0);
+            setStatus('Running', `启动 ${workerCount} 个 workers，${number(batchQueue.length, 0)} 批。`, 8);
+            parameterLabLog('run_start', {
+                run_id: runId,
+                candidate_count: candidateRows.length,
+                task_count: tasks.length,
+                total_simulations: totalSimulations,
+                requested_concurrency: requested,
+                hardware_concurrency: hardware,
+                worker_count: workerCount,
+                batch_count: batchQueue.length,
+                batch_size: batchSize,
+                buy_strategies: packet.buy_strategies,
+                sell_strategies: packet.sell_strategies
+            });
             return new Promise((resolve, reject) => {
                 const workers = [];
                 const partialRows = [];
-                const workerStats = activeChunks.map((chunk, index) => ({
+                const workerStats = Array.from({ length: workerCount }, (_value, index) => ({
                     worker_index: index,
-                    chunk_size: chunk.length,
+                    chunk_size: 0,
+                    batch_count: 0,
+                    total_simulations: 0,
                     completed_simulations: 0,
-                    elapsed_ms: 0
+                    elapsed_ms: 0,
+                    last_message_at: performance.now(),
+                    last_message_type: 'created',
+                    last_logged_at: 0,
+                    active_batch_id: ''
                 }));
-                let done = 0;
+                let finishedWorkers = 0;
+                let completedBatches = 0;
                 let settled = false;
+                let globalCompleted = 0;
+                const heartbeatInterval = window.setInterval(() => {
+                    if (settled) return;
+                    const now = performance.now();
+                    parameterLabLog('heartbeat', {
+                        run_id: runId,
+                        elapsed_ms: now - startedAt,
+                        completed_simulations: globalCompleted,
+                        total_simulations: totalSimulations,
+                        workers: workerStats.map((item) => ({
+                            worker_index: item.worker_index,
+                            completed_simulations: item.completed_simulations,
+                            total_simulations: item.total_simulations,
+                            batch_count: item.batch_count,
+                            active_batch_id: item.active_batch_id,
+                            last_message_type: item.last_message_type,
+                            last_message_age_ms: now - item.last_message_at
+                        }))
+                    });
+                }, 30000);
                 const cleanup = () => {
+                    window.clearInterval(heartbeatInterval);
                     workers.forEach((worker) => worker.terminate());
                 };
-                currentRun = { workers, reject, cancelled: false };
-                activeChunks.forEach((chunk, workerIndex) => {
+                currentRun = { run_id: runId, workers, reject, cancelled: false, cleanup, workerStats, started_at: startedAt };
+                const recomputeCompleted = () => {
+                    const completed = workerStats.reduce((sum, item) => sum + Number(item.completed_simulations || 0), 0);
+                    if (completed < globalCompleted) {
+                        parameterLabWarn('global_progress_backward', {
+                            run_id: runId,
+                            previous_completed_simulations: globalCompleted,
+                            next_completed_simulations: completed
+                        });
+                    }
+                    globalCompleted = completed;
+                    setStatus('Running', `完成 ${number(completed, 0)} / ${number(totalSimulations, 0)}；批次 ${number(completedBatches, 0)} / ${number(totalBatches, 0)}`, 10 + completed / totalSimulations * 84);
+                };
+                const assignNextBatch = (worker, workerIndex) => {
+                    if (settled) return;
+                    const next = batchQueue.shift();
+                    const stats = workerStats[workerIndex];
+                    if (!next) {
+                        worker.postMessage({ type: 'finish', run_id: runId, worker_index: workerIndex });
+                        return;
+                    }
+                    const batchSimulations = Math.max(1, next.candidate_rows.length * tasks.length);
+                    stats.chunk_size += next.candidate_rows.length;
+                    stats.batch_count += 1;
+                    stats.total_simulations += batchSimulations;
+                    stats.active_batch_id = next.batch_id;
+                    parameterLabLog('worker_batch_posted', {
+                        run_id: runId,
+                        worker_index: workerIndex,
+                        batch_id: next.batch_id,
+                        candidate_count: next.candidate_rows.length,
+                        task_count: tasks.length,
+                        batch_simulations: batchSimulations,
+                        remaining_batches: batchQueue.length
+                    });
+                    worker.postMessage({
+                        type: 'batch',
+                        run_id: runId,
+                        worker_index: workerIndex,
+                        batch_id: next.batch_id,
+                        candidate_rows: next.candidate_rows
+                    });
+                };
+                for (let workerIndex = 0; workerIndex < workerCount; workerIndex += 1) {
                     const worker = new Worker('/static/strategy_parameter_lab_worker.js');
                     workers.push(worker);
                     worker.onmessage = (event) => {
                         if (settled) return;
                         const message = event.data || {};
-                        if (message.type === 'progress') {
-                            workerStats[workerIndex].completed_simulations = Number(message.completed_simulations || workerStats[workerIndex].completed_simulations || 0);
-                            const completed = workerStats.reduce((sum, item) => sum + item.completed_simulations, 0);
-                            setStatus('Running', `完成 ${number(completed, 0)} / ${number(totalSimulations, 0)}；worker ${workerIndex + 1}: ${message.message || ''}`, 10 + completed / totalSimulations * 84);
-                        } else if (message.type === 'done') {
-                            workerStats[workerIndex].completed_simulations = Number(message.completed_simulations || 0);
-                            workerStats[workerIndex].elapsed_ms = Number(message.elapsed_ms || 0);
+                        if (!message.run_id || message.run_id !== runId) {
+                            parameterLabWarn('stale_worker_message_ignored', {
+                                active_run_id: runId,
+                                message_run_id: message.run_id,
+                                expected_worker_index: workerIndex,
+                                message: summarizeWorkerMessage(message)
+                            });
+                            return;
+                        }
+                        const stats = workerStats[workerIndex];
+                        const messageAt = performance.now();
+                        stats.last_message_at = messageAt;
+                        stats.last_message_type = message.type || 'message';
+                        const shouldLogMessage = ['start', 'done', 'error', 'cancelled'].includes(message.type)
+                            || messageAt - Number(stats.last_logged_at || 0) >= 2000
+                            || Number(message.completed_simulations || 0) >= Number(stats.total_simulations || Infinity);
+                        if (shouldLogMessage) {
+                            stats.last_logged_at = messageAt;
+                            parameterLabLog('worker_message', {
+                                run_id: runId,
+                                expected_worker_index: workerIndex,
+                                message: summarizeWorkerMessage(message)
+                            });
+                        }
+                        if (message.total_simulations && Number(message.total_simulations) > totalSimulations) {
+                            parameterLabWarn('worker_total_gt_global_total', {
+                                run_id: runId,
+                                worker_index: workerIndex,
+                                worker_total_simulations: Number(message.total_simulations),
+                                global_total_simulations: totalSimulations,
+                                message: summarizeWorkerMessage(message)
+                            });
+                        }
+                        if (message.type === 'start') {
+                            stats.total_simulations = Number(stats.total_simulations || 0);
+                        } else if (message.type === 'ready') {
+                            assignNextBatch(worker, workerIndex);
+                        } else if (message.type === 'batch_start') {
+                            stats.active_batch_id = message.batch_id || stats.active_batch_id;
+                        } else if (message.type === 'progress') {
+                            const previousWorkerCompleted = Number(stats.completed_simulations || 0);
+                            const nextWorkerCompleted = Number(message.completed_simulations || previousWorkerCompleted || 0);
+                            if (nextWorkerCompleted < previousWorkerCompleted) {
+                                parameterLabWarn('worker_progress_backward', {
+                                    run_id: runId,
+                                    worker_index: workerIndex,
+                                    previous_completed_simulations: previousWorkerCompleted,
+                                    next_completed_simulations: nextWorkerCompleted,
+                                    message: summarizeWorkerMessage(message)
+                                });
+                            }
+                            stats.completed_simulations = nextWorkerCompleted;
+                            recomputeCompleted();
+                        } else if (message.type === 'batch_done') {
+                            const previousWorkerCompleted = Number(stats.completed_simulations || 0);
+                            const nextWorkerCompleted = Number(message.completed_simulations || 0);
+                            if (nextWorkerCompleted < previousWorkerCompleted) {
+                                parameterLabWarn('worker_progress_backward', {
+                                    run_id: runId,
+                                    worker_index: workerIndex,
+                                    previous_completed_simulations: previousWorkerCompleted,
+                                    next_completed_simulations: nextWorkerCompleted,
+                                    message: summarizeWorkerMessage(message)
+                                });
+                            }
+                            stats.completed_simulations = nextWorkerCompleted;
+                            stats.elapsed_ms += Number(message.elapsed_ms || 0);
+                            stats.active_batch_id = '';
                             partialRows.push(...(message.rows || []));
-                            done += 1;
-                            if (done === activeChunks.length) {
+                            completedBatches += 1;
+                            recomputeCompleted();
+                            parameterLabLog('worker_batch_done', {
+                                run_id: runId,
+                                worker_index: workerIndex,
+                                batch_id: message.batch_id,
+                                completed_batches: completedBatches,
+                                completed_simulations: globalCompleted,
+                                total_simulations: totalSimulations,
+                                elapsed_ms: Number(message.elapsed_ms || 0)
+                            });
+                            assignNextBatch(worker, workerIndex);
+                        } else if (message.type === 'done') {
+                            stats.completed_simulations = Number(message.completed_simulations || stats.completed_simulations || 0);
+                            stats.elapsed_ms = Math.max(Number(stats.elapsed_ms || 0), Number(message.elapsed_ms || 0));
+                            finishedWorkers += 1;
+                            recomputeCompleted();
+                            parameterLabLog('worker_done', {
+                                run_id: runId,
+                                worker_index: workerIndex,
+                                completed_workers: finishedWorkers,
+                                worker_count: workerCount,
+                                completed_simulations: globalCompleted,
+                                total_simulations: totalSimulations,
+                                elapsed_ms: Number(message.elapsed_ms || 0)
+                            });
+                            if (finishedWorkers === workerCount) {
                                 settled = true;
                                 cleanup();
-                                resolve(scoreParameterResults(packet, partialRows, workerStats, performance.now() - startedAt));
+                                parameterLabLog('run_done', {
+                                    run_id: runId,
+                                    completed_simulations: globalCompleted,
+                                    total_simulations: totalSimulations,
+                                    rows: partialRows.length,
+                                    wall_ms: performance.now() - startedAt
+                                });
+                                resolve(scoreParameterResults(packet, partialRows, workerStats, performance.now() - startedAt, candidateIndex));
                             }
                         } else if (message.type === 'cancelled') {
                             settled = true;
+                            parameterLabWarn('worker_cancelled', {
+                                run_id: runId,
+                                worker_index: workerIndex,
+                                message: summarizeWorkerMessage(message)
+                            });
                             cleanup();
                             reject(new Error('Parameter Lab 已停止'));
                         } else if (message.type === 'error') {
                             settled = true;
+                            const errorPayload = summarizeWorkerMessage(message);
+                            if ((message.stage || '') === 'simulate_error') {
+                                parameterLabError('worker_error', {
+                                    run_id: runId,
+                                    worker_index: workerIndex,
+                                    message: errorPayload,
+                                    stack: message.stack || ''
+                                });
+                            } else {
+                                parameterLabWarn('worker_error', {
+                                    run_id: runId,
+                                    worker_index: workerIndex,
+                                    message: errorPayload,
+                                    stack: message.stack || ''
+                                });
+                            }
                             cleanup();
                             reject(new Error(message.message || 'Worker 计算失败'));
                         }
@@ -854,35 +1589,56 @@
                     worker.onerror = (error) => {
                         if (settled) return;
                         settled = true;
+                        parameterLabError('worker_onerror', {
+                            run_id: runId,
+                            worker_index: workerIndex,
+                            message: error.message || String(error),
+                            filename: error.filename,
+                            lineno: error.lineno,
+                            colno: error.colno
+                        });
                         cleanup();
                         reject(error);
                     };
+                    parameterLabLog('worker_start_posted', {
+                        run_id: runId,
+                        worker_index: workerIndex,
+                        task_count: tasks.length,
+                        total_simulations: totalSimulations,
+                        payload_schema: packet.payload_schema || ''
+                    });
                     worker.postMessage({
                         type: 'start',
+                        run_id: runId,
                         worker_index: workerIndex,
-                        packet: { ...packet, candidate_pool: chunk }
+                        total_simulations: totalSimulations,
+                        packet: workerPacketBase
                     });
-                });
+                }
             });
         }
 
         function pauseParameterLab() {
             if (!currentRun) return;
-            currentRun.workers.forEach((worker) => worker.postMessage({ type: 'pause' }));
+            parameterLabLog('pause_requested', { run_id: currentRun.run_id, worker_count: currentRun.workers.length });
+            currentRun.workers.forEach((worker, workerIndex) => worker.postMessage({ type: 'pause', run_id: currentRun.run_id, worker_index: workerIndex }));
             setStatus('Paused', '本机 workers 已暂停。', null);
         }
         function resumeParameterLab() {
             if (!currentRun) return;
-            currentRun.workers.forEach((worker) => worker.postMessage({ type: 'resume' }));
+            parameterLabLog('resume_requested', { run_id: currentRun.run_id, worker_count: currentRun.workers.length });
+            currentRun.workers.forEach((worker, workerIndex) => worker.postMessage({ type: 'resume', run_id: currentRun.run_id, worker_index: workerIndex }));
             setStatus('Running', '继续本机计算。', null);
         }
         function cancelParameterLab(showStatus = true) {
             if (!currentRun) return;
+            const runId = currentRun.run_id;
+            parameterLabWarn('cancel_requested', { run_id: runId, worker_count: currentRun.workers.length, show_status: showStatus });
             currentRun.cancelled = true;
-            currentRun.workers.forEach((worker) => {
-                worker.postMessage({ type: 'cancel' });
-                worker.terminate();
+            currentRun.workers.forEach((worker, workerIndex) => {
+                worker.postMessage({ type: 'cancel', run_id: runId, worker_index: workerIndex });
             });
+            if (currentRun.cleanup) currentRun.cleanup();
             if (currentRun.reject) currentRun.reject(new Error('Parameter Lab 已停止'));
             currentRun = null;
             if (showStatus) setStatus('Stopped', '本次计算已停止。', 100);
@@ -895,13 +1651,23 @@
             if (Math.abs(max - min) < 1e-9) return 1;
             return (Number(value || 0) - min) / (max - min);
         }
-        function scoreParameterResults(packet, partialRows, workerStats, wallMs) {
-            const candidates = [];
+        function scoreParameterResults(packet, partialRows, workerStats, wallMs, candidateIndex = null) {
+            const index = candidateIndex || buildCandidateIndex(packet);
+            const candidateByKey = index.byKey;
+            const candidateById = index.byId;
             const observations = [];
-            partialRows.forEach((row) => {
-                candidates.push(row.candidate);
-                (row.observations || []).forEach((cell) => observations.push({ ...cell, candidate: row.candidate }));
-            });
+            for (let ri = 0; ri < partialRows.length; ri++) {
+                const row = partialRows[ri];
+                const candidate = candidateById.get(String(row.candidate_id)) || candidateByKey.get(row.candidate_key);
+                if (!candidate) continue;
+                const obs = row.observations || [];
+                for (let oi = 0; oi < obs.length; oi++) {
+                    const cell = obs[oi];
+                    cell.candidate_id = candidate.candidate_id;
+                    cell.candidate_key = candidate.key;
+                    observations.push(cell);
+                }
+            }
             const byTopic = new Map();
             observations.forEach((cell) => {
                 const key = String(cell.topic_key);
@@ -909,28 +1675,50 @@
                 byTopic.get(key).push(cell);
             });
             byTopic.forEach((cells) => {
-                const returns = cells.map((cell) => Number(cell.return_pct || 0));
-                const drawdowns = cells.map((cell) => Number(cell.max_drawdown_pct || 0));
-                cells.forEach((cell) => {
-                    cell.return_score = normalize(cell.return_pct, returns) * 100;
-                    cell.drawdown_score = normalize(cell.max_drawdown_pct, drawdowns) * 100;
+                let minReturn = Infinity, maxReturn = -Infinity;
+                let minDD = Infinity, maxDD = -Infinity;
+                for (let i = 0; i < cells.length; i++) {
+                    const r = Number(cells[i].return_pct || 0);
+                    const d = Number(cells[i].max_drawdown_pct || 0);
+                    if (r < minReturn) minReturn = r;
+                    if (r > maxReturn) maxReturn = r;
+                    if (d < minDD) minDD = d;
+                    if (d > maxDD) maxDD = d;
+                }
+                const rangeReturn = maxReturn - minReturn;
+                const rangeDD = maxDD - minDD;
+                for (let i = 0; i < cells.length; i++) {
+                    const cell = cells[i];
+                    const r = Number(cell.return_pct || 0);
+                    const d = Number(cell.max_drawdown_pct || 0);
+                    cell.return_score = rangeReturn > 1e-9 ? (r - minReturn) / rangeReturn * 100 : 100;
+                    cell.drawdown_score = rangeDD > 1e-9 ? (d - minDD) / rangeDD * 100 : 100;
                     cell.topic_score = cell.return_score * 0.9 + cell.drawdown_score * 0.1;
-                });
-                [...cells].sort((a, b) => b.topic_score - a.topic_score).forEach((cell, index) => { cell.topic_rank = index + 1; });
+                }
+                cells.sort((a, b) => b.topic_score - a.topic_score);
+                for (let i = 0; i < cells.length; i++) cells[i].topic_rank = i + 1;
             });
             const byCandidate = new Map();
-            candidates.forEach((candidate) => {
+            index.candidates.forEach((candidate) => {
                 byCandidate.set(candidate.key, { key: candidate.key, candidate, cells: [] });
             });
             observations.forEach((cell) => {
                 const row = byCandidate.get(cell.candidate_key);
                 if (row) row.cells.push(cell);
             });
-            const avg = (values) => values.length ? values.reduce((a, b) => a + Number(b || 0), 0) / values.length : 0;
             const rows = Array.from(byCandidate.values()).map((row) => {
-                row.avg_return_pct = avg(row.cells.map((cell) => cell.return_pct));
-                row.avg_drawdown_pct = avg(row.cells.map((cell) => cell.max_drawdown_pct));
-                row.avg_topic_score = avg(row.cells.map((cell) => cell.topic_score));
+                let sumReturn = 0, sumDrawdown = 0, sumScore = 0;
+                const n = row.cells.length;
+                for (let i = 0; i < n; i++) {
+                    const cell = row.cells[i];
+                    sumReturn += Number(cell.return_pct || 0);
+                    sumDrawdown += Number(cell.max_drawdown_pct || 0);
+                    sumScore += Number(cell.topic_score || 0);
+                }
+                row.avg_return_pct = n ? sumReturn / n : 0;
+                row.avg_drawdown_pct = n ? sumDrawdown / n : 0;
+                row.avg_topic_score = n ? sumScore / n : 0;
+                row.raw_score = row.avg_return_pct * 0.9 + row.avg_drawdown_pct * 0.1;
                 row.final_score = row.avg_topic_score;
                 return row;
             }).sort((a, b) => b.final_score - a.final_score);
@@ -960,8 +1748,13 @@
             const tasks = data.tasks || [];
             const limitValue = document.getElementById('rowLimit').value;
             const limit = limitValue === 'all' ? data.rows.length : Number(limitValue || 300);
-            const rows = data.rows.slice(0, limit);
-            document.getElementById('resultTitle').textContent = `${number(data.rows.length, 0)} rows`;
+            const rankMethod = document.getElementById('rankMethod').value;
+            const sortKey = rankMethod === 'raw' ? 'raw_score' : 'final_score';
+            const sorted = [...data.rows].sort((a, b) => b[sortKey] - a[sortKey]);
+            sorted.forEach((row, i) => { row.final_rank = i + 1; });
+            const rows = sorted.slice(0, limit);
+            const scoreLabel = rankMethod === 'raw' ? '原始加权分' : '归一化分';
+            document.getElementById('resultTitle').textContent = `${number(data.rows.length, 0)} rows / ${scoreLabel}`;
             const metrics = data.worker_metrics || {};
             document.getElementById('resultMeta').textContent = `worker ${number(metrics.worker_count, 0)} / CPU ${number(metrics.cpu_work_estimate_ms, 0)}ms / wall ${number(metrics.wall_ms, 0)}ms`;
             document.getElementById('matrixHead').innerHTML = `
@@ -986,7 +1779,7 @@
                         `trades ${number(cell.trade_count, 0)}`
                     ].join('\n');
                     return `
-                        <td class="score-cell" style="${heatStyle(cell.topic_score)}" title="${escapeHtml(title)}">
+                        <td class="score-cell" style="${heatStyle(cell.topic_score)};cursor:pointer" title="${escapeHtml(title)}&#10;点击查看买卖点演算" onclick="openCellInLab('${escapeHtml(row.key)}', '${escapeHtml(task.key)}')">
                             <div class="score-rank"><strong>#${number(cell.topic_rank, 0)}</strong><span>${number(cell.topic_score)}</span></div>
                             <div class="cell-metrics"><b>${pct(cell.return_pct)}</b><b>${pct(cell.max_drawdown_pct)}</b></div>
                         </td>
@@ -996,7 +1789,7 @@
                     <tr>
                         <td>
                             <div class="strategy-name">#${number(row.final_rank, 0)} ${escapeHtml(row.candidate.label || row.key)}</div>
-                            <div class="strategy-meta">Final ${number(row.final_score)} / Avg return ${pct(row.avg_return_pct)} / Avg DD ${pct(row.avg_drawdown_pct)}</div>
+                            <div class="strategy-meta">${rankMethod === 'raw' ? 'Raw' : 'Final'} ${number(rankMethod === 'raw' ? row.raw_score : row.final_score)} / Avg return ${pct(row.avg_return_pct)} / Avg DD ${pct(row.avg_drawdown_pct)}</div>
                             <div class="strategy-meta">${escapeHtml(row.candidate.buy_strategy)} + ${escapeHtml(row.candidate.sell_strategy)}</div>
                             <div class="row-actions">
                                 <button type="button" onclick="openRowDetail('${escapeHtml(row.key)}')">参数</button>
@@ -1021,7 +1814,7 @@
                 <div class="stat"><span>Avg Return</span><strong>${pct(row.avg_return_pct)}</strong></div>
                 <div class="stat"><span>Avg DD</span><strong>${pct(row.avg_drawdown_pct)}</strong></div>
             `;
-            document.getElementById('detailJson').textContent = JSON.stringify(row.candidate.parameter_snapshot || row.candidate, null, 2);
+            document.getElementById('detailJson').textContent = JSON.stringify(candidateDetailPayload(row.candidate), null, 2);
             document.getElementById('detailCells').innerHTML = row.cells.map((cell) => `
                 <tr>
                     <td>${escapeHtml(cell.portfolio_label)} / ${escapeHtml(cell.period_label)}</td>
@@ -1029,8 +1822,13 @@
                     <td>${number(cell.topic_score)}</td>
                     <td>${pct(cell.return_pct)}</td>
                     <td>${pct(cell.max_drawdown_pct)}</td>
+                    <td><button type="button" onclick="scanOptionForCell('${escapeHtml(key)}', '${escapeHtml(cell.topic_key)}')">期权</button></td>
                 </tr>
             `).join('');
+            // Reset option scan section for this row
+            document.getElementById('optionScanSection').style.display = '';
+            document.getElementById('optionScanStatus').textContent = '';
+            document.getElementById('optionMiniTable').style.display = 'none';
             document.getElementById('detailDrawer').classList.add('show');
         }
         function closeDetail() {
@@ -1047,10 +1845,738 @@
             }));
             window.location.href = '/strategy-lab?apply_parameter_lab=1';
         }
+        function openCellInLab(rowKey, topicKey) {
+            const row = findRow(rowKey);
+            if (!row) return;
+            localStorage.setItem('strategyLabPendingParameterCandidate', JSON.stringify({
+                candidate: row.candidate,
+                payload: parameterLabPayload(),
+                topic_key: topicKey,
+                source: 'parameter-lab-cell',
+                applied_at: new Date().toISOString()
+            }));
+            window.open('/strategy-lab?apply_parameter_lab=1&auto_run_lab=1', '_blank');
+        }
+
+        // ── Option parameter scan (client-side Web Workers) ─────────────────
+        let lastOptionScanResult = null;
+        let optionScanWorkers = [];
+        let optionScanRunId = null;
+
+        function optVal(id) { return document.getElementById(id).value.trim(); }
+
+        function toggleOptionScanPanel() {
+            const enabled = document.getElementById('optionScanEnabled').checked;
+            document.getElementById('optionScanPanel').style.display = enabled ? '' : 'none';
+            if (enabled) updateOptionCandidateCount();
+        }
+
+        function updateOptionCandidateCount() {
+            const walletPct = optVal('optWalletPct').split(',').filter(Boolean).length || 0;
+            const tradeAlloc = optVal('optTradeAllocation').split(',').filter(Boolean).length || 0;
+            const dte = (optVal('optDteMin') && optVal('optDteTarget') && optVal('optDteMax')) ? 1 : 0;
+            const mn = optVal('optMoneyness').split(',').filter(Boolean).length || 0;
+            const pt = optVal('optProfitTake').split(',').filter(Boolean).length || 0;
+            const pts = optVal('optProfitTakeSell').split(',').filter(Boolean).length || 0;
+            const exit = optVal('optExitDte').split(',').filter(Boolean).length || 0;
+            const count = walletPct * tradeAlloc * dte * mn * pt * pts * exit;
+            document.getElementById('optCandidateCount').textContent = number(count, 0);
+        }
+
+        ['optWalletPct','optTradeAllocation','optDteMin','optDteTarget','optDteMax','optMoneyness','optProfitTake','optProfitTakeSell','optExitDte'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('input', updateOptionCandidateCount);
+        });
+
+        function cancelOptionScan() {
+            optionScanWorkers.forEach(w => w.terminate());
+            optionScanWorkers = [];
+            optionScanRunId = null;
+        }
+
+        async function runOptionParameterScan() {
+            cancelOptionScan();
+            updateOptionCandidateCount();
+            const payload = parameterLabPayload();
+            payload.option_wallet_pcts = optVal('optWalletPct');
+            payload.option_trade_allocations = optVal('optTradeAllocation');
+            payload.option_dte_min = optVal('optDteMin');
+            payload.option_dte_target = optVal('optDteTarget');
+            payload.option_dte_max = optVal('optDteMax');
+            payload.option_moneyness_values = optVal('optMoneyness');
+            payload.option_profit_takes = optVal('optProfitTake');
+            payload.option_profit_take_sells = optVal('optProfitTakeSell');
+            payload.option_exit_dtes = optVal('optExitDte');
+            const runId = createParameterLabRunId();
+            optionScanRunId = runId;
+            const started = performance.now();
+
+            // 1. Fetch option packet from server
+            setStatus('Preparing', '正在从服务器抓取期权数据包…', 5);
+            let packet;
+            try {
+                const response = await fetch('/api/strategy-lab/parameter-lab/option-packet', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                if (!response.ok || !result.success) throw new Error(result.message || '抓取期权数据失败');
+                packet = result.packet;
+            } catch (error) {
+                setStatus('Error', error.message || String(error), 100);
+                return;
+            }
+
+            const variants = packet.option_variants || [];
+            const variantCount = variants.length;
+            const strategyCount = (packet.stock_strategies || []).length;
+            setStatus('Running', `准备: ${variantCount} 变体 × ${strategyCount} 策略`, 15);
+
+            // 2. Split variants across workers
+            const workerCount = Math.max(1, Math.min(8, Math.floor(Number(navigator.hardwareConcurrency || 4) * 0.75)));
+            const chunkSize = Math.ceil(variantCount / workerCount);
+            const chunks = [];
+            for (let w = 0; w < workerCount; w++) {
+                const chunk = variants.slice(w * chunkSize, (w + 1) * chunkSize);
+                if (chunk.length) chunks.push(chunk);
+            }
+
+            // 3. Launch workers
+            let completedWorkers = 0;
+            let totalCompletedVariants = 0;
+            const allResults = [];
+            const workerElapsed = [];
+
+            document.getElementById('statWorkers').textContent = number(chunks.length, 0);
+            document.getElementById('statCandidates').textContent = number(variantCount, 0);
+            document.getElementById('statSimulations').textContent = number(variantCount * strategyCount, 0);
+
+            const workerPromises = chunks.map((chunk, index) => {
+                return new Promise((resolve, reject) => {
+                    const worker = new Worker('/static/option_scan_worker.js');
+                    optionScanWorkers.push(worker);
+
+                    worker.onmessage = (event) => {
+                        const msg = event.data || {};
+                        if (msg.type === 'progress') {
+                            completedWorkers += 1; // approximate
+                            const pct = 15 + Math.round(85 * totalCompletedVariants / Math.max(1, variantCount));
+                            setStatus('Running',
+                                `Worker ${index+1}/${chunks.length}: ${msg.message}`, pct);
+                        }
+                        if (msg.type === 'done') {
+                            allResults.push(...(msg.results || []));
+                            totalCompletedVariants += msg.completed_variants || 0;
+                            workerElapsed.push(msg.elapsed_ms || 0);
+                            worker.terminate();
+                            optionScanWorkers = optionScanWorkers.filter(w => w !== worker);
+                            completedWorkers++;
+                            const pct = 15 + Math.round(85 * completedWorkers / chunks.length);
+                            setStatus('Running',
+                                `${completedWorkers}/${chunks.length} workers 完成`, pct);
+                            if (completedWorkers >= chunks.length) resolve();
+                        }
+                        if (msg.type === 'error') {
+                            worker.terminate();
+                            optionScanWorkers = optionScanWorkers.filter(w => w !== worker);
+                            reject(new Error(msg.message || 'Worker error'));
+                        }
+                    };
+
+                    worker.onerror = (err) => {
+                        worker.terminate();
+                        optionScanWorkers = optionScanWorkers.filter(w => w !== worker);
+                        reject(new Error(err.message || 'Worker error'));
+                    };
+
+                    worker.postMessage({
+                        type: 'start-option-scan',
+                        run_id: runId,
+                        worker_index: index,
+                        packet,
+                        variant_chunk: chunk
+                    });
+                });
+            });
+
+            try {
+                await Promise.all(workerPromises);
+
+                // 4. Build matrix from worker results
+                const matrix = allResults.map(res => {
+                    const variant = res.variant || {};
+                    const agg = res.aggregate_metrics || {};
+                    const perStrategyReturns = (res.per_strategy || []).map(
+                        s => (s.option_metrics || {}).return_pct || 0
+                    );
+                    return {
+                        variant_index: res.variant_index,
+                        label: variant.label || '',
+                        wallet_pct: variant.wallet_pct,
+                        trade_allocation_pct: variant.trade_allocation_pct,
+                        min_dte: variant.min_dte,
+                        target_dte: variant.target_dte,
+                        max_dte: variant.max_dte,
+                        moneyness: variant.moneyness,
+                        profit_take_pct: variant.profit_take_pct,
+                        profit_take_sell_pct: variant.profit_take_sell_pct,
+                        exit_dte: variant.exit_dte,
+                        avg_return_pct: round(agg.avg_return_pct, 2),
+                        max_return_pct: round(agg.max_return_pct, 2),
+                        min_return_pct: round(agg.min_return_pct, 2),
+                        combined_return_pct: round(agg.combined_return_pct, 2),
+                        total_premium: round(agg.total_premium, 2),
+                        total_value: round(agg.total_value, 2),
+                        strategy_returns: perStrategyReturns.map(r => round(r, 2)),
+                    };
+                });
+
+                // Store for rendering
+                lastOptionScanResult = {
+                    stock_result: {
+                        strategies: (packet.stock_strategies || []).map(s => ({
+                            strategy_key: s.strategy_key,
+                            strategy_label: s.strategy_label,
+                            metrics: {}
+                        }))
+                    },
+                    option_scan: {
+                        variant_count: variantCount,
+                        matrix,
+                        warnings: packet.warnings || [],
+                        worker_elapsed_ms: workerElapsed,
+                        wall_ms: performance.now() - started
+                    }
+                };
+
+                renderOptionMatrix();
+                document.getElementById('statWall').textContent = `${number(performance.now() - started, 0)}ms`;
+                setStatus('Completed', `完成 ${matrix.length} 个期权参数组合。`, 100);
+            } catch (error) {
+                cancelOptionScan();
+                setStatus('Error', error.message || String(error), 100);
+            }
+        }
+
+        function renderOptionMatrix() {
+            if (!lastOptionScanResult) return;
+            const data = lastOptionScanResult;
+            const scan = data.option_scan || {};
+            const matrix = scan.matrix || [];
+            const rankMethod = document.getElementById('optionRankMethod').value;
+            const rowLimit = document.getElementById('optionRowLimit').value;
+
+            document.getElementById('optionResultSection').style.display = '';
+            document.getElementById('optionResultMeta').textContent =
+                `${number(scan.variant_count || matrix.length, 0)} 个参数组合`;
+            document.getElementById('optionResultWarnings').textContent =
+                (scan.warnings || []).slice(0, 3).join('; ');
+
+            const sorted = [...matrix];
+            if (rankMethod === 'combined_return') {
+                sorted.sort((a, b) => (b.combined_return_pct || 0) - (a.combined_return_pct || 0));
+            } else if (rankMethod === 'avg_return') {
+                sorted.sort((a, b) => (b.avg_return_pct || 0) - (a.avg_return_pct || 0));
+            } else {
+                sorted.sort((a, b) => (b.max_return_pct || 0) - (a.max_return_pct || 0));
+            }
+
+            const rows = rowLimit === 'all' ? sorted : sorted.slice(0, parseInt(rowLimit));
+
+            document.getElementById('optionMatrixHead').innerHTML = `
+                <tr>
+                    <th>期权参数</th>
+                    <th>组合收益%</th>
+                    <th>平均收益%</th>
+                    <th>最高收益%</th>
+                    <th>最低收益%</th>
+                    <th>总权利金</th>
+                    <th>总价值</th>
+                </tr>
+            `;
+
+            const bodyHtml = rows.map((row, i) => {
+                const ret = row.combined_return_pct || 0;
+                const style = ret > 0
+                    ? `background:rgba(4,120,87,${Math.min(0.3, Math.abs(ret)/200)});color:var(--green);font-weight:900;`
+                    : ret < 0
+                        ? `background:rgba(194,65,53,${Math.min(0.3, Math.abs(ret)/200)});color:var(--red);font-weight:900;`
+                        : '';
+                const strategyList = (row.strategy_returns || []).map((r, j) => {
+                    const stockStrategies = (data.stock_result || {}).strategies || [];
+                    const label = stockStrategies[j] ? stockStrategies[j].strategy_label : `S${j+1}`;
+                    return `${label}: ${pct(r)}`;
+                }).join(', ');
+                return `
+                    <tr>
+                        <td>
+                            <div class="strategy-name">#${i+1} ${escapeHtml(row.label || '')}</div>
+                            <div class="strategy-meta" title="${escapeHtml(strategyList)}">${escapeHtml(strategyList.slice(0, 80))}</div>
+                        </td>
+                        <td style="${style}">${pct(ret)}</td>
+                        <td>${pct(row.avg_return_pct)}</td>
+                        <td>${pct(row.max_return_pct)}</td>
+                        <td>${pct(row.min_return_pct)}</td>
+                        <td>${number(row.total_premium, 0)}</td>
+                        <td>${number(row.total_value, 0)}</td>
+                    </tr>
+                `;
+            }).join('');
+            document.getElementById('optionMatrixBody').innerHTML = bodyHtml || '<tr><td>没有可显示的结果。</td></tr>';
+        }
+
+        // ── Cell-level option scan (drawer mini-table) ─────────────────────
+        let optionScanCache = {};  // { `${candidate_key}|${topic_key}`: { results, timestamp } }
+
+                function renderOptionMiniTable(results) {
+            var table = document.getElementById('optionMiniTable');
+            var status = document.getElementById('optionScanStatus');
+            status.textContent = '';
+            table.style.display = '';
+            var tbody = table.querySelector('tbody');
+            if (!results || !results.length) {
+                tbody.innerHTML = '<tr><td colspan="4">no results</td></tr>';
+                return;
+            }
+            var rows = [];
+            for (var i = 0; i < results.length; i++) {
+                var r = results[i];
+                var optRet = r.option_return_pct || 0;
+                var combinedRet = r.combined_return_pct || 0;
+                var vsStock = r.vs_stock_pct || 0;
+                var color = combinedRet > 0 ? 'var(--green)' : 'var(--red)';
+                var positions = r.positions || [];
+                var skipped = r.skipped || [];
+                var parts = [];
+                for (var pi = 0; pi < positions.length; pi++) {
+                    var p = positions[pi];
+                    var exitHtml = '';
+                    (p.exits || []).forEach(function(ex) {
+                        exitHtml += '<div class="trade-exit">' + ex.reason + ' ' + ex.date + ' @$' + number(ex.price) + ' x' + number(ex.contracts,0) + ' val$' + number(ex.value) + ' dte=' + ex.dte + '</div>';
+                    });
+                    parts.push('<div class="trade-detail" style="margin:4px 0;padding:6px;background:var(--surface-2);border-radius:4px;font-size:12px;">' +
+                        '<strong>' + escapeHtml(p.option_ticker || '?') + '</strong> ' + p.underlying + ' strike$' + p.strike +
+                        ' entry ' + p.entry_date + ' @$' + number(p.entry_price) + ' prem$' + number(p.premium) + ' ' + number(p.contracts,0) + 'ct DTE' + p.dte_at_entry +
+                        exitHtml +
+                        '<span style="color:' + (p.return_pct>0?'var(--green)':'var(--red)') + '">ret ' + pct(p.return_pct) + ' real$' + number(p.realized_value) + ' open$' + number(p.open_value) + '</span>' +
+                        '<div id="optChart_' + i + '_' + pi + '" style="width:100%;min-height:160px;margin-top:6px;border:1px solid var(--line);border-radius:4px;"></div>' +
+                        '</div>');
+                }
+                skipped.forEach(function(sk) {
+                    var skDate = sk.entry_date || sk.date || sk.stock_buy_date || '';
+                    var skExtra = '';
+                    if (sk.option_ticker) skExtra += ' ' + sk.option_ticker;
+                    if (sk.strike != null) skExtra += ' strike$' + sk.strike;
+                    parts.push('<div class="trade-detail" style="color:var(--muted);font-size:11px;">SKIP: ' + (sk.reason||'?') + ' ' + (sk.underlying||'') + ' ' + skDate + skExtra + '</div>');
+                });
+                if (!parts.length) parts.push('<div class="trade-detail" style="color:var(--muted);font-size:12px;">no trades</div>');
+                var detailHtml = parts.join('');
+                rows.push(
+                    '<tr class="option-row" style="cursor:pointer" onclick="var d=this.nextElementSibling;d.style.display=d.style.display===\'none\'?\'\':\'none\';this.classList.toggle(\'expanded\');">' +
+                    '<td><div class="strategy-name">#' + (i+1) + ' ' + escapeHtml(r.label||'') + '</div></td>' +
+                    '<td style="color:' + (optRet>0?'var(--green)':'var(--red)') + ';font-weight:900;">' + pct(optRet) + '</td>' +
+                    '<td style="color:' + color + ';font-weight:900;">' + pct(combinedRet) + '</td>' +
+                    '<td style="color:' + (vsStock>0?'var(--green)':'var(--red)') + ';font-weight:900;">' + pct(vsStock) + '</td>' +
+                    '</tr>' +
+                    '<tr class="option-detail" style="display:none;"><td colspan="4">' + detailHtml + '</td></tr>'
+                );
+            }
+            tbody.innerHTML = rows.join('');
+            setTimeout(function() { drawOptionCharts(results); }, 50);
+        }
+
+        function drawOptionCharts(results) {
+            const hasPlotly = typeof Plotly !== 'undefined' && typeof Plotly.react === 'function';
+            if (!hasPlotly) {
+                // ── Canvas fallback ──────────────────────────────────────────
+                results.forEach(function(r, i) {
+                    (r.positions || []).forEach(function(p, pi) {
+                        var el = document.getElementById('optChart_' + i + '_' + pi);
+                        if (!el) return;
+                        var bars = p.price_bars || [];
+                        if (!bars.length) { el.textContent = 'no data'; return; }
+                        el.innerHTML = '<canvas width="300" height="120" style="display:block;"></canvas>';
+                        var canvas = el.querySelector('canvas');
+                        if (!canvas) return;
+                        var ctx = canvas.getContext('2d');
+                        var W = canvas.width, H = canvas.height;
+                        var pad = { top: 10, right: 15, bottom: 20, left: 55 };
+                        var pw = W - pad.left - pad.right;
+                        var ph = H - pad.top - pad.bottom;
+                        ctx.clearRect(0, 0, W, H);
+                        var closes = bars.map(function(b){return b.close;});
+                        var min = Math.min.apply(null, closes) * 0.95;
+                        var max = Math.max.apply(null, closes) * 1.05;
+                        var range = max - min || 1;
+                        function x(j) { return pad.left + (j / Math.max(1, bars.length - 1)) * pw; }
+                        function y(v) { return pad.top + ph - ((v - min) / range) * ph; }
+                        ctx.strokeStyle = '#e0e4e8'; ctx.lineWidth = 0.5;
+                        ctx.beginPath(); ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, pad.top + ph); ctx.lineTo(pad.left + pw, pad.top + ph); ctx.stroke();
+                        ctx.strokeStyle = '#1d64c8'; ctx.lineWidth = 1.5;
+                        ctx.beginPath();
+                        bars.forEach(function(b, j) { var px = x(j), py = y(b.close); j === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); });
+                        ctx.stroke();
+                        if (p.entry_date && p.entry_price) {
+                            var eIdx = bars.findIndex(function(b){return b.date >= p.entry_date;});
+                            if (eIdx >= 0) {
+                                ctx.fillStyle = '#047857'; ctx.beginPath(); ctx.arc(x(eIdx), y(p.entry_price), 4, 0, Math.PI*2); ctx.fill();
+                                ctx.fillStyle = '#17212b'; ctx.font = '9px sans-serif'; ctx.fillText('B', x(eIdx)+6, y(p.entry_price)+3);
+                            }
+                        }
+                        (p.exits || []).forEach(function(ex) {
+                            var exIdx = bars.findIndex(function(b){return b.date >= ex.date;});
+                            if (exIdx >= 0) {
+                                ctx.fillStyle = ex.reason === 'profit_take' ? '#047857' : '#c24135';
+                                ctx.beginPath(); ctx.arc(x(exIdx), y(ex.price), 4, 0, Math.PI*2); ctx.fill();
+                                ctx.fillText(ex.reason === 'profit_take' ? 'W' : 'S', x(exIdx)+6, y(ex.price)+3);
+                            }
+                        });
+                        ctx.fillStyle = '#637386'; ctx.font = '9px sans-serif';
+                        ctx.fillText('$'+number(min), pad.left-50, pad.top+ph);
+                        ctx.fillText('$'+number(max), pad.left-50, pad.top+10);
+                        ctx.fillText(bars[0].date, pad.left, H-4);
+                    });
+                });
+                return;
+            }
+            // ── Plotly render ────────────────────────────────────────────────
+            results.forEach(function(r, i) {
+                (r.positions || []).forEach(function(p, pi) {
+                    var el = document.getElementById('optChart_' + i + '_' + pi);
+                    if (!el) return;
+                    var bars = p.price_bars || [];
+                    if (!bars.length) { el.textContent = 'no data'; return; }
+
+                    var traces = [];
+
+                    // 1. Price line
+                    traces.push({
+                        x: bars.map(function(b){return b.date;}),
+                        y: bars.map(function(b){return b.close;}),
+                        type: 'scatter', mode: 'lines',
+                        name: '期权价格',
+                        line: { color: '#1d64c8', width: 1.5 },
+                        hovertemplate: '%{x}<br>$%{y:.2f}<extra></extra>'
+                    });
+
+                    // 2. Entry marker — green filled circle
+                    if (p.entry_date && p.entry_price) {
+                        var ticker = p.option_ticker || '?';
+                        traces.push({
+                            x: [p.entry_date],
+                            y: [p.entry_price],
+                            type: 'scatter', mode: 'markers',
+                            name: '入场',
+                            marker: { symbol: 'circle', size: 12, color: '#047857', line: { color: '#fff', width: 1.5 } },
+                            hovertemplate:
+                                '<b>' + escapeHtml(ticker) + '</b><br>' +
+                                'Strike: $' + (p.strike || '-') + '<br>' +
+                                '入场价: $' + number(p.entry_price) + '<br>' +
+                                'Premium: $' + number(p.premium) + '<br>' +
+                                '合约: ' + number(p.contracts, 0) + '<br>' +
+                                'DTE: ' + (p.dte_at_entry || '?') +
+                                '<extra></extra>'
+                        });
+                    }
+
+                    // 3. Exit markers — profit_take green triangle-up / others red triangle-down
+                    var profitExits = [];
+                    var otherExits = [];
+                    (p.exits || []).forEach(function(ex) {
+                        if (ex.date && ex.price > 0) {
+                            (ex.reason === 'profit_take' ? profitExits : otherExits).push(ex);
+                        }
+                    });
+
+                    if (profitExits.length) {
+                        traces.push({
+                            x: profitExits.map(function(ex){return ex.date;}),
+                            y: profitExits.map(function(ex){return ex.price;}),
+                            type: 'scatter', mode: 'markers',
+                            name: '止盈',
+                            marker: { symbol: 'triangle-up', size: 14, color: '#047857', line: { color: '#fff', width: 1.5 } },
+                            hovertemplate: profitExits.map(function(ex){
+                                return '%{x}<br>退出价: $' + number(ex.price) + '<br>价值: $' + number(ex.value) + '<br>合约: ' + number(ex.contracts, 0) + '<br>DTE: ' + (ex.dte || '?') + '<extra>止盈</extra>';
+                            })
+                        });
+                    }
+
+                    if (otherExits.length) {
+                        traces.push({
+                            x: otherExits.map(function(ex){return ex.date;}),
+                            y: otherExits.map(function(ex){return ex.price;}),
+                            type: 'scatter', mode: 'markers',
+                            name: '强制退出',
+                            marker: { symbol: 'triangle-down', size: 14, color: '#c24135', line: { color: '#fff', width: 1.5 } },
+                            hovertemplate: otherExits.map(function(ex){
+                                return '%{x}<br>退出价: $' + number(ex.price) + '<br>价值: $' + number(ex.value) + '<br>原因: ' + (ex.reason || '?') + '<br>合约: ' + number(ex.contracts, 0) + '<br>DTE: ' + (ex.dte || '?') + '<extra>强制退出</extra>';
+                            })
+                        });
+                    }
+
+                    var layout = {
+                        margin: { l: 50, r: 15, t: 10, b: 28 },
+                        height: 160,
+                        paper_bgcolor: '#f8fbfd',
+                        plot_bgcolor: '#f8fbfd',
+                        xaxis: { showgrid: true, gridcolor: '#eef3f7', showticklabels: false },
+                        yaxis: { showgrid: true, gridcolor: '#eef3f7', tickformat: '.2f', tickprefix: '$' },
+                        showlegend: true,
+                        legend: { orientation: 'h', y: 1.12, x: 0, font: { size: 10, color: '#637386' } },
+                        hovermode: 'closest'
+                    };
+
+                    var config = { responsive: true, displayModeBar: false };
+
+                    Plotly.react(el, traces, layout, config);
+                });
+            });
+        }
+
+async function scanOptionForCell(rowKey, topicKey) {
+            window._lastOptionRowKey = rowKey;
+            const cacheKey = rowKey + '|' + topicKey;
+            if (optionScanCache[cacheKey]) {
+                renderOptionMiniTable(optionScanCache[cacheKey].results);
+                return;
+            }
+            const row = findRow(rowKey);
+            if (!row) return;
+
+            const status = document.getElementById('optionScanStatus');
+            status.textContent = '正在生成交易记录…';
+
+            try {
+                // 1. Run JS worker to get trades (fast, uses pre-loaded price data)
+                let stockStrategies = [];
+                if (lastParameterPacket) {
+                    stockStrategies = await getTradesFromWorker(row, topicKey, lastParameterPacket);
+                }
+
+                // 2. POST trades to server → server fetches option data only
+                status.textContent = '正在抓取期权数据…';
+                const optionPayload = {
+                    start: lastParameterPacket?.tasks?.[0]?.start || '2022-01-01',
+                    end: lastParameterPacket?.tasks?.[0]?.end || new Date().toISOString().slice(0, 10),
+                    stock_strategies: stockStrategies,
+                    initial_cash: Number(document.getElementById('initialCash')?.value) || 20000,
+                    monthly_contribution: Number(document.getElementById('monthlyContribution')?.value) || 1000,
+                    option_wallet_pcts: optVal('optWalletPct'),
+                    option_trade_allocations: optVal('optTradeAllocation'),
+                    option_dte_min: optVal('optDteMin'),
+                    option_dte_target: optVal('optDteTarget'),
+                    option_dte_max: optVal('optDteMax'),
+                    option_moneyness_values: optVal('optMoneyness'),
+                    option_profit_takes: optVal('optProfitTake'),
+                    option_profit_take_sells: optVal('optProfitTakeSell'),
+                    option_exit_dtes: optVal('optExitDte'),
+                    scorecard_portfolio_keys: (lastParameterPacket?.scorecard_portfolio_keys || ['tsm_100']),
+                    targets: (lastParameterPacket?.targets || []),
+                };
+
+                const resp = await fetch('/api/strategy-lab/parameter-lab/option-packet', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(optionPayload)
+                });
+                const result = await resp.json();
+                if (!resp.ok || !result.success) throw new Error(result.message || '期权数据抓取失败');
+                const optionPacket = result.packet;
+
+                // 3. Run option scan workers
+                const variants = optionPacket.option_variants || [];
+                const stockStrategiesOut = optionPacket.stock_strategies || [];
+                const workerCount = Math.max(1, Math.min(4, Math.floor(Number(navigator.hardwareConcurrency || 4) * 0.5)));
+                const chunkSize = Math.ceil(variants.length / workerCount);
+                status.textContent = `扫描 ${variants.length} 个期权变体…`;
+
+                const workerResults = await Promise.all(Array.from({length: workerCount}, (_, i) => {
+                    const chunk = variants.slice(i * chunkSize, (i + 1) * chunkSize);
+                    if (!chunk.length) return Promise.resolve([]);
+                    return new Promise((resolve, reject) => {
+                        const worker = new Worker('/static/option_scan_worker.js');
+                        worker.onmessage = (event) => {
+                            const msg = event.data || {};
+                            if (msg.type === 'done') { worker.terminate(); resolve(msg.results || []); }
+                            if (msg.type === 'error') { worker.terminate(); reject(new Error(msg.message)); }
+                            if (msg.type === 'debug') { console.warn('[option-worker]', msg.message); }
+                        };
+                        worker.onerror = (e) => { worker.terminate(); reject(new Error(e.message)); };
+                        worker.postMessage({
+                            type: 'start-option-scan',
+                            run_id: 'cell-scan-' + Date.now(),
+                            worker_index: i,
+                            variant_chunk: chunk,
+                            packet: {
+                                stock_strategies: stockStrategiesOut,
+                                option_data_lookup: optionPacket.option_data_lookup,
+                                end_date: optionPacket.end_date,
+                                stock_inputs: optionPacket.stock_inputs
+                            }
+                        });
+                    });
+                }));
+
+                // 4. Find cell-specific stock return
+                let stockReturn = 0;
+                if (lastParameterResult) {
+                    const cellRow = lastParameterResult.rows.find(r => r.key === rowKey);
+                    if (cellRow) {
+                        const cell = cellRow.cells.find(c => c.task_key === topicKey || c.topic_key === topicKey);
+                        if (cell) stockReturn = cell.return_pct || 0;
+                    }
+                }
+
+                // 5. Build mini table results (with position details for drill-down)
+                const allScanResults = workerResults.flat();
+                const miniResults = allScanResults.map((vr) => {
+                    const optRet = vr.aggregate_metrics?.combined_return_pct || 0;
+                    const combinedRet = stockReturn + optRet;
+                    const positions = [];
+                    const skipped = [];
+                    for (const ps of (vr.per_strategy || [])) {
+                        for (const pos of (ps.option_positions || [])) {
+                            positions.push(pos);
+                        }
+                        for (const sk of (ps.option_skipped || [])) {
+                            skipped.push(sk);
+                        }
+                    }
+                    return {
+                        label: vr.variant?.label || '',
+                        option_return_pct: optRet,
+                        combined_return_pct: combinedRet,
+                        vs_stock_pct: optRet,
+                        positions,
+                        skipped
+                    };
+                });
+
+                // 6. Cache + render
+                optionScanCache[cacheKey] = { results: miniResults, timestamp: Date.now() };
+                renderOptionMiniTable(miniResults);
+            } catch (error) {
+                status.textContent = '扫描失败: ' + (error.message || String(error));
+            }
+        }
+
+        async function getTradesFromWorker(row, topicKey, packet) {
+            // Find the task matching this topic
+            const task = (packet.tasks || []).find(t => t.key === topicKey);
+            if (!task) throw new Error('未找到题目数据');
+
+            // Find the target weight for scaling buy amounts to 100%
+            const targets = packet.targets || [];
+            const scaleBySymbol = {};
+            for (const tgt of targets) {
+                const w = Number(tgt.weight || 100);
+                if (w > 0) {
+                    const sym = String(tgt.symbol || '').toUpperCase();
+                    scaleBySymbol[sym] = 100 / w;
+                }
+            }
+
+            // Build candidate row for this single candidate
+            const candidate = row.candidate;
+            const candidateRow = {
+                candidate_id: candidate.candidate_id || candidate.key || 'c0',
+                candidate_key: candidate.key,
+                candidate
+            };
+
+            return new Promise((resolve, reject) => {
+                const worker = new Worker('/static/strategy_parameter_lab_worker.js');
+                const runId = 'trades-' + Date.now();
+                const miniPacket = {
+                    ...packet,
+                    run_id: runId,
+                    tasks: [task],
+                    candidate_rows: [candidateRow],
+                    include_trades: true,
+                    parameter_lab_concurrency: 1,
+                    diagnostics: { progress_every: 1, progress_min_ms: 0 }
+                };
+
+                worker.onmessage = (event) => {
+                    const msg = event.data || {};
+                    if (msg.type === 'ready') {
+                        // Send first (only) batch
+                        worker.postMessage({
+                            type: 'batch',
+                            run_id: runId,
+                            worker_index: 0,
+                            batch_id: 'single',
+                            candidate_rows: miniPacket.candidate_rows
+                        });
+                    } else if (msg.type === 'batch_done') {
+                        // Pass individual trades for option wallet replay
+                        const rows = msg.rows || [];
+                        const strategies = [];
+                        for (const r of rows) {
+                            for (const obs of (r.observations || [])) {
+                                const tradeLog = obs.trade_log || [];
+                                const strategyTrades = [];
+                                for (const t of tradeLog) {
+                                    const sym = String(t.symbol || '').toUpperCase();
+                                    const scale = scaleBySymbol[sym] || 1;
+                                    strategyTrades.push({
+                                        symbol: sym,
+                                        date: t.date,
+                                        price: t.price || 0,
+                                        gross_amount: (t.gross_amount || 0) * scale,
+                                        action: t.action
+                                    });
+                                }
+                                if (strategyTrades.length > 0) {
+                                    strategies.push({
+                                        strategy_key: obs.candidate_key || 'single',
+                                        strategy_label: obs.candidate_key || 'Single',
+                                        trades: strategyTrades
+                                    });
+                                }
+                            }
+                        }
+                        worker.postMessage({ type: 'finish', run_id: runId, worker_index: 0 });
+                        worker.terminate();
+                        resolve(strategies);
+                    } else if (msg.type === 'error') {
+                        worker.terminate();
+                        reject(new Error(msg.message));
+                    }
+                };
+                worker.onerror = (e) => {
+                    worker.terminate();
+                    reject(new Error(e.message));
+                };
+                worker.postMessage({
+                    type: 'start',
+                    run_id: runId,
+                    worker_index: 0,
+                    packet: miniPacket,
+                    total_simulations: 1
+                });
+            });
+        }
+
+        function openOptionChart(variantLabel) {
+            var row = findRow(window._lastOptionRowKey || '');
+            if (row) {
+                localStorage.setItem('strategyLabPendingParameterCandidate', JSON.stringify({
+                    candidate: row.candidate,
+                    payload: parameterLabPayload(),
+                    option_variant_label: variantLabel,
+                    source: 'option-cell-scan',
+                    applied_at: new Date().toISOString()
+                }));
+            }
+            window.open('/strategy-lab?apply_parameter_lab=1&auto_run_lab=1&option_chart=1', '_blank');
+        }
 
         refreshUniverseTopics();
         renderCandidateGridSummary();
-        document.getElementById('workerCount').value = Math.max(1, Math.min(8, Number(navigator.hardwareConcurrency || 4)));
+        document.getElementById('workerCount').value = Math.max(1, Math.min(4, Number(navigator.hardwareConcurrency || 4)));
+        document.getElementById('workerCount').addEventListener('input', () => { workerCountTouched = true; });
         document.getElementById('resultMeta').textContent = `registry ${strategyRegistry.version}`;
     </script>
 </body>
