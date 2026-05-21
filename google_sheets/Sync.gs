@@ -2,6 +2,8 @@ const CONFIG = {
   SYNC_URL: 'http://boll.aqcloud.ltd/api/trade-sync',
   SYNC_TOKEN: 'sd_iwillbetherichestmanintheworld',
   SHEET_NAME: 'main',
+  ACCOUNT_SHEET_NAME: 'account',
+  SIGNAL_TARGETS_SHEET_NAME: 'signal_targets',
   HEADER_ROW: 1,
   TIMEZONE: 'Asia/Shanghai',
 
@@ -43,12 +45,12 @@ function runSync_(options) {
   }
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
-  if (!sheet) {
+  const mainSheet = ss.getSheetByName(CONFIG.SHEET_NAME);
+  if (!mainSheet) {
     throw new Error('Sheet not found: ' + CONFIG.SHEET_NAME);
   }
 
-  const payload = buildPayload_(ss, sheet);
+  const payload = buildPayload_(ss, mainSheet);
 
   const response = UrlFetchApp.fetch(CONFIG.SYNC_URL, {
     method: 'post',
@@ -82,9 +84,46 @@ function runSync_(options) {
 }
 
 function buildPayload_(spreadsheet, sheet) {
+  const mainRows = readSheetRows_(sheet);
+  const accountSheet = spreadsheet.getSheetByName(CONFIG.ACCOUNT_SHEET_NAME);
+  const targetSheet = spreadsheet.getSheetByName(CONFIG.SIGNAL_TARGETS_SHEET_NAME);
+  const accountRows = accountSheet ? readSheetRows_(accountSheet) : [];
+  const signalTargetRows = targetSheet ? readSheetRows_(targetSheet) : [];
+
+  return {
+    schema_version: 2,
+    spreadsheet_id: spreadsheet.getId(),
+    spreadsheet_name: spreadsheet.getName(),
+    sheet_name: sheet.getName(),
+    exported_at: Utilities.formatDate(
+      new Date(),
+      CONFIG.TIMEZONE,
+      "yyyy-MM-dd'T'HH:mm:ssXXX"
+    ),
+    rows: mainRows,
+    sheets: {
+      main: {
+        sheet_name: sheet.getName(),
+        rows: mainRows
+      },
+      account: {
+        sheet_name: CONFIG.ACCOUNT_SHEET_NAME,
+        rows: accountRows
+      },
+      signal_targets: {
+        sheet_name: CONFIG.SIGNAL_TARGETS_SHEET_NAME,
+        rows: signalTargetRows
+      }
+    },
+    account: accountRows,
+    signal_targets: signalTargetRows
+  };
+}
+
+function readSheetRows_(sheet) {
   const values = sheet.getDataRange().getValues();
   if (values.length < 2) {
-    throw new Error('No data rows found in sheet: ' + sheet.getName());
+    return [];
   }
 
   const headers = values[CONFIG.HEADER_ROW - 1].map(normalizeHeader_);
@@ -109,18 +148,7 @@ function buildPayload_(spreadsheet, sheet) {
     rows.push(obj);
   }
 
-  return {
-    schema_version: 1,
-    spreadsheet_id: spreadsheet.getId(),
-    spreadsheet_name: spreadsheet.getName(),
-    sheet_name: sheet.getName(),
-    exported_at: Utilities.formatDate(
-      new Date(),
-      CONFIG.TIMEZONE,
-      "yyyy-MM-dd'T'HH:mm:ssXXX"
-    ),
-    rows: rows
-  };
+  return rows;
 }
 
 function installSyncTrigger() {
@@ -160,6 +188,8 @@ function showSyncStatus() {
 
   const message = [
     'Sheet: ' + CONFIG.SHEET_NAME,
+    'Account Sheet: ' + CONFIG.ACCOUNT_SHEET_NAME,
+    'Signal Targets Sheet: ' + CONFIG.SIGNAL_TARGETS_SHEET_NAME,
     'URL: ' + CONFIG.SYNC_URL,
     'Auto Sync: ' + (CONFIG.AUTO_SYNC_ENABLED ? 'ON' : 'OFF'),
     'Interval: every ' + CONFIG.AUTO_SYNC_INTERVAL_MINUTES + ' minutes',

@@ -14,6 +14,8 @@ TRADE_SYNC_DIR = DATA_DIR / "trade_sync"
 RAW_DIR = TRADE_SYNC_DIR / "raw"
 LATEST_DIR = TRADE_SYNC_DIR / "latest"
 BY_SYMBOL_DIR = TRADE_SYNC_DIR / "by_symbol"
+ACCOUNT_LATEST_PATH = LATEST_DIR / "account_latest.json"
+SIGNAL_TARGETS_LATEST_PATH = LATEST_DIR / "signal_targets_latest.json"
 DRAWDOWN_CACHE_DIR = DATA_DIR / "drawdown_cache"
 DRAWDOWN_SNAPSHOT_CACHE_DIR = DATA_DIR / "drawdown_snapshot_cache"
 REPORT_DRAWDOWN_DIR = ROOT_DIR / "report" / "drawdown"
@@ -119,6 +121,52 @@ def save_sync_payload(
         "symbols": symbols,
         "dirty_symbols": symbols,
     }
+
+
+def save_account_payload(payload: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    ensure_storage_dirs()
+    sync_version = build_sync_version(payload.get("exported_at"))
+    account_payload = {
+        "saved_at": utc_now_iso(),
+        "updated_at": payload.get("exported_at", ""),
+        "sync_version": sync_version,
+        "spreadsheet_id": payload.get("spreadsheet_id", ""),
+        "spreadsheet_name": payload.get("spreadsheet_name", ""),
+        "sheet_name": "account",
+        "rows": rows,
+    }
+    _write_json(ACCOUNT_LATEST_PATH, account_payload)
+    return {"account_rows": len(rows)}
+
+
+def save_signal_targets_payload(payload: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    ensure_storage_dirs()
+    sync_version = build_sync_version(payload.get("exported_at"))
+    targets_payload = {
+        "saved_at": utc_now_iso(),
+        "updated_at": payload.get("exported_at", ""),
+        "sync_version": sync_version,
+        "spreadsheet_id": payload.get("spreadsheet_id", ""),
+        "spreadsheet_name": payload.get("spreadsheet_name", ""),
+        "sheet_name": "signal_targets",
+        "rows": rows,
+    }
+    _write_json(SIGNAL_TARGETS_LATEST_PATH, targets_payload)
+    return {"signal_target_rows": len(rows)}
+
+
+def load_account_snapshot() -> dict[str, Any] | None:
+    ensure_storage_dirs()
+    if not ACCOUNT_LATEST_PATH.exists():
+        return None
+    return _read_json(ACCOUNT_LATEST_PATH)
+
+
+def load_signal_targets_snapshot() -> dict[str, Any] | None:
+    ensure_storage_dirs()
+    if not SIGNAL_TARGETS_LATEST_PATH.exists():
+        return None
+    return _read_json(SIGNAL_TARGETS_LATEST_PATH)
 
 
 def load_symbol_snapshot(symbol: str) -> dict[str, Any] | None:
