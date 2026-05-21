@@ -3,7 +3,6 @@ Flask Web应用
 提供Web界面查看结果、更新token、手动触发分析
 """
 
-import dataclasses
 import gzip
 import hashlib
 import os
@@ -23,16 +22,6 @@ from urllib.parse import urlencode
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.config_manager import ConfigManager
 from drawdown.generate_drawdown_report import TradeOverlay, normalize_longbridge_symbol, render_longbridge_drawdown_from_overlays
-from drawdown.option_overlay import (
-    US_OPTION_UNDERLYINGS,
-    OptionOverlaySettings,
-    apply_option_overlay,
-    batch_fetch_option_data,
-    scan_option_variants,
-    _base_symbol as _option_base_symbol,
-)
-from drawdown.option_provider import create_option_provider
-from drawdown.strategy_parameter_registry import expand_option_parameter_variants
 from drawdown.position_strategy import (
     SCORECARD_PERIODS,
     SCORECARD_PORTFOLIOS,
@@ -72,6 +61,7 @@ from drawdown.strategy_lab_history import (
     save_experiment_preset,
     save_run_snapshot,
 )
+from drawdown.leaps_option_outcomes import PolygonMonthlyOptionProvider, replay_leaps_option_outcomes
 from trade_sync.cleanup import run_trade_sync_cleanup
 from trade_sync.normalize import canonical_symbol, normalize_trade_rows
 from trade_sync.store import (
@@ -79,16 +69,21 @@ from trade_sync.store import (
     is_drawdown_stale,
     list_synced_symbols,
     load_symbol_snapshot,
+    save_account_payload,
     save_drawdown_meta,
+    save_signal_targets_payload,
     save_sync_payload,
 )
+from account_signal import account_signal_status, run_account_signal
 import watchlist_boll_filter
 from watchlist_boll_filter import main, run_analysis_and_notify, WatchlistBollFilterResult
 from report.html_generator import generate_html_report
-from option_quote import OptionQuoteService
 
 # 全局变量
 app = Flask(__name__)
+_leaps_option_provider_lock = threading.Lock()
+_leaps_option_provider: PolygonMonthlyOptionProvider | None = None
+_leaps_option_provider_api_key = ""
 config_manager: Optional[ConfigManager] = None
 latest_result: Optional[WatchlistBollFilterResult] = None
 scheduler_instance = None  # 全局调度器实例，用于动态更新
@@ -180,7 +175,30 @@ def _json_response_with_optional_gzip(payload: dict[str, object], status_code: i
     return response
 
 
-PARAMETER_LAB_PAYLOAD_SCHEMA = "strategy_parameter_lab_packet_v3"
+def _extract_sheet_rows(payload: dict[str, object], sheet_name: str) -> list[dict[str, object]]:
+    if sheet_name == "main":
+        rows = payload.get("rows")
+        if isinstance(rows, list):
+            return [row for row in rows if isinstance(row, dict)]
+
+    direct_rows = payload.get(sheet_name)
+    if isinstance(direct_rows, list):
+        return [row for row in direct_rows if isinstance(row, dict)]
+    if isinstance(direct_rows, dict) and isinstance(direct_rows.get("rows"), list):
+        return [row for row in direct_rows["rows"] if isinstance(row, dict)]
+
+    sheets = payload.get("sheets")
+    if isinstance(sheets, dict):
+        sheet_payload = sheets.get(sheet_name)
+        if isinstance(sheet_payload, list):
+            return [row for row in sheet_payload if isinstance(row, dict)]
+        if isinstance(sheet_payload, dict) and isinstance(sheet_payload.get("rows"), list):
+            return [row for row in sheet_payload["rows"] if isinstance(row, dict)]
+
+    return []
+
+
+PARAMETER_LAB_PAYLOAD_SCHEMA = "strategy_parameter_lab_packet_v5"
 PARAMETER_LAB_LARGE_RUN_GUARDRAIL = int(os.environ.get("STRATEGY_PARAMETER_LAB_LARGE_RUN_GUARDRAIL", "50000"))
 
 def _parameter_lab_price_series_from_tasks(tasks: list[dict[str, object]]) -> tuple[dict[str, object], int]:
@@ -440,6 +458,26 @@ def _get_position_strategy_config() -> dict:
     return config_manager.get_position_strategy_config()
 
 
+def _get_polygon_api_key() -> str:
+    global config_manager
+    if config_manager is None:
+        config_manager = ConfigManager()
+    if hasattr(config_manager, "get_polygon_config"):
+        return str(config_manager.get_polygon_config().get("api_key") or "").strip()
+    return str(config_manager.get("polygon.api_key", "") or os.getenv("POLYGON_API_KEY", "")).strip()
+
+
+def _get_leaps_option_provider(api_key: str) -> PolygonMonthlyOptionProvider | None:
+    if not api_key:
+        return None
+    global _leaps_option_provider, _leaps_option_provider_api_key
+    with _leaps_option_provider_lock:
+        if _leaps_option_provider is None or _leaps_option_provider_api_key != api_key:
+            _leaps_option_provider = PolygonMonthlyOptionProvider(api_key)
+            _leaps_option_provider_api_key = api_key
+        return _leaps_option_provider
+
+
 def _check_trade_sync_auth() -> tuple[bool, str]:
     trade_sync_config = _get_trade_sync_config()
     if not trade_sync_config.get("enabled", True):
@@ -492,7 +530,7 @@ def _fetch_watchlist_from_longbridge() -> tuple[list[str], dict[str, str]]:
     quote_ctx = watchlist_boll_filter.QuoteContext(lb_config_obj)
     return watchlist_boll_filter.get_watchlist_symbols(
         quote_ctx,
-        exclude_options=True,
+        exclude_derivatives=True,
     )
 
 
@@ -869,8 +907,7 @@ INDEX_TEMPLATE = """
                 <a href="/drawdown" class="btn btn-secondary">Drawdown</a>
                 <a href="/schedule" class="btn btn-secondary">定时任务</a>
                 <a href="/update-token" class="btn btn-secondary">更新 Token</a>
-                <button onclick="triggerAnalysis(false)" class="btn">快速分析（无期权延迟）</button>
-                <button onclick="triggerAnalysis(true)" class="btn btn-green">完整分析（含期权延迟）</button>
+                <button onclick="triggerAnalysis()" class="btn btn-green">立即分析</button>
             </div>
         </div>
 
@@ -896,23 +933,22 @@ INDEX_TEMPLATE = """
                 {% if result %}
                     {{ result_html|safe }}
                 {% else %}
-                    <p style="color: var(--muted); margin: 0;">暂无分析结果。点击"快速分析"或"完整分析"按钮开始分析。</p>
+                    <p style="color: var(--muted); margin: 0;">暂无分析结果。点击"立即分析"按钮开始分析。</p>
                 {% endif %}
             </div>
         </div>
     </div>
 
     <script>
-        function triggerAnalysis(optionDelay) {
-            const message = optionDelay ? '正在完整分析（含期权延迟），请耐心等待...' : '正在快速分析，请稍候...';
-            document.getElementById('status').innerHTML = '<div class="status info">' + message + '</div>';
+        function triggerAnalysis() {
+            document.getElementById('status').innerHTML = '<div class="status info">正在分析，请稍候...</div>';
 
             fetch('/api/trigger', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ option_delay: optionDelay })
+                body: JSON.stringify({})
             })
                 .then(response => {
                     if (!response.ok) {
@@ -1676,7 +1712,7 @@ STRATEGY_LAB_TEMPLATE = """
             text-transform: uppercase;
         }
         .fieldset .grid { grid-template-columns: repeat(4, minmax(118px, 1fr)); }
-        /* switch rows for option overlay */
+        /* switch rows */
         .switch-row {
             display: flex;
             align-items: center;
@@ -3071,7 +3107,7 @@ STRATEGY_LAB_TEMPLATE = """
             <div class="title-block">
                 <div class="title-kicker">Strategy Lab</div>
                 <h1>仓位策略实验室</h1>
-                <p>按交易日时序演算股票回撤加仓、卖出规则和期权影子仓位。</p>
+                <p>按交易日时序演算股票回撤加仓、卖出规则和现金复用。</p>
             </div>
             <div class="header-actions">
                 <a href="/strategy-lab/parameter-lab" class="btn btn-secondary">参数实验室</a>
@@ -3083,7 +3119,7 @@ STRATEGY_LAB_TEMPLATE = """
         <div class="quick-stats">
             <div class="quick-stat"><strong>6 × 4</strong><span>买入与卖出策略矩阵</span></div>
             <div class="quick-stat"><strong>4</strong><span>默认组合标的，可直接改权重</span></div>
-            <div class="quick-stat"><strong>20%</strong><span>默认期权影子仓位比例</span></div>
+            <div class="quick-stat"><strong>90/10</strong><span>评分固定收益与回撤权重</span></div>
             <div class="quick-stat"><strong>T+0</strong><span>按日线时序滚动演算</span></div>
         </div>
 
@@ -3315,6 +3351,10 @@ STRATEGY_LAB_TEMPLATE = """
                             <label for="costDeleverageCooldown">成本卖出冷却天数</label>
                             <input id="costDeleverageCooldown" type="number" min="0" step="1" value="{{ default_config.default_cost_deleverage_cooldown_days }}">
                         </div>
+                        <label title="开启后，当天买入完成并更新持仓后，会继续运行当前卖出策略；卖出仍受该策略自身盈利、冷却、底仓、最小卖出额、档位规则限制。">
+                            <input id="sellAllowSameDaySell" type="checkbox" {% if default_config.default_sell_allow_same_day_sell %}checked{% endif %}>
+                            买入日可卖
+                        </label>
                         <div>
                             <label for="costMinSellAmount">成本最小卖出额 USD</label>
                             <input id="costMinSellAmount" type="number" min="0" step="50" value="{{ default_config.default_cost_min_sell_amount }}">
@@ -3322,114 +3362,7 @@ STRATEGY_LAB_TEMPLATE = """
                     </div>
                 </div>
             </div>
-            <div class="hint" style="margin-top: 12px;">演算按交易日从早到晚推进，每天只使用截至当天的价格、回撤、现金和持仓状态；不会提前读取未来走势。价格修复到接近 ATH 后会进入下一轮交易周期，买入档位和分档卖出规则可重新触发。卖后重启回撤控制卖出后的下一轮触发门槛：三档金字塔在整仓/网格/成本卖出后，需要从卖出当天再加深这些回撤百分点才重新打开已用过的买入档位；每周定投、工资流定投和核心定投在明显回撤买入后，用同一参数重新打开阶梯修复、网格回弹、成本去杠杆的整仓卖出档位。0% 表示卖出后只要仍在当前回撤附近即可重启。卖出下拉里的“全部卖出策略”现在包含网格回弹卖出，和收益 Top10 保持一致；阶梯修复卖出每次只执行一个修复档，并在卖出后进入交易日冷却期。网格回弹对三档金字塔仍按大 lot 卖出，对其他细切/定投策略按整仓聚合卖出，并使用独立回弹步长、两档卖出比例和最小卖出额控制交易噪音。等距细切、底仓、手续费、汇率、评分权重和期权参数都可以通过“保存默认值”写入配置，下次打开自动带出。HK 标的按页面汇率折算成 USD。</div>
-            </div>
-        </div>
-
-        <div class="panel">
-            <div class="tool-head">
-                <h2>期权叠加</h2>
-                <span class="code">SHADOW</span>
-            </div>
-            <div class="tool-body">
-            <div class="switch-row">
-                <div><strong>启用期权叠加</strong><span>买点对齐股票买点，收益独立展示</span></div>
-                <div class="toggle {% if default_config.default_option_enabled %}on{% endif %}" id="optionToggle" onclick="toggleOption()"></div>
-                <input id="optionEnabled" type="checkbox" style="display:none" {% if default_config.default_option_enabled %}checked{% endif %}>
-            </div>
-            <div class="fieldsets" style="margin-top: 10px;">
-                <div class="fieldset">
-                    <div class="fieldset-title">仓位与合约</div>
-                    <div class="grid">
-                        <div>
-                            <label for="optionWalletPct">期权钱包比例 %</label>
-                            <input id="optionWalletPct" type="number" min="0" max="100" step="1" value="{{ default_config.default_option_wallet_pct }}">
-                        </div>
-                        <div>
-                            <label for="optionMoneyness">行权价规则</label>
-                            <select id="optionMoneyness">
-                                <option value="atm" {% if default_config.default_option_moneyness == "atm" %}selected{% endif %}>ATM</option>
-                                <option value="itm_10" {% if default_config.default_option_moneyness == "itm_10" %}selected{% endif %}>ITM 10%</option>
-                                <option value="otm_10" {% if default_config.default_option_moneyness == "otm_10" %}selected{% endif %}>OTM 10%</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label for="optionMaxTrades">每组合最多期权买点</label>
-                            <input id="optionMaxTrades" type="number" min="1" max="200" step="1" value="{{ default_config.default_option_max_trades_per_strategy }}">
-                        </div>
-                        <div>
-                            <label for="optionTradeFee">期权单笔手续费 USD</label>
-                            <input id="optionTradeFee" type="number" min="0" step="0.01" value="{{ default_config.default_option_trade_fee }}">
-                        </div>
-                    </div>
-                </div>
-                <div class="fieldset">
-                    <div class="fieldset-title">DTE 与止盈</div>
-                    <div class="grid">
-                        <div>
-                            <label for="optionTargetDte">目标 DTE</label>
-                            <input id="optionTargetDte" type="number" min="30" step="1" value="{{ default_config.default_option_target_dte }}">
-                        </div>
-                        <div>
-                            <label for="optionMinDte">最小 DTE</label>
-                            <input id="optionMinDte" type="number" min="1" step="1" value="{{ default_config.default_option_min_dte }}">
-                        </div>
-                        <div>
-                            <label for="optionMaxDte">最大 DTE</label>
-                            <input id="optionMaxDte" type="number" min="1" step="1" value="{{ default_config.default_option_max_dte }}">
-                        </div>
-                        <div>
-                            <label for="optionExitDte">DTE 小于此值退出</label>
-                            <input id="optionExitDte" type="number" min="1" step="1" value="{{ default_config.default_option_exit_dte }}">
-                        </div>
-                        <div>
-                            <label for="optionProfitTake">止盈涨幅 %</label>
-                            <input id="optionProfitTake" type="number" min="1" step="5" value="{{ default_config.default_option_profit_take_pct }}">
-                        </div>
-                        <div>
-                            <label for="optionProfitSell">止盈卖出 %</label>
-                            <input id="optionProfitSell" type="number" min="1" max="100" step="5" value="{{ default_config.default_option_profit_take_sell_pct }}">
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <details class="explain-drawer">
-                <summary>查看期权参数说明</summary>
-            <div class="description-grid">
-                <div class="description-card">
-                    <strong>期权资金比例</strong>
-                    <p>股票策略触发买入时，按这笔股票买入金额的一定比例估算期权投入。默认 20%，表示股票买入 1000 USD 时，同步用 200 USD 做期权影子仓位。</p>
-                </div>
-                <div class="description-card">
-                    <strong>DTE</strong>
-                    <p>DTE 是 Days To Expiration，也就是距离期权到期还剩多少天。目标 DTE 默认 365，表示优先找大约一年后到期的 Call。</p>
-                </div>
-                <div class="description-card">
-                    <strong>最小 / 最大 DTE</strong>
-                    <p>这是可接受的到期日范围。默认 300-450 天，如果没有刚好一年后的期权，就在这个范围里找最接近目标 DTE 的合约。</p>
-                </div>
-                <div class="description-card">
-                    <strong>ATM / ITM / OTM</strong>
-                    <p>ATM 是行权价接近当前股价；ITM 10% 是行权价约低于股价 10%，更贵但更稳；OTM 10% 是行权价约高于股价 10%，更便宜但归零风险更高。</p>
-                </div>
-                <div class="description-card">
-                    <strong>止盈涨幅 / 止盈卖出</strong>
-                    <p>默认期权价格涨 100% 时卖出 50%。比如 10 美元买入的期权涨到 20 美元，就先卖掉一半，剩余部分继续博弹性。</p>
-                </div>
-                <div class="description-card">
-                    <strong>DTE 小于此值退出</strong>
-                    <p>用于避免期权太接近到期。默认小于 120 天就卖剩余仓位，因为越接近到期，时间价值损耗通常越明显。</p>
-                </div>
-                <div class="description-card">
-                    <strong>每组合最多期权买点</strong>
-                    <p>限制每个策略组合最多处理多少个期权买入点，避免一次演算请求太多 Polygon 数据导致页面等待过久或触发限流。</p>
-                </div>
-                <div class="description-card">
-                    <strong>不并入主组合</strong>
-                    <p>期权是独立的高弹性影子仓位。主表里的股票收益曲线不被期权改变，期权结果只显示在期权收益率、期权投入和详情明细中。</p>
-                </div>
-            </div>
-            </details>
+            <div class="hint" style="margin-top: 12px;">演算按交易日从早到晚推进，每天只使用截至当天的价格、回撤、现金和持仓状态；不会提前读取未来走势。价格修复到接近 ATH 后会进入下一轮交易周期，买入档位和分档卖出规则可重新触发。卖后重启回撤控制卖出后的下一轮触发门槛：三档金字塔在整仓/网格/成本卖出后，需要从卖出当天再加深这些回撤百分点才重新打开已用过的买入档位；每周定投、工资流定投和核心定投在明显回撤买入后，用同一参数重新打开阶梯修复、网格回弹、成本去杠杆的整仓卖出档位。0% 表示卖出后只要仍在当前回撤附近即可重启。卖出下拉里的“全部卖出策略”现在包含网格回弹卖出，和收益 Top10 保持一致；阶梯修复卖出每次只执行一个修复档，并在卖出后进入交易日冷却期。网格回弹对三档金字塔仍按大 lot 卖出，对其他细切/定投策略按整仓聚合卖出，并使用独立回弹步长、两档卖出比例和最小卖出额控制交易噪音。等距细切、底仓、手续费、汇率和评分权重都可以通过“保存默认值”写入配置，下次打开自动带出。HK 标的按页面汇率折算成 USD。</div>
             </div>
         </div>
             </div>
@@ -3729,7 +3662,6 @@ STRATEGY_LAB_TEMPLATE = """
             <div class="kpi" id="kpiWorstDrawdown"><span>最大组合回撤</span><strong>--</strong></div>
             <div class="kpi" id="kpiCashUsage"><span>现金峰值使用</span><strong>--</strong></div>
             <div class="kpi" id="kpiTrades"><span>买入 / 卖出</span><strong>--</strong></div>
-            <div class="kpi" id="kpiOptionReturn"><span>期权影子收益</span><strong>--</strong></div>
         </div>
 
         <div id="comparison" class="panel tab-hidden" data-tab-panel="results">
@@ -3767,14 +3699,12 @@ STRATEGY_LAB_TEMPLATE = """
                             <th>卖出盈利</th>
                             <th>卖出回撤</th>
                             <th>现金复用</th>
-                            <th>期权收益率</th>
-                            <th>期权投入</th>
                             <th>累计手续费</th>
                             <th>手续费/投入</th>
                         </tr>
                     </thead>
                     <tbody id="summaryBody">
-                        <tr><td colspan="19">尚未运行。</td></tr>
+                        <tr><td colspan="17">尚未运行。</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -3797,7 +3727,7 @@ STRATEGY_LAB_TEMPLATE = """
                 </div>
             </div>
             <div class="tool-body">
-            <div class="hint">评分只比较收益率和最大回撤，固定按收益 90% / 回撤 10% 排名。若设置每月注入，收益率按累计投入计算；汇总表总分按平均收益、平均回撤归一化计算；卖出质量、卖出盈利、卖出回撤、现金复用只做观察诊断，不参与总分。题目矩阵单元格保留每个题目内部的归一化评分。期权叠加不参与评分。</div>
+            <div class="hint">评分只比较收益率和最大回撤，固定按收益 90% / 回撤 10% 排名。若设置每月注入，收益率按累计投入计算；汇总表总分按平均收益、平均回撤归一化计算；卖出质量、卖出盈利、卖出回撤、现金复用只做观察诊断，不参与总分。题目矩阵单元格保留每个题目内部的归一化评分。</div>
             <div class="score-sell-panel" aria-label="评分卖出策略">
                 <div class="score-topic-title">卖出策略组</div>
                 <label class="score-sell-select">
@@ -3889,6 +3819,10 @@ STRATEGY_LAB_TEMPLATE = """
             </div>
             <div class="tool-body">
             <div id="scoreReturnBanner" class="context-banner hidden"></div>
+            <div class="context-banner">
+                <strong>现金线口径：交易后余额</strong>
+                <span>现金线记录每日买卖执行后的余额；首个起点标记显示交易前初始现金。</span>
+            </div>
             <div class="detail-controls">
                 <label for="detailSymbol" style="display:contents;"><span style="color:var(--muted);font-size:12px;font-weight:800;">标的</span></label>
                 <select id="detailSymbol" onchange="renderActiveDetail()"></select>
@@ -3912,31 +3846,6 @@ STRATEGY_LAB_TEMPLATE = """
                         </tr>
                     </thead>
                     <tbody id="detailTradeBody"></tbody>
-                </table>
-            </div>
-            <div class="summary-title" style="margin-top: 16px;">
-                <h2>期权叠加明细</h2>
-                <span class="small">期权收益不并入主组合收益。</span>
-            </div>
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>状态</th>
-                            <th>期权代码</th>
-                            <th>买入日</th>
-                            <th>到期日</th>
-                            <th>Strike</th>
-                            <th>DTE</th>
-                            <th>入场价</th>
-                            <th>投入</th>
-                            <th>合约数</th>
-                            <th>当前/总价值</th>
-                            <th>收益率</th>
-                            <th>退出</th>
-                        </tr>
-                    </thead>
-                    <tbody id="detailOptionBody"></tbody>
                 </table>
             </div>
             </div>
@@ -4161,14 +4070,6 @@ STRATEGY_LAB_TEMPLATE = """
             if (tab === 'scan' && activeScanView === '3d') {
                 setTimeout(() => renderScan3d(), 0);
             }
-        }
-
-        function toggleOption() {
-            const cb = document.getElementById('optionEnabled');
-            const toggle = document.getElementById('optionToggle');
-            cb.checked = !cb.checked;
-            toggle.classList.toggle('on', cb.checked);
-            updateCommandBar();
         }
 
         function initUniverseRows(universe = defaultInvestmentUniverse) {
@@ -4468,6 +4369,7 @@ STRATEGY_LAB_TEMPLATE = """
                 cost_profit_sets: parameterValues('cost_deleverage', 'cost_profit_sets'),
                 cost_sell_sets: parameterValues('cost_deleverage', 'cost_sell_sets'),
                 cost_deleverage_cooldown_days: parameterValues('cost_deleverage', 'cost_deleverage_cooldown_days'),
+                sell_allow_same_day_sell: parameterValues('repair_step', 'sell_allow_same_day_sell'),
             };
         }
 
@@ -4500,12 +4402,15 @@ STRATEGY_LAB_TEMPLATE = """
 
         function robustSellVariantCount(buyStrategy, sellStrategy) {
             const rearmMultiplier = (buyStrategy === 'pyramid_3' || buyStrategy === 'weekly_dca' || buyStrategy === 'salary_flow_dca' || buyStrategy === 'core_dip_dca') ? 5 : 1;
+            const sameDayMultiplier = sellStrategy === 'none' ? 1 : Math.max(1, parameterValues(sellStrategy, 'sell_allow_same_day_sell').length);
             const gridVariantCount = Math.max(1, parameterValues('grid_rebound', 'grid_rebound_step_pct').length)
                 * Math.max(1, parameterValues('grid_rebound', 'grid_first_sell_pct').length)
-                * Math.max(1, parameterValues('grid_rebound', 'grid_second_sell_pct').length);
+                * Math.max(1, parameterValues('grid_rebound', 'grid_second_sell_pct').length)
+                * sameDayMultiplier;
             const costVariantCount = Math.max(1, parameterValues('cost_deleverage', 'cost_profit_sets').length)
                 * Math.max(1, parameterValues('cost_deleverage', 'cost_sell_sets').length)
-                * Math.max(1, parameterValues('cost_deleverage', 'cost_deleverage_cooldown_days').length);
+                * Math.max(1, parameterValues('cost_deleverage', 'cost_deleverage_cooldown_days').length)
+                * sameDayMultiplier;
             if (sellStrategy === 'none') {
                 return 1;
             }
@@ -4514,10 +4419,11 @@ STRATEGY_LAB_TEMPLATE = """
                     return Math.max(1, parameterValues('repair_step', 'sell_min_profit_pct').length)
                         * Math.max(1, parameterValues('repair_step', 'repair_sell_cooldown_days').length)
                         * Math.max(1, parameterValues('repair_step', 'repair_stage_sell_pct').length)
+                        * sameDayMultiplier
                         * rearmMultiplier;
                 }
                 if (buyStrategy === 'weekly_dca' || buyStrategy === 'salary_flow_dca' || buyStrategy === 'core_dip_dca') {
-                    return 5;
+                    return 5 * sameDayMultiplier;
                 }
                 return 0;
             }
@@ -4699,20 +4605,8 @@ STRATEGY_LAB_TEMPLATE = """
                 cost_second_sell_pct: readNumber('costSecondSellPct'),
                 cost_third_sell_pct: readNumber('costThirdSellPct'),
                 cost_deleverage_cooldown_days: readNumber('costDeleverageCooldown'),
+                sell_allow_same_day_sell: Boolean(document.getElementById('sellAllowSameDaySell')?.checked),
                 cost_min_sell_amount: readNumber('costMinSellAmount'),
-                option_overlay: {
-                    enabled: document.getElementById('optionEnabled').checked,
-                    wallet_pct: readNumber('optionWalletPct'),
-                    target_dte: readNumber('optionTargetDte'),
-                    min_dte: readNumber('optionMinDte'),
-                    max_dte: readNumber('optionMaxDte'),
-                    moneyness: document.getElementById('optionMoneyness').value,
-                    profit_take_pct: readNumber('optionProfitTake'),
-                    profit_take_sell_pct: readNumber('optionProfitSell'),
-                    exit_dte: readNumber('optionExitDte'),
-                    trade_fee: readNumber('optionTradeFee'),
-                    max_trades_per_strategy: readNumber('optionMaxTrades')
-                },
                 buy_strategies: selectedStrategies('buyStrategy', buyStrategyLabels),
                 sell_strategies: selectedSellStrategies(),
                 targets: readPortfolio(),
@@ -4784,8 +4678,7 @@ STRATEGY_LAB_TEMPLATE = """
                 ['组合', currentPortfolioSummary()],
                 ['买入', strategyLabelFromSelect('buyStrategy', buyStrategyLabels, '全部买入策略')],
                 ['卖出', strategyLabelFromSelect('scoreSellStrategy', sellStrategyLabels, '默认卖出策略组')],
-                ['评分', `${topicCount * periodCount} 题`],
-                ['期权', document.getElementById('optionEnabled').checked ? '启用' : '关闭']
+                ['评分', `${topicCount * periodCount} 题`]
             ];
             summary.innerHTML = chips.map(([label, value]) => (
                 `<div class="command-chip"><span>${escapeHtml(label)}</span>${escapeHtml(value)}</div>`
@@ -5106,16 +4999,6 @@ STRATEGY_LAB_TEMPLATE = """
             return sortedValues === sortedKeys || values.length > 1 ? allValue : null;
         }
 
-        function setOptionEnabled(enabled) {
-            const checkbox = document.getElementById('optionEnabled');
-            const toggle = document.getElementById('optionToggle');
-            if (!checkbox || !toggle || enabled === undefined || enabled === null) {
-                return;
-            }
-            checkbox.checked = Boolean(enabled);
-            toggle.classList.toggle('on', checkbox.checked);
-        }
-
         function applyScorecardPeriods(periods) {
             if (!Array.isArray(periods)) {
                 return;
@@ -5189,6 +5072,8 @@ STRATEGY_LAB_TEMPLATE = """
             setFieldValue('costSecondSellPct', payload.cost_second_sell_pct);
             setFieldValue('costThirdSellPct', payload.cost_third_sell_pct);
             setFieldValue('costDeleverageCooldown', payload.cost_deleverage_cooldown_days);
+            const sameDay = document.getElementById('sellAllowSameDaySell');
+            if (sameDay) sameDay.checked = Boolean(payload.sell_allow_same_day_sell);
             setFieldValue('costMinSellAmount', payload.cost_min_sell_amount);
 
             const buySelector = strategySelectorFromPayload(payload.buy_strategies, Object.keys(buyStrategyLabels));
@@ -5203,19 +5088,6 @@ STRATEGY_LAB_TEMPLATE = """
                 initPortfolioRows(payload.targets);
                 updateHoldingBar();
             }
-
-            const option = payload.option_overlay || {};
-            setOptionEnabled(option.enabled);
-            setFieldValue('optionWalletPct', option.wallet_pct);
-            setFieldValue('optionTargetDte', option.target_dte);
-            setFieldValue('optionMinDte', option.min_dte);
-            setFieldValue('optionMaxDte', option.max_dte);
-            setSelectValue('optionMoneyness', option.moneyness);
-            setFieldValue('optionProfitTake', option.profit_take_pct);
-            setFieldValue('optionProfitSell', option.profit_take_sell_pct);
-            setFieldValue('optionExitDte', option.exit_dte);
-            setFieldValue('optionTradeFee', option.trade_fee);
-            setFieldValue('optionMaxTrades', option.max_trades_per_strategy);
 
             if (Array.isArray(payload.scorecard_portfolio_keys)) {
                 applyScorecardPortfolioKeys(payload.scorecard_portfolio_keys);
@@ -5777,7 +5649,6 @@ STRATEGY_LAB_TEMPLATE = """
                 const maxCash = strategies.reduce((a, b) => b.metrics.cash_usage_pct > a.metrics.cash_usage_pct ? b : a);
                 const totalBuys = strategies.reduce((sum, s) => sum + (s.metrics.buy_trade_count || 0), 0);
                 const totalSells = strategies.reduce((sum, s) => sum + (s.metrics.sell_trade_count || 0), 0);
-                const optionReturns = strategies.filter((s) => s.option_overlay && s.option_overlay.metrics).map((s) => s.option_overlay.metrics.return_pct);
                 const bestReturn = best.metrics.return_pct;
                 const kpiBestReturn = document.getElementById('kpiBestReturn');
                 kpiBestReturn.querySelector('strong').textContent = (bestReturn >= 0 ? '+' : '') + bestReturn.toFixed(1) + '%';
@@ -5791,20 +5662,10 @@ STRATEGY_LAB_TEMPLATE = """
                 kpiCash.querySelector('strong').textContent = cashVal.toFixed(1) + '%';
                 kpiCash.className = 'kpi' + (cashVal > 80 ? ' warning' : '');
                 document.getElementById('kpiTrades').querySelector('strong').textContent = `${totalBuys} / ${totalSells}`;
-                const kpiOpt = document.getElementById('kpiOptionReturn');
-                if (optionReturns.length) {
-                    const bestOpt = Math.max(...optionReturns);
-                    kpiOpt.querySelector('strong').textContent = (bestOpt >= 0 ? '+' : '') + bestOpt.toFixed(1) + '%';
-                    kpiOpt.className = 'kpi ' + (bestOpt >= 0 ? 'positive' : 'negative');
-                } else {
-                    kpiOpt.querySelector('strong').textContent = '--';
-                    kpiOpt.className = 'kpi';
-                }
             }
             document.getElementById('summaryBody').innerHTML = sortedStrategyEntries(result).map((entry) => {
                 const strategy = entry.strategy;
                 const metrics = strategy.metrics;
-                const optionMetrics = strategy.option_overlay && strategy.option_overlay.metrics;
                 return `
                     <tr>
                         <td><button class="btn btn-small" type="button" onclick="showDetail(${entry.index})">详情</button></td>
@@ -5822,8 +5683,6 @@ STRATEGY_LAB_TEMPLATE = """
                         <td>${pct(metrics.avg_sell_profit_pct)}</td>
                         <td>${pct(metrics.avg_sell_drawdown_pct)}</td>
                         <td>${pct(metrics.cash_reuse_pct)}</td>
-                        <td>${optionMetrics ? pct(optionMetrics.return_pct) : '--'}</td>
-                        <td>${optionMetrics ? money(optionMetrics.total_premium) : '--'}</td>
                         <td>${money(metrics.total_fees)}</td>
                         <td>${pct(metrics.fee_ratio_pct)}</td>
                     </tr>
@@ -5948,7 +5807,6 @@ STRATEGY_LAB_TEMPLATE = """
             renderDetailMetrics(strategy, symbol);
             renderDetailChart(strategy, symbol);
             renderDetailTrades(strategy, symbol);
-            renderDetailOptions(strategy, symbol);
         }
 
         function renderDetailMetrics(strategy, symbol) {
@@ -5972,11 +5830,6 @@ STRATEGY_LAB_TEMPLATE = """
                 ['当前股数', number(symbolState.shares)],
                 ['平均成本 USD', money(symbolState.avg_cost_usd)]
             ];
-            if (strategy.option_overlay && strategy.option_overlay.metrics) {
-                const optionMetrics = strategy.option_overlay.metrics;
-                items.push(['期权投入', money(optionMetrics.total_premium)]);
-                items.push(['期权收益率', pct(optionMetrics.return_pct)]);
-            }
             document.getElementById('detailMetrics').innerHTML = items.map(([label, value]) => `
                 <div class="metric-card">
                     <span>${escapeHtml(label)}</span>
@@ -5996,25 +5849,23 @@ STRATEGY_LAB_TEMPLATE = """
             const trades = (strategy.trades || []).filter((trade) => trade.symbol === symbol);
             const buys = trades.filter((trade) => trade.action !== 'sell');
             const sells = trades.filter((trade) => trade.action === 'sell');
-            const optionPositions = ((strategy.option_overlay && strategy.option_overlay.positions) || [])
-                .filter((position) => position.stock_symbol === symbol);
-            const optionEntries = optionPositions.map((position) => ({
-                date: position.entry_date,
-                price: position.stock_buy_price,
-                text: `${position.option_ticker}<br>投入: ${money(position.premium)}<br>期权入场价: ${number(position.entry_price)}<br>Strike: ${number(position.strike)}`
-            }));
-            const optionExits = [];
-            optionPositions.forEach((position) => {
-                (position.exits || []).forEach((exit) => {
-                    optionExits.push({
-                        date: exit.date,
-                        price: position.stock_buy_price,
-                        text: `${position.option_ticker}<br>退出: ${exit.reason}<br>期权价: ${number(exit.price)}<br>价值: ${money(exit.value)}`
-                    });
-                });
-            });
             const sampledPrice = downsampleSeries(series.dates, series.closes, 900);
             const sampledCash = downsampleSeries(strategy.series.dates, strategy.series.cash_values, 900);
+            const cashDates = strategy.series.dates || [];
+            const cashValues = strategy.series.cash_values || [];
+            const contributionValues = strategy.series.contribution_values || [];
+            const firstCashDate = cashDates[0];
+            const rawInitialCashBeforeTrade = contributionValues[0];
+            const initialCashBeforeTrade = rawInitialCashBeforeTrade === null || rawInitialCashBeforeTrade === undefined || rawInitialCashBeforeTrade === ''
+                ? NaN
+                : Number(rawInitialCashBeforeTrade);
+            const firstCashAfterTrade = Number(cashValues[0]);
+            const firstDayBuyAmount = (strategy.trades || [])
+                .filter((trade) => trade.action !== 'sell' && trade.date === firstCashDate)
+                .reduce((sum, trade) => {
+                    const amount = Number(trade.gross_amount || 0);
+                    return sum + (Number.isFinite(amount) ? amount : 0);
+                }, 0);
             const traces = [
                 {
                     x: sampledPrice.x,
@@ -6058,43 +5909,37 @@ STRATEGY_LAB_TEMPLATE = """
                     hovertemplate: '日期: %{x}<br>价格: %{y:.2f}<br>%{text}<extra></extra>'
                 },
                 {
-                    x: optionEntries.map((item) => item.date),
-                    y: optionEntries.map((item) => item.price),
-                    type: 'scatter',
-                    mode: 'markers',
-                    name: '期权买入',
-                    xaxis: 'x',
-                    yaxis: 'y',
-                    marker: { color: '#a2d5f2', symbol: 'triangle-up', size: 12, line: { color: '#07689f', width: 1 } },
-                    text: optionEntries.map((item) => item.text),
-                    hovertemplate: '日期: %{x}<br>%{text}<extra></extra>'
-                },
-                {
-                    x: optionExits.map((item) => item.date),
-                    y: optionExits.map((item) => item.price),
-                    type: 'scatter',
-                    mode: 'markers',
-                    name: '期权退出',
-                    xaxis: 'x',
-                    yaxis: 'y',
-                    marker: { color: '#ff7e67', symbol: 'triangle-down', size: 12, line: { color: '#fafafa', width: 1 } },
-                    text: optionExits.map((item) => item.text),
-                    hovertemplate: '日期: %{x}<br>%{text}<extra></extra>'
-                },
-                {
                     x: sampledCash.x,
                     y: sampledCash.y,
                     type: 'scatter',
                     mode: 'lines',
-                    name: '现金余额',
+                    name: '现金余额（交易后）',
                     xaxis: 'x2',
                     yaxis: 'y2',
                     hoverinfo: 'skip',
                     line: { color: '#00856f', width: 2.0 }
                 }
             ];
+            if (firstCashDate && Number.isFinite(initialCashBeforeTrade)) {
+                traces.push({
+                    x: [firstCashDate],
+                    y: [initialCashBeforeTrade],
+                    type: 'scatter',
+                    mode: 'markers',
+                    name: '初始现金（交易前）',
+                    xaxis: 'x2',
+                    yaxis: 'y2',
+                    marker: { color: '#00a884', symbol: 'circle-open', size: 12, line: { color: '#006b57', width: 2 } },
+                    text: [
+                        `初始现金（交易前）: ${money(initialCashBeforeTrade)}<br>` +
+                        `首日交易后现金: ${Number.isFinite(firstCashAfterTrade) ? money(firstCashAfterTrade) : '--'}<br>` +
+                        `首日买入金额: ${money(firstDayBuyAmount)}`
+                    ],
+                    hovertemplate: '日期: %{x}<br>%{text}<extra></extra>'
+                });
+            }
             const detailPlot = Plotly.react('detailChart', traces, {
-                title: `${symbol} 买卖点 / 现金余额`,
+                title: `${symbol} 买卖点 / 现金余额（交易后）`,
                 grid: { rows: 2, columns: 1, pattern: 'independent', roworder: 'top to bottom' },
                 margin: { t: 54, r: 24, b: 44, l: 64 },
                 paper_bgcolor: '#fafafa',
@@ -6103,7 +5948,7 @@ STRATEGY_LAB_TEMPLATE = """
                 xaxis: { gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2', anchor: 'y', domain: [0, 1], showticklabels: false },
                 yaxis: { title: symbol.endsWith('.HK') ? 'HKD' : 'USD', gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2', domain: [0.36, 1] },
                 xaxis2: { gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2', anchor: 'y2', matches: 'x', domain: [0, 1] },
-                yaxis2: { title: '现金 USD', gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2', domain: [0, 0.26] },
+                yaxis2: { title: '现金 USD（交易后）', gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2', domain: [0, 0.26] },
                 legend: { orientation: 'h', font: { color: '#315d78' } }
             }, { responsive: true, displaylogo: false, displayModeBar: false });
             Promise.resolve(detailPlot).then(() => {
@@ -6129,51 +5974,6 @@ STRATEGY_LAB_TEMPLATE = """
                     </tr>
                 `;
             }).join('') : '<tr><td colspan="9">这个标的在该策略组合下没有触发交易。</td></tr>';
-        }
-
-        function renderDetailOptions(strategy, symbol) {
-            const overlay = strategy.option_overlay || {};
-            const positions = (overlay.positions || []).filter((position) => position.stock_symbol === symbol);
-            const skipped = (overlay.skipped || []).filter((item) => item.stock_symbol === symbol);
-            const rows = [];
-            positions.forEach((position) => {
-                const exits = (position.exits || []).map((exit) => `${exit.date} ${exit.reason}`).join('<br>') || '未退出';
-                rows.push(`
-                    <tr>
-                        <td>${position.status === 'open' ? '持有中' : '已退出'}</td>
-                        <td>${escapeHtml(position.option_ticker)}</td>
-                        <td>${position.entry_date}</td>
-                        <td>${position.expiration}</td>
-                        <td>${number(position.strike)}</td>
-                        <td>${number(position.dte_at_entry)}</td>
-                        <td>${number(position.entry_price)}</td>
-                        <td>${money(position.premium)}</td>
-                        <td>${number(position.contracts)}</td>
-                        <td>${money(position.total_value)}</td>
-                        <td>${pct(position.return_pct)}</td>
-                        <td>${exits}</td>
-                    </tr>
-                `);
-            });
-            skipped.forEach((item) => {
-                rows.push(`
-                    <tr>
-                        <td>跳过</td>
-                        <td>${escapeHtml(item.option_ticker || '')}</td>
-                        <td>${escapeHtml(item.stock_buy_date || '')}</td>
-                        <td>${escapeHtml(item.expiration || '')}</td>
-                        <td>${number(item.strike)}</td>
-                        <td>--</td>
-                        <td>--</td>
-                        <td>${money(item.stock_buy_amount || 0)}</td>
-                        <td>--</td>
-                        <td>--</td>
-                        <td>--</td>
-                        <td>${escapeHtml(item.reason || '')}</td>
-                    </tr>
-                `);
-            });
-            document.getElementById('detailOptionBody').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="12">这个标的没有期权叠加记录。</td></tr>';
         }
 
         function scorecardPayload() {
@@ -6212,6 +6012,7 @@ STRATEGY_LAB_TEMPLATE = """
                 cost_second_sell_pct: readNumber('costSecondSellPct'),
                 cost_third_sell_pct: readNumber('costThirdSellPct'),
                 cost_deleverage_cooldown_days: readNumber('costDeleverageCooldown'),
+                sell_allow_same_day_sell: Boolean(document.getElementById('sellAllowSameDaySell')?.checked),
                 cost_min_sell_amount: readNumber('costMinSellAmount'),
                 buy_strategies: selectedStrategies('buyStrategy', buyStrategyLabels),
                 sell_strategies: selectedSellStrategies(),
@@ -6260,6 +6061,7 @@ STRATEGY_LAB_TEMPLATE = """
                 default_cost_second_sell_pct: readNumber('costSecondSellPct'),
                 default_cost_third_sell_pct: readNumber('costThirdSellPct'),
                 default_cost_deleverage_cooldown_days: readNumber('costDeleverageCooldown'),
+                default_sell_allow_same_day_sell: Boolean(document.getElementById('sellAllowSameDaySell')?.checked),
                 default_cost_min_sell_amount: readNumber('costMinSellAmount'),
                 default_drawdown_basis: document.getElementById('drawdownBasis').value,
                 default_buy_strategy: document.getElementById('buyStrategy').value,
@@ -6274,17 +6076,6 @@ STRATEGY_LAB_TEMPLATE = """
         default_scan_sell_min_profit_values: document.getElementById('scanSellMinProfits').value,
         default_scan_repair_cooldown_values: document.getElementById('scanCooldowns').value,
         default_scan_repair_stage_sell_values: document.getElementById('scanStageSells').value,
-                default_option_enabled: document.getElementById('optionEnabled').checked,
-                default_option_wallet_pct: readNumber('optionWalletPct'),
-                default_option_target_dte: readNumber('optionTargetDte'),
-                default_option_min_dte: readNumber('optionMinDte'),
-                default_option_max_dte: readNumber('optionMaxDte'),
-                default_option_moneyness: document.getElementById('optionMoneyness').value,
-                default_option_profit_take_pct: readNumber('optionProfitTake'),
-                default_option_profit_take_sell_pct: readNumber('optionProfitSell'),
-                default_option_exit_dte: readNumber('optionExitDte'),
-                default_option_trade_fee: readNumber('optionTradeFee'),
-                default_option_max_trades_per_strategy: readNumber('optionMaxTrades'),
                 default_portfolio: readPortfolio(),
                 default_investment_universe: readInvestmentUniverse()
             };
@@ -6480,12 +6271,14 @@ STRATEGY_LAB_TEMPLATE = """
             const firstSell = candidate.grid_first_sell_pct ?? readNumber('gridFirstSellPct');
             const secondSell = candidate.grid_second_sell_pct ?? readNumber('gridSecondSellPct');
             const minAmount = candidate.grid_min_sell_amount ?? readNumber('gridMinSellAmount');
+            const sameDay = candidate.sell_allow_same_day_sell ?? Boolean(document.getElementById('sellAllowSameDaySell')?.checked);
             return [
                 `${pct(step)} 回弹 ${scoreHelpButton('解释网格回弹步长', '网格回弹步长\\n从平均买入回撤向上修复多少个百分点后触发卖出。\\n例如平均买在 20% 回撤、回弹步长 5%，第一档会在回撤修复到 15% 左右时尝试卖出。')}`,
                 `${pct(firstSell)} 第一档 ${scoreHelpButton('解释网格第一档卖出', '网格第一档卖出\\n非金字塔策略按整仓聚合计算，第一档触发时卖出当前可卖仓位的这个比例。\\n仍会受底仓比例和最小卖出额约束。')}`,
                 `${pct(secondSell)} 第二档 ${scoreHelpButton('解释网格第二档卖出', '网格第二档卖出\\n价格再修复一个回弹步长后，第二档卖出当前可卖仓位的这个比例。\\n现在一天最多触发一个整仓网格档位，避免快速反弹时同日连续减仓。')}`,
-                `最小 ${number(minAmount)} USD ${scoreHelpButton('解释网格最小卖出额', '网格最小卖出额\\n只约束非金字塔的整仓网格卖出。\\n若某次卖出金额低于这个值，会跳过该次交易，用来减少小额碎片成交。')}`
-            ].join(' / ');
+                `最小 ${number(minAmount)} USD ${scoreHelpButton('解释网格最小卖出额', '网格最小卖出额\\n只约束非金字塔的整仓网格卖出。\\n若某次卖出金额低于这个值，会跳过该次交易，用来减少小额碎片成交。')}`,
+                sameDay ? '买入日可卖' : ''
+            ].filter(Boolean).join(' / ');
         }
 
         function robustCostSellParams(candidate) {
@@ -6497,12 +6290,14 @@ STRATEGY_LAB_TEMPLATE = """
             const s3 = candidate.cost_third_sell_pct ?? readNumber('costThirdSellPct');
             const cooldown = candidate.cost_deleverage_cooldown_days ?? readNumber('costDeleverageCooldown');
             const minAmount = candidate.cost_min_sell_amount ?? readNumber('costMinSellAmount');
+            const sameDay = candidate.sell_allow_same_day_sell ?? Boolean(document.getElementById('sellAllowSameDaySell')?.checked);
             return [
                 `${pct(p1)} / ${pct(p2)} / ${pct(p3)} 盈利 ${scoreHelpButton('解释成本盈利档位', '成本盈利档位\\n按当前整仓平均成本计算浮盈率，到达第一、第二、第三档后依次触发去杠杆卖出。\\n同时仍受“最小卖出盈利”下限约束。')}`,
                 `${pct(s1)} + ${pct(s2)} + ${pct(s3)} 卖出 ${scoreHelpButton('解释成本卖出比例', '成本卖出比例\\n每个盈利档位触发时，按当前可卖仓位卖出对应比例。\\n细切/定投产生的小 lot 会合并成整仓卖出，避免每个 lot 单独切得过碎。')}`,
                 `${number(cooldown)} 日冷却 ${scoreHelpButton('解释成本卖出冷却', '成本卖出冷却\\n一次成本去杠杆卖出后，至少等待这些交易日才允许下一档卖出。\\n用于避免短时间连续减仓。')}`,
-                `最小 ${number(minAmount)} USD ${scoreHelpButton('解释成本最小卖出额', '成本最小卖出额\\n若本次成本去杠杆卖出金额低于该值，会跳过该次交易。\\n设为 0 表示不限制最小卖出额。')}`
-            ].join(' / ');
+                `最小 ${number(minAmount)} USD ${scoreHelpButton('解释成本最小卖出额', '成本最小卖出额\\n若本次成本去杠杆卖出金额低于该值，会跳过该次交易。\\n设为 0 表示不限制最小卖出额。')}`,
+                sameDay ? '买入日可卖' : ''
+            ].filter(Boolean).join(' / ');
         }
 
         function robustCoreDipBuyParams(candidate) {
@@ -7691,6 +7486,7 @@ function candidateInputs(base, candidate) {
     cost_second_sell_pct: candidate.cost_second_sell_pct ?? base.cost_second_sell_pct,
     cost_third_sell_pct: candidate.cost_third_sell_pct ?? base.cost_third_sell_pct,
     cost_deleverage_cooldown_days: candidate.cost_deleverage_cooldown_days ?? base.cost_deleverage_cooldown_days,
+    sell_allow_same_day_sell: candidate.sell_allow_same_day_sell ?? base.sell_allow_same_day_sell,
     cost_min_sell_amount: candidate.cost_min_sell_amount ?? base.cost_min_sell_amount
   };
 }
@@ -7740,7 +7536,9 @@ function simulate(task, baseInputs, candidate) {
         const tranches = buildTranches({ ...inputs, max_drawdown_pct: targetMaxDrawdown(task.targets, symbol, inputs) }, strategy);
         bought = executeTranches(state, point, tranches, executed[symbol], inputs, tradeLog, strategy, sellStrategy);
       }
-      if (!bought) executeSells(state, point, inputs, strategy, sellStrategy, tradeLog, tradeIndex);
+      if (!bought || (bought && sellStrategy !== 'none' && Boolean(inputs.sell_allow_same_day_sell))) {
+        executeSells(state, point, inputs, strategy, sellStrategy, tradeLog, tradeIndex);
+      }
     }
     portfolioValues.push(Object.values(states).reduce((sum, state) => sum + state.cash + state.last_value, 0));
     cashValues.push(Object.values(states).reduce((sum, state) => sum + state.cash, 0));
@@ -8416,15 +8214,10 @@ def api_trigger():
         return jsonify({"success": False, "message": "配置管理器未初始化"}), 500
 
     try:
-        # 获取请求参数
-        data = request.get_json() or {}
-        option_delay = data.get('option_delay', False)
-
         result = run_analysis_and_notify(
             config_manager=config_manager,
             send_email=True,  # 手动触发也发送邮件
-            save_html=True,
-            option_delay=option_delay
+            save_html=True
         )
 
         if result:
@@ -8448,7 +8241,7 @@ def api_trade_sync():
     if not payload:
         return _json_error("请求体必须是 JSON", 400)
 
-    rows = payload.get("rows")
+    rows = _extract_sheet_rows(payload, "main")
     if not isinstance(rows, list):
         return _json_error("rows 必须是数组", 400)
 
@@ -8456,6 +8249,10 @@ def api_trade_sync():
     max_sync_rows = int(trade_sync_config.get("max_sync_rows", 20000))
     if len(rows) > max_sync_rows:
         return _json_error(f"rows 超过上限 {max_sync_rows}", 400)
+    account_rows = _extract_sheet_rows(payload, "account")
+    signal_target_rows = _extract_sheet_rows(payload, "signal_targets")
+    if len(account_rows) > max_sync_rows or len(signal_target_rows) > max_sync_rows:
+        return _json_error(f"account 或 signal_targets 行数超过上限 {max_sync_rows}", 400)
 
     allowed_spreadsheet_ids = trade_sync_config.get("allowed_spreadsheet_ids", [])
     spreadsheet_id = str(payload.get("spreadsheet_id", "")).strip()
@@ -8467,9 +8264,264 @@ def api_trade_sync():
         return _json_error("没有解析出有效交易行", 400)
 
     result = save_sync_payload(payload, normalized_rows)
+    if account_rows:
+        result.update(save_account_payload(payload, account_rows))
+    if signal_target_rows:
+        result.update(save_signal_targets_payload(payload, signal_target_rows))
     cleanup_summary = run_trade_sync_cleanup(_get_trade_sync_cleanup_config())
     result["cleanup"] = cleanup_summary
     return jsonify(result)
+
+
+ACCOUNT_SIGNAL_TEMPLATE = """
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>真实账户提醒</title>
+  <style>
+    :root {
+      --ink: #20262f;
+      --muted: #64707d;
+      --paper: #fbf7ef;
+      --panel: #fffdf8;
+      --line: #d8cbb5;
+      --green: #087f5b;
+      --red: #b42318;
+      --blue: #1d4ed8;
+      --amber: #b7791f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background:
+        linear-gradient(90deg, rgba(32,38,47,.035) 1px, transparent 1px),
+        linear-gradient(rgba(32,38,47,.035) 1px, transparent 1px),
+        var(--paper);
+      background-size: 22px 22px;
+      font-family: Georgia, "Times New Roman", "Noto Serif SC", serif;
+    }
+    .shell { width: min(1180px, calc(100vw - 28px)); margin: 0 auto; padding: 28px 0 42px; }
+    .top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: end; border-bottom: 4px solid var(--ink); padding-bottom: 18px; }
+    h1 { margin: 0; font-size: clamp(30px, 5vw, 58px); line-height: .95; letter-spacing: 0; }
+    .sub { margin-top: 10px; color: var(--muted); font-size: 15px; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    button, a.nav {
+      border: 1px solid var(--ink);
+      background: var(--panel);
+      color: var(--ink);
+      min-height: 40px;
+      padding: 9px 13px;
+      font-weight: 700;
+      font-size: 14px;
+      text-decoration: none;
+      cursor: pointer;
+      box-shadow: 3px 3px 0 var(--ink);
+    }
+    button.primary { background: var(--ink); color: var(--panel); box-shadow: 3px 3px 0 #9f8f76; }
+    button:disabled { opacity: .55; cursor: wait; }
+    .status { margin: 18px 0; padding: 13px 14px; border: 1px solid var(--line); background: var(--panel); font-weight: 700; }
+    .status.ok { border-left: 8px solid var(--green); }
+    .status.warn { border-left: 8px solid var(--amber); }
+    .status.bad { border-left: 8px solid var(--red); }
+    .grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 16px; }
+    .panel { background: var(--panel); border: 1px solid var(--line); padding: 16px; }
+    .panel h2 { margin: 0 0 12px; font-size: 19px; }
+    .metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .metric { border-top: 2px solid var(--ink); padding-top: 8px; min-width: 0; }
+    .label { color: var(--muted); font-size: 12px; text-transform: uppercase; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .value { margin-top: 4px; font-size: 20px; font-weight: 700; overflow-wrap: anywhere; }
+    .symbols { display: grid; gap: 12px; margin-top: 16px; }
+    .symbol { border: 1px solid var(--line); padding: 13px; background: #fffaf1; }
+    .symbol-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 10px; }
+    .ticker { font-size: 23px; font-weight: 800; }
+    .strategy-summary { display: grid; gap: 5px; margin: 10px 0 12px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .strategy-summary strong { color: var(--ink); font-size: 12px; text-transform: uppercase; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .pill { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; padding: 3px 7px; border: 1px solid var(--line); background: var(--panel); }
+    table { width: 100%; border-collapse: collapse; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+    th, td { text-align: left; border-top: 1px solid var(--line); padding: 8px 6px; vertical-align: top; }
+    th { color: var(--muted); font-weight: 700; }
+    .buy { color: var(--green); font-weight: 800; }
+    .sell { color: var(--red); font-weight: 800; }
+    .empty { color: var(--muted); padding: 18px; text-align: center; border: 1px dashed var(--line); }
+    .errors { margin: 0; padding-left: 18px; color: var(--red); }
+    @media (max-width: 860px) {
+      .top, .grid { grid-template-columns: 1fr; }
+      .actions { justify-content: flex-start; }
+      .metrics { grid-template-columns: 1fr; }
+      table { font-size: 11px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="top">
+      <div>
+        <h1>真实账户提醒</h1>
+        <div class="sub">GOOGL / TSLA · 账户快照、初始投入、持仓与最新信号</div>
+      </div>
+      <div class="actions">
+        <a class="nav" href="/">返回首页</a>
+        <button id="dryRunBtn">调试运行</button>
+        <button id="sendBtn" class="primary">运行并发送邮件</button>
+      </div>
+    </section>
+    <div id="status" class="status warn">加载中...</div>
+    <section class="grid">
+      <div class="panel">
+        <h2>账户</h2>
+        <div id="accountMetrics" class="metrics"></div>
+        <div id="symbols" class="symbols"></div>
+      </div>
+      <div class="panel">
+        <h2>最近运行信号</h2>
+        <div id="signals"></div>
+      </div>
+    </section>
+  </main>
+  <script>
+    const statusEl = document.getElementById('status');
+    const accountMetrics = document.getElementById('accountMetrics');
+    const symbolsEl = document.getElementById('symbols');
+    const signalsEl = document.getElementById('signals');
+    const dryRunBtn = document.getElementById('dryRunBtn');
+    const sendBtn = document.getElementById('sendBtn');
+
+    function money(value) { return Number(value || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' }); }
+    function number(value, digits = 2) { return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits }); }
+    function text(value) { return value === null || value === undefined || value === '' ? '—' : String(value); }
+    function setStatus(kind, message) {
+      statusEl.className = `status ${kind}`;
+      statusEl.textContent = message;
+    }
+    function metric(label, value) {
+      return `<div class="metric"><div class="label">${label}</div><div class="value">${value}</div></div>`;
+    }
+    function render(data) {
+      const errors = data.errors || data.latest_run?.errors || [];
+      const warnings = data.warnings || data.latest_run?.warnings || [];
+      if (errors.length) setStatus('bad', errors.join(' · '));
+      else if (data.latest_run?.email && data.latest_run.email.message && data.latest_run.email.sent === false && data.latest_run.send_email_requested) setStatus('bad', data.latest_run.email.message);
+      else if ((data.latest_run?.new_signals || []).length) setStatus('ok', `${data.latest_run.new_signals.length} 个新提醒`);
+      else if (warnings.length) setStatus('warn', warnings.join(' · '));
+      else setStatus('warn', '当前没有新提醒');
+
+      const account = data.account || {};
+      accountMetrics.innerHTML = [
+        metric('现金', money(account.cash)),
+        metric('购买力', money(account.buying_power)),
+        metric('净清算', money(account.net_liquidation)),
+        metric('快照时间', text(account.as_of)),
+        metric('币种', text(account.currency)),
+        metric('调度', data.enabled ? '已启用' : '未启用')
+      ].join('');
+
+      const market = data.latest_run?.market || {};
+      const strategies = data.strategies || data.latest_run?.strategies || {};
+      symbolsEl.innerHTML = ['GOOGL.US', 'TSLA.US'].map(symbol => {
+        const pos = (data.positions || {})[symbol] || {};
+        const target = (data.targets || {})[symbol] || {};
+        const m = market[symbol] || {};
+        const strategy = strategies[symbol] || {};
+        return `<article class="symbol">
+          <div class="symbol-head"><div class="ticker">${symbol}</div><div class="pill">${target.enabled ? 'enabled' : 'missing'}</div></div>
+          <div class="strategy-summary">
+            <div><strong>买入</strong> ${text(strategy.buy_summary)}</div>
+            <div><strong>卖出</strong> ${text(strategy.sell_summary)}</div>
+          </div>
+          <div class="metrics">
+            ${metric('持仓股数', number(pos.shares, 4))}
+            ${metric('真实均价', money(pos.avg_cost))}
+            ${metric('初始投入', money(target.target_budget_usd))}
+            ${metric('月投入', money(target.monthly_contribution_usd))}
+            ${metric('当前价', m.price ? money(m.price) : '—')}
+            ${metric('120日回撤', m.drawdown_120_pct === undefined ? '—' : number(m.drawdown_120_pct) + '%')}
+          </div>
+        </article>`;
+      }).join('');
+
+      const signals = data.latest_run?.signals || [];
+      const history = data.run_history || (data.latest_run ? [data.latest_run] : []);
+      const rows = [];
+      history.forEach(run => {
+        (run.signals || []).forEach(signal => rows.push({ run, signal }));
+      });
+      if (!rows.length) {
+        signalsEl.innerHTML = '<div class="empty">暂无信号</div>';
+        return;
+      }
+      signalsEl.innerHTML = `<table><thead><tr><th>运行/日期</th><th>标的</th><th>动作</th><th>阶段</th><th>价格</th><th>金额/股数</th></tr></thead><tbody>${rows.map(({ run, signal }) => {
+        const size = signal.action === 'buy' ? money(signal.amount_usd) : `${number(signal.shares, 4)} 股`;
+        const leaps = signal.leaps && signal.leaps.enabled
+          ? `<br><span class="pill">LEAPS ${Number(signal.leaps.trigger_count || 1)} 次</span>`
+          : '';
+        const mode = run.dry_run ? 'dry-run' : '正式';
+        return `<tr><td>${text(signal.trade_date)}<br><span class="pill">${mode}</span></td><td>${signal.symbol}</td><td class="${signal.action}">${signal.action}</td><td>${signal.stage}${signal.duplicate ? '<br><span class="pill">已提醒</span>' : ''}${leaps}</td><td>${money(signal.price)}<br>${number(signal.drawdown_pct)}%</td><td>${size}</td></tr>`;
+      }).join('')}</tbody></table>`;
+    }
+    async function loadStatus() {
+      const response = await fetch('/api/account-signal/status');
+      const data = await response.json();
+      render(data);
+    }
+    async function runSignal(sendEmail) {
+      dryRunBtn.disabled = true;
+      sendBtn.disabled = true;
+      setStatus('warn', sendEmail ? '正在运行并发送邮件...' : '正在调试运行...');
+      try {
+        const response = await fetch('/api/account-signal/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dry_run: !sendEmail, send_email: sendEmail, symbols: ['GOOGL.US', 'TSLA.US'], include_debug: true })
+        });
+        const data = await response.json();
+        render({ ...data, latest_run: data, run_history: [data, ...(data.run_history || [])] });
+      } finally {
+        dryRunBtn.disabled = false;
+        sendBtn.disabled = false;
+      }
+    }
+    dryRunBtn.addEventListener('click', () => runSignal(false));
+    sendBtn.addEventListener('click', () => runSignal(true));
+    loadStatus();
+  </script>
+</body>
+</html>
+"""
+
+
+@app.route('/account-signal')
+def account_signal_page():
+    return render_template_string(ACCOUNT_SIGNAL_TEMPLATE)
+
+
+@app.route('/api/account-signal/status', methods=['GET'])
+def api_account_signal_status():
+    try:
+        return jsonify(account_signal_status(config_manager))
+    except Exception as exc:
+        app.logger.exception("account signal status failed")
+        return jsonify({"success": False, "message": str(exc)}), 500
+
+
+@app.route('/api/account-signal/run', methods=['POST'])
+def api_account_signal_run():
+    payload = request.get_json(silent=True) or {}
+    try:
+        result = run_account_signal(
+            config_manager=config_manager,
+            dry_run=bool(payload.get("dry_run", True)),
+            send_email=bool(payload.get("send_email", False)),
+            symbols=payload.get("symbols") if isinstance(payload.get("symbols"), list) else None,
+            include_debug=bool(payload.get("include_debug", False)),
+        )
+        return jsonify(result)
+    except Exception as exc:
+        app.logger.exception("account signal run failed")
+        return jsonify({"success": False, "message": str(exc)}), 500
 
 
 @app.route('/drawdown')
@@ -8763,16 +8815,6 @@ def _run_strategy_lab_payload(payload: dict[str, object]) -> dict[str, object]:
         buy_strategies=buy_strategies,
         sell_strategies=sell_strategies,
     )
-    option_settings = lab_config.option_settings()
-    if option_settings.enabled:
-        polygon_config = config_manager.get_polygon_config() if config_manager else {}
-        result = apply_option_overlay(
-            result,
-            api_key=polygon_config.get("api_key", ""),
-            settings=option_settings,
-        )
-    else:
-        result["option_overlay"] = {"enabled": False}
     return result
 
 
@@ -8854,363 +8896,6 @@ def _run_strategy_robust_payload(payload: dict[str, object]) -> dict[str, object
         core_dip_timing_filter=str(payload.get("core_dip_timing_filter") or "all"),
         control_checker=_strategy_lab_job_control_checker(str(payload.get("_job_id") or "")),
     )
-
-
-def _option_dte_targets_and_windows(
-    payload: dict[str, object],
-    *,
-    default_target: int = 250,
-) -> tuple[list[int], list[tuple[int, int, int]]]:
-    """Parse option DTE fields.
-
-    New requests send option_dte_min/target/max. Legacy option_dtes continues to
-    mean each target with a target +/- 60 day search window.
-    """
-    has_window = any(
-        key in payload and payload.get(key) not in (None, "")
-        for key in ("option_dte_min", "option_dte_target", "option_dte_max")
-    )
-    if has_window:
-        target = int(float(payload.get("option_dte_target") or default_target))
-        min_dte = int(float(payload.get("option_dte_min") or max(1, target - 60)))
-        max_dte = int(float(payload.get("option_dte_max") or target + 60))
-        if min_dte <= 0 or max_dte <= 0 or min_dte > max_dte:
-            raise ValueError("期权 DTE 窗口无效。")
-        if target < min_dte or target > max_dte:
-            raise ValueError("目标 DTE 必须在最小/最大 DTE 范围内。")
-        return [target], [(min_dte, target, max_dte)]
-
-    if payload.get("option_dtes") in (None, ""):
-        if default_target == 250:
-            return [250], [(200, 250, 300)]
-        return [default_target], [(max(1, default_target - 60), default_target, default_target + 60)]
-
-    raw = str(payload.get("option_dtes"))
-    targets = [int(x.strip()) for x in raw.split(",") if x.strip()]
-    if not targets:
-        targets = [default_target]
-    return targets, [(max(1, target - 60), target, target + 60) for target in targets]
-
-
-def _prepare_option_parameter_lab_packet(payload: dict[str, object]) -> dict[str, object]:
-    """Build option-scan packet.
-
-    Two modes:
-    - If stock_strategies in payload → client-provided trades, skip stock sim
-    - Otherwise → run Longbridge stock sim on server
-
-    Service duties (must be server-side due to API keys):
-      Option chain + history via Polygon → contracts + price bars
-
-    Client duties:
-      Option replay variants → Web Workers in browser
-    """
-    packet_started = time.perf_counter()
-
-    # ── End date (for option data cutoff) ────────────────────────────
-    start_date, end_date = parse_date_range(payload.get("start"), payload.get("end"))
-
-    # ── Parse option parameters ──────────────────────────────────────
-    opt_wallet_raw = str(payload.get("option_wallet_pcts") or payload.get("option_allocations") or "10,20,30")
-    opt_trade_alloc_raw = str(payload.get("option_trade_allocations") or "20,30,40,50")
-    opt_moneyness_raw = str(payload.get("option_moneyness_values") or "otm_10")
-    opt_pt_raw = str(payload.get("option_profit_takes") or "100")
-    opt_pts_raw = str(payload.get("option_profit_take_sells") or "50")
-    opt_exit_raw = str(payload.get("option_exit_dtes") or "60")
-
-    def _pf(raw: str) -> list[float]:
-        return [float(x.strip()) for x in raw.split(",") if x.strip()]
-    def _pi(raw: str) -> list[int]:
-        return [int(x.strip()) for x in raw.split(",") if x.strip()]
-
-    moneyness_values = [x.strip() for x in opt_moneyness_raw.split(",") if x.strip()]
-    dte_targets, dte_windows = _option_dte_targets_and_windows(payload, default_target=250)
-
-    # ── Expand option variants ───────────────────────────────────────
-    option_variants = expand_option_parameter_variants(
-        moneyness_values, dte_targets, _pf(opt_wallet_raw),
-        _pf(opt_trade_alloc_raw), _pf(opt_pt_raw), _pf(opt_pts_raw), _pi(opt_exit_raw),
-        dte_windows=dte_windows,
-    )
-    t_variants = time.perf_counter()
-
-    # ── Stock strategies: client-provided or server-computed ──────────
-    client_strategies = payload.get("stock_strategies")
-    single_params = payload.get("single_candidate_params")
-    if client_strategies is not None and isinstance(client_strategies, list) and len(client_strategies) > 0:
-        # Cell-level scan: client sent pre-computed trades, skip Longbridge sim
-        stock_result_strategies = client_strategies
-    elif isinstance(single_params, dict) and single_params:
-        # Cell-level scan: client sent specific parameter values → run 1 sim
-        lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
-        targets = lab_config.portfolio_or_default()
-        if targets is not None and not isinstance(targets, list):
-            raise ValueError("targets 必须是数组")
-        buy_key = str(single_params.get("buy_strategy_key", "") or "")
-        sell_key = str(single_params.get("sell_strategy_key", "") or "")
-        if not buy_key or not sell_key:
-            raise ValueError("single_candidate_params 必须包含 buy_strategy_key 和 sell_strategy_key")
-        # Merge parameter overrides into inputs
-        base_inputs = lab_config.to_strategy_inputs()
-        overrides = {k: v for k, v in (single_params.get("parameters") or {}).items() if hasattr(base_inputs, k)}
-        inputs = dataclasses.replace(base_inputs, **overrides)
-        stock_result = run_longbridge_strategy_lab(
-            targets, inputs,
-            start_date=start_date, end_date=end_date,
-            buy_strategies=[buy_key], sell_strategies=[sell_key],
-        )
-        stock_result_strategies = stock_result.get("strategies", [])
-    else:
-        # Full scan: run Longbridge stock simulation on server
-        lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
-        targets = lab_config.portfolio_or_default()
-        if targets is not None and not isinstance(targets, list):
-            raise ValueError("targets 必须是数组")
-        buy_strategies = payload.get("buy_strategies") or list(STRATEGY_LABELS.keys())
-        sell_strategies = payload.get("sell_strategies") or payload.get("score_sell_strategies") or list(SELL_STRATEGY_LABELS.keys())
-        stock_result = run_longbridge_strategy_lab(
-            targets, lab_config.to_strategy_inputs(),
-            start_date=start_date, end_date=end_date,
-            buy_strategies=buy_strategies, sell_strategies=sell_strategies,
-        )
-        stock_result_strategies = stock_result.get("strategies", [])
-
-    t_stock = time.perf_counter()
-
-    # ── Collect buy trades for option data fetch ─────────────────────
-    all_buy_trades: list[dict] = []
-    for strategy in stock_result_strategies:
-        for trade in strategy.get("trades", []):
-            if trade.get("action") == "buy":
-                underlying = _option_base_symbol(str(trade.get("symbol", "")))
-                if underlying in US_OPTION_UNDERLYINGS:
-                    all_buy_trades.append(trade)
-
-    # ── Fetch option chain + history (Polygon API key) ───────────────
-    global config_manager
-    if config_manager is None:
-        config_manager = ConfigManager()
-    provider_config = config_manager.get_option_provider_config()
-    provider = create_option_provider(provider_config)
-    lookup, warnings = batch_fetch_option_data(
-        all_buy_trades, OptionOverlaySettings(), provider, moneyness_values, dte_targets, end_date,
-        dte_windows=dte_windows,
-    )
-    t_option = time.perf_counter()
-
-    _parameter_lab_log("option_packet_stages",
-        elapsed_variants_ms=round((t_variants - packet_started) * 1000, 1),
-        elapsed_stock_ms=round((t_stock - t_variants) * 1000, 1),
-        elapsed_option_ms=round((t_option - t_stock) * 1000, 1),
-        buy_trade_count=len(all_buy_trades),
-    )
-
-    # ── Serialize lookup ─────────────────────────────────────────────
-    serializable_lookup: dict[str, object] = {}
-    for key, value in lookup.items():
-        composite = "|".join(str(k) for k in key)
-        if value is None:
-            serializable_lookup[composite] = None
-            continue
-        contract = value["contract"]
-        bars = value["bars"]
-        serializable_lookup[composite] = {
-            "contract": {"ticker": contract.ticker, "underlying": contract.underlying,
-                         "expiration": contract.expiration.isoformat(), "strike": contract.strike,
-                         "contract_type": contract.contract_type},
-            "bars": [{"date": b.date.isoformat(), "open": b.open, "high": b.high,
-                      "low": b.low, "close": b.close, "volume": b.volume} for b in bars],
-        }
-
-    # ── Build per-strategy trades (with stock_sell_date) ─────────────
-    stock_strategies: list[dict] = []
-    for strategy in stock_result_strategies:
-        sk = str(strategy.get("strategy_key", ""))
-        sl = str(strategy.get("strategy_label", ""))
-        trades = strategy.get("trades") or []
-        sd_map: dict[str, list[str]] = {}
-        for t in trades:
-            if t.get("action") == "sell":
-                sd_map.setdefault(str(t.get("symbol", "")), []).append(str(t.get("date", "")))
-        bt: list[dict] = []
-        for t in trades:
-            action = str(t.get("action", ""))
-            sym = str(t.get("symbol", ""))
-            u = _option_base_symbol(sym)
-            if u not in US_OPTION_UNDERLYINGS: continue
-
-            if action == "buy":
-                bd = str(t.get("date", ""))
-                ssd = ""
-                for sd in sorted(sd_map.get(sym, [])):
-                    if sd >= bd: ssd = sd; break
-                bt.append({"symbol": sym, "date": bd,
-                           "price": float(t.get("price", 0)),
-                           "gross_amount": float(t.get("gross_amount", 0)),
-                           "stock_sell_date": ssd,
-                           "action": "buy"})
-            elif action == "sell":
-                bt.append({"symbol": sym, "date": str(t.get("date", "")),
-                           "action": "sell"})
-        stock_strategies.append({"strategy_key": sk, "strategy_label": sl, "trades": bt})
-
-    initial_cash = float(payload.get("initial_cash", 20000))
-    monthly_contribution = float(payload.get("monthly_contribution", 1000))
-    return {
-        "end_date": end_date.isoformat(),
-        "stock_strategies": stock_strategies,
-        "option_data_lookup": serializable_lookup,
-        "option_variants": option_variants,
-        "dte_windows": [
-            {"min_dte": mn, "target_dte": tgt, "max_dte": mx}
-            for mn, tgt, mx in dte_windows
-        ],
-        "stock_inputs": {"initial_cash": initial_cash, "monthly_contribution": monthly_contribution},
-        "warnings": warnings,
-        "elapsed_ms": round((time.perf_counter() - packet_started) * 1000, 1),
-    }
-
-
-def _run_option_parameter_scan(payload: dict[str, object]) -> dict[str, object]:
-    """Job runner: run stock sim → option parameter scan with pre-fetched data."""
-    import json as _json
-
-    job_id = str(payload.get("_job_id", ""))
-    check = _strategy_lab_job_control_checker(job_id)
-
-    # ── Parse stock strategy config ──────────────────────────────────
-    lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
-    targets = lab_config.portfolio_or_default()
-    if targets is not None and not isinstance(targets, list):
-        raise ValueError("targets 必须是数组")
-
-    start_date, end_date = parse_date_range(payload.get("start"), payload.get("end"))
-    buy_strategies = payload.get("buy_strategies") or list(STRATEGY_LABELS.keys())
-    sell_strategies = payload.get("sell_strategies") or payload.get("score_sell_strategies") or list(SELL_STRATEGY_LABELS.keys())
-
-    # ── Stage: running_stock ─────────────────────────────────────────
-    if check:
-        check()
-    _update_strategy_lab_job(job_id, stage="running_stock", progress=10, message="运行股票策略模拟…")
-    stock_result = run_longbridge_strategy_lab(
-        targets, lab_config.to_strategy_inputs(),
-        start_date=start_date, end_date=end_date,
-        buy_strategies=buy_strategies, sell_strategies=sell_strategies,
-    )
-
-    # ── Parse option parameters ──────────────────────────────────────
-    opt_wallet_raw = str(payload.get("option_wallet_pcts") or payload.get("option_allocations") or "10,15,20,25,30")
-    opt_trade_alloc_raw = str(payload.get("option_trade_allocations") or "20,30,40,50")
-    opt_moneyness_raw = str(payload.get("option_moneyness_values") or "otm_10")
-    opt_pt_raw = str(payload.get("option_profit_takes") or "100")
-    opt_pts_raw = str(payload.get("option_profit_take_sells") or "25,50,75,100")
-    opt_exit_raw = str(payload.get("option_exit_dtes") or "60")
-
-    def _parse_floats(raw: str) -> list[float]:
-        return [float(x.strip()) for x in raw.split(",") if x.strip()]
-
-    def _parse_ints(raw: str) -> list[int]:
-        return [int(x.strip()) for x in raw.split(",") if x.strip()]
-
-    wallet_pcts = _parse_floats(opt_wallet_raw)
-    trade_allocations = _parse_floats(opt_trade_alloc_raw)
-    dte_targets, dte_windows = _option_dte_targets_and_windows(payload, default_target=250)
-    moneyness_values = [x.strip() for x in opt_moneyness_raw.split(",") if x.strip()]
-    profit_takes = _parse_floats(opt_pt_raw)
-    profit_take_sells = _parse_floats(opt_pts_raw)
-    exit_dtes = _parse_ints(opt_exit_raw)
-
-    # ── Stage: fetching_options ──────────────────────────────────────
-    if check:
-        check()
-    _update_strategy_lab_job(job_id, stage="fetching_options", progress=20,
-                              message="批次抓取期权合约与历史数据…")
-
-    # Create provider
-    global config_manager
-    if config_manager is None:
-        config_manager = ConfigManager()
-    provider_config = config_manager.get_option_provider_config()
-    provider = create_option_provider(provider_config)
-
-    # Expand option variants
-    option_variants = expand_option_parameter_variants(
-        moneyness_values, dte_targets, wallet_pcts, trade_allocations,
-        profit_takes, profit_take_sells, exit_dtes, dte_windows=dte_windows,
-    )
-
-    # ── Stage: scanning_variants ─────────────────────────────────────
-    if check:
-        check()
-    _update_strategy_lab_job(job_id, stage="scanning_variants", progress=30,
-                              message=f"扫描 {len(option_variants)} 个期权参数组合…")
-
-    scan_result = scan_option_variants(
-        stock_result, option_variants, provider,
-        moneyness_values, dte_targets, end_date,
-        stock_inputs=lab_config.to_strategy_inputs(),
-    )
-
-    # ── Build result matrix for frontend ─────────────────────────────
-    matrix: list[dict[str, object]] = []
-    for res in scan_result.get("results", []):
-        variant = res.get("variant") or {}
-        agg = res.get("aggregate_metrics") or {}
-        per_strategy_returns = [
-            s.get("option_metrics", {}).get("return_pct", 0)
-            for s in (res.get("per_strategy") or [])
-        ]
-        matrix.append({
-            "variant_index": res.get("variant_index", 0),
-            "label": variant.get("label", ""),
-            "wallet_pct": variant.get("wallet_pct"),
-            "trade_allocation_pct": variant.get("trade_allocation_pct"),
-            "target_dte": variant.get("target_dte"),
-            "min_dte": variant.get("min_dte"),
-            "max_dte": variant.get("max_dte"),
-            "moneyness": variant.get("moneyness"),
-            "profit_take_pct": variant.get("profit_take_pct"),
-            "profit_take_sell_pct": variant.get("profit_take_sell_pct"),
-            "exit_dte": variant.get("exit_dte"),
-            "avg_return_pct": round(agg.get("avg_return_pct", 0), 2),
-            "max_return_pct": round(agg.get("max_return_pct", 0), 2),
-            "min_return_pct": round(agg.get("min_return_pct", 0), 2),
-            "combined_return_pct": round(agg.get("combined_return_pct", 0), 2),
-            "total_premium": round(agg.get("total_premium", 0), 2),
-            "total_value": round(agg.get("total_value", 0), 2),
-            "strategy_returns": [round(r, 2) for r in per_strategy_returns],
-        })
-
-    # Sort by combined return descending
-    matrix.sort(key=lambda r: float(r.get("combined_return_pct", 0)), reverse=True)
-
-    return {
-        "stock_result": {
-            "range": stock_result.get("range", {}),
-            "strategies": [
-                {"strategy_key": s.get("strategy_key", ""),
-                 "strategy_label": s.get("strategy_label", ""),
-                 "metrics": s.get("metrics", {})}
-                for s in stock_result.get("strategies", [])
-            ],
-        },
-        "option_scan": {
-            "variant_count": len(option_variants),
-            "moneyness_values": moneyness_values,
-            "dte_targets": dte_targets,
-            "dte_windows": [
-                {"min_dte": mn, "target_dte": tgt, "max_dte": mx}
-                for mn, tgt, mx in dte_windows
-            ],
-            "wallet_pcts": wallet_pcts,
-            "trade_allocations": trade_allocations,
-            "profit_takes": profit_takes,
-            "profit_take_sells": profit_take_sells,
-            "exit_dtes": exit_dtes,
-            "matrix": matrix,
-            "warnings": scan_result.get("warnings", []),
-        },
-    }
 
 
 def _prepare_strategy_robust_client_payload(payload: dict[str, object]) -> dict[str, object]:
@@ -9427,7 +9112,7 @@ def _robust_sell_variant_count(buy_strategy: str, sell_strategy: str) -> int:
     if sell_strategy == "grid_rebound":
         return 5 * 4 * 4 * rearm_multiplier
     if sell_strategy == "cost_deleverage":
-        return 3 * 3 * 3 * rearm_multiplier
+        return 3 * 3 * 3 * 2 * rearm_multiplier
     return 0
 
 
@@ -9746,39 +9431,57 @@ def api_strategy_lab_parameter_lab_packet():
         return _json_error(f"准备参数实验室数据失败: {exc}", 500)
 
 
-@app.route('/api/strategy-lab/parameter-lab/option-packet', methods=['POST'])
-def api_strategy_lab_parameter_lab_option_packet():
-    """Prepare option-scan packet for client-side Web Worker replay."""
+@app.route('/api/strategy-lab/parameter-lab/leaps-option-outcomes', methods=['POST'])
+def api_strategy_lab_parameter_lab_leaps_option_outcomes():
     payload = request.get_json(silent=True) or {}
+    raw_signals = payload.get("signals")
+    signals = [item for item in raw_signals if isinstance(item, dict)] if isinstance(raw_signals, list) else []
+    run_id = str(payload.get("run_id") or "").strip()
+    row_key = str(payload.get("row_key") or "").strip()
     started = time.perf_counter()
-    _parameter_lab_log("option_packet_start",
-        buy_strategies=payload.get("buy_strategies"),
-        sell_strategies=payload.get("sell_strategies") or payload.get("score_sell_strategies"),
-        has_stock_strategies=bool(payload.get("stock_strategies")),
+    if not isinstance(raw_signals, list):
+        return _json_error("signals 必须是数组", 400)
+    if len(signals) != 1:
+        return _json_error("signals 必须只包含 1 条 signal，请由浏览器逐条调用。", 400)
+    signal = signals[0]
+    signal_key = str(signal.get("signal_key") or "").strip()
+    symbol = str(signal.get("symbol") or "").strip()
+    signal_date = str(signal.get("date") or "").strip()
+    _parameter_lab_log(
+        "leaps_option_outcome_start",
+        run_id=run_id,
+        row_key=row_key,
+        signal_key=signal_key,
+        symbol=symbol,
+        date=signal_date,
     )
-    try:
-        packet = _prepare_option_parameter_lab_packet(payload)
-        option_variants = packet.get("option_variants")
-        variant_count = len(option_variants) if isinstance(option_variants, list) else 0
-        _parameter_lab_log("option_packet_done",
-            elapsed_ms=round((time.perf_counter() - started) * 1000, 1),
-            variant_count=variant_count,
-            strategy_count=len(packet.get("stock_strategies", [])),
-            warnings=len(packet.get("warnings", [])),
-        )
-        response = _json_response_with_optional_gzip({
-            "success": True,
-            "packet": packet,
-        })
-        response.headers["X-Option-Variant-Count"] = str(variant_count)
-        response.headers["X-Server-Elapsed-Ms"] = str(packet.get("elapsed_ms", 0))
-        return response
-    except ValueError as exc:
-        _parameter_lab_warn("option_packet_value_error", error=str(exc))
-        return _json_error(str(exc), 400)
-    except Exception as exc:
-        _parameter_lab_error("option_packet_error", error=str(exc))
-        return _json_error(f"准备期权扫描数据失败: {exc}", 500)
+    api_key = _get_polygon_api_key()
+    provider = _get_leaps_option_provider(api_key)
+    result = replay_leaps_option_outcomes(signals, api_key, provider=provider)
+    status_code = 200 if result.get("success") else 400
+    response = _json_response_with_optional_gzip({**result, "run_id": run_id, "row_key": row_key}, status_code=status_code)
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    outcomes = result.get("outcomes") if isinstance(result.get("outcomes"), list) else []
+    outcome = outcomes[0] if outcomes and isinstance(outcomes[0], dict) else {}
+    failure_reason = ""
+    if outcome.get("status") != "success":
+        failure_reason = str(outcome.get("skipped_reason") or result.get("message") or "")
+    _parameter_lab_log(
+        "leaps_option_outcome_done",
+        run_id=run_id,
+        row_key=row_key,
+        signal_key=signal_key,
+        symbol=symbol,
+        date=signal_date,
+        status=outcome.get("status") or ("success" if result.get("success") else "error"),
+        elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+        success=result.get("success"),
+        success_count=summary.get("success_count"),
+        skipped_count=summary.get("skipped_count"),
+        top_failure_reason=summary.get("top_failure_reason"),
+        failure_reason=failure_reason,
+    )
+    return response
 
 
 @app.route('/api/strategy-lab/jobs/<job_id>', methods=['GET'])
@@ -10041,7 +9744,6 @@ def api_strategy_lab_score_detail():
             "period_key": selected_period["key"],
             "period_label": selected_period["label"],
         }
-        result["option_overlay"] = {"enabled": False}
         return jsonify({"success": True, "data": result})
     except ValueError as exc:
         return _json_error(str(exc), 400)
@@ -10231,82 +9933,6 @@ def api_schedule():
                 return jsonify({"success": False, "message": "更新定时任务失败"}), 500
         else:
             return jsonify({"success": False, "message": "调度器未初始化"}), 500
-
-
-@app.route('/api/option-quote', methods=['POST'])
-def api_option_quote():
-    """
-    期权价格查询接口（需要密码验证）
-
-    请求格式：
-    {
-        "password": "密码",
-        "symbol": "期权代码"
-    }
-
-    返回格式：
-    {
-        "success": true,
-        "data": {
-            "symbol": "期权代码",
-            "last_done": 最新成交价,
-            "open": 开盘价,
-            "high": 最高价,
-            "low": 最低价,
-            "volume": 成交量,
-            "turnover": 成交额,
-            "timestamp": 时间戳
-        }
-    }
-    """
-    global config_manager
-
-    if config_manager is None:
-        return jsonify({"success": False, "message": "配置管理器未初始化"}), 500
-
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"success": False, "message": "请求数据格式错误"}), 400
-
-        password = data.get("password", "")
-        symbol = data.get("symbol", "")
-
-        # 验证密码
-        web_config = config_manager.get_web_config()
-        api_password = web_config.get("update_password", "")
-
-        if not api_password:
-            return jsonify({"success": False, "message": "API密码未配置"}), 500
-
-        if password != api_password:
-            return jsonify({"success": False, "message": "密码错误"}), 401
-
-        # 验证期权代码
-        if not symbol:
-            return jsonify({"success": False, "message": "期权代码不能为空"}), 400
-
-        # 获取Polygon.io配置
-        polygon_config = config_manager.get_polygon_config()
-        api_key = polygon_config.get("api_key")
-
-        if not api_key:
-            return jsonify({"success": False, "message": "Polygon.io API Key未配置"}), 500
-
-        # 查询期权价格
-        option_service = OptionQuoteService(api_key)
-        quote_data = option_service.get_option_quote(symbol)
-
-        if quote_data:
-            return jsonify({
-                "success": True,
-                "data": quote_data
-            })
-        else:
-            return jsonify({"success": False, "message": f"未找到期权 {symbol} 的报价"}), 404
-
-    except Exception as e:
-        return jsonify({"success": False, "message": f"查询失败: {str(e)}"}), 500
 
 
 if __name__ == '__main__':

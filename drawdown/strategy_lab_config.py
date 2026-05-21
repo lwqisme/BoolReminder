@@ -6,7 +6,6 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from drawdown.option_overlay import OptionOverlaySettings
 from drawdown.position_strategy import (
     DEFAULT_PORTFOLIO,
     DEFAULT_INVESTMENT_UNIVERSE,
@@ -51,6 +50,7 @@ DEFAULT_STRATEGY_LAB_DEFAULTS: dict[str, object] = {
     "default_cost_second_sell_pct": 30,
     "default_cost_third_sell_pct": 30,
     "default_cost_deleverage_cooldown_days": 0,
+    "default_sell_allow_same_day_sell": False,
     "default_cost_min_sell_amount": 0,
     "default_core_dip_initial_core_pct": 80,
     "default_core_dip_weekly_core_pct": 90,
@@ -74,18 +74,6 @@ DEFAULT_STRATEGY_LAB_DEFAULTS: dict[str, object] = {
     "default_scan_sell_min_profit_values": "5,10,15,20,25",
     "default_scan_repair_cooldown_values": "0,15,30,45,60",
     "default_scan_repair_stage_sell_values": "8,12,16,20,25",
-    "default_option_enabled": False,
-    "default_option_wallet_pct": 20,
-    "default_option_target_dte": 250,
-    "default_option_min_dte": 200,
-    "default_option_max_dte": 300,
-    "default_option_moneyness": "otm_10",
-    "default_option_profit_take_pct": 100,
-    "default_option_profit_take_sell_pct": 50,
-    "default_option_exit_dte": 60,
-    "default_option_trade_fee": 0.35,
-    "default_option_trade_allocation_pct": 30,
-    "default_option_max_trades_per_strategy": 20,
     "default_portfolio": [],
     "default_investment_universe": [],
 }
@@ -134,6 +122,7 @@ class StrategyLabConfig:
     cost_second_sell_pct: float = 30.0
     cost_third_sell_pct: float = 30.0
     cost_deleverage_cooldown_days: int = 0
+    sell_allow_same_day_sell: bool = False
     cost_min_sell_amount: float = 0.0
     core_dip_initial_core_pct: float = 80.0
     core_dip_weekly_core_pct: float = 90.0
@@ -157,18 +146,6 @@ class StrategyLabConfig:
     scan_sell_min_profit_values: str = "5,10,15,20,25"
     scan_repair_cooldown_values: str = "0,15,30,45,60"
     scan_repair_stage_sell_values: str = "8,12,16,20,25"
-    option_enabled: bool = False
-    option_wallet_pct: float = 20.0
-    option_trade_allocation_pct: float = 30.0
-    option_target_dte: int = 250
-    option_min_dte: int = 200
-    option_max_dte: int = 300
-    option_moneyness: str = "otm_10"
-    option_profit_take_pct: float = 100.0
-    option_profit_take_sell_pct: float = 50.0
-    option_exit_dte: int = 60
-    option_trade_fee: float = 0.35
-    option_max_trades_per_strategy: int = 20
     portfolio: list[dict[str, object]] = field(default_factory=list)
     investment_universe: list[dict[str, object]] = field(default_factory=list)
 
@@ -199,6 +176,10 @@ class StrategyLabConfig:
             cost_second_sell_pct=_read_float(raw, "default_cost_second_sell_pct"),
             cost_third_sell_pct=_read_float(raw, "default_cost_third_sell_pct"),
             cost_deleverage_cooldown_days=_read_int(raw, "default_cost_deleverage_cooldown_days"),
+            sell_allow_same_day_sell=_read_bool(
+                raw,
+                "default_sell_allow_same_day_sell",
+            ),
             cost_min_sell_amount=_read_float(raw, "default_cost_min_sell_amount"),
             core_dip_initial_core_pct=_read_float(raw, "default_core_dip_initial_core_pct"),
             core_dip_weekly_core_pct=_read_float(raw, "default_core_dip_weekly_core_pct"),
@@ -222,22 +203,6 @@ class StrategyLabConfig:
             scan_sell_min_profit_values=_read_text(raw, "default_scan_sell_min_profit_values"),
             scan_repair_cooldown_values=_read_text(raw, "default_scan_repair_cooldown_values"),
             scan_repair_stage_sell_values=_read_text(raw, "default_scan_repair_stage_sell_values"),
-            option_enabled=_read_bool(raw, "default_option_enabled"),
-            option_wallet_pct=_read_float(
-                raw,
-                "default_option_wallet_pct",
-                _read_float(raw, "default_option_allocation_pct", float(_default("default_option_wallet_pct"))),
-            ),
-            option_target_dte=_read_int(raw, "default_option_target_dte"),
-            option_min_dte=_read_int(raw, "default_option_min_dte"),
-            option_max_dte=_read_int(raw, "default_option_max_dte"),
-            option_moneyness=str(raw.get("default_option_moneyness") or _default("default_option_moneyness")),
-            option_profit_take_pct=_read_float(raw, "default_option_profit_take_pct"),
-            option_profit_take_sell_pct=_read_float(raw, "default_option_profit_take_sell_pct"),
-            option_exit_dte=_read_int(raw, "default_option_exit_dte"),
-            option_trade_fee=_read_float(raw, "default_option_trade_fee"),
-            option_trade_allocation_pct=_read_float(raw, "default_option_trade_allocation_pct"),
-            option_max_trades_per_strategy=_read_int(raw, "default_option_max_trades_per_strategy"),
             portfolio=_read_portfolio(raw.get("default_portfolio")),
             investment_universe=_read_investment_universe(raw.get("default_investment_universe")),
         ).validated()
@@ -260,8 +225,6 @@ class StrategyLabConfig:
         base: Mapping[str, object] | "StrategyLabConfig" | None = None,
     ) -> "StrategyLabConfig":
         base_config = base if isinstance(base, StrategyLabConfig) else cls.from_saved_defaults(base)
-        option_payload = payload.get("option_overlay")
-        option_payload = option_payload if isinstance(option_payload, Mapping) else {}
         return cls(
             initial_cash=_read_float(payload, "initial_cash", base_config.initial_cash),
             monthly_contribution=_read_float(payload, "monthly_contribution", base_config.monthly_contribution),
@@ -345,6 +308,11 @@ class StrategyLabConfig:
                 payload,
                 "cost_deleverage_cooldown_days",
                 base_config.cost_deleverage_cooldown_days,
+            ),
+            sell_allow_same_day_sell=_read_bool(
+                payload,
+                "sell_allow_same_day_sell",
+                base_config.sell_allow_same_day_sell,
             ),
             cost_min_sell_amount=_read_float(
                 payload,
@@ -433,34 +401,6 @@ class StrategyLabConfig:
             scan_sell_min_profit_values=base_config.scan_sell_min_profit_values,
             scan_repair_cooldown_values=base_config.scan_repair_cooldown_values,
             scan_repair_stage_sell_values=base_config.scan_repair_stage_sell_values,
-            option_enabled=_read_bool(option_payload, "enabled", base_config.option_enabled),
-            option_wallet_pct=_read_float(
-                option_payload,
-                "wallet_pct",
-                _read_float(option_payload, "allocation_pct", base_config.option_wallet_pct),
-            ),
-            option_target_dte=_read_int(option_payload, "target_dte", base_config.option_target_dte),
-            option_min_dte=_read_int(option_payload, "min_dte", base_config.option_min_dte),
-            option_max_dte=_read_int(option_payload, "max_dte", base_config.option_max_dte),
-            option_moneyness=str(option_payload.get("moneyness") or base_config.option_moneyness),
-            option_profit_take_pct=_read_float(option_payload, "profit_take_pct", base_config.option_profit_take_pct),
-            option_profit_take_sell_pct=_read_float(
-                option_payload,
-                "profit_take_sell_pct",
-                base_config.option_profit_take_sell_pct,
-            ),
-            option_exit_dte=_read_int(option_payload, "exit_dte", base_config.option_exit_dte),
-            option_trade_fee=_read_float(option_payload, "trade_fee", base_config.option_trade_fee),
-            option_trade_allocation_pct=_read_float(
-                option_payload,
-                "trade_allocation_pct",
-                base_config.option_trade_allocation_pct,
-            ),
-            option_max_trades_per_strategy=_read_int(
-                option_payload,
-                "max_trades_per_strategy",
-                base_config.option_max_trades_per_strategy,
-            ),
             portfolio=_read_portfolio(payload.get("targets"), fallback=base_config.portfolio),
             investment_universe=_read_investment_universe(
                 payload.get("investment_universe"),
@@ -522,10 +462,6 @@ class StrategyLabConfig:
             raise ValueError("核心定投买点优化近低偏离不能小于 0。")
         if self.scan_buy_strategy not in STRATEGY_LABELS:
             raise ValueError("扫描买入策略无效。")
-        if self.option_moneyness not in {"atm", "itm_10", "otm_10"}:
-            raise ValueError("期权行权价规则无效。")
-        if self.option_min_dte > self.option_max_dte:
-            raise ValueError("期权最小 DTE 不能大于最大 DTE。")
         return self
 
     def to_strategy_inputs(self) -> StrategyInputs:
@@ -554,6 +490,7 @@ class StrategyLabConfig:
             cost_second_sell_pct=self.cost_second_sell_pct,
             cost_third_sell_pct=self.cost_third_sell_pct,
             cost_deleverage_cooldown_days=self.cost_deleverage_cooldown_days,
+            sell_allow_same_day_sell=self.sell_allow_same_day_sell,
             cost_min_sell_amount=self.cost_min_sell_amount,
             core_dip_initial_core_pct=self.core_dip_initial_core_pct,
             core_dip_weekly_core_pct=self.core_dip_weekly_core_pct,
@@ -568,22 +505,6 @@ class StrategyLabConfig:
 
     def score_weights(self) -> tuple[float, float]:
         return SCORECARD_RETURN_WEIGHT, SCORECARD_DRAWDOWN_WEIGHT
-
-    def option_settings(self) -> OptionOverlaySettings:
-        return OptionOverlaySettings(
-            enabled=self.option_enabled,
-            wallet_pct=self.option_wallet_pct,
-            trade_allocation_pct=self.option_trade_allocation_pct,
-            target_dte=self.option_target_dte,
-            min_dte=self.option_min_dte,
-            max_dte=self.option_max_dte,
-            moneyness=self.option_moneyness,
-            profit_take_pct=self.option_profit_take_pct,
-            profit_take_sell_pct=self.option_profit_take_sell_pct,
-            exit_dte=self.option_exit_dte,
-            trade_fee=self.option_trade_fee,
-            max_trades_per_strategy=self.option_max_trades_per_strategy,
-        )
 
     def scorecard_period_payloads(self) -> list[dict[str, object]]:
         return [period.to_payload() for period in self.scorecard_periods]
@@ -628,6 +549,7 @@ class StrategyLabConfig:
             "default_cost_second_sell_pct": self.cost_second_sell_pct,
             "default_cost_third_sell_pct": self.cost_third_sell_pct,
             "default_cost_deleverage_cooldown_days": self.cost_deleverage_cooldown_days,
+            "default_sell_allow_same_day_sell": self.sell_allow_same_day_sell,
             "default_cost_min_sell_amount": self.cost_min_sell_amount,
             "default_core_dip_initial_core_pct": self.core_dip_initial_core_pct,
             "default_core_dip_weekly_core_pct": self.core_dip_weekly_core_pct,
@@ -651,18 +573,6 @@ class StrategyLabConfig:
             "default_scan_sell_min_profit_values": self.scan_sell_min_profit_values,
             "default_scan_repair_cooldown_values": self.scan_repair_cooldown_values,
             "default_scan_repair_stage_sell_values": self.scan_repair_stage_sell_values,
-            "default_option_enabled": self.option_enabled,
-            "default_option_wallet_pct": self.option_wallet_pct,
-            "default_option_target_dte": self.option_target_dte,
-            "default_option_min_dte": self.option_min_dte,
-            "default_option_max_dte": self.option_max_dte,
-            "default_option_moneyness": self.option_moneyness,
-            "default_option_profit_take_pct": self.option_profit_take_pct,
-            "default_option_profit_take_sell_pct": self.option_profit_take_sell_pct,
-            "default_option_exit_dte": self.option_exit_dte,
-            "default_option_trade_fee": self.option_trade_fee,
-            "default_option_trade_allocation_pct": self.option_trade_allocation_pct,
-            "default_option_max_trades_per_strategy": self.option_max_trades_per_strategy,
             "default_portfolio": [dict(item) for item in self.portfolio],
             "default_investment_universe": [dict(item) for item in self.investment_universe],
         }

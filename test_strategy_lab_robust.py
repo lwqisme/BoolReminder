@@ -224,11 +224,12 @@ class StrategyLabRobustTest(unittest.TestCase):
 
         self.assertEqual(_repair_candidates(["equal_slice", "weekly_dca"], params), [])
         pyramid_candidates = _repair_candidates(["pyramid_3"], params)
-        self.assertEqual(len(pyramid_candidates), 5)
+        self.assertEqual(len(pyramid_candidates), 10)
         self.assertEqual(
             {candidate.get("dca_rearm_drawdown_pct") for candidate in pyramid_candidates},
             {0.0, 5.0, 10.0, 15.0, 20.0},
         )
+        self.assertEqual({candidate.get("sell_allow_same_day_sell") for candidate in pyramid_candidates}, {False, True})
 
     def test_dca_rearm_candidates_are_generated_for_robust_top10(self):
         inputs = StrategyInputs(sell_min_profit_pct=10, repair_sell_cooldown_days=30, repair_stage_sell_pct=12)

@@ -1,31 +1,18 @@
 import re
 import unittest
 
-from web.app import app, _option_dte_targets_and_windows
+from web.app import app
 
 
 class StrategyLabFrontendTest(unittest.TestCase):
-    def test_option_dte_parser_keeps_legacy_option_dtes_as_target_windows(self):
-        targets, windows = _option_dte_targets_and_windows({"option_dtes": "365,500"})
+    def test_strategy_lab_no_longer_exposes_option_entries(self):
+        with app.test_client() as client:
+            html = client.get("/strategy-lab").get_data(as_text=True)
 
-        self.assertEqual(targets, [365, 500])
-        self.assertEqual(windows, [(305, 365, 425), (440, 500, 560)])
-
-    def test_option_dte_parser_accepts_explicit_human_window(self):
-        targets, windows = _option_dte_targets_and_windows({
-            "option_dte_min": 200,
-            "option_dte_target": 250,
-            "option_dte_max": 300,
-        })
-
-        self.assertEqual(targets, [250])
-        self.assertEqual(windows, [(200, 250, 300)])
-
-    def test_option_dte_parser_defaults_to_human_window(self):
-        targets, windows = _option_dte_targets_and_windows({})
-
-        self.assertEqual(targets, [250])
-        self.assertEqual(windows, [(200, 250, 300)])
+        self.assertNotIn("期" + "权叠加", html)
+        self.assertNotIn("option" + "_overlay", html)
+        self.assertNotIn("default" + "_option_", html)
+        self.assertNotIn("/api/" + "option-quote", html)
 
     def test_scorecard_detail_button_opens_visible_results_detail(self):
         with app.test_client() as client:
@@ -286,6 +273,30 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("大涨阈值", html)
         self.assertIn("近低距离", html)
         self.assertIn("卖后重启", html)
+        self.assertIn("LEAPS 信号设置", html)
+        self.assertIn('id="leapsSignalToggle"', html)
+        self.assertIn('id="leapsLowCashThreshold"', html)
+        self.assertIn('id="leapsMinDrawdown"', html)
+        self.assertIn('id="leapsPremiumBudgetCap"', html)
+        self.assertIn('id="leapsTargetDteLabel"', html)
+        self.assertIn("function aggregateLeapsSignals(cells)", html)
+        self.assertIn("function renderDetailLeaps(row)", html)
+        self.assertIn("正股卖出", html)
+        self.assertIn("function formatStockSell(signal)", html)
+        self.assertIn("class=\"mini-table leaps-detail-table\"", html)
+        self.assertIn("leaps-reason-chip", html)
+        self.assertIn("/api/strategy-lab/parameter-lab/leaps-option-outcomes", html)
+        self.assertIn("计算 200-300D 月期权收益", html)
+        self.assertIn("function buildLeapsOptionQueue(signals)", html)
+        self.assertIn("return normalizeLeapsOptionSignals(signals).map", html)
+        self.assertIn("signals: [queueItem.signal]", html)
+        self.assertIn("LEAPS_OPTION_QUEUE_CONCURRENCY = 2", html)
+        self.assertIn("停止计算", html)
+        self.assertIn("计算本行", html)
+        self.assertIn("计算该信号", html)
+        self.assertIn("浏览器逐条发起请求；Polygon 定价在服务端完成", html)
+        self.assertIn("renderLeapsOptionProgress", html)
+        self.assertIn("renderLeapsOptionOutcomeTable", html)
         self.assertIn("topic_rank", html)
         self.assertIn("topic_score", html)
         self.assertIn("candidateDetailPayload", html)
@@ -302,6 +313,27 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("localStorage.getItem('strategyLabPendingParameterCandidate')", html)
         self.assertIn("applyRunConfigPayload(payload)", html)
         self.assertIn("已应用 Parameter Lab 参数，并恢复原评分题目与周期", html)
+        self.assertIn("loadScorecardDetail(topicKey, cand.buy_strategy, cand.sell_strategy)", html)
+
+    def test_detail_chart_labels_cash_as_post_trade_and_marks_initial_cash(self):
+        with app.test_client() as client:
+            html = client.get("/strategy-lab").get_data(as_text=True)
+
+        self.assertIn("现金线口径：交易后余额", html)
+        self.assertIn("现金线记录每日买卖执行后的余额", html)
+        self.assertIn("现金余额（交易后）", html)
+        self.assertIn("初始现金（交易前）", html)
+        self.assertIn("首日交易后现金", html)
+        self.assertIn("首日买入金额", html)
+        self.assertIn("现金 USD（交易后）", html)
+
+    def test_parameter_lab_cell_opens_main_lab_auto_detail_path(self):
+        with app.test_client() as client:
+            html = client.get("/strategy-lab/parameter-lab").get_data(as_text=True)
+
+        self.assertIn("function openCellInLab(rowKey, topicKey)", html)
+        self.assertIn("source: 'parameter-lab-cell'", html)
+        self.assertIn("window.open('/strategy-lab?apply_parameter_lab=1&auto_run_lab=1'", html)
 
 
 if __name__ == "__main__":

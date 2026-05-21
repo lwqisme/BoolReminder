@@ -42,6 +42,14 @@ def synthetic_parameter_lab_task(symbol: str = "TSLA.US") -> dict[str, object]:
 
 
 class StrategyLabScorePayloadTest(unittest.TestCase):
+    def test_removed_option_endpoints_return_404(self):
+        with app.test_client() as client:
+            quote_response = client.post("/api/" + "option-quote", json={})
+            packet_response = client.post("/api/strategy-lab/parameter-lab/" + "option" + "-packet", json={})
+
+        self.assertEqual(quote_response.status_code, 404)
+        self.assertEqual(packet_response.status_code, 404)
+
     def test_score_payload_passes_selected_sell_strategies(self):
         with patch("web.app.run_longbridge_strategy_scorecard", return_value={"summary": [], "questions": []}) as scorecard:
             _run_strategy_score_payload({

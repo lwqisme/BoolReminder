@@ -226,7 +226,7 @@ class PositionStrategyTest(unittest.TestCase):
         self.assertEqual(by_key["pyramid_3__none"]["metrics"]["trade_count"], 3)
         self.assertEqual(by_key["weekly_dca__none"]["metrics"]["trade_count"], 1)
         self.assertEqual(by_key["salary_flow_dca__none"]["metrics"]["trade_count"], 0)
-        self.assertEqual(by_key["core_dip_dca__none"]["metrics"]["trade_count"], 0)
+        self.assertEqual(by_key["core_dip_dca__none"]["metrics"]["trade_count"], 1)
         self.assertAlmostEqual(by_key["pyramid_3__none"]["metrics"]["total_fees"], 1.05)
         self.assertEqual(by_key["equal_slice__none"]["metrics"]["trade_count"], 10)
         equal_buy_prices = [
@@ -294,6 +294,34 @@ class PositionStrategyTest(unittest.TestCase):
         self.assertEqual([round(trade["dip_amount"], 2) for trade in buys], [0.0, 0.0, 2.5, 7.5, 10.0])
         self.assertEqual([round(trade["gross_amount"], 2) for trade in buys], [893.6, 26.4, 17.0, 34.0, 17.0])
         self.assertGreater(strategy["metrics"]["cash_usage_pct"], 98.0)
+
+    def test_core_dip_dca_uses_initial_core_when_monthly_contribution_is_zero(self):
+        result = simulate_portfolio(
+            {
+                "TSLA.US": dated_points(
+                    ("2024-01-02", 100),
+                    ("2024-01-08", 95),
+                    ("2024-01-15", 90),
+                    ("2024-01-22", 85),
+                )
+            },
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            StrategyInputs(initial_cash=1000, monthly_contribution=0, trade_fee=0),
+            strategies=("core_dip_dca",),
+            sell_strategies=("none",),
+        )
+
+        strategy = result["strategies"][0]
+        buys = [trade for trade in strategy["trades"] if trade["action"] == "buy"]
+        self.assertGreaterEqual(len(buys), 2)
+        self.assertEqual(buys[0]["date"], "2024-01-02")
+        self.assertAlmostEqual(buys[0]["scheduled_amount"], 0.0)
+        self.assertAlmostEqual(buys[0]["new_core_amount"], 0.0)
+        self.assertAlmostEqual(buys[0]["dip_amount"], 0.0)
+        self.assertAlmostEqual(buys[0]["initial_core_amount"], 800.0)
+        self.assertGreater(buys[0]["idle_cash_sweep"], 0.0)
+        self.assertTrue(any(trade["idle_cash_sweep"] > 0 for trade in buys[1:]))
+        self.assertNotEqual(strategy["series"]["cash_values"], strategy["series"]["contribution_values"])
 
     def test_core_dip_timing_defers_core_buy_after_sharp_rise(self):
         result = simulate_portfolio(
@@ -792,6 +820,70 @@ class PositionStrategyTest(unittest.TestCase):
         )
         sells = [trade for trade in cooled_down["strategies"][0]["trades"] if trade["action"] == "sell"]
         self.assertEqual([trade["trigger_value"] for trade in sells], [5])
+
+    def test_cost_deleverage_default_skips_buy_day_sell_until_next_trading_day(self):
+        result = simulate_portfolio(
+            {
+                "TSLA.US": dated_points(
+                    ("2024-01-02", 100),
+                    ("2024-02-01", 115),
+                    ("2024-02-02", 115),
+                )
+            },
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            StrategyInputs(
+                initial_cash=10000,
+                monthly_contribution=1000,
+                trade_fee=0,
+                reserve_position_pct=0,
+                sell_min_profit_pct=0,
+                cost_first_profit_pct=5,
+                cost_second_profit_pct=10,
+                cost_third_profit_pct=20,
+                cost_first_sell_pct=10,
+                cost_second_sell_pct=10,
+                cost_third_sell_pct=10,
+                sell_allow_same_day_sell=False,
+            ),
+            strategies=("weekly_dca",),
+            sell_strategies=("cost_deleverage",),
+        )
+
+        sells = [trade for trade in result["strategies"][0]["trades"] if trade["action"] == "sell"]
+        self.assertEqual([trade["date"] for trade in sells], ["2024-02-02"])
+
+    def test_cost_deleverage_can_sell_after_same_day_buy_when_enabled(self):
+        result = simulate_portfolio(
+            {
+                "TSLA.US": dated_points(
+                    ("2024-01-02", 100),
+                    ("2024-02-01", 115),
+                    ("2024-02-02", 115),
+                )
+            },
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            StrategyInputs(
+                initial_cash=10000,
+                monthly_contribution=1000,
+                trade_fee=0,
+                reserve_position_pct=0,
+                sell_min_profit_pct=0,
+                cost_first_profit_pct=5,
+                cost_second_profit_pct=10,
+                cost_third_profit_pct=20,
+                cost_first_sell_pct=10,
+                cost_second_sell_pct=10,
+                cost_third_sell_pct=10,
+                sell_allow_same_day_sell=True,
+            ),
+            strategies=("weekly_dca",),
+            sell_strategies=("cost_deleverage",),
+        )
+
+        trades = result["strategies"][0]["trades"]
+        sells = [trade for trade in trades if trade["action"] == "sell"]
+        self.assertEqual(sells[0]["date"], "2024-02-01")
+        self.assertEqual([trade["action"] for trade in trades if trade["date"] == "2024-02-01"], ["buy", "sell"])
 
     def test_salary_flow_rearms_position_repair_after_drawdown_buy(self):
         inputs = StrategyInputs(

@@ -87,6 +87,10 @@ class StrategyParameterRegistryTest(unittest.TestCase):
         self.assertIn("grid_rebound", payload["definitions"])
         self.assertEqual(payload["definitions"]["pyramid_3"]["strategy_type"], "buy")
         self.assertEqual(payload["definitions"]["grid_rebound"]["strategy_type"], "sell")
+        self.assertEqual(payload["definitions"]["repair_step"]["parameter_space"]["sell_allow_same_day_sell"], [False, True])
+        self.assertEqual(payload["definitions"]["grid_rebound"]["parameter_space"]["sell_allow_same_day_sell"], [False, True])
+        cost_space = payload["definitions"]["cost_deleverage"]["parameter_space"]
+        self.assertEqual(cost_space["sell_allow_same_day_sell"], [False, True])
         core_space = payload["definitions"]["core_dip_dca"]["parameter_space"]
         self.assertEqual(core_space["core_dip_timing_max_delay_days"], [1, 3, 5])
         self.assertEqual(core_space["core_dip_timing_rise_threshold_pct"], [1.0, 1.5, 2.5])
@@ -109,6 +113,39 @@ class StrategyParameterRegistryTest(unittest.TestCase):
         self.assertLess(len(manifest["buy_variants"]), len(candidates))
         self.assertLess(len(manifest["sell_variants"]), len(candidates))
         self.assertIn("candidate_manifest_hash", manifest)
+
+    def test_cost_deleverage_candidates_include_same_day_sell_variants(self):
+        candidates = expand_strategy_candidate_payloads(
+            ["weekly_dca"],
+            ["cost_deleverage"],
+            StrategyInputs(),
+        )
+
+        same_day = [item for item in candidates if item["sell_allow_same_day_sell"]]
+        default = [item for item in candidates if not item["sell_allow_same_day_sell"]]
+        self.assertEqual(len(same_day), len(default))
+        self.assertTrue(all("买入日可卖" in item["label"] for item in same_day))
+        self.assertTrue(all("same1" in item["key"] for item in same_day))
+
+    def test_non_none_sell_candidates_include_same_day_sell_variants(self):
+        candidates = expand_strategy_candidate_payloads(
+            ["salary_flow_dca"],
+            ["repair_step", "grid_rebound", "none"],
+            StrategyInputs(),
+        )
+
+        for sell_strategy in ("repair_step", "grid_rebound"):
+            strategy_candidates = [item for item in candidates if item["sell_strategy"] == sell_strategy]
+            same_day = [item for item in strategy_candidates if item["sell_allow_same_day_sell"]]
+            default = [item for item in strategy_candidates if not item["sell_allow_same_day_sell"]]
+            self.assertTrue(same_day)
+            self.assertEqual(len(same_day), len(default))
+            self.assertTrue(all("same1" in item["key"] for item in same_day))
+            self.assertTrue(all("买入日可卖" in item["label"] for item in same_day))
+
+        none_candidates = [item for item in candidates if item["sell_strategy"] == "none"]
+        self.assertEqual(len(none_candidates), 1)
+        self.assertIsNone(none_candidates[0]["sell_allow_same_day_sell"])
 
 
 if __name__ == "__main__":

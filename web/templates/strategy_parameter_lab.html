@@ -247,6 +247,150 @@
         .toolbar .left, .toolbar .right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .toolbar label { display: flex; align-items: center; gap: 6px; grid-auto-flow: column; }
         .toolbar select { width: auto; min-width: 110px; }
+        .switch-label {
+            display: inline-flex !important;
+            align-items: center;
+            gap: 8px !important;
+            min-height: 34px;
+            padding: 6px 9px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: var(--surface);
+            color: var(--ink) !important;
+            font-size: 12px !important;
+        }
+        .switch-label input { width: auto; min-height: 0; accent-color: var(--green); }
+        .leaps-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            min-height: 24px;
+            padding: 3px 7px;
+            border-radius: 5px;
+            border: 1px solid rgba(99, 115, 134, 0.22);
+            background: #f7fafc;
+            color: var(--muted);
+            font-family: var(--mono);
+            font-size: 11px;
+            font-weight: 900;
+            white-space: nowrap;
+        }
+        .leaps-badge.high { border-color: rgba(4, 120, 87, 0.28); background: #ecfdf5; color: var(--green); }
+        .leaps-badge.medium { border-color: rgba(183, 121, 31, 0.32); background: #fff8e8; color: var(--amber); }
+        .leaps-badge.low { border-color: rgba(29, 100, 200, 0.24); background: #eff6ff; color: var(--blue); }
+        .leaps-strip {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px;
+            margin-top: 7px;
+        }
+        .leaps-mini {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+            margin: 10px 0;
+        }
+        .leaps-mini div {
+            min-height: 54px;
+            padding: 8px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #f8fbfd;
+        }
+        .leaps-mini span { display: block; color: var(--muted); font-size: 11px; font-weight: 800; }
+        .leaps-mini strong { display: block; margin-top: 3px; font-family: var(--mono); font-size: 15px; }
+        .leaps-detail-table th:nth-child(1),
+        .leaps-detail-table td:nth-child(1),
+        .leaps-detail-table th:nth-child(2),
+        .leaps-detail-table td:nth-child(2),
+        .leaps-detail-table th:nth-child(3),
+        .leaps-detail-table td:nth-child(3),
+        .leaps-detail-table th:nth-child(4),
+        .leaps-detail-table td:nth-child(4),
+        .leaps-detail-table th:nth-child(5),
+        .leaps-detail-table td:nth-child(5),
+        .leaps-detail-table th:nth-child(6),
+        .leaps-detail-table td:nth-child(6),
+        .leaps-detail-table th:nth-child(7),
+        .leaps-detail-table td:nth-child(7) {
+            width: 1%;
+            white-space: nowrap;
+        }
+        .leaps-detail-table th:nth-child(8),
+        .leaps-detail-table td:nth-child(8) {
+            width: 110px;
+            white-space: nowrap;
+        }
+        .leaps-detail-status {
+            margin: 8px 0 0;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 800;
+        }
+        .leaps-detail-status.error { color: var(--red); }
+        .leaps-group-summary {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+            flex-wrap: wrap;
+        }
+        .leaps-pagination {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 900;
+        }
+        .leaps-pagination button {
+            min-height: 28px;
+            padding: 4px 8px;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+        .leaps-pagination button:disabled {
+            cursor: not-allowed;
+            opacity: 0.45;
+        }
+        .leaps-group-detail {
+            min-width: 260px;
+        }
+        .leaps-group-detail summary {
+            cursor: pointer;
+            color: var(--blue);
+            font-size: 12px;
+            font-weight: 900;
+            white-space: nowrap;
+        }
+        .leaps-group-detail .matrix-wrap {
+            margin-top: 8px;
+            max-height: 220px;
+            box-shadow: none;
+        }
+        .leaps-reasons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            min-width: 170px;
+            max-width: 260px;
+        }
+        .leaps-reason-chip {
+            display: inline-flex;
+            align-items: center;
+            min-height: 22px;
+            padding: 2px 6px;
+            border: 1px solid rgba(29, 100, 200, 0.16);
+            border-radius: 5px;
+            background: #f4f8fc;
+            color: var(--ink);
+            font-size: 11px;
+            font-weight: 800;
+            line-height: 1.25;
+            white-space: nowrap;
+        }
         .matrix-wrap {
             width: 100%;
             overflow: auto;
@@ -268,8 +412,146 @@
             background: #fff;
         }
         th:first-child { z-index: 3; background: #edf3f8; }
+        .leaps-detail-table th:first-child,
+        .leaps-detail-table td:first-child {
+            position: static !important;
+            left: auto !important;
+            z-index: auto !important;
+            width: 88px !important;
+            min-width: 88px !important;
+            max-width: 88px !important;
+            white-space: nowrap !important;
+            background: inherit;
+        }
+        .leaps-option-summary {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            min-height: 24px;
+            padding: 3px 7px;
+            border: 1px solid rgba(4, 120, 87, 0.2);
+            border-radius: 5px;
+            background: #f0fdf4;
+            color: var(--green);
+            font-family: var(--mono);
+            font-size: 11px;
+            font-weight: 900;
+            white-space: nowrap;
+        }
+        .leaps-option-summary.warn {
+            border-color: rgba(183, 121, 31, 0.28);
+            background: #fff8e8;
+            color: var(--amber);
+        }
+        .leaps-option-actions {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            margin: 10px 0;
+        }
+        .leaps-option-progress {
+            display: grid;
+            gap: 8px;
+            width: 100%;
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #d7e2ec;
+            border-radius: 6px;
+            background: #f8fbfd;
+        }
+        .leaps-option-progress-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+        .leaps-option-progress-row strong {
+            color: var(--ink);
+            font-family: var(--mono);
+        }
+        .leaps-option-progress-track {
+            overflow: hidden;
+            height: 8px;
+            border-radius: 999px;
+            background: #e6edf3;
+        }
+        .leaps-option-progress-bar {
+            height: 100%;
+            width: var(--progress, 0%);
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--blue), var(--green));
+            transition: width .2s ease;
+        }
+        .leaps-option-progress-error {
+            color: var(--amber);
+            font-size: 12px;
+            font-weight: 800;
+        }
         .strategy-name { font-weight: 900; line-height: 1.3; }
         .strategy-meta { margin-top: 5px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+        .rank-pair {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 5px;
+            color: var(--ink);
+            font-family: var(--mono);
+            font-size: 12px;
+            font-weight: 900;
+        }
+        .rank-pair span {
+            display: inline-flex;
+            align-items: center;
+            min-height: 22px;
+            padding: 2px 6px;
+            border: 1px solid rgba(29, 100, 200, 0.16);
+            border-radius: 5px;
+            background: #f4f8fc;
+        }
+        .group-row td,
+        .group-row td:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 1;
+            min-width: 0;
+            max-width: none;
+            background: #e8f0f7;
+            border-right: 0;
+            padding: 7px 8px;
+        }
+        .group-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            min-width: 560px;
+        }
+        .group-title button {
+            min-height: 28px;
+            padding: 4px 8px;
+            font-size: 12px;
+        }
+        .group-name {
+            display: inline-flex;
+            align-items: baseline;
+            gap: 8px;
+            font-weight: 900;
+        }
+        .group-name span { color: var(--muted); font-size: 12px; font-weight: 800; }
+        .group-metrics {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 8px;
+            color: var(--muted);
+            font-family: var(--mono);
+            font-size: 12px;
+            font-weight: 800;
+        }
         .row-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
         .row-actions button { min-height: 28px; padding: 5px 7px; font-size: 12px; }
         .score-cell { min-width: 152px; background: var(--cell-bg, #fff); }
@@ -311,6 +593,7 @@
             .shell { grid-template-columns: 1fr; }
             .side { position: static; height: auto; }
             .field-grid, .field-grid.three, .stat-grid { grid-template-columns: 1fr; }
+            .leaps-mini { grid-template-columns: 1fr 1fr; }
             .runbar { grid-template-columns: 1fr; }
             .topbar { display: grid; }
             .actions { justify-content: flex-start; }
@@ -327,6 +610,9 @@
                 </div>
                 <div class="panel-body">
                     <div class="field-grid">
+                        <label>开始日期
+                            <input id="start" type="date" value="{{ default_start }}">
+                        </label>
                         <label>结束日期
                             <input id="end" type="date" value="{{ default_end }}">
                         </label>
@@ -402,6 +688,26 @@
             </div>
 
             <div class="panel">
+                <div class="panel-head"><h2>LEAPS 信号设置</h2></div>
+                <div class="panel-body">
+                    <div class="field-grid">
+                        <label>低现金阈值 %
+                            <input id="leapsLowCashThreshold" type="number" min="0" max="100" step="1" value="12">
+                        </label>
+                        <label>最低回撤 %
+                            <input id="leapsMinDrawdown" type="number" min="0" max="100" step="1" value="12">
+                        </label>
+                        <label>单次预算上限 USD
+                            <input id="leapsPremiumBudgetCap" type="number" min="0" step="50" value="1000">
+                        </label>
+                        <label>目标 DTE 标签
+                            <input id="leapsTargetDteLabel" value="18-24M">
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
                 <div class="panel-head"><h2>组合与标的库</h2></div>
                 <div class="panel-body">
                     <label>当前组合
@@ -438,6 +744,7 @@
                         <label>成本二档卖<input id="costSecondSellPct" type="number" step="1" value="{{ default_config.default_cost_second_sell_pct }}"></label>
                         <label>成本三档卖<input id="costThirdSellPct" type="number" step="1" value="{{ default_config.default_cost_third_sell_pct }}"></label>
                         <label>成本冷却<input id="costDeleverageCooldown" type="number" step="1" value="{{ default_config.default_cost_deleverage_cooldown_days }}"></label>
+                        <label title="开启后，当天买入完成并更新持仓后，会继续运行当前卖出策略；卖出仍受该策略自身盈利、冷却、底仓、最小卖出额、档位规则限制。">买入日可卖<input id="sellAllowSameDaySell" type="checkbox" {% if default_config.default_sell_allow_same_day_sell %}checked{% endif %}></label>
                         <label>成本最小额<input id="costMinSellAmount" type="number" step="10" value="{{ default_config.default_cost_min_sell_amount }}"></label>
                     </div>
                     <div class="field-grid" style="margin-top:9px;">
@@ -459,54 +766,6 @@
                 </div>
             </div>
 
-            <div class="panel">
-                <div class="panel-head"><h2>期权参数扫描</h2></div>
-                <div class="panel-body">
-                    <label style="margin-bottom:8px;">
-                        <input id="optionScanEnabled" type="checkbox" onchange="toggleOptionScanPanel()">
-                        启用期权叠加扫描 (LEAPS Call)
-                    </label>
-                    <div id="optionScanPanel" style="display:none;">
-                        <div class="field-grid three">
-                            <label>钱包比例 %
-                                <input id="optWalletPct" value="10,20,30" placeholder="逗号分隔">
-                            </label>
-                            <label>每笔投入 %
-                                <input id="optTradeAllocation" value="20,30,40,50" placeholder="逗号分隔">
-                            </label>
-                            <label>最小DTE
-                                <input id="optDteMin" value="200" placeholder="200">
-                            </label>
-                            <label>目标DTE
-                                <input id="optDteTarget" value="250" placeholder="250">
-                            </label>
-                            <label>最大DTE
-                                <input id="optDteMax" value="300" placeholder="300">
-                            </label>
-                            <label>行权价规则
-                                <input id="optMoneyness" value="otm_10" placeholder="逗号分隔">
-                            </label>
-                            <label>止盈阈值 %
-                                <input id="optProfitTake" value="100" placeholder="逗号分隔">
-                            </label>
-                            <label>止盈卖出 %
-                                <input id="optProfitTakeSell" value="50" placeholder="逗号分隔">
-                            </label>
-                            <label>退出DTE
-                                <input id="optExitDte" value="60" placeholder="逗号分隔">
-                            </label>
-                        </div>
-                        <div class="estimate-strip" style="margin-top:10px;">
-                            <strong>期权候选</strong>
-                            <span id="optCandidateCount">--</span>
-                        </div>
-                        <button class="primary" type="button" onclick="runOptionParameterScan()"
-                                style="margin-top:10px; width:100%;">
-                            扫描期权参数
-                        </button>
-                    </div>
-                </div>
-            </div>
         </aside>
 
         <main class="main">
@@ -556,6 +815,10 @@
                     <span id="resultMeta" style="color:var(--muted);"></span>
                 </div>
                 <div class="right">
+                    <label class="switch-label">
+                        <input id="leapsSignalToggle" type="checkbox" onchange="renderParameterMatrix()">
+                        LEAPS 信号
+                    </label>
                     <label>排名
                         <select id="rankMethod" onchange="renderParameterMatrix()">
                             <option value="normalized" selected>题内归一化</option>
@@ -580,44 +843,6 @@
                 </table>
             </div>
 
-            <div id="optionResultSection" style="display:none; margin-top: 20px;">
-                <div class="panel">
-                    <div class="panel-head">
-                        <h2>期权参数对比</h2>
-                        <span id="optionResultMeta"></span>
-                    </div>
-                    <div class="panel-body">
-                        <div class="toolbar">
-                            <div class="left">
-                                <strong id="optionResultTitle">尚未运行</strong>
-                                <span id="optionResultWarnings" style="color:var(--amber);font-size:12px;"></span>
-                            </div>
-                            <div class="right">
-                                <label>排名
-                                    <select id="optionRankMethod" onchange="renderOptionMatrix()">
-                                        <option value="combined_return" selected>组合收益率</option>
-                                        <option value="avg_return">平均收益率</option>
-                                        <option value="max_return">最高收益率</option>
-                                    </select>
-                                </label>
-                                <label>显示
-                                    <select id="optionRowLimit" onchange="renderOptionMatrix()">
-                                        <option value="20" selected>Top 20</option>
-                                        <option value="50">Top 50</option>
-                                        <option value="all">全部</option>
-                                    </select>
-                                </label>
-                            </div>
-                        </div>
-                        <div class="matrix-wrap" style="max-height: calc(100vh - 500px);">
-                            <table>
-                                <thead id="optionMatrixHead"><tr><th>期权参数组合</th></tr></thead>
-                                <tbody id="optionMatrixBody"><tr><td>尚未扫描。</td></tr></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </main>
     </div>
 
@@ -627,22 +852,12 @@
             <button type="button" onclick="closeDetail()">关闭</button>
         </div>
         <div class="panel-body">
-            <div id="detailMetrics" class="stat-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));"></div>
-
-            <!-- Cell 级期权扫描 -->
-            <div id="optionScanSection" style="display:none;">
-                <h2 style="font-size:14px;">期权扫描</h2>
-                <span id="optionScanStatus"></span>
-                <table id="optionMiniTable" class="mini-table" style="display:none;">
-                    <thead><tr>
-                        <th>参数组合</th><th>期权收益%</th><th>组合收益%</th><th>vs纯股票</th>
-                    </tr></thead>
-                    <tbody></tbody>
-                </table>
-            </div>
+            <div id="detailMetrics" class="stat-grid" style="grid-template-columns:repeat(5,minmax(0,1fr));"></div>
 
             <h2 style="font-size:14px;">参数快照</h2>
             <pre id="detailJson"></pre>
+            <h2 style="font-size:14px;">LEAPS 信号</h2>
+            <div id="detailLeaps"></div>
             <h2 style="font-size:14px;">题目结果</h2>
             <div class="matrix-wrap" style="max-height:260px;box-shadow:none;">
                 <table class="mini-table">
@@ -664,8 +879,16 @@
         let lastParameterResult = null;
         let lastParameterEstimate = null;
         let lastParameterPacket = null;
+        const collapsedParameterGroups = new Set();
         let workerCountTouched = false;
         const PARAMETER_LAB_LARGE_RUN_GUARDRAIL = 50000;
+        const LEAPS_DETAIL_PAGE_SIZE = 25;
+        const LEAPS_OPTION_QUEUE_CONCURRENCY = 2;
+        const leapsDetailCache = new Map();
+        const leapsOptionOutcomeCache = new Map();
+        let activeDetailRowKey = '';
+        let activeDetailLoadToken = 0;
+        let leapsOptionProgressTimer = null;
         const parameterFields = [
             'step_pct',
             'equal_slice_allocation_pct',
@@ -692,11 +915,13 @@
             'cost_second_sell_pct',
             'cost_third_sell_pct',
             'cost_deleverage_cooldown_days',
+            'sell_allow_same_day_sell',
             'cost_min_sell_amount',
             'dca_rearm_drawdown_pct'
         ];
         const buyParameterFields = parameterFields.slice(0, 11);
         const sellParameterFields = parameterFields.slice(11);
+        const leapsGradeRank = { '高': 3, '中': 2, '低': 1, '无': 0 };
 
         function escapeHtml(value) {
             return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -758,6 +983,322 @@
             if (!Number.isFinite(n)) return '--';
             return `${number(n)}%`;
         }
+        function money(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return '--';
+            return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+        }
+        function leapsBadgeClass(grade) {
+            if (grade === '高') return 'high';
+            if (grade === '中') return 'medium';
+            if (grade === '低') return 'low';
+            return '';
+        }
+        function betterLeapsSignal(a, b) {
+            const ar = leapsGradeRank[a?.grade || '无'] || 0;
+            const br = leapsGradeRank[b?.grade || '无'] || 0;
+            if (ar !== br) return ar > br ? a : b;
+            const scoreDiff = Number(a?.score || 0) - Number(b?.score || 0);
+            if (Math.abs(scoreDiff) > 1e-9) return scoreDiff >= 0 ? a : b;
+            const ad = String(a?.best_date || a?.date || '');
+            const bd = String(b?.best_date || b?.date || '');
+            return ad <= bd ? a : b;
+        }
+        function aggregateLeapsSignals(cells) {
+            const signals = [];
+            const allSignals = [];
+            let hasFullSignals = false;
+            (cells || []).forEach((cell) => {
+                const summary = cell.leaps_signal || {};
+                (summary.top_signals || []).forEach((signal) => {
+                    signals.push({
+                        ...signal,
+                        topic_key: cell.topic_key,
+                        portfolio_label: cell.portfolio_label,
+                        period_label: cell.period_label
+                    });
+                });
+                if (Array.isArray(summary.all_signals)) {
+                    hasFullSignals = true;
+                    summary.all_signals.forEach((signal) => {
+                        allSignals.push({
+                            ...signal,
+                            topic_key: cell.topic_key,
+                            portfolio_label: cell.portfolio_label,
+                            period_label: cell.period_label
+                        });
+                    });
+                }
+            });
+            signals.sort((a, b) => {
+                const gradeDiff = (leapsGradeRank[b.grade] || 0) - (leapsGradeRank[a.grade] || 0);
+                if (gradeDiff) return gradeDiff;
+                const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
+                if (Math.abs(scoreDiff) > 1e-9) return scoreDiff;
+                return String(a.date || '').localeCompare(String(b.date || ''));
+            });
+            let best = null;
+            let triggerCount = 0;
+            (cells || []).forEach((cell) => {
+                const summary = cell.leaps_signal || null;
+                if (!summary) return;
+                triggerCount += Number(summary.trigger_count || 0);
+                best = best ? betterLeapsSignal(best, summary) : summary;
+            });
+            const result = {
+                grade: best?.grade || '无',
+                score: Number(best?.score || 0),
+                best_date: best?.best_date || '',
+                trigger_count: triggerCount,
+                target_dte_label: best?.target_dte_label || '',
+                top_signals: signals.slice(0, 5)
+            };
+            if (hasFullSignals) result.all_signals = allSignals;
+            return result;
+        }
+        function renderLeapsBadge(summary, compact = false) {
+            const signal = summary || {};
+            const grade = signal.grade || '无';
+            if (grade === '无') return '<span class="leaps-badge">LEAPS 无</span>';
+            const date = signal.best_date || signal.date || '';
+            const count = Number(signal.trigger_count || 0);
+            const text = compact
+                ? `LEAPS ${grade}`
+                : `LEAPS ${grade}${date ? ` · ${date}` : ''}${count ? ` · ${number(count, 0)}次` : ''}`;
+            return `<span class="leaps-badge ${leapsBadgeClass(grade)}">${escapeHtml(text)}</span>`;
+        }
+        function formatStockSell(signal) {
+            if (!signal?.next_stock_sell_date) return '未卖出';
+            const days = Number(signal.stock_holding_days);
+            return `${signal.next_stock_sell_date} / ${Number.isFinite(days) ? `${number(days, 0)}天` : '--'}`;
+        }
+        function renderLeapsReasons(reasons) {
+            const items = Array.isArray(reasons) ? reasons : [];
+            if (!items.length) return '<span class="leaps-reason-chip">--</span>';
+            return items.map((reason) => `<span class="leaps-reason-chip">${escapeHtml(reason)}</span>`).join('');
+        }
+        function median(values) {
+            const nums = (values || []).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+            if (!nums.length) return null;
+            const mid = Math.floor(nums.length / 2);
+            return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+        }
+        function aggregateLeapsOptionOutcomes(outcomes) {
+            const items = Array.isArray(outcomes) ? outcomes : [];
+            const successes = items.filter((item) => item.status === 'success' && Number.isFinite(Number(item.roi_pct)));
+            const rois = successes.map((item) => Number(item.roi_pct));
+            const reasonCounts = {};
+            items.forEach((item) => {
+                if (item.status === 'success') return;
+                const reason = item.skipped_reason || '未知失败';
+                reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
+            });
+            const topFailure = Object.entries(reasonCounts).sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0])))[0] || [];
+            return {
+                total: items.length,
+                success_count: successes.length,
+                skipped_count: items.length - successes.length,
+                roi_mean_pct: rois.length ? rois.reduce((sum, value) => sum + value, 0) / rois.length : null,
+                roi_median_pct: median(rois),
+                top_failure_reason: topFailure[0] || '',
+                failure_reasons: reasonCounts
+            };
+        }
+        function mergeLeapsOptionSummaries(summaries) {
+            const expanded = [];
+            (summaries || []).forEach((summary) => {
+                const total = Number(summary?.total || 0);
+                const success = Number(summary?.success_count || 0);
+                for (let index = 0; index < success; index += 1) expanded.push({ status: 'success', roi_pct: summary.roi_mean_pct });
+                const skipped = Math.max(0, total - success);
+                for (let index = 0; index < skipped; index += 1) expanded.push({ status: 'skipped', skipped_reason: summary.top_failure_reason || '未计算' });
+            });
+            return aggregateLeapsOptionOutcomes(expanded);
+        }
+        function renderLeapsOptionSummary(summary) {
+            if (!summary || !Number(summary.total || 0)) return '';
+            const success = Number(summary.success_count || 0);
+            const total = Number(summary.total || 0);
+            const roi = Number.isFinite(Number(summary.roi_mean_pct)) ? `均 ${pct(summary.roi_mean_pct)}` : '均 --';
+            const med = Number.isFinite(Number(summary.roi_median_pct)) ? `中 ${pct(summary.roi_median_pct)}` : '中 --';
+            const reason = success >= total ? '' : ` · ${summary.top_failure_reason || '有跳过'}`;
+            return `<span class="leaps-option-summary ${success ? '' : 'warn'}">月期权 ROI ${roi} / ${med} · ${number(success, 0)}/${number(total, 0)}${escapeHtml(reason)}</span>`;
+        }
+        function signalOptionKey(signal, index = 0) {
+            return [
+                signal.date || '',
+                signal.symbol || '',
+                signal.topic_key || '',
+                signal.portfolio_label || '',
+                signal.period_label || '',
+                index
+            ].join('__');
+        }
+        function normalizeLeapsOptionSignals(signals) {
+            return (signals || []).map((signal, index) => ({
+                ...signal,
+                signal_key: signal.signal_key || signalOptionKey(signal, index)
+            }));
+        }
+        function leapsOptionQueueKey(signal) {
+            return [
+                signal.date || '',
+                signal.symbol || '',
+                signal.next_stock_sell_date || '',
+                signal.stock_buy_price || ''
+            ].join('__');
+        }
+        function buildLeapsOptionQueue(signals) {
+            return normalizeLeapsOptionSignals(signals).map((signal, index) => ({
+                key: `${leapsOptionQueueKey(signal)}__${signal.signal_key || index}`,
+                signal,
+                signals: [signal]
+            }));
+        }
+        function skippedLeapsOptionOutcome(signal, reason) {
+            return {
+                signal_key: signal.signal_key || '',
+                date: signal.date || '',
+                symbol: signal.symbol || '',
+                entry_date: signal.date || '',
+                stock_sell_date: signal.next_stock_sell_date || '',
+                status: 'skipped',
+                skipped_reason: reason || '期权收益计算失败'
+            };
+        }
+        function cloneLeapsOptionOutcomeForSignal(outcome, signal) {
+            const base = outcome || skippedLeapsOptionOutcome(signal, '期权收益计算失败');
+            return {
+                ...base,
+                signal_key: signal.signal_key || base.signal_key || '',
+                date: signal.date || base.date || base.entry_date || '',
+                symbol: signal.symbol || base.symbol || '',
+                entry_date: base.entry_date || signal.date || '',
+                stock_sell_date: signal.next_stock_sell_date || base.stock_sell_date || ''
+            };
+        }
+        function formatElapsedTime(ms) {
+            const seconds = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+            const minutes = Math.floor(seconds / 60);
+            const rest = seconds % 60;
+            return minutes ? `${minutes}m ${String(rest).padStart(2, '0')}s` : `${rest}s`;
+        }
+        function updateLeapsOptionEntrySummary(entry) {
+            entry.summary = aggregateLeapsOptionOutcomes(entry.outcomes || []);
+            return entry.summary;
+        }
+        function leapsOptionVisibleOutcomes(entry) {
+            const visibleStatuses = ['done', 'partial_done', 'loading', 'stopping', 'stopped', 'error'];
+            return visibleStatuses.includes(entry?.status) ? (entry.outcomes || []) : [];
+        }
+        function replaceLeapsOutcomesForSignals(existingOutcomes, signals) {
+            const signalKeys = new Set((signals || []).map((signal) => signal.signal_key).filter(Boolean));
+            if (!signalKeys.size) return existingOutcomes || [];
+            return (existingOutcomes || []).filter((outcome) => !signalKeys.has(outcome.signal_key));
+        }
+        function hasRunningLeapsOptionQueue() {
+            return Array.from(leapsOptionOutcomeCache.values()).some((entry) => entry?.status === 'loading' || entry?.status === 'stopping');
+        }
+        function ensureLeapsOptionProgressTimer() {
+            if (leapsOptionProgressTimer) return;
+            leapsOptionProgressTimer = window.setInterval(() => {
+                if (!hasRunningLeapsOptionQueue()) {
+                    window.clearInterval(leapsOptionProgressTimer);
+                    leapsOptionProgressTimer = null;
+                    return;
+                }
+                const row = findRow(activeDetailRowKey);
+                const detail = document.getElementById('detailLeaps');
+                if (row && detail) detail.innerHTML = renderDetailLeaps(row);
+            }, 1000);
+        }
+        function optionOutcomeMatchesSignal(outcome, signal) {
+            if (!outcome || !signal) return false;
+            if (outcome.signal_key && signal.signal_key && outcome.signal_key === signal.signal_key) return true;
+            return String(outcome.date || outcome.entry_date || '') === String(signal.date || '')
+                && String(outcome.symbol || '') === String(signal.symbol || '')
+                && String(outcome.stock_sell_date || '') === String(signal.next_stock_sell_date || '');
+        }
+        function uniqueValues(values) {
+            return Array.from(new Set((values || []).filter((value) => value !== null && value !== undefined && value !== '')));
+        }
+        function formatPctRange(values) {
+            const nums = (values || []).map(Number).filter(Number.isFinite);
+            if (!nums.length) return '--';
+            const min = Math.min(...nums);
+            const max = Math.max(...nums);
+            if (Math.abs(max - min) < 1e-9) return pct(min);
+            return `${pct(min)} - ${pct(max)}`;
+        }
+        function formatDaysRange(values) {
+            const nums = (values || []).map(Number).filter(Number.isFinite);
+            if (!nums.length) return '--';
+            const min = Math.min(...nums);
+            const max = Math.max(...nums);
+            return Math.abs(max - min) < 1e-9 ? `${number(min, 0)}天` : `${number(min, 0)}-${number(max, 0)}天`;
+        }
+        function formatGroupedStockSell(signals) {
+            const sold = (signals || []).filter((signal) => signal.next_stock_sell_date);
+            if (!sold.length) return '未卖出';
+            const dates = uniqueValues(sold.map((signal) => signal.next_stock_sell_date)).sort();
+            const days = uniqueValues(sold.map((signal) => signal.stock_holding_days).filter((value) => Number.isFinite(Number(value))));
+            if (dates.length === 1 && days.length <= 1) {
+                return `${dates[0]} / ${days.length ? `${number(days[0], 0)}天` : '--'}`;
+            }
+            return `${dates[dates.length - 1]} / ${formatDaysRange(days)}`;
+        }
+        function signalSourceLabel(signal) {
+            return [signal.portfolio_label, signal.period_label].filter(Boolean).join(' / ') || signal.topic_key || '--';
+        }
+        function groupLeapsSignalsByDateSymbol(signals) {
+            const groups = new Map();
+            (signals || []).forEach((signal) => {
+                const date = signal.date || '';
+                const symbol = signal.symbol || '';
+                const key = `${date}__${symbol}`;
+                if (!groups.has(key)) {
+                    groups.set(key, {
+                        key,
+                        date,
+                        symbol,
+                        signals: [],
+                        best_signal: null,
+                        source_topics: new Set(),
+                        reasons: new Set(),
+                        drawdowns: [],
+                        cash_pcts: [],
+                        buy_amount_total: 0,
+                        premium_budget_cap_total: 0
+                    });
+                }
+                const group = groups.get(key);
+                group.signals.push(signal);
+                group.best_signal = group.best_signal ? betterLeapsSignal(group.best_signal, signal) : signal;
+                group.source_topics.add(signal.topic_key || signalSourceLabel(signal));
+                (signal.reasons || []).forEach((reason) => group.reasons.add(reason));
+                group.drawdowns.push(signal.drawdown_pct);
+                group.cash_pcts.push(signal.cash_pct_after);
+                group.buy_amount_total += Number(signal.buy_amount || 0);
+                group.premium_budget_cap_total += Number(signal.premium_budget_cap || 0);
+            });
+            return Array.from(groups.values()).map((group) => ({
+                ...group,
+                trigger_count: group.signals.length,
+                source_topic_count: group.source_topics.size,
+                reasons: Array.from(group.reasons),
+                drawdown_range: formatPctRange(group.drawdowns),
+                cash_range: formatPctRange(group.cash_pcts),
+                stock_sell_label: formatGroupedStockSell(group.signals)
+            })).sort((a, b) => {
+                const gradeDiff = (leapsGradeRank[b.best_signal?.grade || '无'] || 0) - (leapsGradeRank[a.best_signal?.grade || '无'] || 0);
+                if (gradeDiff) return gradeDiff;
+                const scoreDiff = Number(b.best_signal?.score || 0) - Number(a.best_signal?.score || 0);
+                if (Math.abs(scoreDiff) > 1e-9) return scoreDiff;
+                const dateDiff = String(a.date || '').localeCompare(String(b.date || ''));
+                if (dateDiff) return dateDiff;
+                return String(a.symbol || '').localeCompare(String(b.symbol || ''));
+            });
+        }
         function readNumber(id) {
             const n = Number(document.getElementById(id)?.value);
             return Number.isFinite(n) ? n : 0;
@@ -818,7 +1359,8 @@
             });
         }
         function parameterLabPayload() {
-            return {
+            const payload = {
+                start: document.getElementById('start').value,
                 end: document.getElementById('end').value,
                 initial_cash: readNumber('initialCash'),
                 monthly_contribution: readNumber('monthlyContribution'),
@@ -844,6 +1386,7 @@
                 cost_second_sell_pct: readNumber('costSecondSellPct'),
                 cost_third_sell_pct: readNumber('costThirdSellPct'),
                 cost_deleverage_cooldown_days: readNumber('costDeleverageCooldown'),
+                sell_allow_same_day_sell: Boolean(document.getElementById('sellAllowSameDaySell')?.checked),
                 cost_min_sell_amount: readNumber('costMinSellAmount'),
                 core_dip_initial_core_pct: readNumber('coreDipInitialCorePct'),
                 core_dip_weekly_core_pct: readNumber('coreDipWeeklyCorePct'),
@@ -854,6 +1397,10 @@
                 core_dip_timing_max_delay_days: readNumber('coreDipTimingMaxDelayDays'),
                 core_dip_timing_rise_threshold_pct: readNumber('coreDipTimingRiseThresholdPct'),
                 core_dip_timing_near_low_pct: readNumber('coreDipTimingNearLowPct'),
+                leaps_low_cash_threshold_pct: readNumber('leapsLowCashThreshold'),
+                leaps_min_drawdown_pct: readNumber('leapsMinDrawdown'),
+                leaps_premium_budget_cap: readNumber('leapsPremiumBudgetCap'),
+                leaps_target_dte_label: document.getElementById('leapsTargetDteLabel').value || '18-24M',
                 buy_strategies: selectedValues('buyStrategy'),
                 sell_strategies: selectedValues('sellStrategy'),
                 score_sell_strategies: selectedValues('sellStrategy'),
@@ -866,6 +1413,7 @@
                 parameter_lab_concurrency: readNumber('workerCount'),
                 core_dip_timing_filter: document.getElementById('coreDipTimingFilter').value
             };
+            return payload;
         }
         function selectAllStrategies() {
             document.querySelectorAll('input[name="buyStrategy"], input[name="sellStrategy"]').forEach((input) => { input.checked = true; });
@@ -1124,6 +1672,7 @@
                 parts.push(`cc${formatCompact(Math.trunc(Number(sellParams.cost_deleverage_cooldown_days || 0)))}`);
                 parts.push(`cmin${formatCompact(sellParams.cost_min_sell_amount)}`);
             }
+            if (sellStrategy !== 'none' && sellParams.sell_allow_same_day_sell) parts.push('same1');
             if (sellParams.dca_rearm_drawdown_pct !== null && sellParams.dca_rearm_drawdown_pct !== undefined) parts.push(`rearm${formatCompact(sellParams.dca_rearm_drawdown_pct)}`);
             return parts.join('__');
         }
@@ -1158,6 +1707,7 @@
             } else {
                 label = sellStrategyLabels[strategyKey] || strategyKey;
             }
+            if (strategyKey !== 'none' && params.sell_allow_same_day_sell) label = `${label} / 买入日可卖`;
             if (params.dca_rearm_drawdown_pct !== null && params.dca_rearm_drawdown_pct !== undefined) label = `${label} / 卖后重启 ${formatCompact(params.dca_rearm_drawdown_pct)}%回撤`;
             return label;
         }
@@ -1195,11 +1745,17 @@
             const byId = new Map(candidates.map((candidate) => [String(candidate.candidate_id), candidate]));
             return { rows, candidates, byKey, byId };
         }
-        function candidateDetailPayload(candidate) {
+        function candidateDetailPayload(candidate, row = null) {
             const parameters = {};
             parameterFields.forEach((field) => {
                 if (candidate[field] !== null && candidate[field] !== undefined) parameters[field] = candidate[field];
             });
+            if (row) {
+                parameters.group_key = row.group_key;
+                parameters.group_label = row.group_label;
+                parameters.global_rank = row.global_rank;
+                parameters.group_rank = row.group_rank;
+            }
             return {
                 key: candidate.key,
                 combination_key: candidate.combination_key,
@@ -1222,6 +1778,10 @@
 
         async function runParameterLab() {
             cancelParameterLab(false);
+            leapsDetailCache.clear();
+            leapsOptionOutcomeCache.clear();
+            activeDetailRowKey = '';
+            activeDetailLoadToken += 1;
             refreshUniverseTopics();
             const runId = createParameterLabRunId();
             const payload = parameterLabPayload();
@@ -1651,6 +2211,84 @@
             if (Math.abs(max - min) < 1e-9) return 1;
             return (Number(value || 0) - min) / (max - min);
         }
+        function strategyGroupKey(candidate) {
+            return `${candidate?.buy_strategy || ''}__${candidate?.sell_strategy || ''}`;
+        }
+        function strategyGroupLabel(candidate) {
+            const buyKey = candidate?.buy_strategy || '';
+            const sellKey = candidate?.sell_strategy || '';
+            return `${buyStrategyLabels[buyKey] || buyKey || '未知买入策略'} / ${sellStrategyLabels[sellKey] || sellKey || '未知卖出策略'}`;
+        }
+        function scoreForRankMethod(row, rankMethod) {
+            return Number(rankMethod === 'raw' ? row.raw_score : row.final_score) || 0;
+        }
+        function rankParameterRows(rows, rankMethod = 'normalized') {
+            const sorted = [...(rows || [])].sort((a, b) => {
+                const scoreDiff = scoreForRankMethod(b, rankMethod) - scoreForRankMethod(a, rankMethod);
+                if (Math.abs(scoreDiff) > 1e-12) return scoreDiff;
+                return String(a.key || '').localeCompare(String(b.key || ''));
+            });
+            const byGroup = new Map();
+            sorted.forEach((row, index) => {
+                row.group_key = strategyGroupKey(row.candidate || {});
+                row.group_label = strategyGroupLabel(row.candidate || {});
+                row.global_rank = index + 1;
+                row.final_rank = row.global_rank;
+                if (!byGroup.has(row.group_key)) byGroup.set(row.group_key, []);
+                byGroup.get(row.group_key).push(row);
+            });
+            byGroup.forEach((groupRows) => {
+                groupRows.forEach((row, index) => { row.group_rank = index + 1; });
+            });
+            return sorted;
+        }
+        function groupVisibleParameterRows(visibleRows, allRows, rankMethod) {
+            const totalByGroup = new Map();
+            (allRows || []).forEach((row) => {
+                totalByGroup.set(row.group_key, (totalByGroup.get(row.group_key) || 0) + 1);
+            });
+            const groups = new Map();
+            visibleRows.forEach((row) => {
+                if (!groups.has(row.group_key)) {
+                    groups.set(row.group_key, {
+                        key: row.group_key,
+                        label: row.group_label,
+                        rows: [],
+                        total_count: totalByGroup.get(row.group_key) || 0,
+                        best_global_rank: row.global_rank,
+                        best_score: scoreForRankMethod(row, rankMethod),
+                        best_leaps_signal: row.leaps_signal || null,
+                        leaps_option_summaries: [],
+                        leaps_option_outcomes: []
+                    });
+                }
+                const group = groups.get(row.group_key);
+                group.rows.push(row);
+                if (row.leaps_option_summary) group.leaps_option_summaries.push(row.leaps_option_summary);
+                if (Array.isArray(row.leaps_option_outcomes)) group.leaps_option_outcomes.push(...row.leaps_option_outcomes);
+                group.best_leaps_signal = group.best_leaps_signal
+                    ? betterLeapsSignal(group.best_leaps_signal, row.leaps_signal || null)
+                    : (row.leaps_signal || null);
+                if (row.global_rank < group.best_global_rank) {
+                    group.best_global_rank = row.global_rank;
+                    group.best_score = scoreForRankMethod(row, rankMethod);
+                }
+            });
+            return Array.from(groups.values()).map((group) => ({
+                ...group,
+                leaps_option_summary: group.leaps_option_outcomes.length
+                    ? aggregateLeapsOptionOutcomes(group.leaps_option_outcomes)
+                    : mergeLeapsOptionSummaries(group.leaps_option_summaries)
+            })).sort((a, b) => a.best_global_rank - b.best_global_rank);
+        }
+        function toggleParameterGroup(groupKey) {
+            if (collapsedParameterGroups.has(groupKey)) {
+                collapsedParameterGroups.delete(groupKey);
+            } else {
+                collapsedParameterGroups.add(groupKey);
+            }
+            renderParameterMatrix();
+        }
         function scoreParameterResults(packet, partialRows, workerStats, wallMs, candidateIndex = null) {
             const index = candidateIndex || buildCandidateIndex(packet);
             const candidateByKey = index.byKey;
@@ -1720,9 +2358,10 @@
                 row.avg_topic_score = n ? sumScore / n : 0;
                 row.raw_score = row.avg_return_pct * 0.9 + row.avg_drawdown_pct * 0.1;
                 row.final_score = row.avg_topic_score;
+                row.leaps_signal = aggregateLeapsSignals(row.cells);
                 return row;
-            }).sort((a, b) => b.final_score - a.final_score);
-            rows.forEach((row, index) => { row.final_rank = index + 1; });
+            });
+            rankParameterRows(rows, 'normalized');
             return {
                 ...packet,
                 rows,
@@ -1749,10 +2388,10 @@
             const limitValue = document.getElementById('rowLimit').value;
             const limit = limitValue === 'all' ? data.rows.length : Number(limitValue || 300);
             const rankMethod = document.getElementById('rankMethod').value;
-            const sortKey = rankMethod === 'raw' ? 'raw_score' : 'final_score';
-            const sorted = [...data.rows].sort((a, b) => b[sortKey] - a[sortKey]);
-            sorted.forEach((row, i) => { row.final_rank = i + 1; });
+            const showLeaps = Boolean(document.getElementById('leapsSignalToggle')?.checked);
+            const sorted = rankParameterRows(data.rows, rankMethod);
             const rows = sorted.slice(0, limit);
+            const groups = groupVisibleParameterRows(rows, sorted, rankMethod);
             const scoreLabel = rankMethod === 'raw' ? '原始加权分' : '归一化分';
             document.getElementById('resultTitle').textContent = `${number(data.rows.length, 0)} rows / ${scoreLabel}`;
             const metrics = data.worker_metrics || {};
@@ -1763,7 +2402,29 @@
                     ${tasks.map((task) => `<th>${escapeHtml(task.portfolio_label)}<br>${escapeHtml(task.period_label)}</th>`).join('')}
                 </tr>
             `;
-            const body = rows.map((row) => {
+            const body = groups.map((group) => {
+                const collapsed = collapsedParameterGroups.has(group.key);
+                const groupHeader = `
+                    <tr class="group-row">
+                        <td colspan="${tasks.length + 1}">
+                            <div class="group-title">
+                                <div class="group-name">
+                                    ${escapeHtml(group.label)}
+                                    <span>${number(group.rows.length, 0)} visible / ${number(group.total_count, 0)} total</span>
+                                </div>
+                                <div class="group-metrics">
+                                    ${showLeaps ? renderLeapsBadge(group.best_leaps_signal || {}, false) : ''}
+                                    ${showLeaps ? renderLeapsOptionSummary(group.leaps_option_summary) : ''}
+                                    <span>Best global #${number(group.best_global_rank, 0)}</span>
+                                    <span>${escapeHtml(scoreLabel)} ${number(group.best_score)}</span>
+                                    <button type="button" onclick="toggleParameterGroup('${escapeHtml(group.key)}')">${collapsed ? '展开' : '折叠'}</button>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                if (collapsed) return groupHeader;
+                const groupRows = group.rows.map((row) => {
                 const cellsByTopic = new Map(row.cells.map((cell) => [cell.topic_key, cell]));
                 const cellHtml = tasks.map((task) => {
                     const cell = cellsByTopic.get(task.key);
@@ -1776,21 +2437,26 @@
                         `drawdown ${pct(cell.max_drawdown_pct)}`,
                         `return score ${number(cell.return_score)}`,
                         `drawdown score ${number(cell.drawdown_score)}`,
-                        `trades ${number(cell.trade_count, 0)}`
+                        `trades ${number(cell.trade_count, 0)}`,
+                        `LEAPS ${cell.leaps_signal?.grade || '无'} ${cell.leaps_signal?.best_date || ''}`
                     ].join('\n');
                     return `
                         <td class="score-cell" style="${heatStyle(cell.topic_score)};cursor:pointer" title="${escapeHtml(title)}&#10;点击查看买卖点演算" onclick="openCellInLab('${escapeHtml(row.key)}', '${escapeHtml(task.key)}')">
                             <div class="score-rank"><strong>#${number(cell.topic_rank, 0)}</strong><span>${number(cell.topic_score)}</span></div>
                             <div class="cell-metrics"><b>${pct(cell.return_pct)}</b><b>${pct(cell.max_drawdown_pct)}</b></div>
+                            ${showLeaps ? `<div class="leaps-strip">${renderLeapsBadge(cell.leaps_signal || {}, true)}</div>` : ''}
                         </td>
                     `;
                 }).join('');
                 return `
                     <tr>
                         <td>
-                            <div class="strategy-name">#${number(row.final_rank, 0)} ${escapeHtml(row.candidate.label || row.key)}</div>
+                            <div class="rank-pair"><span>全局 #${number(row.global_rank, 0)}</span><span>组内 #${number(row.group_rank, 0)}</span></div>
+                            <div class="strategy-name">${escapeHtml(row.candidate.label || row.key)}</div>
                             <div class="strategy-meta">${rankMethod === 'raw' ? 'Raw' : 'Final'} ${number(rankMethod === 'raw' ? row.raw_score : row.final_score)} / Avg return ${pct(row.avg_return_pct)} / Avg DD ${pct(row.avg_drawdown_pct)}</div>
                             <div class="strategy-meta">${escapeHtml(row.candidate.buy_strategy)} + ${escapeHtml(row.candidate.sell_strategy)}</div>
+                            ${showLeaps ? `<div class="leaps-strip">${renderLeapsBadge(row.leaps_signal || {}, false)}</div>` : ''}
+                            ${showLeaps && row.leaps_option_summary ? `<div class="leaps-strip">${renderLeapsOptionSummary(row.leaps_option_summary)}</div>` : ''}
                             <div class="row-actions">
                                 <button type="button" onclick="openRowDetail('${escapeHtml(row.key)}')">参数</button>
                                 <button type="button" onclick="applyParameterRow('${escapeHtml(row.key)}')">应用到主实验室</button>
@@ -1799,22 +2465,651 @@
                         ${cellHtml}
                     </tr>
                 `;
+                }).join('');
+                return groupHeader + groupRows;
             }).join('');
             document.getElementById('matrixBody').innerHTML = body || '<tr><td>没有可显示的结果。</td></tr>';
         }
         function findRow(key) {
             return lastParameterResult ? lastParameterResult.rows.find((row) => row.key === key) : null;
         }
+        function leapsDetailCacheKey(row) {
+            const packet = lastParameterPacket || lastParameterResult || {};
+            const inputs = packet.inputs || {};
+            return JSON.stringify({
+                row_key: row?.key || '',
+                run_id: packet.run_id || '',
+                payload_schema: packet.payload_schema || '',
+                task_keys: (packet.tasks || []).map((task) => task.key),
+                leaps_low_cash_threshold_pct: inputs.leaps_low_cash_threshold_pct,
+                leaps_min_drawdown_pct: inputs.leaps_min_drawdown_pct,
+                leaps_premium_budget_cap: inputs.leaps_premium_budget_cap,
+                leaps_target_dte_label: inputs.leaps_target_dte_label
+            });
+        }
+        function findCandidateRowForDetail(row) {
+            if (!lastParameterPacket || !row) return null;
+            const index = buildCandidateIndex(lastParameterPacket);
+            let candidateIndex = index.candidates.findIndex((candidate) => String(candidate.candidate_id) === String(row.candidate?.candidate_id));
+            if (candidateIndex < 0) candidateIndex = index.candidates.findIndex((candidate) => candidate.key === row.key);
+            return candidateIndex >= 0 ? index.rows[candidateIndex] : null;
+        }
+        function runLeapsDetailWorker(row) {
+            const sourcePacket = lastParameterPacket;
+            const candidateRow = findCandidateRowForDetail(row);
+            if (!sourcePacket || !candidateRow) return Promise.reject(new Error('找不到当前参数行的数据包。'));
+            const runId = `${sourcePacket.run_id || createParameterLabRunId()}-leaps-${Date.now().toString(36)}`;
+            const tasks = sourcePacket.tasks || [];
+            const packet = {
+                ...sourcePacket,
+                run_id: runId,
+                include_leaps_signal_details: true,
+                candidate_rows: [candidateRow],
+                parameter_lab_concurrency: 1
+            };
+            const workerPacketBase = {
+                run_id: runId,
+                inputs: packet.inputs || {},
+                tasks,
+                market_data: packet.market_data || {},
+                payload_schema: packet.payload_schema || '',
+                registry: packet.registry || {},
+                buy_variant_schema: packet.buy_variant_schema || [],
+                sell_variant_schema: packet.sell_variant_schema || [],
+                candidate_schema: packet.candidate_schema || [],
+                buy_variants: packet.buy_variants || [],
+                sell_variants: packet.sell_variants || [],
+                include_leaps_signal_details: true,
+                diagnostics: {
+                    verbose_simulation_logs: false,
+                    progress_every: Math.max(1, tasks.length),
+                    progress_min_ms: 500,
+                    slow_simulation_ms: 3000
+                }
+            };
+            return new Promise((resolve, reject) => {
+                const worker = new Worker('/static/strategy_parameter_lab_worker.js');
+                const partialRows = [];
+                let settled = false;
+                const cleanup = () => worker.terminate();
+                worker.onmessage = (event) => {
+                    if (settled) return;
+                    const message = event.data || {};
+                    if (!message.run_id || message.run_id !== runId) return;
+                    if (message.type === 'ready') {
+                        worker.postMessage({
+                            type: 'batch',
+                            run_id: runId,
+                            worker_index: 0,
+                            batch_id: 'leaps-detail',
+                            candidate_rows: [candidateRow]
+                        });
+                    } else if (message.type === 'batch_done') {
+                        partialRows.push(...(message.rows || []));
+                        worker.postMessage({ type: 'finish', run_id: runId, worker_index: 0 });
+                    } else if (message.type === 'done') {
+                        settled = true;
+                        cleanup();
+                        const scored = scoreParameterResults(packet, partialRows, [{
+                            worker_index: 0,
+                            chunk_size: 1,
+                            elapsed_ms: Number(message.elapsed_ms || 0)
+                        }], Number(message.elapsed_ms || 0), buildCandidateIndex(packet));
+                        resolve(scored.rows[0] || null);
+                    } else if (message.type === 'error' || message.type === 'cancelled') {
+                        settled = true;
+                        cleanup();
+                        reject(new Error(message.message || '完整明细加载失败'));
+                    }
+                };
+                worker.onerror = (error) => {
+                    if (settled) return;
+                    settled = true;
+                    cleanup();
+                    reject(error);
+                };
+                worker.postMessage({
+                    type: 'start',
+                    run_id: runId,
+                    worker_index: 0,
+                    total_simulations: Math.max(1, tasks.length),
+                    packet: workerPacketBase
+                });
+            });
+        }
+        function renderTopLeapsTable(signals) {
+            const rows = (signals || []).map((signal) => `
+                <tr>
+                    <td>${escapeHtml(signal.date || '')}</td>
+                    <td>${escapeHtml(signal.symbol || '')}</td>
+                    <td>${renderLeapsBadge(signal, true)}</td>
+                    <td>${pct(signal.drawdown_pct)}</td>
+                    <td>${pct(signal.cash_pct_after)}</td>
+                    <td>${money(signal.buy_amount)}</td>
+                    <td>${money(signal.premium_budget_cap)}</td>
+                    <td>${escapeHtml(formatStockSell(signal))}</td>
+                    <td><div class="leaps-reasons">${renderLeapsReasons(signal.reasons)}</div></td>
+                </tr>
+            `).join('');
+            return `
+                <div class="matrix-wrap" style="max-height:260px;box-shadow:none;">
+                    <table class="mini-table leaps-detail-table">
+                        <thead><tr><th>日期</th><th>标的</th><th>信号</th><th>回撤</th><th>现金</th><th>股票买入</th><th>预算上限</th><th>正股卖出</th><th>原因</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+        function renderLeapsGroupDetails(group, outcomes = [], outcomeEntry = null) {
+            const busy = outcomeEntry?.status === 'loading' || outcomeEntry?.status === 'stopping';
+            const rows = group.signals.map((signal) => {
+                const outcome = (outcomes || []).find((item) => optionOutcomeMatchesSignal(item, signal));
+                const isCurrent = busy && outcomeEntry?.scopeSignalKey === signal.signal_key;
+                return `
+                <tr>
+                    <td>${escapeHtml(signalSourceLabel(signal))}</td>
+                    <td>${pct(signal.drawdown_pct)}</td>
+                    <td>${pct(signal.cash_pct_after)}</td>
+                    <td>${money(signal.buy_amount)}</td>
+                    <td>${money(signal.premium_budget_cap)}</td>
+                    <td>${escapeHtml(formatStockSell(signal))}</td>
+                    <td>${renderLeapsOptionOutcome(outcome)}</td>
+                    <td><div class="leaps-reasons">${renderLeapsReasons(signal.reasons)}</div></td>
+                    <td><button type="button" data-leaps-signal-key="${escapeHtml(signal.signal_key || '')}" onclick="calculateLeapsOptionOutcomeForActiveSignal(this.dataset.leapsSignalKey)" ${busy ? 'disabled' : ''}>${isCurrent ? '计算中' : (outcome ? '重算该信号' : '计算该信号')}</button></td>
+                </tr>
+            `;
+            }).join('');
+            return `
+                <details class="leaps-group-detail">
+                    <summary>展开明细</summary>
+                    <div class="matrix-wrap">
+                        <table class="mini-table">
+                            <thead><tr><th>题目/周期</th><th>回撤</th><th>现金</th><th>股票买入</th><th>预算上限</th><th>正股卖出</th><th>月期权收益</th><th>原因</th><th>操作</th></tr></thead>
+                            <tbody>${rows}</tbody>
+                        </table>
+                    </div>
+                </details>
+            `;
+        }
+        function renderLeapsOptionOutcome(outcome) {
+            if (!outcome) return '<span class="leaps-option-summary warn">未计算</span>';
+            if (outcome.status !== 'success') {
+                return `<span class="leaps-option-summary warn">${escapeHtml(outcome.skipped_reason || '跳过')}</span>`;
+            }
+            return `<span class="leaps-option-summary">${pct(outcome.roi_pct)} · ${escapeHtml(outcome.contract || '')}</span>`;
+        }
+        function renderLeapsOptionOutcomeTable(outcomes) {
+            const rows = (outcomes || []).map((outcome) => `
+                <tr>
+                    <td>${escapeHtml(outcome.date || outcome.entry_date || '')}</td>
+                    <td>${escapeHtml(outcome.symbol || '')}</td>
+                    <td>${escapeHtml(outcome.contract || '--')}</td>
+                    <td>${escapeHtml(outcome.expiration || '--')}</td>
+                    <td>${number(outcome.strike)}</td>
+                    <td>${Number.isFinite(Number(outcome.dte)) ? number(outcome.dte, 0) : '--'}</td>
+                    <td>${escapeHtml(outcome.entry_date || '--')}</td>
+                    <td>${number(outcome.entry_price)}</td>
+                    <td>${escapeHtml(outcome.exit_date || '--')}</td>
+                    <td>${number(outcome.exit_price)}</td>
+                    <td>${outcome.status === 'success' ? pct(outcome.roi_pct) : '--'}</td>
+                    <td>${escapeHtml(outcome.status === 'success' ? (outcome.exit_status || 'sold') : (outcome.skipped_reason || '跳过'))}</td>
+                </tr>
+            `).join('');
+            return `
+                <div class="matrix-wrap" style="max-height:300px;box-shadow:none;">
+                    <table class="mini-table leaps-detail-table">
+                        <thead><tr><th>日期</th><th>标的</th><th>合约</th><th>到期</th><th>行权价</th><th>DTE</th><th>入场日</th><th>入场价</th><th>卖出日</th><th>卖出价</th><th>ROI</th><th>状态</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+        function outcomesForSignals(outcomes, signals) {
+            return (signals || []).map((signal) => (outcomes || []).find((outcome) => optionOutcomeMatchesSignal(outcome, signal))).filter(Boolean);
+        }
+        function renderLeapsOptionProgress(entry) {
+            if (!entry) return '';
+            const total = Number(entry.total || 0);
+            const completed = Number(entry.completed || 0);
+            const percent = total ? Math.min(100, Math.max(0, (completed / total) * 100)) : 0;
+            const elapsed = entry.startedAt ? Date.now() - entry.startedAt : Number(entry.elapsedMs || 0);
+            const current = entry.currentSignalLabel ? `当前 ${escapeHtml(entry.currentSignalLabel)}` : '当前 --';
+            const stopped = entry.status === 'stopping' ? '停止请求已记录，当前单条请求完成后停止。' : current;
+            return `
+                <div class="leaps-option-progress">
+                    <div class="leaps-option-progress-row">
+                        <span>已完成 <strong>${number(completed, 0)} / ${number(total, 0)}</strong></span>
+                        <span>成功 <strong>${number(entry.successCount || 0, 0)}</strong> / 跳过 <strong>${number(entry.skippedCount || 0, 0)}</strong></span>
+                        <span>耗时 <strong>${escapeHtml(formatElapsedTime(elapsed))}</strong></span>
+                        <span>并发 <strong>${number(entry.concurrency || 1, 0)}</strong></span>
+                    </div>
+                    <div class="leaps-option-progress-track" aria-hidden="true">
+                        <div class="leaps-option-progress-bar" style="--progress:${percent}%;"></div>
+                    </div>
+                    <div class="leaps-option-progress-row">
+                        <span>${entry.scopeLabel ? `范围 ${escapeHtml(entry.scopeLabel)} · ` : ''}${stopped}</span>
+                        <span>浏览器逐条发起请求；Polygon 定价在服务端完成。</span>
+                        ${entry.lastFailure ? `<span class="leaps-option-progress-error">最近失败：${escapeHtml(entry.lastFailure)}</span>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+        function renderLeapsOptionControls(row, entry) {
+            const outcomeEntry = leapsOptionOutcomeCache.get(leapsDetailCacheKey(row));
+            if (outcomeEntry?.status === 'loading' || outcomeEntry?.status === 'stopping') {
+                return `
+                    ${renderLeapsOptionProgress(outcomeEntry)}
+                    <div class="leaps-option-actions">
+                        <span class="leaps-detail-status">正在逐条计算 200-300D 月期权收益。</span>
+                        <button type="button" onclick="stopLeapsOptionOutcomesForActiveRow()" ${outcomeEntry.status === 'stopping' ? 'disabled' : ''}>停止计算</button>
+                    </div>
+                    ${(outcomeEntry.outcomes || []).length ? renderLeapsOptionOutcomeTable(outcomeEntry.outcomes || []) : ''}
+                `;
+            }
+            if (outcomeEntry?.status === 'done' || outcomeEntry?.status === 'partial_done') {
+                return `
+                    <div class="leaps-option-actions">
+                        ${renderLeapsOptionSummary(outcomeEntry.summary)}
+                        ${outcomeEntry.status === 'partial_done' ? '<span class="leaps-detail-status">已计算部分明细。</span>' : ''}
+                        <button type="button" onclick="calculateLeapsOptionOutcomesForActiveRow()">重新计算 200-300D 月期权收益</button>
+                    </div>
+                    ${renderLeapsOptionOutcomeTable(outcomeEntry.outcomes || [])}
+                `;
+            }
+            if (outcomeEntry?.status === 'stopped') {
+                return `
+                    ${renderLeapsOptionProgress(outcomeEntry)}
+                    <div class="leaps-option-actions">
+                        <span class="leaps-detail-status">计算已停止，已保留当前结果。</span>
+                        <button type="button" onclick="calculateLeapsOptionOutcomesForActiveRow()">重新计算 200-300D 月期权收益</button>
+                    </div>
+                    ${(outcomeEntry.outcomes || []).length ? renderLeapsOptionOutcomeTable(outcomeEntry.outcomes || []) : ''}
+                `;
+            }
+            if (outcomeEntry?.status === 'error') {
+                return `
+                    ${renderLeapsOptionProgress(outcomeEntry)}
+                    <div class="leaps-option-actions">
+                        <span class="leaps-detail-status error">${escapeHtml(outcomeEntry.message || '期权收益计算失败')}</span>
+                        <button type="button" onclick="calculateLeapsOptionOutcomesForActiveRow()">重试 200-300D 月期权收益</button>
+                    </div>
+                    ${(outcomeEntry.outcomes || []).length ? renderLeapsOptionOutcomeTable(outcomeEntry.outcomes || []) : ''}
+                `;
+            }
+            return `
+                <div class="leaps-option-actions">
+                    <button type="button" onclick="calculateLeapsOptionOutcomesForActiveRow()">计算 200-300D 月期权收益</button>
+                    <span class="leaps-detail-status">也可以在下方每个日期/标的行单独计算。浏览器发起队列，服务端用 Polygon key 定价。</span>
+                </div>
+            `;
+        }
+        function renderFullLeapsGroups(row, entry) {
+            const summary = row.leaps_signal || {};
+            const groups = entry.groups || [];
+            const outcomeEntry = leapsOptionOutcomeCache.get(leapsDetailCacheKey(row));
+            const outcomes = leapsOptionVisibleOutcomes(outcomeEntry);
+            const totalPages = Math.max(1, Math.ceil(groups.length / LEAPS_DETAIL_PAGE_SIZE));
+            entry.page = Math.max(1, Math.min(totalPages, Number(entry.page || 1)));
+            const start = (entry.page - 1) * LEAPS_DETAIL_PAGE_SIZE;
+            const pageGroups = groups.slice(start, start + LEAPS_DETAIL_PAGE_SIZE);
+            const rows = pageGroups.map((group) => {
+                const groupOutcomes = outcomesForSignals(outcomes, group.signals);
+                const groupOutcomeSummary = groupOutcomes.length ? aggregateLeapsOptionOutcomes(groupOutcomes) : null;
+                const busy = outcomeEntry?.status === 'loading' || outcomeEntry?.status === 'stopping';
+                const isCurrentGroup = busy && outcomeEntry?.scopeKey === group.key;
+                const groupButtonLabel = isCurrentGroup ? '计算中' : (groupOutcomes.length ? '重算本行' : '计算本行');
+                return `
+                <tr>
+                    <td>${escapeHtml(group.date || '')}</td>
+                    <td>${escapeHtml(group.symbol || '')}</td>
+                    <td>${renderLeapsBadge(group.best_signal, true)}</td>
+                    <td>${number(group.trigger_count, 0)}</td>
+                    <td>${number(group.source_topic_count, 0)}</td>
+                    <td>${escapeHtml(group.drawdown_range)}</td>
+                    <td>${escapeHtml(group.cash_range)}</td>
+                    <td>${money(group.buy_amount_total)}</td>
+                    <td>${money(group.premium_budget_cap_total)}</td>
+                    <td>${escapeHtml(group.stock_sell_label)}</td>
+                    <td>
+                        <div class="leaps-option-actions" style="margin:0;">
+                            ${groupOutcomeSummary ? renderLeapsOptionSummary(groupOutcomeSummary) : renderLeapsOptionOutcome(groupOutcomes[0])}
+                            <button type="button" data-leaps-group-key="${escapeHtml(group.key || '')}" onclick="calculateLeapsOptionOutcomesForActiveGroup(this.dataset.leapsGroupKey)" ${busy ? 'disabled' : ''}>${groupButtonLabel}</button>
+                        </div>
+                    </td>
+                    <td><div class="leaps-reasons">${renderLeapsReasons(group.reasons)}</div></td>
+                    <td>${renderLeapsGroupDetails(group, outcomes, outcomeEntry)}</td>
+                </tr>
+            `;
+            }).join('');
+            return `
+                <div class="leaps-strip">${renderLeapsBadge(summary, false)}</div>
+                <div class="leaps-mini">
+                    <div><span>最佳日期</span><strong>${escapeHtml(summary.best_date || '--')}</strong></div>
+                    <div><span>触发次数</span><strong>${number(summary.trigger_count, 0)}</strong></div>
+                    <div><span>信号分</span><strong>${number(summary.score)}</strong></div>
+                    <div><span>人工检查 DTE</span><strong>${escapeHtml(summary.target_dte_label || entry.all_signals?.[0]?.target_dte_label || '18-24M')}</strong></div>
+                </div>
+                <div class="leaps-group-summary">
+                    <div class="leaps-detail-status">共 ${number(summary.trigger_count, 0)} 次，按日期+标的聚合为 ${number(groups.length, 0)} 组，每页 ${number(LEAPS_DETAIL_PAGE_SIZE, 0)} 组</div>
+                    <div class="leaps-pagination">
+                        <button type="button" onclick="setLeapsDetailPage(${entry.page - 1})" ${entry.page <= 1 ? 'disabled' : ''}>上一页</button>
+                        <span>${number(entry.page, 0)} / ${number(totalPages, 0)}</span>
+                        <button type="button" onclick="setLeapsDetailPage(${entry.page + 1})" ${entry.page >= totalPages ? 'disabled' : ''}>下一页</button>
+                    </div>
+                </div>
+                ${renderLeapsOptionControls(row, entry)}
+                <div class="matrix-wrap" style="max-height:420px;box-shadow:none;">
+                    <table class="mini-table leaps-detail-table">
+                        <thead><tr><th>日期</th><th>标的</th><th>最高信号</th><th>次数</th><th>来源题目数</th><th>回撤范围</th><th>现金范围</th><th>股票买入合计</th><th>预算上限合计</th><th>正股卖出</th><th>月期权收益</th><th>原因</th><th>展开明细</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+        function renderDetailLeaps(row) {
+            const summary = row.leaps_signal || {};
+            const signals = summary.top_signals || [];
+            if (!signals.length) {
+                return `
+                    <div class="leaps-strip">${renderLeapsBadge(summary, false)}</div>
+                    <p style="margin:8px 0 0;color:var(--muted);">当前参数组合没有符合设置的 LEAPS 信号。</p>
+                `;
+            }
+            const cacheKey = leapsDetailCacheKey(row);
+            const entry = leapsDetailCache.get(cacheKey);
+            if (entry?.status === 'done') return renderFullLeapsGroups(row, entry);
+            const statusHtml = entry?.status === 'error'
+                ? '<p class="leaps-detail-status error">完整明细加载失败，当前仅显示 Top 5。</p>'
+                : '<p class="leaps-detail-status">正在加载完整明细，当前先显示 Top 5。</p>';
+            return `
+                <div class="leaps-strip">${renderLeapsBadge(summary, false)}</div>
+                <div class="leaps-mini">
+                    <div><span>最佳日期</span><strong>${escapeHtml(summary.best_date || '--')}</strong></div>
+                    <div><span>触发次数</span><strong>${number(summary.trigger_count, 0)}</strong></div>
+                    <div><span>信号分</span><strong>${number(summary.score)}</strong></div>
+                    <div><span>人工检查 DTE</span><strong>${escapeHtml(signals[0]?.target_dte_label || '18-24M')}</strong></div>
+                </div>
+                ${statusHtml}
+                ${renderTopLeapsTable(signals)}
+            `;
+        }
+        function setLeapsDetailPage(page) {
+            const row = findRow(activeDetailRowKey);
+            if (!row) return;
+            const cacheKey = leapsDetailCacheKey(row);
+            const entry = leapsDetailCache.get(cacheKey);
+            if (!entry || entry.status !== 'done') return;
+            const totalPages = Math.max(1, Math.ceil((entry.groups || []).length / LEAPS_DETAIL_PAGE_SIZE));
+            entry.page = Math.max(1, Math.min(totalPages, Number(page || 1)));
+            document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+        }
+        async function loadFullLeapsDetails(row) {
+            if (!row || !lastParameterPacket) return;
+            const cacheKey = leapsDetailCacheKey(row);
+            const cached = leapsDetailCache.get(cacheKey);
+            const loadToken = activeDetailLoadToken;
+            if (cached?.status === 'done') return;
+            if (cached?.status === 'loading') {
+                if (cached.promise) {
+                    cached.promise.then(() => {
+                        if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key) {
+                            document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+                        }
+                    }).catch(() => {
+                        if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key) {
+                            document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+                        }
+                    });
+                }
+                return;
+            }
+            const promise = runLeapsDetailWorker(row);
+            leapsDetailCache.set(cacheKey, { status: 'loading', page: 1, promise });
+            document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+            try {
+                const detailRow = await promise;
+                const allSignals = normalizeLeapsOptionSignals(detailRow?.leaps_signal?.all_signals || []);
+                leapsDetailCache.set(cacheKey, {
+                    status: 'done',
+                    page: 1,
+                    all_signals: allSignals,
+                    groups: groupLeapsSignalsByDateSymbol(allSignals)
+                });
+                if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key) {
+                    document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+                }
+            } catch (error) {
+                parameterLabWarn('leaps_detail_load_failed', {
+                    row_key: row.key,
+                    message: error.message || String(error)
+                });
+                leapsDetailCache.set(cacheKey, { status: 'error', page: 1 });
+                if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key) {
+                    document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+                }
+            }
+        }
+        async function calculateLeapsOptionOutcomes(row, targetSignals = null, options = {}) {
+            if (!row) return;
+            const detailKey = leapsDetailCacheKey(row);
+            const detailEntry = leapsDetailCache.get(detailKey);
+            if (!detailEntry || detailEntry.status !== 'done') {
+                throw new Error('请先等待完整 LEAPS 明细加载完成。');
+            }
+            const allSignals = normalizeLeapsOptionSignals(detailEntry.all_signals || []);
+            const allSignalsByKey = new Map(allSignals.map((signal) => [signal.signal_key, signal]));
+            const selectedSignals = normalizeLeapsOptionSignals(targetSignals || allSignals)
+                .map((signal) => allSignalsByKey.get(signal.signal_key) || signal)
+                .filter(Boolean);
+            if (!selectedSignals.length) {
+                throw new Error('没有可计算的 LEAPS 信号。');
+            }
+            const queue = buildLeapsOptionQueue(selectedSignals);
+            detailEntry.all_signals = allSignals;
+            detailEntry.groups = groupLeapsSignalsByDateSymbol(allSignals);
+            const controller = { cancelled: false };
+            const previousEntry = leapsOptionOutcomeCache.get(detailKey) || {};
+            const previousOutcomes = replaceLeapsOutcomesForSignals(previousEntry.outcomes || row.leaps_option_outcomes || [], selectedSignals);
+            const outcomeEntry = {
+                status: 'loading',
+                controller,
+                startedAt: Date.now(),
+                elapsedMs: 0,
+                total: queue.length,
+                completed: 0,
+                successCount: 0,
+                skippedCount: 0,
+                currentSignalLabel: '',
+                activeSignalLabels: [],
+                lastFailure: '',
+                scopeKey: options.scopeKey || '',
+                scopeSignalKey: options.scopeSignalKey || '',
+                scopeLabel: options.scopeLabel || '',
+                scopeAllSignals: selectedSignals.length === allSignals.length,
+                concurrency: Math.min(LEAPS_OPTION_QUEUE_CONCURRENCY, queue.length),
+                outcomes: previousOutcomes.slice(),
+                summary: aggregateLeapsOptionOutcomes(previousOutcomes)
+            };
+            leapsOptionOutcomeCache.set(detailKey, outcomeEntry);
+            ensureLeapsOptionProgressTimer();
+            document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+
+            let nextQueueIndex = 0;
+            const processQueueItem = async (queueItem) => {
+                const activeLabel = `${queueItem.signal.symbol || '--'} ${queueItem.signal.date || ''}`.trim();
+                outcomeEntry.activeSignalLabels.push(activeLabel);
+                outcomeEntry.currentSignalLabel = outcomeEntry.activeSignalLabels.join(' / ');
+                const detailEl = document.getElementById('detailLeaps');
+                if (detailEl) detailEl.innerHTML = renderDetailLeaps(row);
+                let representativeOutcome = null;
+                try {
+                    const response = await fetch('/api/strategy-lab/parameter-lab/leaps-option-outcomes', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            run_id: (lastParameterPacket || {}).run_id || '',
+                            row_key: row.key,
+                            signals: [queueItem.signal]
+                        })
+                    });
+                    const result = await response.json().catch(() => ({}));
+                    representativeOutcome = Array.isArray(result.outcomes) ? result.outcomes[0] : null;
+                    if (!representativeOutcome && !response.ok) {
+                        representativeOutcome = skippedLeapsOptionOutcome(queueItem.signal, result.message || '期权收益计算失败');
+                    }
+                } catch (error) {
+                    representativeOutcome = skippedLeapsOptionOutcome(queueItem.signal, error.message || String(error));
+                }
+                if (!representativeOutcome) {
+                    representativeOutcome = skippedLeapsOptionOutcome(queueItem.signal, '期权收益计算失败');
+                }
+                outcomeEntry.activeSignalLabels = outcomeEntry.activeSignalLabels.filter((label) => label !== activeLabel);
+                outcomeEntry.currentSignalLabel = outcomeEntry.activeSignalLabels.join(' / ');
+                const mappedOutcomes = queueItem.signals.map((signal) => cloneLeapsOptionOutcomeForSignal(representativeOutcome, signal));
+                outcomeEntry.outcomes.push(...mappedOutcomes);
+                outcomeEntry.completed += 1;
+                if (representativeOutcome.status === 'success') {
+                    outcomeEntry.successCount += 1;
+                } else {
+                    outcomeEntry.skippedCount += 1;
+                    outcomeEntry.lastFailure = representativeOutcome.skipped_reason || '跳过';
+                }
+                outcomeEntry.elapsedMs = Date.now() - outcomeEntry.startedAt;
+                updateLeapsOptionEntrySummary(outcomeEntry);
+                row.leaps_option_outcomes = outcomeEntry.outcomes;
+                row.leaps_option_summary = outcomeEntry.summary;
+                document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+                renderParameterMatrix();
+            };
+            const runQueueWorker = async () => {
+                while (!controller.cancelled) {
+                    const queueItem = queue[nextQueueIndex];
+                    nextQueueIndex += 1;
+                    if (!queueItem) break;
+                    await processQueueItem(queueItem);
+                }
+            };
+            await Promise.all(Array.from({ length: outcomeEntry.concurrency }, () => runQueueWorker()));
+
+            outcomeEntry.elapsedMs = Date.now() - outcomeEntry.startedAt;
+            outcomeEntry.currentSignalLabel = '';
+            outcomeEntry.activeSignalLabels = [];
+            updateLeapsOptionEntrySummary(outcomeEntry);
+            if (controller.cancelled) {
+                outcomeEntry.status = 'stopped';
+            } else if (outcomeEntry.scopeAllSignals) {
+                outcomeEntry.status = 'done';
+            } else {
+                outcomeEntry.status = 'partial_done';
+            }
+            row.leaps_option_outcomes = outcomeEntry.outcomes;
+            row.leaps_option_summary = outcomeEntry.summary;
+            document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+            renderParameterMatrix();
+        }
+        function stopLeapsOptionOutcomesForActiveRow() {
+            const row = findRow(activeDetailRowKey);
+            if (!row) return;
+            const detailKey = leapsDetailCacheKey(row);
+            const outcomeEntry = leapsOptionOutcomeCache.get(detailKey);
+            if (!outcomeEntry || outcomeEntry.status !== 'loading') return;
+            if (outcomeEntry.controller) outcomeEntry.controller.cancelled = true;
+            outcomeEntry.status = 'stopping';
+            outcomeEntry.elapsedMs = outcomeEntry.startedAt ? Date.now() - outcomeEntry.startedAt : outcomeEntry.elapsedMs;
+            document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+        }
+        async function calculateLeapsOptionOutcomesForActiveGroup(groupKey) {
+            const row = findRow(activeDetailRowKey);
+            if (!row) return;
+            const detailKey = leapsDetailCacheKey(row);
+            const detailEntry = leapsDetailCache.get(detailKey);
+            const group = (detailEntry?.groups || []).find((item) => item.key === groupKey);
+            if (!group) return;
+            try {
+                await calculateLeapsOptionOutcomes(row, group.signals, {
+                    scopeKey: group.key,
+                    scopeLabel: `${group.symbol || '--'} ${group.date || ''}`.trim()
+                });
+            } catch (error) {
+                const current = leapsOptionOutcomeCache.get(detailKey) || {};
+                leapsOptionOutcomeCache.set(detailKey, {
+                    ...current,
+                    status: 'error',
+                    message: error.message || String(error),
+                    elapsedMs: current.startedAt ? Date.now() - current.startedAt : current.elapsedMs
+                });
+                document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+                parameterLabWarn('leaps_option_group_outcomes_failed', {
+                    row_key: row.key,
+                    group_key: groupKey,
+                    message: error.message || String(error)
+                });
+            }
+        }
+        async function calculateLeapsOptionOutcomeForActiveSignal(signalKey) {
+            const row = findRow(activeDetailRowKey);
+            if (!row) return;
+            const detailKey = leapsDetailCacheKey(row);
+            const detailEntry = leapsDetailCache.get(detailKey);
+            const signal = (detailEntry?.all_signals || []).find((item) => item.signal_key === signalKey);
+            if (!signal) return;
+            try {
+                await calculateLeapsOptionOutcomes(row, [signal], {
+                    scopeSignalKey: signal.signal_key,
+                    scopeLabel: `${signal.symbol || '--'} ${signal.date || ''} ${signalSourceLabel(signal)}`.trim()
+                });
+            } catch (error) {
+                const current = leapsOptionOutcomeCache.get(detailKey) || {};
+                leapsOptionOutcomeCache.set(detailKey, {
+                    ...current,
+                    status: 'error',
+                    message: error.message || String(error),
+                    elapsedMs: current.startedAt ? Date.now() - current.startedAt : current.elapsedMs
+                });
+                document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+                parameterLabWarn('leaps_option_signal_outcome_failed', {
+                    row_key: row.key,
+                    signal_key: signalKey,
+                    message: error.message || String(error)
+                });
+            }
+        }
+        async function calculateLeapsOptionOutcomesForActiveRow() {
+            const row = findRow(activeDetailRowKey);
+            if (!row) return;
+            try {
+                await calculateLeapsOptionOutcomes(row, null, { scopeLabel: '当前参数行全部 LEAPS 信号' });
+            } catch (error) {
+                const detailKey = leapsDetailCacheKey(row);
+                const current = leapsOptionOutcomeCache.get(detailKey) || {};
+                leapsOptionOutcomeCache.set(detailKey, {
+                    ...current,
+                    status: 'error',
+                    message: error.message || String(error),
+                    elapsedMs: current.startedAt ? Date.now() - current.startedAt : current.elapsedMs
+                });
+                document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+                parameterLabWarn('leaps_option_outcomes_failed', {
+                    row_key: row.key,
+                    message: error.message || String(error)
+                });
+            }
+        }
         function openRowDetail(key) {
             const row = findRow(key);
             if (!row) return;
+            activeDetailRowKey = key;
+            activeDetailLoadToken += 1;
             document.getElementById('detailTitle').textContent = row.candidate.label || row.key;
             document.getElementById('detailMetrics').innerHTML = `
+                <div class="stat"><span>全局排名</span><strong>#${number(row.global_rank, 0)}</strong></div>
+                <div class="stat"><span>组内排名</span><strong>#${number(row.group_rank, 0)}</strong></div>
                 <div class="stat"><span>Final</span><strong>${number(row.final_score)}</strong></div>
                 <div class="stat"><span>Avg Return</span><strong>${pct(row.avg_return_pct)}</strong></div>
                 <div class="stat"><span>Avg DD</span><strong>${pct(row.avg_drawdown_pct)}</strong></div>
             `;
-            document.getElementById('detailJson').textContent = JSON.stringify(candidateDetailPayload(row.candidate), null, 2);
+            document.getElementById('detailJson').textContent = JSON.stringify(candidateDetailPayload(row.candidate, row), null, 2);
+            document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
             document.getElementById('detailCells').innerHTML = row.cells.map((cell) => `
                 <tr>
                     <td>${escapeHtml(cell.portfolio_label)} / ${escapeHtml(cell.period_label)}</td>
@@ -1822,14 +3117,10 @@
                     <td>${number(cell.topic_score)}</td>
                     <td>${pct(cell.return_pct)}</td>
                     <td>${pct(cell.max_drawdown_pct)}</td>
-                    <td><button type="button" onclick="scanOptionForCell('${escapeHtml(key)}', '${escapeHtml(cell.topic_key)}')">期权</button></td>
                 </tr>
             `).join('');
-            // Reset option scan section for this row
-            document.getElementById('optionScanSection').style.display = '';
-            document.getElementById('optionScanStatus').textContent = '';
-            document.getElementById('optionMiniTable').style.display = 'none';
             document.getElementById('detailDrawer').classList.add('show');
+            loadFullLeapsDetails(row);
         }
         function closeDetail() {
             document.getElementById('detailDrawer').classList.remove('show');
@@ -1858,725 +3149,10 @@
             window.open('/strategy-lab?apply_parameter_lab=1&auto_run_lab=1', '_blank');
         }
 
-        // ── Option parameter scan (client-side Web Workers) ─────────────────
-        let lastOptionScanResult = null;
-        let optionScanWorkers = [];
-        let optionScanRunId = null;
-
-        function optVal(id) { return document.getElementById(id).value.trim(); }
-
-        function toggleOptionScanPanel() {
-            const enabled = document.getElementById('optionScanEnabled').checked;
-            document.getElementById('optionScanPanel').style.display = enabled ? '' : 'none';
-            if (enabled) updateOptionCandidateCount();
-        }
-
-        function updateOptionCandidateCount() {
-            const walletPct = optVal('optWalletPct').split(',').filter(Boolean).length || 0;
-            const tradeAlloc = optVal('optTradeAllocation').split(',').filter(Boolean).length || 0;
-            const dte = (optVal('optDteMin') && optVal('optDteTarget') && optVal('optDteMax')) ? 1 : 0;
-            const mn = optVal('optMoneyness').split(',').filter(Boolean).length || 0;
-            const pt = optVal('optProfitTake').split(',').filter(Boolean).length || 0;
-            const pts = optVal('optProfitTakeSell').split(',').filter(Boolean).length || 0;
-            const exit = optVal('optExitDte').split(',').filter(Boolean).length || 0;
-            const count = walletPct * tradeAlloc * dte * mn * pt * pts * exit;
-            document.getElementById('optCandidateCount').textContent = number(count, 0);
-        }
-
-        ['optWalletPct','optTradeAllocation','optDteMin','optDteTarget','optDteMax','optMoneyness','optProfitTake','optProfitTakeSell','optExitDte'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.addEventListener('input', updateOptionCandidateCount);
-        });
-
-        function cancelOptionScan() {
-            optionScanWorkers.forEach(w => w.terminate());
-            optionScanWorkers = [];
-            optionScanRunId = null;
-        }
-
-        async function runOptionParameterScan() {
-            cancelOptionScan();
-            updateOptionCandidateCount();
-            const payload = parameterLabPayload();
-            payload.option_wallet_pcts = optVal('optWalletPct');
-            payload.option_trade_allocations = optVal('optTradeAllocation');
-            payload.option_dte_min = optVal('optDteMin');
-            payload.option_dte_target = optVal('optDteTarget');
-            payload.option_dte_max = optVal('optDteMax');
-            payload.option_moneyness_values = optVal('optMoneyness');
-            payload.option_profit_takes = optVal('optProfitTake');
-            payload.option_profit_take_sells = optVal('optProfitTakeSell');
-            payload.option_exit_dtes = optVal('optExitDte');
-            const runId = createParameterLabRunId();
-            optionScanRunId = runId;
-            const started = performance.now();
-
-            // 1. Fetch option packet from server
-            setStatus('Preparing', '正在从服务器抓取期权数据包…', 5);
-            let packet;
-            try {
-                const response = await fetch('/api/strategy-lab/parameter-lab/option-packet', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                const result = await response.json();
-                if (!response.ok || !result.success) throw new Error(result.message || '抓取期权数据失败');
-                packet = result.packet;
-            } catch (error) {
-                setStatus('Error', error.message || String(error), 100);
-                return;
-            }
-
-            const variants = packet.option_variants || [];
-            const variantCount = variants.length;
-            const strategyCount = (packet.stock_strategies || []).length;
-            setStatus('Running', `准备: ${variantCount} 变体 × ${strategyCount} 策略`, 15);
-
-            // 2. Split variants across workers
-            const workerCount = Math.max(1, Math.min(8, Math.floor(Number(navigator.hardwareConcurrency || 4) * 0.75)));
-            const chunkSize = Math.ceil(variantCount / workerCount);
-            const chunks = [];
-            for (let w = 0; w < workerCount; w++) {
-                const chunk = variants.slice(w * chunkSize, (w + 1) * chunkSize);
-                if (chunk.length) chunks.push(chunk);
-            }
-
-            // 3. Launch workers
-            let completedWorkers = 0;
-            let totalCompletedVariants = 0;
-            const allResults = [];
-            const workerElapsed = [];
-
-            document.getElementById('statWorkers').textContent = number(chunks.length, 0);
-            document.getElementById('statCandidates').textContent = number(variantCount, 0);
-            document.getElementById('statSimulations').textContent = number(variantCount * strategyCount, 0);
-
-            const workerPromises = chunks.map((chunk, index) => {
-                return new Promise((resolve, reject) => {
-                    const worker = new Worker('/static/option_scan_worker.js');
-                    optionScanWorkers.push(worker);
-
-                    worker.onmessage = (event) => {
-                        const msg = event.data || {};
-                        if (msg.type === 'progress') {
-                            completedWorkers += 1; // approximate
-                            const pct = 15 + Math.round(85 * totalCompletedVariants / Math.max(1, variantCount));
-                            setStatus('Running',
-                                `Worker ${index+1}/${chunks.length}: ${msg.message}`, pct);
-                        }
-                        if (msg.type === 'done') {
-                            allResults.push(...(msg.results || []));
-                            totalCompletedVariants += msg.completed_variants || 0;
-                            workerElapsed.push(msg.elapsed_ms || 0);
-                            worker.terminate();
-                            optionScanWorkers = optionScanWorkers.filter(w => w !== worker);
-                            completedWorkers++;
-                            const pct = 15 + Math.round(85 * completedWorkers / chunks.length);
-                            setStatus('Running',
-                                `${completedWorkers}/${chunks.length} workers 完成`, pct);
-                            if (completedWorkers >= chunks.length) resolve();
-                        }
-                        if (msg.type === 'error') {
-                            worker.terminate();
-                            optionScanWorkers = optionScanWorkers.filter(w => w !== worker);
-                            reject(new Error(msg.message || 'Worker error'));
-                        }
-                    };
-
-                    worker.onerror = (err) => {
-                        worker.terminate();
-                        optionScanWorkers = optionScanWorkers.filter(w => w !== worker);
-                        reject(new Error(err.message || 'Worker error'));
-                    };
-
-                    worker.postMessage({
-                        type: 'start-option-scan',
-                        run_id: runId,
-                        worker_index: index,
-                        packet,
-                        variant_chunk: chunk
-                    });
-                });
-            });
-
-            try {
-                await Promise.all(workerPromises);
-
-                // 4. Build matrix from worker results
-                const matrix = allResults.map(res => {
-                    const variant = res.variant || {};
-                    const agg = res.aggregate_metrics || {};
-                    const perStrategyReturns = (res.per_strategy || []).map(
-                        s => (s.option_metrics || {}).return_pct || 0
-                    );
-                    return {
-                        variant_index: res.variant_index,
-                        label: variant.label || '',
-                        wallet_pct: variant.wallet_pct,
-                        trade_allocation_pct: variant.trade_allocation_pct,
-                        min_dte: variant.min_dte,
-                        target_dte: variant.target_dte,
-                        max_dte: variant.max_dte,
-                        moneyness: variant.moneyness,
-                        profit_take_pct: variant.profit_take_pct,
-                        profit_take_sell_pct: variant.profit_take_sell_pct,
-                        exit_dte: variant.exit_dte,
-                        avg_return_pct: round(agg.avg_return_pct, 2),
-                        max_return_pct: round(agg.max_return_pct, 2),
-                        min_return_pct: round(agg.min_return_pct, 2),
-                        combined_return_pct: round(agg.combined_return_pct, 2),
-                        total_premium: round(agg.total_premium, 2),
-                        total_value: round(agg.total_value, 2),
-                        strategy_returns: perStrategyReturns.map(r => round(r, 2)),
-                    };
-                });
-
-                // Store for rendering
-                lastOptionScanResult = {
-                    stock_result: {
-                        strategies: (packet.stock_strategies || []).map(s => ({
-                            strategy_key: s.strategy_key,
-                            strategy_label: s.strategy_label,
-                            metrics: {}
-                        }))
-                    },
-                    option_scan: {
-                        variant_count: variantCount,
-                        matrix,
-                        warnings: packet.warnings || [],
-                        worker_elapsed_ms: workerElapsed,
-                        wall_ms: performance.now() - started
-                    }
-                };
-
-                renderOptionMatrix();
-                document.getElementById('statWall').textContent = `${number(performance.now() - started, 0)}ms`;
-                setStatus('Completed', `完成 ${matrix.length} 个期权参数组合。`, 100);
-            } catch (error) {
-                cancelOptionScan();
-                setStatus('Error', error.message || String(error), 100);
-            }
-        }
-
-        function renderOptionMatrix() {
-            if (!lastOptionScanResult) return;
-            const data = lastOptionScanResult;
-            const scan = data.option_scan || {};
-            const matrix = scan.matrix || [];
-            const rankMethod = document.getElementById('optionRankMethod').value;
-            const rowLimit = document.getElementById('optionRowLimit').value;
-
-            document.getElementById('optionResultSection').style.display = '';
-            document.getElementById('optionResultMeta').textContent =
-                `${number(scan.variant_count || matrix.length, 0)} 个参数组合`;
-            document.getElementById('optionResultWarnings').textContent =
-                (scan.warnings || []).slice(0, 3).join('; ');
-
-            const sorted = [...matrix];
-            if (rankMethod === 'combined_return') {
-                sorted.sort((a, b) => (b.combined_return_pct || 0) - (a.combined_return_pct || 0));
-            } else if (rankMethod === 'avg_return') {
-                sorted.sort((a, b) => (b.avg_return_pct || 0) - (a.avg_return_pct || 0));
-            } else {
-                sorted.sort((a, b) => (b.max_return_pct || 0) - (a.max_return_pct || 0));
-            }
-
-            const rows = rowLimit === 'all' ? sorted : sorted.slice(0, parseInt(rowLimit));
-
-            document.getElementById('optionMatrixHead').innerHTML = `
-                <tr>
-                    <th>期权参数</th>
-                    <th>组合收益%</th>
-                    <th>平均收益%</th>
-                    <th>最高收益%</th>
-                    <th>最低收益%</th>
-                    <th>总权利金</th>
-                    <th>总价值</th>
-                </tr>
-            `;
-
-            const bodyHtml = rows.map((row, i) => {
-                const ret = row.combined_return_pct || 0;
-                const style = ret > 0
-                    ? `background:rgba(4,120,87,${Math.min(0.3, Math.abs(ret)/200)});color:var(--green);font-weight:900;`
-                    : ret < 0
-                        ? `background:rgba(194,65,53,${Math.min(0.3, Math.abs(ret)/200)});color:var(--red);font-weight:900;`
-                        : '';
-                const strategyList = (row.strategy_returns || []).map((r, j) => {
-                    const stockStrategies = (data.stock_result || {}).strategies || [];
-                    const label = stockStrategies[j] ? stockStrategies[j].strategy_label : `S${j+1}`;
-                    return `${label}: ${pct(r)}`;
-                }).join(', ');
-                return `
-                    <tr>
-                        <td>
-                            <div class="strategy-name">#${i+1} ${escapeHtml(row.label || '')}</div>
-                            <div class="strategy-meta" title="${escapeHtml(strategyList)}">${escapeHtml(strategyList.slice(0, 80))}</div>
-                        </td>
-                        <td style="${style}">${pct(ret)}</td>
-                        <td>${pct(row.avg_return_pct)}</td>
-                        <td>${pct(row.max_return_pct)}</td>
-                        <td>${pct(row.min_return_pct)}</td>
-                        <td>${number(row.total_premium, 0)}</td>
-                        <td>${number(row.total_value, 0)}</td>
-                    </tr>
-                `;
-            }).join('');
-            document.getElementById('optionMatrixBody').innerHTML = bodyHtml || '<tr><td>没有可显示的结果。</td></tr>';
-        }
-
-        // ── Cell-level option scan (drawer mini-table) ─────────────────────
-        let optionScanCache = {};  // { `${candidate_key}|${topic_key}`: { results, timestamp } }
-
-                function renderOptionMiniTable(results) {
-            var table = document.getElementById('optionMiniTable');
-            var status = document.getElementById('optionScanStatus');
-            status.textContent = '';
-            table.style.display = '';
-            var tbody = table.querySelector('tbody');
-            if (!results || !results.length) {
-                tbody.innerHTML = '<tr><td colspan="4">no results</td></tr>';
-                return;
-            }
-            var rows = [];
-            for (var i = 0; i < results.length; i++) {
-                var r = results[i];
-                var optRet = r.option_return_pct || 0;
-                var combinedRet = r.combined_return_pct || 0;
-                var vsStock = r.vs_stock_pct || 0;
-                var color = combinedRet > 0 ? 'var(--green)' : 'var(--red)';
-                var positions = r.positions || [];
-                var skipped = r.skipped || [];
-                var parts = [];
-                for (var pi = 0; pi < positions.length; pi++) {
-                    var p = positions[pi];
-                    var exitHtml = '';
-                    (p.exits || []).forEach(function(ex) {
-                        exitHtml += '<div class="trade-exit">' + ex.reason + ' ' + ex.date + ' @$' + number(ex.price) + ' x' + number(ex.contracts,0) + ' val$' + number(ex.value) + ' dte=' + ex.dte + '</div>';
-                    });
-                    parts.push('<div class="trade-detail" style="margin:4px 0;padding:6px;background:var(--surface-2);border-radius:4px;font-size:12px;">' +
-                        '<strong>' + escapeHtml(p.option_ticker || '?') + '</strong> ' + p.underlying + ' strike$' + p.strike +
-                        ' entry ' + p.entry_date + ' @$' + number(p.entry_price) + ' prem$' + number(p.premium) + ' ' + number(p.contracts,0) + 'ct DTE' + p.dte_at_entry +
-                        exitHtml +
-                        '<span style="color:' + (p.return_pct>0?'var(--green)':'var(--red)') + '">ret ' + pct(p.return_pct) + ' real$' + number(p.realized_value) + ' open$' + number(p.open_value) + '</span>' +
-                        '<div id="optChart_' + i + '_' + pi + '" style="width:100%;min-height:160px;margin-top:6px;border:1px solid var(--line);border-radius:4px;"></div>' +
-                        '</div>');
-                }
-                skipped.forEach(function(sk) {
-                    var skDate = sk.entry_date || sk.date || sk.stock_buy_date || '';
-                    var skExtra = '';
-                    if (sk.option_ticker) skExtra += ' ' + sk.option_ticker;
-                    if (sk.strike != null) skExtra += ' strike$' + sk.strike;
-                    parts.push('<div class="trade-detail" style="color:var(--muted);font-size:11px;">SKIP: ' + (sk.reason||'?') + ' ' + (sk.underlying||'') + ' ' + skDate + skExtra + '</div>');
-                });
-                if (!parts.length) parts.push('<div class="trade-detail" style="color:var(--muted);font-size:12px;">no trades</div>');
-                var detailHtml = parts.join('');
-                rows.push(
-                    '<tr class="option-row" style="cursor:pointer" onclick="var d=this.nextElementSibling;d.style.display=d.style.display===\'none\'?\'\':\'none\';this.classList.toggle(\'expanded\');">' +
-                    '<td><div class="strategy-name">#' + (i+1) + ' ' + escapeHtml(r.label||'') + '</div></td>' +
-                    '<td style="color:' + (optRet>0?'var(--green)':'var(--red)') + ';font-weight:900;">' + pct(optRet) + '</td>' +
-                    '<td style="color:' + color + ';font-weight:900;">' + pct(combinedRet) + '</td>' +
-                    '<td style="color:' + (vsStock>0?'var(--green)':'var(--red)') + ';font-weight:900;">' + pct(vsStock) + '</td>' +
-                    '</tr>' +
-                    '<tr class="option-detail" style="display:none;"><td colspan="4">' + detailHtml + '</td></tr>'
-                );
-            }
-            tbody.innerHTML = rows.join('');
-            setTimeout(function() { drawOptionCharts(results); }, 50);
-        }
-
-        function drawOptionCharts(results) {
-            const hasPlotly = typeof Plotly !== 'undefined' && typeof Plotly.react === 'function';
-            if (!hasPlotly) {
-                // ── Canvas fallback ──────────────────────────────────────────
-                results.forEach(function(r, i) {
-                    (r.positions || []).forEach(function(p, pi) {
-                        var el = document.getElementById('optChart_' + i + '_' + pi);
-                        if (!el) return;
-                        var bars = p.price_bars || [];
-                        if (!bars.length) { el.textContent = 'no data'; return; }
-                        el.innerHTML = '<canvas width="300" height="120" style="display:block;"></canvas>';
-                        var canvas = el.querySelector('canvas');
-                        if (!canvas) return;
-                        var ctx = canvas.getContext('2d');
-                        var W = canvas.width, H = canvas.height;
-                        var pad = { top: 10, right: 15, bottom: 20, left: 55 };
-                        var pw = W - pad.left - pad.right;
-                        var ph = H - pad.top - pad.bottom;
-                        ctx.clearRect(0, 0, W, H);
-                        var closes = bars.map(function(b){return b.close;});
-                        var min = Math.min.apply(null, closes) * 0.95;
-                        var max = Math.max.apply(null, closes) * 1.05;
-                        var range = max - min || 1;
-                        function x(j) { return pad.left + (j / Math.max(1, bars.length - 1)) * pw; }
-                        function y(v) { return pad.top + ph - ((v - min) / range) * ph; }
-                        ctx.strokeStyle = '#e0e4e8'; ctx.lineWidth = 0.5;
-                        ctx.beginPath(); ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, pad.top + ph); ctx.lineTo(pad.left + pw, pad.top + ph); ctx.stroke();
-                        ctx.strokeStyle = '#1d64c8'; ctx.lineWidth = 1.5;
-                        ctx.beginPath();
-                        bars.forEach(function(b, j) { var px = x(j), py = y(b.close); j === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); });
-                        ctx.stroke();
-                        if (p.entry_date && p.entry_price) {
-                            var eIdx = bars.findIndex(function(b){return b.date >= p.entry_date;});
-                            if (eIdx >= 0) {
-                                ctx.fillStyle = '#047857'; ctx.beginPath(); ctx.arc(x(eIdx), y(p.entry_price), 4, 0, Math.PI*2); ctx.fill();
-                                ctx.fillStyle = '#17212b'; ctx.font = '9px sans-serif'; ctx.fillText('B', x(eIdx)+6, y(p.entry_price)+3);
-                            }
-                        }
-                        (p.exits || []).forEach(function(ex) {
-                            var exIdx = bars.findIndex(function(b){return b.date >= ex.date;});
-                            if (exIdx >= 0) {
-                                ctx.fillStyle = ex.reason === 'profit_take' ? '#047857' : '#c24135';
-                                ctx.beginPath(); ctx.arc(x(exIdx), y(ex.price), 4, 0, Math.PI*2); ctx.fill();
-                                ctx.fillText(ex.reason === 'profit_take' ? 'W' : 'S', x(exIdx)+6, y(ex.price)+3);
-                            }
-                        });
-                        ctx.fillStyle = '#637386'; ctx.font = '9px sans-serif';
-                        ctx.fillText('$'+number(min), pad.left-50, pad.top+ph);
-                        ctx.fillText('$'+number(max), pad.left-50, pad.top+10);
-                        ctx.fillText(bars[0].date, pad.left, H-4);
-                    });
-                });
-                return;
-            }
-            // ── Plotly render ────────────────────────────────────────────────
-            results.forEach(function(r, i) {
-                (r.positions || []).forEach(function(p, pi) {
-                    var el = document.getElementById('optChart_' + i + '_' + pi);
-                    if (!el) return;
-                    var bars = p.price_bars || [];
-                    if (!bars.length) { el.textContent = 'no data'; return; }
-
-                    var traces = [];
-
-                    // 1. Price line
-                    traces.push({
-                        x: bars.map(function(b){return b.date;}),
-                        y: bars.map(function(b){return b.close;}),
-                        type: 'scatter', mode: 'lines',
-                        name: '期权价格',
-                        line: { color: '#1d64c8', width: 1.5 },
-                        hovertemplate: '%{x}<br>$%{y:.2f}<extra></extra>'
-                    });
-
-                    // 2. Entry marker — green filled circle
-                    if (p.entry_date && p.entry_price) {
-                        var ticker = p.option_ticker || '?';
-                        traces.push({
-                            x: [p.entry_date],
-                            y: [p.entry_price],
-                            type: 'scatter', mode: 'markers',
-                            name: '入场',
-                            marker: { symbol: 'circle', size: 12, color: '#047857', line: { color: '#fff', width: 1.5 } },
-                            hovertemplate:
-                                '<b>' + escapeHtml(ticker) + '</b><br>' +
-                                'Strike: $' + (p.strike || '-') + '<br>' +
-                                '入场价: $' + number(p.entry_price) + '<br>' +
-                                'Premium: $' + number(p.premium) + '<br>' +
-                                '合约: ' + number(p.contracts, 0) + '<br>' +
-                                'DTE: ' + (p.dte_at_entry || '?') +
-                                '<extra></extra>'
-                        });
-                    }
-
-                    // 3. Exit markers — profit_take green triangle-up / others red triangle-down
-                    var profitExits = [];
-                    var otherExits = [];
-                    (p.exits || []).forEach(function(ex) {
-                        if (ex.date && ex.price > 0) {
-                            (ex.reason === 'profit_take' ? profitExits : otherExits).push(ex);
-                        }
-                    });
-
-                    if (profitExits.length) {
-                        traces.push({
-                            x: profitExits.map(function(ex){return ex.date;}),
-                            y: profitExits.map(function(ex){return ex.price;}),
-                            type: 'scatter', mode: 'markers',
-                            name: '止盈',
-                            marker: { symbol: 'triangle-up', size: 14, color: '#047857', line: { color: '#fff', width: 1.5 } },
-                            hovertemplate: profitExits.map(function(ex){
-                                return '%{x}<br>退出价: $' + number(ex.price) + '<br>价值: $' + number(ex.value) + '<br>合约: ' + number(ex.contracts, 0) + '<br>DTE: ' + (ex.dte || '?') + '<extra>止盈</extra>';
-                            })
-                        });
-                    }
-
-                    if (otherExits.length) {
-                        traces.push({
-                            x: otherExits.map(function(ex){return ex.date;}),
-                            y: otherExits.map(function(ex){return ex.price;}),
-                            type: 'scatter', mode: 'markers',
-                            name: '强制退出',
-                            marker: { symbol: 'triangle-down', size: 14, color: '#c24135', line: { color: '#fff', width: 1.5 } },
-                            hovertemplate: otherExits.map(function(ex){
-                                return '%{x}<br>退出价: $' + number(ex.price) + '<br>价值: $' + number(ex.value) + '<br>原因: ' + (ex.reason || '?') + '<br>合约: ' + number(ex.contracts, 0) + '<br>DTE: ' + (ex.dte || '?') + '<extra>强制退出</extra>';
-                            })
-                        });
-                    }
-
-                    var layout = {
-                        margin: { l: 50, r: 15, t: 10, b: 28 },
-                        height: 160,
-                        paper_bgcolor: '#f8fbfd',
-                        plot_bgcolor: '#f8fbfd',
-                        xaxis: { showgrid: true, gridcolor: '#eef3f7', showticklabels: false },
-                        yaxis: { showgrid: true, gridcolor: '#eef3f7', tickformat: '.2f', tickprefix: '$' },
-                        showlegend: true,
-                        legend: { orientation: 'h', y: 1.12, x: 0, font: { size: 10, color: '#637386' } },
-                        hovermode: 'closest'
-                    };
-
-                    var config = { responsive: true, displayModeBar: false };
-
-                    Plotly.react(el, traces, layout, config);
-                });
-            });
-        }
-
-async function scanOptionForCell(rowKey, topicKey) {
-            window._lastOptionRowKey = rowKey;
-            const cacheKey = rowKey + '|' + topicKey;
-            if (optionScanCache[cacheKey]) {
-                renderOptionMiniTable(optionScanCache[cacheKey].results);
-                return;
-            }
-            const row = findRow(rowKey);
-            if (!row) return;
-
-            const status = document.getElementById('optionScanStatus');
-            status.textContent = '正在生成交易记录…';
-
-            try {
-                // 1. Run JS worker to get trades (fast, uses pre-loaded price data)
-                let stockStrategies = [];
-                if (lastParameterPacket) {
-                    stockStrategies = await getTradesFromWorker(row, topicKey, lastParameterPacket);
-                }
-
-                // 2. POST trades to server → server fetches option data only
-                status.textContent = '正在抓取期权数据…';
-                const optionPayload = {
-                    start: lastParameterPacket?.tasks?.[0]?.start || '2022-01-01',
-                    end: lastParameterPacket?.tasks?.[0]?.end || new Date().toISOString().slice(0, 10),
-                    stock_strategies: stockStrategies,
-                    initial_cash: Number(document.getElementById('initialCash')?.value) || 20000,
-                    monthly_contribution: Number(document.getElementById('monthlyContribution')?.value) || 1000,
-                    option_wallet_pcts: optVal('optWalletPct'),
-                    option_trade_allocations: optVal('optTradeAllocation'),
-                    option_dte_min: optVal('optDteMin'),
-                    option_dte_target: optVal('optDteTarget'),
-                    option_dte_max: optVal('optDteMax'),
-                    option_moneyness_values: optVal('optMoneyness'),
-                    option_profit_takes: optVal('optProfitTake'),
-                    option_profit_take_sells: optVal('optProfitTakeSell'),
-                    option_exit_dtes: optVal('optExitDte'),
-                    scorecard_portfolio_keys: (lastParameterPacket?.scorecard_portfolio_keys || ['tsm_100']),
-                    targets: (lastParameterPacket?.targets || []),
-                };
-
-                const resp = await fetch('/api/strategy-lab/parameter-lab/option-packet', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(optionPayload)
-                });
-                const result = await resp.json();
-                if (!resp.ok || !result.success) throw new Error(result.message || '期权数据抓取失败');
-                const optionPacket = result.packet;
-
-                // 3. Run option scan workers
-                const variants = optionPacket.option_variants || [];
-                const stockStrategiesOut = optionPacket.stock_strategies || [];
-                const workerCount = Math.max(1, Math.min(4, Math.floor(Number(navigator.hardwareConcurrency || 4) * 0.5)));
-                const chunkSize = Math.ceil(variants.length / workerCount);
-                status.textContent = `扫描 ${variants.length} 个期权变体…`;
-
-                const workerResults = await Promise.all(Array.from({length: workerCount}, (_, i) => {
-                    const chunk = variants.slice(i * chunkSize, (i + 1) * chunkSize);
-                    if (!chunk.length) return Promise.resolve([]);
-                    return new Promise((resolve, reject) => {
-                        const worker = new Worker('/static/option_scan_worker.js');
-                        worker.onmessage = (event) => {
-                            const msg = event.data || {};
-                            if (msg.type === 'done') { worker.terminate(); resolve(msg.results || []); }
-                            if (msg.type === 'error') { worker.terminate(); reject(new Error(msg.message)); }
-                            if (msg.type === 'debug') { console.warn('[option-worker]', msg.message); }
-                        };
-                        worker.onerror = (e) => { worker.terminate(); reject(new Error(e.message)); };
-                        worker.postMessage({
-                            type: 'start-option-scan',
-                            run_id: 'cell-scan-' + Date.now(),
-                            worker_index: i,
-                            variant_chunk: chunk,
-                            packet: {
-                                stock_strategies: stockStrategiesOut,
-                                option_data_lookup: optionPacket.option_data_lookup,
-                                end_date: optionPacket.end_date,
-                                stock_inputs: optionPacket.stock_inputs
-                            }
-                        });
-                    });
-                }));
-
-                // 4. Find cell-specific stock return
-                let stockReturn = 0;
-                if (lastParameterResult) {
-                    const cellRow = lastParameterResult.rows.find(r => r.key === rowKey);
-                    if (cellRow) {
-                        const cell = cellRow.cells.find(c => c.task_key === topicKey || c.topic_key === topicKey);
-                        if (cell) stockReturn = cell.return_pct || 0;
-                    }
-                }
-
-                // 5. Build mini table results (with position details for drill-down)
-                const allScanResults = workerResults.flat();
-                const miniResults = allScanResults.map((vr) => {
-                    const optRet = vr.aggregate_metrics?.combined_return_pct || 0;
-                    const combinedRet = stockReturn + optRet;
-                    const positions = [];
-                    const skipped = [];
-                    for (const ps of (vr.per_strategy || [])) {
-                        for (const pos of (ps.option_positions || [])) {
-                            positions.push(pos);
-                        }
-                        for (const sk of (ps.option_skipped || [])) {
-                            skipped.push(sk);
-                        }
-                    }
-                    return {
-                        label: vr.variant?.label || '',
-                        option_return_pct: optRet,
-                        combined_return_pct: combinedRet,
-                        vs_stock_pct: optRet,
-                        positions,
-                        skipped
-                    };
-                });
-
-                // 6. Cache + render
-                optionScanCache[cacheKey] = { results: miniResults, timestamp: Date.now() };
-                renderOptionMiniTable(miniResults);
-            } catch (error) {
-                status.textContent = '扫描失败: ' + (error.message || String(error));
-            }
-        }
-
-        async function getTradesFromWorker(row, topicKey, packet) {
-            // Find the task matching this topic
-            const task = (packet.tasks || []).find(t => t.key === topicKey);
-            if (!task) throw new Error('未找到题目数据');
-
-            // Find the target weight for scaling buy amounts to 100%
-            const targets = packet.targets || [];
-            const scaleBySymbol = {};
-            for (const tgt of targets) {
-                const w = Number(tgt.weight || 100);
-                if (w > 0) {
-                    const sym = String(tgt.symbol || '').toUpperCase();
-                    scaleBySymbol[sym] = 100 / w;
-                }
-            }
-
-            // Build candidate row for this single candidate
-            const candidate = row.candidate;
-            const candidateRow = {
-                candidate_id: candidate.candidate_id || candidate.key || 'c0',
-                candidate_key: candidate.key,
-                candidate
-            };
-
-            return new Promise((resolve, reject) => {
-                const worker = new Worker('/static/strategy_parameter_lab_worker.js');
-                const runId = 'trades-' + Date.now();
-                const miniPacket = {
-                    ...packet,
-                    run_id: runId,
-                    tasks: [task],
-                    candidate_rows: [candidateRow],
-                    include_trades: true,
-                    parameter_lab_concurrency: 1,
-                    diagnostics: { progress_every: 1, progress_min_ms: 0 }
-                };
-
-                worker.onmessage = (event) => {
-                    const msg = event.data || {};
-                    if (msg.type === 'ready') {
-                        // Send first (only) batch
-                        worker.postMessage({
-                            type: 'batch',
-                            run_id: runId,
-                            worker_index: 0,
-                            batch_id: 'single',
-                            candidate_rows: miniPacket.candidate_rows
-                        });
-                    } else if (msg.type === 'batch_done') {
-                        // Pass individual trades for option wallet replay
-                        const rows = msg.rows || [];
-                        const strategies = [];
-                        for (const r of rows) {
-                            for (const obs of (r.observations || [])) {
-                                const tradeLog = obs.trade_log || [];
-                                const strategyTrades = [];
-                                for (const t of tradeLog) {
-                                    const sym = String(t.symbol || '').toUpperCase();
-                                    const scale = scaleBySymbol[sym] || 1;
-                                    strategyTrades.push({
-                                        symbol: sym,
-                                        date: t.date,
-                                        price: t.price || 0,
-                                        gross_amount: (t.gross_amount || 0) * scale,
-                                        action: t.action
-                                    });
-                                }
-                                if (strategyTrades.length > 0) {
-                                    strategies.push({
-                                        strategy_key: obs.candidate_key || 'single',
-                                        strategy_label: obs.candidate_key || 'Single',
-                                        trades: strategyTrades
-                                    });
-                                }
-                            }
-                        }
-                        worker.postMessage({ type: 'finish', run_id: runId, worker_index: 0 });
-                        worker.terminate();
-                        resolve(strategies);
-                    } else if (msg.type === 'error') {
-                        worker.terminate();
-                        reject(new Error(msg.message));
-                    }
-                };
-                worker.onerror = (e) => {
-                    worker.terminate();
-                    reject(new Error(e.message));
-                };
-                worker.postMessage({
-                    type: 'start',
-                    run_id: runId,
-                    worker_index: 0,
-                    packet: miniPacket,
-                    total_simulations: 1
-                });
-            });
-        }
-
-        function openOptionChart(variantLabel) {
-            var row = findRow(window._lastOptionRowKey || '');
-            if (row) {
-                localStorage.setItem('strategyLabPendingParameterCandidate', JSON.stringify({
-                    candidate: row.candidate,
-                    payload: parameterLabPayload(),
-                    option_variant_label: variantLabel,
-                    source: 'option-cell-scan',
-                    applied_at: new Date().toISOString()
-                }));
-            }
-            window.open('/strategy-lab?apply_parameter_lab=1&auto_run_lab=1&option_chart=1', '_blank');
-        }
-
-        refreshUniverseTopics();
-        renderCandidateGridSummary();
         document.getElementById('workerCount').value = Math.max(1, Math.min(4, Number(navigator.hardwareConcurrency || 4)));
         document.getElementById('workerCount').addEventListener('input', () => { workerCountTouched = true; });
+        refreshUniverseTopics();
+        renderCandidateGridSummary();
         document.getElementById('resultMeta').textContent = `registry ${strategyRegistry.version}`;
     </script>
 </body>

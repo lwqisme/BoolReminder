@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import hashlib
-import itertools
 import json
 from dataclasses import dataclass
 from typing import Iterable, Mapping
 
 from drawdown.position_strategy import (
     LOT_SELL_BUY_STRATEGIES,
-    OPTION_PARAMETER_FIELDS,
     POSITION_SELL_REARM_STRATEGIES,
     REARM_BUY_STRATEGIES,
     ROBUST_BUY_STEP_VALUES,
@@ -26,13 +24,6 @@ from drawdown.position_strategy import (
     ROBUST_GRID_FIRST_SELLS,
     ROBUST_GRID_REBOUND_STEPS,
     ROBUST_GRID_SECOND_SELLS,
-    ROBUST_OPTION_WALLET_PCTS,
-    ROBUST_OPTION_TRADE_ALLOCATIONS,
-    ROBUST_OPTION_DTE_TARGETS,
-    ROBUST_OPTION_MONEYNESS,
-    ROBUST_OPTION_PROFIT_TAKES,
-    ROBUST_OPTION_PROFIT_TAKE_SELLS,
-    ROBUST_OPTION_EXIT_DTES,
     ROBUST_REPAIR_COOLDOWNS,
     ROBUST_REPAIR_SELL_MIN_PROFITS,
     ROBUST_REPAIR_STAGE_SELLS,
@@ -42,7 +33,7 @@ from drawdown.position_strategy import (
 )
 
 
-STRATEGY_DEFINITION_VERSION = "strategy-params-v1"
+STRATEGY_DEFINITION_VERSION = "strategy-params-v3"
 
 BUY_PARAMETER_FIELDS = (
     "step_pct",
@@ -73,6 +64,7 @@ SELL_PARAMETER_FIELDS = (
     "cost_second_sell_pct",
     "cost_third_sell_pct",
     "cost_deleverage_cooldown_days",
+    "sell_allow_same_day_sell",
     "cost_min_sell_amount",
     "dca_rearm_drawdown_pct",
 )
@@ -453,11 +445,13 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
                 "sell_min_profit_pct": 10.0,
                 "repair_sell_cooldown_days": 30,
                 "repair_stage_sell_pct": 12.0,
+                "sell_allow_same_day_sell": False,
             },
             {
                 "sell_min_profit_pct": list(ROBUST_REPAIR_SELL_MIN_PROFITS),
                 "repair_sell_cooldown_days": list(ROBUST_REPAIR_COOLDOWNS),
                 "repair_stage_sell_pct": list(ROBUST_REPAIR_STAGE_SELLS),
+                "sell_allow_same_day_sell": [False, True],
                 "dca_rearm_drawdown_pct": list(ROBUST_DCA_REARM_DRAWDOWN_VALUES),
             },
             compatible_buy_strategies=tuple(REARM_BUY_STRATEGIES),
@@ -471,11 +465,13 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
                 "grid_first_sell_pct": 40.0,
                 "grid_second_sell_pct": 40.0,
                 "grid_min_sell_amount": 200.0,
+                "sell_allow_same_day_sell": False,
             },
             {
                 "grid_rebound_step_pct": list(ROBUST_GRID_REBOUND_STEPS),
                 "grid_first_sell_pct": list(ROBUST_GRID_FIRST_SELLS),
                 "grid_second_sell_pct": list(ROBUST_GRID_SECOND_SELLS),
+                "sell_allow_same_day_sell": [False, True],
                 "dca_rearm_drawdown_pct": list(ROBUST_DCA_REARM_DRAWDOWN_VALUES),
             },
             compatible_buy_strategies=all_buys,
@@ -492,11 +488,13 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
                 "cost_second_sell_pct": 30.0,
                 "cost_third_sell_pct": 30.0,
                 "cost_deleverage_cooldown_days": 0,
+                "sell_allow_same_day_sell": False,
             },
             {
                 "cost_profit_sets": [list(item) for item in ROBUST_COST_PROFIT_SETS],
                 "cost_sell_sets": [list(item) for item in ROBUST_COST_SELL_SETS],
                 "cost_deleverage_cooldown_days": list(ROBUST_COST_COOLDOWNS),
+                "sell_allow_same_day_sell": [False, True],
                 "dca_rearm_drawdown_pct": list(ROBUST_DCA_REARM_DRAWDOWN_VALUES),
             },
             compatible_buy_strategies=all_buys,
@@ -573,7 +571,7 @@ def _sell_param_variants(strategy_key: str, buy_strategy: str, inputs: StrategyI
                             }
                         )
         variants.append(current)
-        return _with_rearm_variants(variants, buy_strategy, strategy_key)
+        return _with_rearm_variants(_with_same_day_sell_variants(variants), buy_strategy, strategy_key)
     if strategy_key == "grid_rebound":
         variants = [
             {
@@ -586,7 +584,7 @@ def _sell_param_variants(strategy_key: str, buy_strategy: str, inputs: StrategyI
             for first_sell in ROBUST_GRID_FIRST_SELLS
             for second_sell in ROBUST_GRID_SECOND_SELLS
         ]
-        return _with_rearm_variants(variants, buy_strategy, strategy_key)
+        return _with_rearm_variants(_with_same_day_sell_variants(variants), buy_strategy, strategy_key)
     if strategy_key == "cost_deleverage":
         variants = [
             {
@@ -597,14 +595,26 @@ def _sell_param_variants(strategy_key: str, buy_strategy: str, inputs: StrategyI
                 "cost_second_sell_pct": float(sell_set[1]),
                 "cost_third_sell_pct": float(sell_set[2]),
                 "cost_deleverage_cooldown_days": int(cooldown),
+                "sell_allow_same_day_sell": bool(allow_same_day_sell),
                 "cost_min_sell_amount": float(inputs.cost_min_sell_amount),
             }
             for profit_set in ROBUST_COST_PROFIT_SETS
             for sell_set in ROBUST_COST_SELL_SETS
             for cooldown in ROBUST_COST_COOLDOWNS
+            for allow_same_day_sell in (False, True)
         ]
         return _with_rearm_variants(variants, buy_strategy, strategy_key)
     return []
+
+
+def _with_same_day_sell_variants(base_variants: list[dict[str, object]]) -> list[dict[str, object]]:
+    result: list[dict[str, object]] = []
+    for params in base_variants:
+        for allow_same_day_sell in (False, True):
+            item = dict(params)
+            item["sell_allow_same_day_sell"] = bool(allow_same_day_sell)
+            result.append(item)
+    return result
 
 
 def _with_rearm_variants(
@@ -693,6 +703,8 @@ def _candidate_key(
                 f"cmin{float(sell_params.get('cost_min_sell_amount') or 0):g}",
             ]
         )
+    if sell_strategy != "none" and sell_params.get("sell_allow_same_day_sell"):
+        parts.append("same1")
     if sell_params.get("dca_rearm_drawdown_pct") is not None:
         parts.append(f"rearm{float(sell_params['dca_rearm_drawdown_pct']):g}")
     return "__".join(parts)
@@ -758,6 +770,8 @@ def _sell_label(strategy_key: str, params: Mapping[str, object]) -> str:
         )
     else:
         label = SELL_STRATEGY_LABELS[strategy_key]
+    if strategy_key != "none" and params.get("sell_allow_same_day_sell"):
+        label = f"{label} / 买入日可卖"
     if params.get("dca_rearm_drawdown_pct") is not None:
         label = f"{label} / 卖后重启 {float(params['dca_rearm_drawdown_pct']):g}%回撤"
     return label
@@ -823,74 +837,3 @@ def _validate_keys(raw: Iterable[str], labels: Mapping[str, str], item_label: st
     if not selected:
         raise ValueError(f"至少需要选择一个{item_label}。")
     return selected
-
-
-# ── option parameter scan ───────────────────────────────────────────────
-
-
-def expand_option_parameter_variants(
-    moneyness_values: list[str] | None = None,
-    dte_targets: list[int] | None = None,
-    wallet_pcts: list[float] | None = None,
-    trade_allocations: list[float] | None = None,
-    profit_takes: list[float] | None = None,
-    profit_take_sells: list[float] | None = None,
-    exit_dtes: list[int] | None = None,
-    dte_windows: list[tuple[int, int, int]] | None = None,
-) -> list[dict[str, object]]:
-    """Return Cartesian product of all option parameter values (wallet model)."""
-    moneyness_values = moneyness_values or list(ROBUST_OPTION_MONEYNESS)
-    dte_targets = dte_targets or list(ROBUST_OPTION_DTE_TARGETS)
-    if dte_windows is None:
-        dte_windows = [
-            (200, 250, 300) if dte == 250 else (max(1, dte - 60), dte, dte + 60)
-            for dte in dte_targets
-        ]
-    wallet_pcts = wallet_pcts or list(ROBUST_OPTION_WALLET_PCTS)
-    trade_allocations = trade_allocations or list(ROBUST_OPTION_TRADE_ALLOCATIONS)
-    profit_takes = profit_takes or list(ROBUST_OPTION_PROFIT_TAKES)
-    profit_take_sells = profit_take_sells or list(ROBUST_OPTION_PROFIT_TAKE_SELLS)
-    exit_dtes = exit_dtes or list(ROBUST_OPTION_EXIT_DTES)
-
-    variants: list[dict[str, object]] = []
-    for idx, (wp, ta, dte_window, mn, pt, pts, exit_dte) in enumerate(
-        itertools.product(wallet_pcts, trade_allocations, dte_windows,
-                          moneyness_values, profit_takes, profit_take_sells, exit_dtes)
-    ):
-        min_dte, dte, max_dte = dte_window
-        variants.append({
-            "variant_index": idx,
-            "wallet_pct": wp,
-            "trade_allocation_pct": ta,
-            "min_dte": min_dte,
-            "target_dte": dte,
-            "max_dte": max_dte,
-            "moneyness": mn,
-            "profit_take_pct": pt,
-            "profit_take_sell_pct": pts,
-            "exit_dte": exit_dte,
-            "label": f"W{wp}%/T{ta}%/{min_dte}-{dte}-{max_dte}d/{mn}/TP{pt}%/Sell{pts}%/Exit{exit_dte}d",
-        })
-    return variants
-
-
-def option_parameter_lab_manifest(
-    moneyness_values: list[str] | None = None,
-    dte_targets: list[int] | None = None,
-    wallet_pcts: list[float] | None = None,
-    trade_allocations: list[float] | None = None,
-    profit_takes: list[float] | None = None,
-    profit_take_sells: list[float] | None = None,
-    exit_dtes: list[int] | None = None,
-    dte_windows: list[tuple[int, int, int]] | None = None,
-) -> dict[str, object]:
-    """Return option parameter lab manifest for candidate count estimation."""
-    variants = expand_option_parameter_variants(
-        moneyness_values, dte_targets, wallet_pcts, trade_allocations,
-        profit_takes, profit_take_sells, exit_dtes, dte_windows=dte_windows,
-    )
-    return {
-        "option_variant_count": len(variants),
-        "option_variant_schema": list(OPTION_PARAMETER_FIELDS),
-        "option_variants": variants,
-    }

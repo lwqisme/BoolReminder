@@ -52,6 +52,9 @@ class ConfigManager:
                 "app_secret": "",
                 "access_token": ""
             },
+            "polygon": {
+                "api_key": ""
+            },
             "email": {
                 "smtp_host": "",
                 "smtp_port": 587,
@@ -80,6 +83,13 @@ class ConfigManager:
                 "raw_keep_count": 400,
                 "drawdown_keep_days": 30,
             },
+            "account_signal": {
+                "enabled": False,
+                "timezone": "Asia/Shanghai",
+                "schedule_hours": ["22:00", "22:30", "23:00", "23:30"],
+                "sync_stale_minutes": 60,
+                "email_min_signals": 1,
+            },
             "position_strategy": strategy_lab_default_dict(),
             "schedule": {
                 "timezone": "Asia/Shanghai",
@@ -97,6 +107,10 @@ class ConfigManager:
             self.config.setdefault("longbridge", {})["app_secret"] = os.getenv("LONGBRIDGE_APP_SECRET")
         if os.getenv("LONGBRIDGE_ACCESS_TOKEN"):
             self.config.setdefault("longbridge", {})["access_token"] = os.getenv("LONGBRIDGE_ACCESS_TOKEN")
+
+        # Polygon配置
+        if os.getenv("POLYGON_API_KEY"):
+            self.config.setdefault("polygon", {})["api_key"] = os.getenv("POLYGON_API_KEY")
         
         # 邮件配置
         if os.getenv("SMTP_HOST"):
@@ -148,6 +162,13 @@ class ConfigManager:
             self.config.setdefault("trade_sync_cleanup", {})["drawdown_keep_days"] = int(
                 os.getenv("TRADE_SYNC_DRAWDOWN_KEEP_DAYS")
             )
+        if os.getenv("ACCOUNT_SIGNAL_ENABLED"):
+            self.config.setdefault("account_signal", {})["enabled"] = os.getenv("ACCOUNT_SIGNAL_ENABLED", "").lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
     
     def get(self, key_path: str, default: Any = None) -> Any:
         """
@@ -214,18 +235,10 @@ class ConfigManager:
         }
 
     def get_polygon_config(self) -> Dict[str, str]:
-        """获取Polygon.io配置"""
+        """获取Polygon配置"""
         polygon_config = self.get("polygon", {})
         return {
-            "api_key": polygon_config.get("api_key", "")
-        }
-
-    def get_option_provider_config(self) -> dict:
-        """获取期权数据提供方配置"""
-        polygon_config = self.get("polygon", {})
-        return {
-            "provider": polygon_config.get("option_provider", "polygon"),
-            "polygon_api_key": polygon_config.get("api_key", ""),
+            "api_key": polygon_config.get("api_key", "") or os.getenv("POLYGON_API_KEY", ""),
         }
 
     def get_email_config(self) -> Dict[str, Any]:

@@ -17,6 +17,11 @@ from drawdown.generate_drawdown_report import (
     fetch_longbridge_daily_candles,
     normalize_longbridge_symbol,
 )
+from drawdown.strategy_rules import (
+    cost_deleverage_cooldown_elapsed,
+    select_cost_deleverage_stage,
+    should_check_sell_after_buy,
+)
 
 
 DEFAULT_PORTFOLIO = [
@@ -122,21 +127,6 @@ ROBUST_CORE_DIP_TIMING_MAX_DELAY_DAYS = [1, 3, 5]
 ROBUST_CORE_DIP_TIMING_RISE_THRESHOLDS = [1.0, 1.5, 2.5]
 ROBUST_CORE_DIP_TIMING_NEAR_LOW_VALUES = [1.0, 2.0, 3.0]
 
-# Option parameter scan constants
-OPTION_PARAMETER_FIELDS = (
-    "wallet_pct", "trade_allocation_pct", "min_dte", "target_dte", "max_dte",
-    "moneyness", "profit_take_pct", "profit_take_sell_pct", "exit_dte",
-)
-
-ROBUST_OPTION_WALLET_PCTS = [10.0, 15.0, 20.0, 25.0, 30.0]
-ROBUST_OPTION_TRADE_ALLOCATIONS = [20.0, 30.0, 40.0, 50.0]
-ROBUST_OPTION_DTE_TARGETS = [250]
-ROBUST_OPTION_MONEYNESS = ["otm_10"]
-ROBUST_OPTION_PROFIT_TAKES = [100.0]
-ROBUST_OPTION_PROFIT_TAKE_SELLS = [50.0]
-ROBUST_OPTION_EXIT_DTES = [60]
-
-
 class StrategyLabComputationCancelled(RuntimeError):
     """Raised when a long-running Strategy Lab computation is cancelled."""
 
@@ -167,6 +157,7 @@ class StrategyInputs:
     cost_second_sell_pct: float = 30.0
     cost_third_sell_pct: float = 30.0
     cost_deleverage_cooldown_days: int = 0
+    sell_allow_same_day_sell: bool = False
     cost_min_sell_amount: float = 0.0
     core_dip_initial_core_pct: float = 80.0
     core_dip_weekly_core_pct: float = 90.0
@@ -435,6 +426,7 @@ def simulate_portfolio(
             "cost_second_sell_pct": inputs.cost_second_sell_pct,
             "cost_third_sell_pct": inputs.cost_third_sell_pct,
             "cost_deleverage_cooldown_days": inputs.cost_deleverage_cooldown_days,
+            "sell_allow_same_day_sell": inputs.sell_allow_same_day_sell,
             "cost_min_sell_amount": inputs.cost_min_sell_amount,
             "core_dip_initial_core_pct": inputs.core_dip_initial_core_pct,
             "core_dip_weekly_core_pct": inputs.core_dip_weekly_core_pct,
@@ -983,6 +975,7 @@ def _strategy_inputs_payload(inputs: StrategyInputs) -> dict[str, object]:
         "cost_second_sell_pct": inputs.cost_second_sell_pct,
         "cost_third_sell_pct": inputs.cost_third_sell_pct,
         "cost_deleverage_cooldown_days": inputs.cost_deleverage_cooldown_days,
+        "sell_allow_same_day_sell": inputs.sell_allow_same_day_sell,
         "cost_min_sell_amount": inputs.cost_min_sell_amount,
         "core_dip_initial_core_pct": inputs.core_dip_initial_core_pct,
         "core_dip_weekly_core_pct": inputs.core_dip_weekly_core_pct,
@@ -1006,6 +999,7 @@ def _robust_parameter_grid_payload(inputs: StrategyInputs) -> dict[str, object]:
         "grid_first_sell_pct": ROBUST_GRID_FIRST_SELLS,
         "grid_second_sell_pct": ROBUST_GRID_SECOND_SELLS,
         "grid_min_sell_amount": [inputs.grid_min_sell_amount],
+        "sell_allow_same_day_sell": [False, True],
         "cost_profit_sets": ROBUST_COST_PROFIT_SETS,
         "cost_sell_sets": ROBUST_COST_SELL_SETS,
         "cost_deleverage_cooldown_days": ROBUST_COST_COOLDOWNS,
@@ -1260,8 +1254,20 @@ def _robust_candidate_pool(
 def _non_repair_candidates(buy_strategies: Iterable[str]) -> list[dict[str, object]]:
     return [
         {
-            "key": _candidate_key(buy_strategy, sell_strategy, buy_params, dca_rearm_drawdown_pct=rearm),
-            "label": _candidate_label(buy_strategy, sell_strategy, buy_params, dca_rearm_drawdown_pct=rearm),
+            "key": _candidate_key(
+                buy_strategy,
+                sell_strategy,
+                buy_params,
+                dca_rearm_drawdown_pct=rearm,
+                sell_allow_same_day_sell=allow_same_day_sell,
+            ),
+            "label": _candidate_label(
+                buy_strategy,
+                sell_strategy,
+                buy_params,
+                dca_rearm_drawdown_pct=rearm,
+                sell_allow_same_day_sell=allow_same_day_sell,
+            ),
             "buy_strategy": buy_strategy,
             "sell_strategy": sell_strategy,
             **buy_params,
@@ -1279,12 +1285,14 @@ def _non_repair_candidates(buy_strategies: Iterable[str]) -> list[dict[str, obje
             "cost_second_sell_pct": None,
             "cost_third_sell_pct": None,
             "cost_deleverage_cooldown_days": None,
+            "sell_allow_same_day_sell": bool(allow_same_day_sell) if sell_strategy != "none" else None,
             "cost_min_sell_amount": None,
             "dca_rearm_drawdown_pct": rearm,
         }
         for buy_strategy in buy_strategies
         for buy_params in _buy_param_variants(buy_strategy)
         for sell_strategy in ROBUST_NON_REPAIR_SELL_STRATEGIES
+        for allow_same_day_sell in ((False, True) if sell_strategy != "none" else (None,))
         for rearm in _dca_rearm_variants(buy_strategy, sell_strategy)
     ]
 
@@ -1303,6 +1311,7 @@ def _repair_candidates(
                 cooldown,
                 stage,
                 dca_rearm_drawdown_pct=rearm,
+                sell_allow_same_day_sell=allow_same_day_sell,
             ),
             "label": _candidate_label(
                 buy_strategy,
@@ -1312,6 +1321,7 @@ def _repair_candidates(
                 cooldown,
                 stage,
                 dca_rearm_drawdown_pct=rearm,
+                sell_allow_same_day_sell=allow_same_day_sell,
             ),
             "buy_strategy": buy_strategy,
             "sell_strategy": "repair_step",
@@ -1330,6 +1340,7 @@ def _repair_candidates(
             "cost_second_sell_pct": None,
             "cost_third_sell_pct": None,
             "cost_deleverage_cooldown_days": None,
+            "sell_allow_same_day_sell": bool(allow_same_day_sell),
             "cost_min_sell_amount": None,
             "dca_rearm_drawdown_pct": rearm,
         }
@@ -1337,6 +1348,7 @@ def _repair_candidates(
         if buy_strategy in LOT_SELL_BUY_STRATEGIES
         for buy_params in _buy_param_variants(buy_strategy)
         for profit, cooldown, stage in params
+        for allow_same_day_sell in (False, True)
         for rearm in _dca_rearm_variants(buy_strategy, "repair_step")
     ]
 
@@ -1355,6 +1367,7 @@ def _dca_repair_candidates(
                 inputs.repair_sell_cooldown_days,
                 inputs.repair_stage_sell_pct,
                 dca_rearm_drawdown_pct=rearm,
+                sell_allow_same_day_sell=allow_same_day_sell,
             ),
             "label": _candidate_label(
                 buy_strategy,
@@ -1364,6 +1377,7 @@ def _dca_repair_candidates(
                 inputs.repair_sell_cooldown_days,
                 inputs.repair_stage_sell_pct,
                 dca_rearm_drawdown_pct=rearm,
+                sell_allow_same_day_sell=allow_same_day_sell,
             ),
             "buy_strategy": buy_strategy,
             "sell_strategy": "repair_step",
@@ -1382,12 +1396,14 @@ def _dca_repair_candidates(
             "cost_second_sell_pct": None,
             "cost_third_sell_pct": None,
             "cost_deleverage_cooldown_days": None,
+            "sell_allow_same_day_sell": bool(allow_same_day_sell),
             "cost_min_sell_amount": None,
             "dca_rearm_drawdown_pct": rearm,
         }
         for buy_strategy in buy_strategies
         if buy_strategy in REARM_BUY_STRATEGIES
         for buy_params in _buy_param_variants(buy_strategy)
+        for allow_same_day_sell in (False, True)
         for rearm in ROBUST_DCA_REARM_DRAWDOWN_VALUES
     ]
 
@@ -1407,6 +1423,7 @@ def _grid_rebound_candidates(
                 grid_second=second_sell,
                 grid_min=inputs.grid_min_sell_amount,
                 dca_rearm_drawdown_pct=rearm,
+                sell_allow_same_day_sell=allow_same_day_sell,
             ),
             "label": _candidate_label(
                 buy_strategy,
@@ -1417,6 +1434,7 @@ def _grid_rebound_candidates(
                 grid_second=second_sell,
                 grid_min=inputs.grid_min_sell_amount,
                 dca_rearm_drawdown_pct=rearm,
+                sell_allow_same_day_sell=allow_same_day_sell,
             ),
             "buy_strategy": buy_strategy,
             "sell_strategy": "grid_rebound",
@@ -1435,6 +1453,7 @@ def _grid_rebound_candidates(
             "cost_second_sell_pct": None,
             "cost_third_sell_pct": None,
             "cost_deleverage_cooldown_days": None,
+            "sell_allow_same_day_sell": bool(allow_same_day_sell),
             "cost_min_sell_amount": None,
             "dca_rearm_drawdown_pct": rearm,
         }
@@ -1443,6 +1462,7 @@ def _grid_rebound_candidates(
         for step in ROBUST_GRID_REBOUND_STEPS
         for first_sell in ROBUST_GRID_FIRST_SELLS
         for second_sell in ROBUST_GRID_SECOND_SELLS
+        for allow_same_day_sell in (False, True)
         for rearm in _dca_rearm_variants(buy_strategy, "grid_rebound")
     ]
 
@@ -1460,6 +1480,7 @@ def _cost_deleverage_candidates(
                 cost_profits=profit_set,
                 cost_sells=sell_set,
                 cost_cooldown=cooldown,
+                cost_allow_same_day_sell=allow_same_day_sell,
                 cost_min=inputs.cost_min_sell_amount,
                 dca_rearm_drawdown_pct=rearm,
             ),
@@ -1470,6 +1491,7 @@ def _cost_deleverage_candidates(
                 cost_profits=profit_set,
                 cost_sells=sell_set,
                 cost_cooldown=cooldown,
+                cost_allow_same_day_sell=allow_same_day_sell,
                 cost_min=inputs.cost_min_sell_amount,
                 dca_rearm_drawdown_pct=rearm,
             ),
@@ -1490,6 +1512,7 @@ def _cost_deleverage_candidates(
             "cost_second_sell_pct": float(sell_set[1]),
             "cost_third_sell_pct": float(sell_set[2]),
             "cost_deleverage_cooldown_days": int(cooldown),
+            "sell_allow_same_day_sell": bool(allow_same_day_sell),
             "cost_min_sell_amount": float(inputs.cost_min_sell_amount),
             "dca_rearm_drawdown_pct": rearm,
         }
@@ -1498,6 +1521,7 @@ def _cost_deleverage_candidates(
         for profit_set in ROBUST_COST_PROFIT_SETS
         for sell_set in ROBUST_COST_SELL_SETS
         for cooldown in ROBUST_COST_COOLDOWNS
+        for allow_same_day_sell in (False, True)
         for rearm in _dca_rearm_variants(buy_strategy, "cost_deleverage")
     ]
 
@@ -1593,7 +1617,9 @@ def _candidate_key(
     cost_profits: tuple[float, float, float] | None = None,
     cost_sells: tuple[float, float, float] | None = None,
     cost_cooldown: int | None = None,
+    cost_allow_same_day_sell: bool = False,
     cost_min: float | None = None,
+    sell_allow_same_day_sell: bool | None = None,
 ) -> str:
     parts = [buy_strategy]
     if buy_params.get("step_pct") is not None:
@@ -1633,6 +1659,9 @@ def _candidate_key(
             f"cc{int(cost_cooldown or 0):g}",
             f"cmin{float(cost_min or 0):g}",
         ])
+    same_day_sell = cost_allow_same_day_sell if sell_allow_same_day_sell is None else sell_allow_same_day_sell
+    if sell_strategy != "none" and same_day_sell:
+        parts.append("same1")
     if dca_rearm_drawdown_pct is not None:
         parts.append(f"rearm{float(dca_rearm_drawdown_pct):g}")
     return "__".join(parts)
@@ -1654,7 +1683,9 @@ def _candidate_label(
     cost_profits: tuple[float, float, float] | None = None,
     cost_sells: tuple[float, float, float] | None = None,
     cost_cooldown: int | None = None,
+    cost_allow_same_day_sell: bool = False,
     cost_min: float | None = None,
+    sell_allow_same_day_sell: bool | None = None,
 ) -> str:
     buy_label = STRATEGY_LABELS[buy_strategy]
     buy_bits = []
@@ -1698,6 +1729,9 @@ def _candidate_label(
         )
     else:
         sell_label = SELL_STRATEGY_LABELS[sell_strategy]
+    same_day_sell = cost_allow_same_day_sell if sell_allow_same_day_sell is None else sell_allow_same_day_sell
+    if sell_strategy != "none" and same_day_sell:
+        sell_label = f"{sell_label} / 买入日可卖"
     if dca_rearm_drawdown_pct is not None:
         sell_label = f"{sell_label} / 卖后重启 {float(dca_rearm_drawdown_pct):g}%回撤"
     return f"{buy_label} / {sell_label}"
@@ -1782,6 +1816,7 @@ def _score_robust_candidates(
                     sell_min_profit_pct=float(candidate["sell_min_profit_pct"]),
                     repair_sell_cooldown_days=int(candidate["repair_sell_cooldown_days"]),
                     repair_stage_sell_pct=float(candidate["repair_stage_sell_pct"]),
+                    sell_allow_same_day_sell=bool(candidate.get("sell_allow_same_day_sell")),
                 )
             if candidate.get("sell_strategy") == "grid_rebound":
                 candidate_inputs = replace(
@@ -1790,6 +1825,7 @@ def _score_robust_candidates(
                     grid_first_sell_pct=float(candidate.get("grid_first_sell_pct") or inputs.grid_first_sell_pct),
                     grid_second_sell_pct=float(candidate.get("grid_second_sell_pct") or inputs.grid_second_sell_pct),
                     grid_min_sell_amount=float(candidate.get("grid_min_sell_amount") or inputs.grid_min_sell_amount),
+                    sell_allow_same_day_sell=bool(candidate.get("sell_allow_same_day_sell")),
                 )
             if candidate.get("sell_strategy") == "cost_deleverage":
                 candidate_inputs = replace(
@@ -1804,6 +1840,9 @@ def _score_robust_candidates(
                         candidate.get("cost_deleverage_cooldown_days")
                         if candidate.get("cost_deleverage_cooldown_days") is not None
                         else inputs.cost_deleverage_cooldown_days
+                    ),
+                    sell_allow_same_day_sell=bool(
+                        candidate.get("sell_allow_same_day_sell")
                     ),
                     cost_min_sell_amount=float(candidate.get("cost_min_sell_amount") or inputs.cost_min_sell_amount),
                 )
@@ -2064,7 +2103,11 @@ def _simulate_strategy(
                     strategy,
                     sell_strategy,
                 )
-            if not bought_today:
+            if not bought_today or should_check_sell_after_buy(
+                sell_strategy=sell_strategy,
+                bought_today=bought_today,
+                inputs=inputs,
+            ):
                 _execute_sell_strategy(state, point, inputs, strategy, sell_strategy, trade_log, trade_index)
 
         total_value = sum(state.cash + state.last_value for state in states.values())
@@ -2591,8 +2634,6 @@ def _execute_core_dip_dca(
 ) -> bool:
     is_dca_day = point.date.date() in dca_days
     if not is_dca_day and state.core_dip_pending_cash <= 0:
-        return False
-    if inputs.monthly_contribution <= 0 and state.core_dip_pending_cash <= 0:
         return False
     monthly_amount = inputs.monthly_contribution * state.weight / 100.0
     scheduled_amount = monthly_amount / 4.0
@@ -3124,10 +3165,10 @@ def _execute_cost_deleverage_sells(
         return
     if state.sell_marks is None:
         state.sell_marks = set()
-    if (
-        inputs.cost_deleverage_cooldown_days > 0
-        and state.last_cost_deleverage_sell_trade_index is not None
-        and trade_index - state.last_cost_deleverage_sell_trade_index < inputs.cost_deleverage_cooldown_days
+    if not cost_deleverage_cooldown_elapsed(
+        last_sell_trade_index=state.last_cost_deleverage_sell_trade_index,
+        current_trade_index=trade_index,
+        cooldown_days=inputs.cost_deleverage_cooldown_days,
     ):
         return
     avg_cost = _avg_cost_usd(state)
@@ -3135,28 +3176,22 @@ def _execute_cost_deleverage_sells(
     if avg_cost <= 0:
         return
     profit_pct = current_price_usd / avg_cost * 100.0 - 100.0
-    stages = [
-        ("cost_1", inputs.cost_first_profit_pct, inputs.cost_first_sell_pct),
-        ("cost_2", inputs.cost_second_profit_pct, inputs.cost_second_sell_pct),
-        ("cost_3", inputs.cost_third_profit_pct, inputs.cost_third_sell_pct),
-    ]
-    for mark, threshold, sell_pct in stages:
-        if mark in state.sell_marks or profit_pct < max(threshold, inputs.sell_min_profit_pct):
-            continue
-        shares = state.shares * sell_pct / 100.0
-        if _sell_shares(
-            state,
-            point,
-            shares,
-            inputs,
-            trade_log,
-            "cost_deleverage",
-            threshold,
-            min_gross_amount=inputs.cost_min_sell_amount,
-        ):
-            state.sell_marks.add(mark)
-            state.last_cost_deleverage_sell_trade_index = trade_index
-            return
+    stage = select_cost_deleverage_stage(inputs=inputs, active_marks=state.sell_marks, profit_pct=profit_pct)
+    if stage is None:
+        return
+    shares = state.shares * stage.sell_pct / 100.0
+    if _sell_shares(
+        state,
+        point,
+        shares,
+        inputs,
+        trade_log,
+        "cost_deleverage",
+        stage.profit_pct,
+        min_gross_amount=inputs.cost_min_sell_amount,
+    ):
+        state.sell_marks.add(stage.mark)
+        state.last_cost_deleverage_sell_trade_index = trade_index
 
 
 def _sell_lot_shares(

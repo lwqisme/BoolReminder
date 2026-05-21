@@ -16,6 +16,7 @@ class StrategyLabConfigTest(unittest.TestCase):
         self.assertEqual(config.to_legacy_defaults()["default_cost_first_profit_pct"], 8.0)
         self.assertEqual(config.to_legacy_defaults()["default_cost_third_sell_pct"], 30.0)
         self.assertEqual(config.to_legacy_defaults()["default_cost_deleverage_cooldown_days"], 0)
+        self.assertFalse(config.to_legacy_defaults()["default_sell_allow_same_day_sell"])
         self.assertEqual(config.to_legacy_defaults()["default_cost_min_sell_amount"], 0.0)
         self.assertEqual(config.to_legacy_defaults()["default_core_dip_initial_core_pct"], 80.0)
         self.assertEqual(config.to_legacy_defaults()["default_core_dip_weekly_core_pct"], 90.0)
@@ -48,6 +49,7 @@ class StrategyLabConfigTest(unittest.TestCase):
                 "cost_second_sell_pct": 25,
                 "cost_third_sell_pct": 35,
                 "cost_deleverage_cooldown_days": 15,
+                "sell_allow_same_day_sell": True,
                 "cost_min_sell_amount": 250,
                 "core_dip_initial_core_pct": 90,
                 "core_dip_weekly_core_pct": 95,
@@ -81,6 +83,7 @@ class StrategyLabConfigTest(unittest.TestCase):
         self.assertEqual(inputs.cost_second_sell_pct, 25.0)
         self.assertEqual(inputs.cost_third_sell_pct, 35.0)
         self.assertEqual(inputs.cost_deleverage_cooldown_days, 15)
+        self.assertTrue(inputs.sell_allow_same_day_sell)
         self.assertEqual(inputs.cost_min_sell_amount, 250.0)
         self.assertEqual(inputs.core_dip_initial_core_pct, 90.0)
         self.assertEqual(inputs.core_dip_weekly_core_pct, 95.0)
@@ -138,23 +141,16 @@ class StrategyLabConfigTest(unittest.TestCase):
         self.assertEqual(config.buy_strategy, "all")
         self.assertEqual(config.scan_buy_strategy, "pyramid_3")
 
-    def test_invalid_strategy_config_is_rejected(self):
-        with self.assertRaises(ValueError):
-            StrategyLabConfig.from_defaults_payload(
-                {"default_option_moneyness": "deep_magic"},
-                strategy_lab_default_dict(),
-            )
-
-    def test_legacy_option_allocation_default_maps_to_wallet_pct(self):
+    def test_removed_option_defaults_are_not_emitted(self):
         config = StrategyLabConfig.from_saved_defaults(
             {
                 **strategy_lab_default_dict(),
-                "default_option_wallet_pct": "",
-                "default_option_allocation_pct": 35,
+                "default" + "_option_enabled": True,
+                "default" + "_option_wallet_pct": 35,
             }
         )
 
-        self.assertEqual(config.option_wallet_pct, 35.0)
+        self.assertFalse(any(key.startswith("default" + "_option_") for key in config.to_legacy_defaults()))
 
 
 if __name__ == "__main__":

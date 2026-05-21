@@ -108,6 +108,11 @@ function clamp(value, lo, hi) {
   return Math.min(hi, Math.max(lo, value));
 }
 
+function safeRatio(numerator, denominator) {
+  const den = Number(denominator || 0);
+  return den > 0 ? Number(numerator || 0) / den : 0;
+}
+
 function avg(values) {
   return values.length ? values.reduce((a, b) => a + Number(b || 0), 0) / values.length : 0;
 }
@@ -141,6 +146,7 @@ const SELL_PARAMETER_FIELDS = [
   'cost_second_sell_pct',
   'cost_third_sell_pct',
   'cost_deleverage_cooldown_days',
+  'sell_allow_same_day_sell',
   'cost_min_sell_amount',
   'dca_rearm_drawdown_pct'
 ];
@@ -353,6 +359,7 @@ function buildCandidateKey(buyStrategy, sellStrategy, buyParams, sellParams) {
     parts.push(`cc${formatCompact(Math.trunc(num(sellParams.cost_deleverage_cooldown_days)))}`);
     parts.push(`cmin${formatCompact(sellParams.cost_min_sell_amount)}`);
   }
+  if (sellStrategy !== 'none' && sellParams.sell_allow_same_day_sell) parts.push('same1');
   if (sellParams.dca_rearm_drawdown_pct !== null && sellParams.dca_rearm_drawdown_pct !== undefined) {
     parts.push(`rearm${formatCompact(sellParams.dca_rearm_drawdown_pct)}`);
   }
@@ -399,6 +406,7 @@ function buildSellLabel(strategyKey, params, labels = {}) {
   } else {
     label = labels[strategyKey] || strategyKey;
   }
+  if (strategyKey !== 'none' && params.sell_allow_same_day_sell) label = `${label} / 买入日可卖`;
   if (params.dca_rearm_drawdown_pct !== null && params.dca_rearm_drawdown_pct !== undefined) {
     label = `${label} / 卖后重启 ${formatCompact(params.dca_rearm_drawdown_pct)}%回撤`;
   }
@@ -499,6 +507,12 @@ function recordBuy(state, point, inputs, tradeLog, buyStrategy, sellStrategy, gr
   state.buy_trades += 1;
   state.max_shares = Math.max(state.max_shares, state.shares);
   state.last_value = state.shares * px;
+  const recent = Array.isArray(state.recent_points) ? state.recent_points : [];
+  const previousPoint = recent.length >= 2 ? recent[recent.length - 2] : null;
+  const previousClose = previousPoint ? num(previousPoint.close) : 0;
+  const dayChangePct = previousClose > 0 ? pct(num(point.close) / previousClose - 1) : 0;
+  const positionValue = state.last_value;
+  const stateValue = state.cash + positionValue;
   state.lots.push({
     threshold_pct: num(extra.threshold_pct),
     buy_drawdown_pct: drawdown,
@@ -522,6 +536,9 @@ function recordBuy(state, point, inputs, tradeLog, buyStrategy, sellStrategy, gr
     fee,
     net_amount: net,
     shares,
+    cash_pct_after: pct(safeRatio(state.cash, stateValue)),
+    position_value_after: positionValue,
+    day_change_pct: dayChangePct,
     sell_cycle_rearmed: rearmed,
     ...extra
   });
@@ -790,6 +807,7 @@ function candidateInputs(base, candidate) {
     cost_second_sell_pct: candidate.cost_second_sell_pct ?? base.cost_second_sell_pct,
     cost_third_sell_pct: candidate.cost_third_sell_pct ?? base.cost_third_sell_pct,
     cost_deleverage_cooldown_days: candidate.cost_deleverage_cooldown_days ?? base.cost_deleverage_cooldown_days,
+    sell_allow_same_day_sell: candidate.sell_allow_same_day_sell ?? base.sell_allow_same_day_sell,
     cost_min_sell_amount: candidate.cost_min_sell_amount ?? base.cost_min_sell_amount
   };
 }
@@ -834,6 +852,116 @@ function sellMetrics(tradeLog, portfolioValues, cashValues) {
     avg_cash_pct: avgCash,
     sell_quality_score: sellQuality
   };
+}
+
+function leapsSignalSettings(inputs) {
+  return {
+    low_cash_threshold_pct: clamp(num(inputs.leaps_low_cash_threshold_pct, 12), 0, 100),
+    min_drawdown_pct: Math.max(0, num(inputs.leaps_min_drawdown_pct, 12)),
+    premium_budget_cap: Math.max(0, num(inputs.leaps_premium_budget_cap, 1000)),
+    target_dte_label: String(inputs.leaps_target_dte_label || '18-24M')
+  };
+}
+
+function gradeLeapsSignal(score) {
+  if (score >= 78) return '高';
+  if (score >= 55) return '中';
+  if (score >= 32) return '低';
+  return '无';
+}
+
+function parseTradeDateMs(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ''));
+  if (!match) return NaN;
+  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function naturalDayDiff(startDate, endDate) {
+  const start = parseTradeDateMs(startDate);
+  const end = parseTradeDateMs(endDate);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+  return Math.round((end - start) / 86400000);
+}
+
+function findNextStockSell(tradeLog, buyTrade) {
+  const buyDate = parseTradeDateMs(buyTrade?.date);
+  if (!Number.isFinite(buyDate)) return null;
+  let next = null;
+  let nextDate = Infinity;
+  for (const trade of Array.isArray(tradeLog) ? tradeLog : []) {
+    if (!trade || trade.action !== 'sell' || trade.symbol !== buyTrade.symbol) continue;
+    const sellDate = parseTradeDateMs(trade.date);
+    if (!Number.isFinite(sellDate) || sellDate <= buyDate || sellDate >= nextDate) continue;
+    next = trade;
+    nextDate = sellDate;
+  }
+  return next;
+}
+
+function scoreLeapsBuySignal(trade, settings, nextStockSell = null) {
+  if (!trade || trade.action !== 'buy') return null;
+  const drawdown = Math.max(0, num(trade.drawdown_pct));
+  const cashPct = clamp(num(trade.cash_pct_after, 100), 0, 100);
+  const dayChange = num(trade.day_change_pct);
+  const gross = Math.max(0, num(trade.gross_amount));
+  const pendingCore = Math.max(0, num(trade.pending_core_amount));
+  const drawdownScore = clamp(safeRatio(drawdown, Math.max(settings.min_drawdown_pct, 1)) * 34, 0, 34);
+  const cashScore = clamp(safeRatio(settings.low_cash_threshold_pct - cashPct, Math.max(settings.low_cash_threshold_pct, 1)) * 30, 0, 30);
+  const buyScore = gross > 0 ? 20 : 0;
+  const pendingScore = pendingCore > 0 ? 8 : 0;
+  const notChasingScore = dayChange <= 1.8 ? 8 : dayChange <= 3.5 ? 3 : -12;
+  const score = clamp(drawdownScore + cashScore + buyScore + pendingScore + notChasingScore, 0, 100);
+  const grade = gradeLeapsSignal(score);
+  const reasons = [];
+  if (cashPct <= settings.low_cash_threshold_pct) reasons.push('低现金');
+  if (drawdown >= settings.min_drawdown_pct) reasons.push('回撤达标');
+  if (gross > 0) reasons.push('股票策略买入');
+  if (pendingCore > 0) reasons.push('仍有待买现金');
+  if (dayChange > 3.5) reasons.push('追高日降级');
+  return {
+    date: trade.date,
+    symbol: trade.symbol,
+    grade,
+    score,
+    drawdown_pct: drawdown,
+    cash_pct_after: cashPct,
+    buy_amount: gross,
+    stock_buy_price: num(trade.price),
+    day_change_pct: dayChange,
+    premium_budget_cap: Math.min(settings.premium_budget_cap, Math.max(0, gross * 0.35)),
+    target_dte_label: settings.target_dte_label,
+    next_stock_sell_date: nextStockSell?.date || '',
+    stock_sell_price: nextStockSell ? num(nextStockSell.price) : null,
+    stock_holding_days: nextStockSell ? naturalDayDiff(trade.date, nextStockSell.date) : null,
+    reasons
+  };
+}
+
+function summarizeLeapsSignals(tradeLog, inputs, includeDetails = false) {
+  const settings = leapsSignalSettings(inputs);
+  const signals = (Array.isArray(tradeLog) ? tradeLog : [])
+    .filter((trade) => trade.action === 'buy')
+    .map((trade) => scoreLeapsBuySignal(trade, settings, findNextStockSell(tradeLog, trade)))
+    .filter((signal) => signal && signal.grade !== '无')
+    .sort((a, b) => {
+      const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
+      if (Math.abs(scoreDiff) > 1e-9) return scoreDiff;
+      return String(a.date || '').localeCompare(String(b.date || ''));
+    });
+  const best = signals[0] || null;
+  const summary = {
+    grade: best ? best.grade : '无',
+    score: best ? best.score : 0,
+    best_date: best ? best.date : '',
+    trigger_count: signals.length,
+    low_cash_threshold_pct: settings.low_cash_threshold_pct,
+    min_drawdown_pct: settings.min_drawdown_pct,
+    premium_budget_cap: settings.premium_budget_cap,
+    target_dte_label: settings.target_dte_label,
+    top_signals: signals.slice(0, 5)
+  };
+  if (includeDetails) summary.all_signals = signals;
+  return summary;
 }
 
 function simulate(task, baseInputs, candidate) {
@@ -915,7 +1043,9 @@ function simulate(task, baseInputs, candidate) {
         const tranches = buildTranches({ ...inputs, max_drawdown_pct: targetMaxDrawdown(task.targets, symbol, inputs) }, strategy);
         bought = executeTranches(state, point, tranches, executed[symbol], inputs, tradeLog, strategy, sellStrategy);
       }
-      if (!bought) executeSells(state, point, inputs, strategy, sellStrategy, tradeLog, tradeIndex);
+      if (!bought || (bought && sellStrategy !== 'none' && Boolean(inputs.sell_allow_same_day_sell))) {
+        executeSells(state, point, inputs, strategy, sellStrategy, tradeLog, tradeIndex);
+      }
     }
     portfolioValues.push(Object.values(states).reduce((sum, state) => sum + state.cash + state.last_value, 0));
     cashValues.push(Object.values(states).reduce((sum, state) => sum + state.cash, 0));
@@ -928,6 +1058,7 @@ function simulate(task, baseInputs, candidate) {
     max_drawdown_pct: maxDrawdown(portfolioValues),
     trade_count: Object.values(states).reduce((sum, state) => sum + state.trades, 0),
     contribution_count: contributionCount,
+    leaps_signal: summarizeLeapsSignals(tradeLog, inputs, Boolean(workerState?.include_leaps_signal_details)),
     trade_log: tradeLog,
     ...metrics
   };
@@ -946,6 +1077,7 @@ async function initRun(packet, workerIndex, runId, declaredTotal) {
     taskContexts,
     diagnostics,
     include_trades: Boolean(packet.include_trades),
+    include_leaps_signal_details: Boolean(packet.include_leaps_signal_details),
     started,
     completed_simulations: 0,
     total_simulations: Math.max(1, Number(declaredTotal || 0)),

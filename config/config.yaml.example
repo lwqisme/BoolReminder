@@ -4,9 +4,9 @@ longbridge:
   app_secret: ""  # 从LongBridge开放平台获取
   access_token: ""  # 从LongBridge开放平台获取，可通过Web UI更新
 
-# Polygon.io API配置（用于期权数据）
+# Polygon.io API配置（用于 Parameter Lab LEAPS 期权收益回放）
 polygon:
-  api_key: ""  # 从 https://polygon.io 获取，用于查询期权价格
+  api_key: ""  # 也可通过 POLYGON_API_KEY 环境变量配置
 
 # 邮件通知配置
 email:
@@ -40,6 +40,19 @@ trade_sync_cleanup:
   raw_keep_count: 400
   drawdown_keep_days: 30
 
+# 真实账户 GOOGL/TSLA 提醒。只发送提醒，不执行交易。
+account_signal:
+  enabled: false
+  timezone: "Asia/Shanghai"
+  schedule_hours:
+    - "22:00"
+    - "22:30"
+    - "23:00"
+    - "23:30"
+  sync_stale_minutes: 60
+  email_min_signals: 1
+  sell_allow_same_day_sell: false
+
 # 回撤仓位策略实验室默认值
 position_strategy:
   default_initial_cash: 20000
@@ -65,6 +78,7 @@ position_strategy:
   default_cost_second_sell_pct: 30
   default_cost_third_sell_pct: 30
   default_cost_deleverage_cooldown_days: 0
+  default_sell_allow_same_day_sell: false
   default_cost_min_sell_amount: 0
   default_core_dip_initial_core_pct: 80
   default_core_dip_weekly_core_pct: 90
@@ -84,16 +98,4 @@ position_strategy:
   default_scan_sell_min_profit_values: "5,10,15,20,25"
   default_scan_repair_cooldown_values: "0,15,30,45,60"
   default_scan_repair_stage_sell_values: "8,12,16,20,25"
-  default_option_enabled: false
-  default_option_wallet_pct: 20
-  default_option_trade_allocation_pct: 30
-  default_option_target_dte: 250
-  default_option_min_dte: 200
-  default_option_max_dte: 300
-  default_option_moneyness: "otm_10"
-  default_option_profit_take_pct: 100
-  default_option_profit_take_sell_pct: 50
-  default_option_exit_dte: 60
-  default_option_trade_fee: 0.35
-  default_option_max_trades_per_strategy: 20
   default_portfolio: []
