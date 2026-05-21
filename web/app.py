@@ -8630,6 +8630,11 @@ def strategy_parameter_lab_page():
 def _strategy_lab_page_context() -> dict[str, object]:
     strategy_config = _get_position_strategy_config()
     lab_config = StrategyLabConfig.from_saved_defaults(strategy_config)
+    worker_path = Path(__file__).parent / "static" / "strategy_parameter_lab_worker.js"
+    try:
+        parameter_lab_worker_version = hashlib.sha256(worker_path.read_bytes()).hexdigest()[:12]
+    except OSError:
+        parameter_lab_worker_version = str(int(time.time()))
     end_date = datetime.now().date()
     start_date = end_date - timedelta(days=365 * 3)
     scorecard_portfolios = _strategy_lab_scorecard_portfolios(lab_config)
@@ -8664,6 +8669,7 @@ def _strategy_lab_page_context() -> dict[str, object]:
         "default_start": start_date.isoformat(),
         "default_end": end_date.isoformat(),
         "strategy_registry": strategy_registry_payload(),
+        "parameter_lab_worker_url": f"/static/strategy_parameter_lab_worker.js?v={parameter_lab_worker_version}",
     }
 
 
