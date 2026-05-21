@@ -73,7 +73,6 @@ Planned UI:
 
 - Show cache freshness per symbol.
 - Show stage progress instead of one long loading message.
-- Make Polygon option overlay a separate optional job branch so it cannot block stock strategy scoring.
 
 Current implementation:
 
@@ -87,7 +86,6 @@ Remaining work:
 - Persist job records if we need results to survive container restarts.
 - Add explicit market-data cache freshness per symbol.
 - Add force-refresh/offline-only run modes.
-- Split Polygon option overlay into its own optional job branch.
 - Add daily cache prewarm for default scorecard and current portfolio.
 
 ## Phase 4: Experiment History and Presets

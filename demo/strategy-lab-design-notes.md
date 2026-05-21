@@ -132,7 +132,7 @@ Fix:
 
 ### Pitfall 5: Green Toggle Was Too Loud
 
-The option overlay toggle used a saturated green active state.
+Some secondary toggles used a saturated green active state.
 
 Problem:
 
@@ -278,7 +278,7 @@ When applying the demo style to the real page:
 - Preserve `onclick` handlers for run, score, details, sorting, and range presets.
 - Update Plotly colors to match the new palette.
 - Replace old blue/coral palette with the new variables.
-- Remove hard dividers from setup/option/reference cards.
+- Remove hard dividers from setup/reference cards.
 - Keep table lines faint.
 - Avoid bottom inset shadows.
 - Avoid background grid.
@@ -286,4 +286,3 @@ When applying the demo style to the real page:
 - Verify Plotly JS still loads.
 - Verify run button still calls `/api/strategy-lab/run`.
 - Verify score button still calls `/api/strategy-lab/score`.
-
