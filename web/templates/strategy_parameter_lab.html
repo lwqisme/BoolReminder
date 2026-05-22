@@ -1550,8 +1550,7 @@
         let workerCountTouched = false;
         const PARAMETER_LAB_LARGE_RUN_GUARDRAIL = 50000;
         const LEAPS_DETAIL_PAGE_SIZE = 25;
-        const LEAPS_OPTION_OUTCOME_QUEUE_CONCURRENCY = 1;
-        const LEAPS_OPTION_OUTCOME_MIN_INTERVAL_MS = 1500;
+        const LEAPS_OPTION_BATCH_SIZE = 25;
         const LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000];
         const LEAPS_OPTION_STOPPED_REASON = '已停止，未计算';
         const TOP_GROUP_LEAPS_OPTION_ROW_LIMIT = 3;
@@ -1559,9 +1558,6 @@
         const cellDetailCache = new Map();
         const leapsDetailCache = new Map();
         const leapsOptionOutcomeCache = new Map();
-        const leapsOptionOutcomeRequestQueue = [];
-        let leapsOptionOutcomeRequestActiveCount = 0;
-        let leapsOptionOutcomeLastRequestFinishedAt = 0;
         let topGroupLeapsOptionRun = null;
         let activeDetailRowKey = '';
         let activeDetailTopicKey = '';
@@ -1865,11 +1861,13 @@
             ].join('__');
         }
         function buildLeapsOptionQueue(signals) {
-            return normalizeLeapsOptionSignals(signals).map((signal, index) => ({
-                key: `${leapsOptionQueueKey(signal)}__${signal.signal_key || index}`,
-                signal,
-                signals: [signal]
-            }));
+            const queueByKey = new Map();
+            normalizeLeapsOptionSignals(signals).forEach((signal) => {
+                const key = leapsOptionQueueKey(signal);
+                if (!queueByKey.has(key)) queueByKey.set(key, { key, signal, signals: [] });
+                queueByKey.get(key).signals.push(signal);
+            });
+            return Array.from(queueByKey.values());
         }
         function skippedLeapsOptionOutcome(signal, reason) {
             return {
@@ -1906,6 +1904,37 @@
         function isLeapsOptionRequestCancelled(options) {
             return typeof options?.isCancelled === 'function' && options.isCancelled();
         }
+        function chunkLeapsOptionQueue(queue, size = LEAPS_OPTION_BATCH_SIZE) {
+            const chunkSize = Math.max(1, Number(size || 1));
+            const chunks = [];
+            for (let index = 0; index < (queue || []).length; index += chunkSize) {
+                chunks.push(queue.slice(index, index + chunkSize));
+            }
+            return chunks;
+        }
+        function mergeLeapsOptionCacheStats(current, next) {
+            const merged = current || {};
+            const incoming = next || {};
+            ['polygon_requests', 'polygon_wait_ms', 'polygon_retries', 'polygon_429s'].forEach((key) => {
+                merged[key] = Number(merged[key] || 0) + Number(incoming[key] || 0);
+            });
+            ['outcome', 'contract', 'bars'].forEach((section) => {
+                merged[section] = merged[section] || {};
+                Object.entries(incoming[section] || {}).forEach(([key, value]) => {
+                    merged[section][key] = Number(merged[section][key] || 0) + Number(value || 0);
+                });
+            });
+            return merged;
+        }
+        function formatLeapsOptionCacheStats(stats) {
+            if (!stats) return '';
+            const outcome = stats.outcome || {};
+            const bars = stats.bars || {};
+            const contract = stats.contract || {};
+            const hits = Number(outcome.memory_hit || 0) + Number(outcome.disk_hit || 0);
+            const misses = Number(outcome.miss || 0);
+            return `缓存命中 ${number(hits, 0)} / miss ${number(misses, 0)}；合约 ${number((contract.memory_hit || 0) + (contract.disk_hit || 0), 0)}；K线 ${number((bars.memory_hit || 0) + (bars.disk_hit || 0), 0)}；Polygon ${number(stats.polygon_requests || 0, 0)}`;
+        }
         function leapsOptionRequestFailureText(response, result, outcome, error) {
             if (error) return error.message || String(error);
             if (outcome?.skipped_reason) return outcome.skipped_reason;
@@ -1919,54 +1948,20 @@
             const reason = leapsOptionRequestFailureText(response, result, outcome, error);
             return /API\s*限流\/超时|429|rate\s*limit|too many requests|timeout|timed out/i.test(reason);
         }
-        async function runLeapsOptionOutcomeQueueItem(queueItem) {
-            try {
-                if (isLeapsOptionRequestCancelled(queueItem.options)) throw new Error(LEAPS_OPTION_STOPPED_REASON);
-                const waitMs = Math.max(0, leapsOptionOutcomeLastRequestFinishedAt + LEAPS_OPTION_OUTCOME_MIN_INTERVAL_MS - Date.now());
-                if (waitMs > 0) {
-                    notifyLeapsOptionRequestStatus(queueItem.options, { phase: 'waiting', waitMs });
-                    await waitForLeapsOptionOutcomeDelay(waitMs);
-                }
-                if (isLeapsOptionRequestCancelled(queueItem.options)) throw new Error(LEAPS_OPTION_STOPPED_REASON);
-                const result = await queueItem.task();
-                queueItem.resolve(result);
-            } catch (error) {
-                queueItem.reject(error);
-            } finally {
-                leapsOptionOutcomeLastRequestFinishedAt = Date.now();
-            }
-        }
-        function drainLeapsOptionOutcomeRequestQueue() {
-            while (
-                leapsOptionOutcomeRequestActiveCount < LEAPS_OPTION_OUTCOME_QUEUE_CONCURRENCY
-                && leapsOptionOutcomeRequestQueue.length
-            ) {
-                const queueItem = leapsOptionOutcomeRequestQueue.shift();
-                leapsOptionOutcomeRequestActiveCount += 1;
-                runLeapsOptionOutcomeQueueItem(queueItem).finally(() => {
-                    leapsOptionOutcomeRequestActiveCount -= 1;
-                    drainLeapsOptionOutcomeRequestQueue();
-                });
-            }
-        }
-        function enqueueLeapsOptionOutcomeRequest(task, options = {}) {
-            return new Promise((resolve, reject) => {
-                leapsOptionOutcomeRequestQueue.push({ task, options, resolve, reject });
-                drainLeapsOptionOutcomeRequestQueue();
-            });
-        }
-        async function fetchLeapsOptionOutcomeWithRetry(payload, signal, options = {}) {
+        async function fetchLeapsOptionBatchWithRetry(payload, queueItems, options = {}) {
             let lastReason = '';
             const maxAttempts = LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS.length + 1;
             for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-                if (isLeapsOptionRequestCancelled(options)) return skippedLeapsOptionOutcome(signal, LEAPS_OPTION_STOPPED_REASON);
+                if (isLeapsOptionRequestCancelled(options)) {
+                    return { outcomes: queueItems.map((item) => skippedLeapsOptionOutcome(item.signal, LEAPS_OPTION_STOPPED_REASON)), cache_stats: {} };
+                }
                 notifyLeapsOptionRequestStatus(options, { phase: 'requesting', attempt, maxAttempts });
                 let response = null;
                 let result = {};
                 let representativeOutcome = null;
                 let requestError = null;
                 try {
-                    response = await fetch('/api/strategy-lab/parameter-lab/leaps-option-outcomes', {
+                    response = await fetch('/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
@@ -1993,16 +1988,20 @@
                     await waitForLeapsOptionOutcomeDelay(delayMs);
                     continue;
                 }
-                if (representativeOutcome) return representativeOutcome;
-                if (requestError) return skippedLeapsOptionOutcome(signal, lastReason);
-                if (response && !response.ok) return skippedLeapsOptionOutcome(signal, lastReason);
-                return skippedLeapsOptionOutcome(signal, lastReason);
+                if (Array.isArray(result.outcomes)) return { outcomes: result.outcomes, cache_stats: result.cache_stats || {} };
+                const fallbackOutcomes = queueItems.map((item) => skippedLeapsOptionOutcome(item.signal, lastReason));
+                if (requestError || (response && !response.ok)) return { outcomes: fallbackOutcomes, cache_stats: result.cache_stats || {} };
+                return { outcomes: fallbackOutcomes, cache_stats: result.cache_stats || {} };
             }
-            return skippedLeapsOptionOutcome(signal, lastReason || '期权收益计算失败');
+            return { outcomes: queueItems.map((item) => skippedLeapsOptionOutcome(item.signal, lastReason || '期权收益计算失败')), cache_stats: {} };
         }
-        function requestLeapsOptionOutcome(payload, signal, options = {}) {
-            return enqueueLeapsOptionOutcomeRequest(() => fetchLeapsOptionOutcomeWithRetry(payload, signal, options), options)
-                .catch((error) => skippedLeapsOptionOutcome(signal, error.message || String(error)));
+        async function requestLeapsOptionOutcomeBatch(payload, queueItems, options = {}) {
+            try {
+                return await fetchLeapsOptionBatchWithRetry(payload, queueItems, options);
+            } catch (error) {
+                const reason = error.message || String(error);
+                return { outcomes: queueItems.map((item) => skippedLeapsOptionOutcome(item.signal, reason)), cache_stats: {} };
+            }
         }
         function formatElapsedTime(ms) {
             const seconds = Math.max(0, Math.floor(Number(ms || 0) / 1000));
@@ -2085,15 +2084,16 @@
                 const requestTotal = Number(run.requestTotal || 0);
                 const uniqueTotal = Number(run.uniqueSignalTotal || 0);
                 const rowText = `行 ${number(run.detailRowsProcessed || 0, 0)} / ${number(run.totalRows || 0, 0)}`;
-                const signalText = `已计算 ${number(run.requestCompleted || 0, 0)} / ${number(requestTotal, 0)}；去重 ${number(uniqueTotal, 0)} 个`;
+                const signalText = `批次 ${number(run.batchCompleted || 0, 0)} / ${number(run.batchTotal || 0, 0)}；信号 ${number(run.requestCompleted || 0, 0)} / ${number(requestTotal, 0)}；去重 ${number(uniqueTotal, 0)} 个`;
                 const active = run.status === 'stopping' ? '停止请求已记录' : (run.currentLabel || '准备中');
+                const cacheText = formatLeapsOptionCacheStats(run.cacheStats);
                 el.innerHTML = `
                     <div class="left">
                         <button type="button" onclick="stopTopGroupLeapsOptionOutcomes()" ${run.status === 'stopping' ? 'disabled' : ''}>停止</button>
                         <span class="status-text">${escapeHtml(rowText)} · ${escapeHtml(signalText)} · 成功 ${number(run.successCount || 0, 0)} / 跳过 ${number(run.skippedCount || 0, 0)} · ${escapeHtml(formatElapsedTime(elapsed))}</span>
                     </div>
                     <div class="right">
-                        <span class="status-text">${escapeHtml(active)}${run.budgetTruncated ? ' · 预算截断' : ''}${run.lastFailure ? ` · 最近失败：${escapeHtml(run.lastFailure)}` : ''}</span>
+                        <span class="status-text">${escapeHtml(active)}${cacheText ? ` · ${escapeHtml(cacheText)}` : ''}${run.budgetTruncated ? ' · 预算截断' : ''}${run.lastFailure ? ` · 最近失败：${escapeHtml(run.lastFailure)}` : ''}</span>
                     </div>
                 `;
                 return;
@@ -4519,7 +4519,8 @@
             const percent = total ? Math.min(100, Math.max(0, (completed / total) * 100)) : 0;
             const elapsed = entry.startedAt ? Date.now() - entry.startedAt : Number(entry.elapsedMs || 0);
             const current = entry.currentSignalLabel ? `当前 ${escapeHtml(entry.currentSignalLabel)}` : '当前 --';
-            const stopped = entry.status === 'stopping' ? '停止请求已记录，当前单条请求完成后停止。' : current;
+            const stopped = entry.status === 'stopping' ? '停止请求已记录，当前批次返回后停止。' : current;
+            const cacheText = formatLeapsOptionCacheStats(entry.cacheStats);
             return `
                 <div class="leaps-option-progress">
                     ${floating ? `
@@ -4532,14 +4533,14 @@
                         <span>已完成 <strong>${number(completed, 0)} / ${number(total, 0)}</strong></span>
                         <span>成功 <strong>${number(entry.successCount || 0, 0)}</strong> / 跳过 <strong>${number(entry.skippedCount || 0, 0)}</strong></span>
                         <span>耗时 <strong>${escapeHtml(formatElapsedTime(elapsed))}</strong></span>
-                        <span>并发 <strong>${number(entry.concurrency || 1, 0)}</strong></span>
+                        <span>批次 <strong>${number(entry.batchCompleted || 0, 0)} / ${number(entry.batchTotal || 0, 0)}</strong></span>
                     </div>
                     <div class="leaps-option-progress-track" aria-hidden="true">
                         <div class="leaps-option-progress-bar" style="--progress:${percent}%;"></div>
                     </div>
                     <div class="leaps-option-progress-row">
                         <span>${entry.scopeLabel ? `范围 ${escapeHtml(entry.scopeLabel)} · ` : ''}${stopped}</span>
-                        <span>浏览器逐条发起请求；Polygon 定价在服务端完成。</span>
+                        <span>${escapeHtml(cacheText || '浏览器批量发起请求；Polygon 定价在服务端完成。')}</span>
                         ${entry.lastFailure ? `<span class="leaps-option-progress-error">最近失败：${escapeHtml(entry.lastFailure)}</span>` : ''}
                     </div>
                 </div>
@@ -4557,7 +4558,7 @@
             if (outcomeEntry?.status === 'loading' || outcomeEntry?.status === 'stopping') {
                 return `
                     <div class="leaps-option-actions">
-                        <span class="leaps-detail-status">正在逐条计算 200-300D 月期权收益，进度在浮窗显示。</span>
+                        <span class="leaps-detail-status">正在批量计算 200-300D 月期权收益，进度在浮窗显示。</span>
                         <button type="button" onclick="stopLeapsOptionOutcomesForActiveRow()" ${outcomeEntry.status === 'stopping' ? 'disabled' : ''}>停止计算</button>
                         ${highGradeButton(true)}
                     </div>
@@ -4602,7 +4603,7 @@
                 <div class="leaps-option-actions">
                     <button type="button" onclick="calculateLeapsOptionOutcomesForActiveRow()">计算 200-300D 月期权收益</button>
                     ${highGradeButton()}
-                    <span class="leaps-detail-status">也可以在下方每个日期/标的行单独计算。浏览器发起队列，服务端用 Polygon key 定价。</span>
+                    <span class="leaps-detail-status">也可以在下方每个日期/标的行单独计算。浏览器按批次请求，服务端用 Polygon key 定价。</span>
                     ${highGradeHint}
                 </div>
             `;
@@ -4868,6 +4869,7 @@
                 throw new Error('没有可计算的 LEAPS 信号。');
             }
             const queue = buildLeapsOptionQueue(selectedSignals);
+            const batches = chunkLeapsOptionQueue(queue);
             detailEntry.all_signals = allSignals;
             detailEntry.groups = groupLeapsSignalsByDateSymbol(allSignals);
             const controller = { cancelled: false };
@@ -4878,7 +4880,10 @@
                 controller,
                 startedAt: Date.now(),
                 elapsedMs: 0,
-                total: queue.length,
+                total: selectedSignals.length,
+                uniqueTotal: queue.length,
+                batchTotal: batches.length,
+                batchCompleted: 0,
                 completed: 0,
                 successCount: 0,
                 skippedCount: 0,
@@ -4889,8 +4894,8 @@
                 scopeSignalKey: options.scopeSignalKey || '',
                 scopeLabel: options.scopeLabel || '',
                 scopeAllSignals: selectedSignals.length === allSignals.length,
-                concurrency: Math.min(LEAPS_OPTION_OUTCOME_QUEUE_CONCURRENCY, queue.length),
                 requestStatus: null,
+                cacheStats: {},
                 outcomes: previousOutcomes.slice(),
                 summary: aggregateLeapsOptionOutcomes(previousOutcomes)
             };
@@ -4899,39 +4904,54 @@
             ensureLeapsOptionProgressTimer();
             renderDetailLeapsIntoDrawer(row, true);
 
-            const processQueueItem = async (queueItem) => {
-                const activeLabel = `${queueItem.signal.symbol || '--'} ${queueItem.signal.date || ''}`.trim();
-                outcomeEntry.activeSignalLabels.push(activeLabel);
-                outcomeEntry.currentSignalLabel = outcomeEntry.activeSignalLabels.join(' / ');
+            const appendMappedOutcome = (queueItem, representativeOutcome) => {
+                const mappedOutcomes = queueItem.signals.map((signal) => cloneLeapsOptionOutcomeForSignal(representativeOutcome, signal));
+                outcomeEntry.outcomes.push(...mappedOutcomes);
+                outcomeEntry.completed += mappedOutcomes.length;
+                mappedOutcomes.forEach((outcome) => {
+                    if (outcome.status === 'success') {
+                        outcomeEntry.successCount += 1;
+                    } else {
+                        outcomeEntry.skippedCount += 1;
+                        outcomeEntry.lastFailure = outcome.skipped_reason || '跳过';
+                    }
+                });
+            };
+            const processBatch = async (batch, batchIndex) => {
+                batch.forEach((queueItem) => {
+                    queueItem.started = true;
+                });
+                const activeLabel = `批次 ${number(batchIndex + 1, 0)}/${number(batches.length, 0)}，信号 ${number(outcomeEntry.completed, 0)}/${number(selectedSignals.length, 0)}`;
+                outcomeEntry.activeSignalLabels = [activeLabel];
+                outcomeEntry.currentSignalLabel = activeLabel;
                 renderDetailLeapsIntoDrawer(row, true);
-                const representativeOutcome = await requestLeapsOptionOutcome({
+                const batchResult = await requestLeapsOptionOutcomeBatch({
                     run_id: (lastParameterPacket || {}).run_id || '',
                     row_key: row.key,
-                    signals: [queueItem.signal]
-                }, queueItem.signal, {
+                    signals: batch.map((queueItem) => queueItem.signal)
+                }, batch, {
                     isCancelled: () => controller.cancelled,
                     onStatus: (status) => {
                         outcomeEntry.requestStatus = status;
                         const statusText = formatLeapsOptionRequestStatus(status);
                         outcomeEntry.currentSignalLabel = statusText
-                            ? `${outcomeEntry.activeSignalLabels.join(' / ')} · ${statusText}`
-                            : outcomeEntry.activeSignalLabels.join(' / ');
+                            ? `${activeLabel} · ${statusText}`
+                            : activeLabel;
                         if (status?.reason) outcomeEntry.lastFailure = status.reason;
                         renderDetailLeapsIntoDrawer(row, true);
                     }
                 });
-                outcomeEntry.activeSignalLabels = outcomeEntry.activeSignalLabels.filter((label) => label !== activeLabel);
-                outcomeEntry.currentSignalLabel = outcomeEntry.activeSignalLabels.join(' / ');
+                outcomeEntry.cacheStats = mergeLeapsOptionCacheStats(outcomeEntry.cacheStats, batchResult.cache_stats);
+                outcomeEntry.activeSignalLabels = [];
+                outcomeEntry.currentSignalLabel = '';
                 outcomeEntry.requestStatus = null;
-                const mappedOutcomes = queueItem.signals.map((signal) => cloneLeapsOptionOutcomeForSignal(representativeOutcome, signal));
-                outcomeEntry.outcomes.push(...mappedOutcomes);
-                outcomeEntry.completed += 1;
-                if (representativeOutcome.status === 'success') {
-                    outcomeEntry.successCount += 1;
-                } else {
-                    outcomeEntry.skippedCount += 1;
-                    outcomeEntry.lastFailure = representativeOutcome.skipped_reason || '跳过';
-                }
+                (batchResult.outcomes || []).forEach((representativeOutcome, index) => {
+                    const queueItem = batch[index];
+                    if (!queueItem) return;
+                    queueItem.done = true;
+                    appendMappedOutcome(queueItem, representativeOutcome);
+                });
+                outcomeEntry.batchCompleted += 1;
                 outcomeEntry.elapsedMs = Date.now() - outcomeEntry.startedAt;
                 updateLeapsOptionEntrySummary(outcomeEntry);
                 row.leaps_option_outcomes = outcomeEntry.outcomes;
@@ -4939,9 +4959,15 @@
                 renderDetailLeapsIntoDrawer(row, true);
                 renderParameterMatrixPreservingScroll();
             };
-            for (const queueItem of queue) {
+            for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
                 if (controller.cancelled) break;
-                await processQueueItem(queueItem);
+                await processBatch(batches[batchIndex], batchIndex);
+            }
+            if (controller.cancelled) {
+                queue.forEach((queueItem) => {
+                    if (queueItem.started || queueItem.done) return;
+                    appendMappedOutcome(queueItem, skippedLeapsOptionOutcome(queueItem.signal, LEAPS_OPTION_STOPPED_REASON));
+                });
             }
 
             outcomeEntry.elapsedMs = Date.now() - outcomeEntry.startedAt;
@@ -5000,12 +5026,12 @@
             run.skippedCount += 1;
             run.lastFailure = reason;
         }
-        async function fetchLeapsOptionOutcomeForQueueItem(queueItem, run) {
-            return requestLeapsOptionOutcome({
+        async function fetchLeapsOptionOutcomeBatchForQueueItems(queueItems, run) {
+            return requestLeapsOptionOutcomeBatch({
                 run_id: (lastParameterPacket || {}).run_id || '',
-                row_key: queueItem.sources[0]?.row?.key || '',
-                signals: [queueItem.signal]
-            }, queueItem.signal, {
+                row_key: queueItems[0]?.sources?.[0]?.row?.key || '',
+                signals: queueItems.map((queueItem) => queueItem.signal)
+            }, queueItems, {
                 isCancelled: () => Boolean(run?.controller?.cancelled),
                 onStatus: (status) => {
                     if (!run) return;
@@ -5018,25 +5044,33 @@
                 }
             });
         }
-        async function processTopGroupLeapsOptionQueueItem(queueItem, run) {
-            queueItem.started = true;
-            const activeLabel = `${queueItem.signal.symbol || '--'} ${queueItem.signal.date || ''}`.trim();
-            run.activeLabels.push(activeLabel);
-            run.currentLabel = run.activeLabels.join(' / ');
+        async function processTopGroupLeapsOptionBatch(batch, run, batchIndex, batchTotal) {
+            batch.forEach((queueItem) => {
+                queueItem.started = true;
+            });
+            const activeLabel = `批次 ${number(batchIndex + 1, 0)}/${number(batchTotal, 0)}，信号 ${number(run.requestCompleted || 0, 0)}/${number(run.requestTotal || 0, 0)}`;
+            run.activeLabels = [activeLabel];
+            run.currentLabel = activeLabel;
             renderTopGroupLeapsOptionControls();
-            const representativeOutcome = await fetchLeapsOptionOutcomeForQueueItem(queueItem, run);
-            queueItem.done = true;
-            run.activeLabels = run.activeLabels.filter((label) => label !== activeLabel);
-            run.currentLabel = run.activeLabels.join(' / ');
+            const batchResult = await fetchLeapsOptionOutcomeBatchForQueueItems(batch, run);
+            run.cacheStats = mergeLeapsOptionCacheStats(run.cacheStats, batchResult.cache_stats);
+            run.activeLabels = [];
+            run.currentLabel = '';
             run.requestStatus = null;
-            queueItem.sources.forEach((source) => appendTopGroupLeapsOptionOutcome(source.row, source.signal, representativeOutcome, run));
-            run.requestCompleted += 1;
-            if (representativeOutcome.status === 'success') {
-                run.successCount += 1;
-            } else {
-                run.skippedCount += 1;
-                run.lastFailure = representativeOutcome.skipped_reason || '跳过';
-            }
+            (batchResult.outcomes || []).forEach((representativeOutcome, index) => {
+                const queueItem = batch[index];
+                if (!queueItem) return;
+                queueItem.done = true;
+                queueItem.sources.forEach((source) => appendTopGroupLeapsOptionOutcome(source.row, source.signal, representativeOutcome, run));
+                run.requestCompleted += 1;
+                if (representativeOutcome.status === 'success') {
+                    run.successCount += 1;
+                } else {
+                    run.skippedCount += 1;
+                    run.lastFailure = representativeOutcome.skipped_reason || '跳过';
+                }
+            });
+            run.batchCompleted = Number(run.batchCompleted || 0) + 1;
             run.elapsedMs = Date.now() - run.startedAt;
             renderTopGroupLeapsOptionControls();
             renderParameterMatrixPreservingScroll();
@@ -5079,11 +5113,14 @@
                 uniqueSignalTotal: 0,
                 requestTotal: 0,
                 requestCompleted: 0,
+                batchTotal: 0,
+                batchCompleted: 0,
                 successCount: 0,
                 skippedCount: 0,
                 activeLabels: [],
                 currentLabel: '准备完整 LEAPS 明细',
                 requestStatus: null,
+                cacheStats: {},
                 lastFailure: '',
                 budgetTruncated: false
             };
@@ -5113,12 +5150,14 @@
                 const { requestQueue, overflowQueue, budgetTruncated } = splitTopGroupLeapsOptionQueueByBudget(uniqueQueue);
                 run.budgetTruncated = budgetTruncated;
                 run.requestTotal = requestQueue.length;
+                const batches = chunkLeapsOptionQueue(requestQueue);
+                run.batchTotal = batches.length;
                 overflowQueue.forEach((queueItem) => appendTopGroupSkippedOutcomes(queueItem, '预算截断，未计算', run));
                 renderTopGroupLeapsOptionControls();
                 if (!controller.cancelled && requestQueue.length) {
-                    for (const queueItem of requestQueue) {
+                    for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
                         if (controller.cancelled) break;
-                        await processTopGroupLeapsOptionQueueItem(queueItem, run);
+                        await processTopGroupLeapsOptionBatch(batches[batchIndex], run, batchIndex, batches.length);
                     }
                 }
                 if (controller.cancelled) {

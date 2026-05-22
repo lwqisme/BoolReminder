@@ -1,5 +1,10 @@
+import json
+import tempfile
+import threading
+import time
 import unittest
-from datetime import date
+from datetime import date, datetime, timezone
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import requests
@@ -8,6 +13,7 @@ from drawdown.leaps_option_outcomes import (
     NO_EXIT_PRICE,
     NO_POLYGON_KEY,
     NO_STOCK_SELL,
+    OutcomeCache,
     OptionBar,
     OptionContract,
     PolygonMonthlyOptionProvider,
@@ -15,6 +21,7 @@ from drawdown.leaps_option_outcomes import (
     _polygon_retry_get,
     is_standard_monthly_expiration,
     replay_leaps_option_outcomes,
+    replay_leaps_option_outcomes_batch,
     summarize_outcomes,
 )
 from web.app import app
@@ -38,6 +45,16 @@ class FakeProvider:
         return [bar for bar in self.bars if start <= bar.date <= end]
 
 
+class CountingProvider(FakeProvider):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.select_count = 0
+
+    def select_monthly_call(self, underlying, as_of, stock_price):
+        self.select_count += 1
+        return super().select_monthly_call(underlying, as_of, stock_price)
+
+
 class FakeResponse:
     def __init__(self, payload=None, status_code=200):
         self.payload = payload or {}
@@ -49,6 +66,10 @@ class FakeResponse:
 
     def json(self):
         return self.payload
+
+
+def utc_ms(year, month, day):
+    return int(datetime(year, month, day, tzinfo=timezone.utc).timestamp() * 1000)
 
 
 class LeapsOptionOutcomesTest(unittest.TestCase):
@@ -261,8 +282,86 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         self.assertEqual(len(payload["outcomes"]), 1)
         self.assertEqual(payload["summary"]["success_count"], 1)
 
-    def test_provider_reuses_contract_and_bar_cache(self):
-        provider = PolygonMonthlyOptionProvider("test-key")
+    def test_batch_endpoint_returns_ordered_cloned_outcomes(self):
+        signals = [
+            {
+                "signal_key": "sig-1",
+                "date": "2024-12-08",
+                "symbol": "TSLA.US",
+                "stock_buy_price": 100,
+                "next_stock_sell_date": "2024-12-20",
+            },
+            {
+                "signal_key": "sig-2",
+                "date": "2024-12-08",
+                "symbol": "TSLA.US",
+                "stock_buy_price": 100,
+                "next_stock_sell_date": "2024-12-20",
+            },
+        ]
+        with patch("web.app._get_polygon_api_key", return_value="test-key"):
+            with patch("web.app._get_leaps_option_provider", return_value=CountingProvider()):
+                with patch("web.app._leaps_option_outcome_cache", OutcomeCache(cache_enabled=False)):
+                    with app.test_client() as client:
+                        response = client.post(
+                            "/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch",
+                            json={"run_id": "run-1", "row_key": "row-1", "signals": signals},
+                        )
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["success"])
+        self.assertEqual([item["signal_key"] for item in payload["outcomes"]], ["sig-1", "sig-2"])
+        self.assertEqual(payload["summary"]["success_count"], 2)
+        self.assertIn("cache_stats", payload)
+
+    def test_batch_replay_dedupes_duplicate_signals(self):
+        provider = CountingProvider()
+        signals = [
+            {
+                "signal_key": "sig-1",
+                "date": "2024-12-08",
+                "symbol": "TSLA.US",
+                "stock_buy_price": 100,
+                "next_stock_sell_date": "2024-12-20",
+            },
+            {
+                "signal_key": "sig-2",
+                "date": "2024-12-08",
+                "symbol": "TSLA.US",
+                "stock_buy_price": 100,
+                "next_stock_sell_date": "2024-12-20",
+            },
+        ]
+
+        result = replay_leaps_option_outcomes_batch(signals, api_key="", provider=provider, outcome_cache=OutcomeCache(cache_enabled=False))
+
+        self.assertTrue(result["success"])
+        self.assertEqual(provider.select_count, 1)
+        self.assertEqual([item["signal_key"] for item in result["outcomes"]], ["sig-1", "sig-2"])
+
+    def test_outcome_cache_hit_skips_provider(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = OutcomeCache(cache_dir=Path(tmpdir))
+            signal = {
+                "signal_key": "sig-1",
+                "date": "2024-12-08",
+                "symbol": "TSLA.US",
+                "stock_buy_price": 100,
+                "next_stock_sell_date": "2024-12-20",
+            }
+            first_provider = CountingProvider()
+            first = replay_leaps_option_outcomes_batch([signal], api_key="", provider=first_provider, outcome_cache=cache)
+            second_provider = CountingProvider()
+            second = replay_leaps_option_outcomes_batch([{**signal, "signal_key": "sig-2"}], api_key="", provider=second_provider, outcome_cache=cache)
+
+        self.assertEqual(first_provider.select_count, 1)
+        self.assertEqual(second_provider.select_count, 0)
+        self.assertEqual(second["outcomes"][0]["signal_key"], "sig-2")
+        self.assertEqual(first["outcomes"][0]["roi_pct"], second["outcomes"][0]["roi_pct"])
+
+    def test_provider_reuses_contract_and_bar_memory_cache(self):
+        provider = PolygonMonthlyOptionProvider("test-key", cache_enabled=False)
 
         def fake_polygon_get(url, params, timeout):
             if "/v3/reference/options/contracts" in url:
@@ -285,6 +384,229 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
             provider.fetch_bars("O:TSLA250815C110000000", date(2024, 12, 8), date(2024, 12, 20))
 
         self.assertEqual(fetch.call_count, 2)
+
+    def test_provider_reuses_persistent_contract_and_bar_cache_across_instances(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            provider = PolygonMonthlyOptionProvider("test-key", cache_dir=Path(tmpdir))
+
+            def fake_polygon_get(url, params, timeout):
+                if "/v3/reference/options/contracts" in url:
+                    return {
+                        "results": [
+                            {
+                                "ticker": "O:TSLA250815C110000000",
+                                "expiration_date": "2025-08-15",
+                                "strike_price": 110,
+                                "contract_type": "call",
+                            }
+                        ]
+                    }
+                return {"results": [{"t": utc_ms(2024, 12, 9), "c": 10.0}]}
+
+            with patch("drawdown.leaps_option_outcomes._polygon_retry_get", side_effect=fake_polygon_get) as fetch:
+                contracts = provider.fetch_contracts("TSLA", date(2024, 12, 8), date(2025, 6, 26), date(2025, 10, 4))
+                bars = provider.fetch_bars("O:TSLA250815C110000000", date(2024, 12, 8), date(2024, 12, 20))
+
+            self.assertEqual(fetch.call_count, 2)
+            self.assertEqual(contracts[0]["ticker"], "O:TSLA250815C110000000")
+            self.assertEqual(bars[0].close, 10.0)
+
+            new_provider = PolygonMonthlyOptionProvider("test-key", cache_dir=Path(tmpdir))
+            with patch("drawdown.leaps_option_outcomes._polygon_retry_get") as fetch:
+                cached_contracts = new_provider.fetch_contracts("TSLA", date(2024, 12, 8), date(2025, 6, 26), date(2025, 10, 4))
+                cached_bars = new_provider.fetch_bars("O:TSLA250815C110000000", date(2024, 12, 8), date(2024, 12, 20))
+
+            fetch.assert_not_called()
+            self.assertEqual(cached_contracts[0]["ticker"], "O:TSLA250815C110000000")
+            self.assertEqual(cached_bars[0], OptionBar(date(2024, 12, 9), 10.0))
+
+    def test_provider_refetches_and_merges_bars_when_disk_cache_range_is_partial(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            provider = PolygonMonthlyOptionProvider("test-key", cache_dir=Path(tmpdir))
+            ticker = "O:TSLA250815C110000000"
+
+            with patch(
+                "drawdown.leaps_option_outcomes._polygon_retry_get",
+                return_value={"results": [{"t": utc_ms(2024, 12, 9), "c": 10.0}]},
+            ) as fetch:
+                provider.fetch_bars(ticker, date(2024, 12, 8), date(2024, 12, 20))
+            self.assertEqual(fetch.call_count, 1)
+
+            new_provider = PolygonMonthlyOptionProvider("test-key", cache_dir=Path(tmpdir))
+            with patch(
+                "drawdown.leaps_option_outcomes._polygon_retry_get",
+                return_value={"results": [{"t": utc_ms(2024, 12, 25), "c": 12.0}]},
+            ) as fetch:
+                expanded = new_provider.fetch_bars(ticker, date(2024, 12, 1), date(2024, 12, 31))
+
+            self.assertEqual(fetch.call_count, 2)
+            self.assertEqual(expanded, [OptionBar(date(2024, 12, 9), 10.0), OptionBar(date(2024, 12, 25), 12.0)])
+
+            third_provider = PolygonMonthlyOptionProvider("test-key", cache_dir=Path(tmpdir))
+            with patch("drawdown.leaps_option_outcomes._polygon_retry_get") as fetch:
+                cached = third_provider.fetch_bars(ticker, date(2024, 12, 1), date(2024, 12, 31))
+
+            fetch.assert_not_called()
+            self.assertEqual(cached, expanded)
+
+    def test_provider_persists_empty_bar_range_coverage(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            provider = PolygonMonthlyOptionProvider("test-key", cache_dir=Path(tmpdir))
+            ticker = "O:TSLA250815C110000000"
+
+            with patch("drawdown.leaps_option_outcomes._polygon_retry_get", return_value={"results": []}) as fetch:
+                bars = provider.fetch_bars(ticker, date(2024, 12, 8), date(2024, 12, 20))
+
+            self.assertEqual(fetch.call_count, 1)
+            self.assertEqual(bars, [])
+
+            new_provider = PolygonMonthlyOptionProvider("test-key", cache_dir=Path(tmpdir))
+            with patch("drawdown.leaps_option_outcomes._polygon_retry_get") as fetch:
+                cached = new_provider.fetch_bars(ticker, date(2024, 12, 8), date(2024, 12, 20))
+
+            fetch.assert_not_called()
+            self.assertEqual(cached, [])
+
+    def test_provider_contract_cache_lock_prevents_concurrent_duplicate_fetches(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            provider = PolygonMonthlyOptionProvider("test-key", cache_dir=Path(tmpdir))
+
+            def fake_polygon_get(url, params, timeout):
+                time.sleep(0.02)
+                return {"results": [{"ticker": "O:TSLA250815C110000000"}]}
+
+            results = []
+            with patch("drawdown.leaps_option_outcomes._polygon_retry_get", side_effect=fake_polygon_get) as fetch:
+                threads = [
+                    threading.Thread(
+                        target=lambda: results.append(
+                            provider.fetch_contracts("TSLA", date(2024, 12, 8), date(2025, 6, 26), date(2025, 10, 4))
+                        )
+                    )
+                    for _ in range(2)
+                ]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join()
+
+            self.assertEqual(fetch.call_count, 1)
+            self.assertEqual(len(results), 2)
+            self.assertEqual(results[0], results[1])
+
+    def test_provider_reuses_historical_cache_even_when_cache_date_is_old(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            provider = PolygonMonthlyOptionProvider("test-key", cache_dir=Path(tmpdir))
+            ticker = "O:TSLA250815C110000000"
+            path = provider._bars_cache_path(ticker)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "cache_date": "2020-01-01",
+                        "ticker": ticker,
+                        "covered_ranges": [{"start": "2024-12-08", "end": "2024-12-20"}],
+                        "bars": [{"date": "2024-12-09", "close": 10.0}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("drawdown.leaps_option_outcomes._utc_today", return_value=date(2026, 5, 22)):
+                with patch("drawdown.leaps_option_outcomes._polygon_retry_get") as fetch:
+                    bars = provider.fetch_bars(ticker, date(2024, 12, 8), date(2024, 12, 20))
+
+            fetch.assert_not_called()
+            self.assertEqual(bars, [OptionBar(date(2024, 12, 9), 10.0)])
+
+    def test_provider_refetches_today_bars_when_cache_date_is_old(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            provider = PolygonMonthlyOptionProvider("test-key", cache_dir=Path(tmpdir))
+            ticker = "O:TSLA260522C110000000"
+            path = provider._bars_cache_path(ticker)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "cache_date": "2026-05-21",
+                        "ticker": ticker,
+                        "covered_ranges": [{"start": "2026-05-20", "end": "2026-05-22"}],
+                        "bars": [{"date": "2026-05-20", "close": 8.0}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("drawdown.leaps_option_outcomes._utc_today", return_value=date(2026, 5, 22)):
+                with patch(
+                    "drawdown.leaps_option_outcomes._polygon_retry_get",
+                    return_value={"results": [{"t": utc_ms(2026, 5, 22), "c": 9.0}]},
+                ) as fetch:
+                    bars = provider.fetch_bars(ticker, date(2026, 5, 20), date(2026, 5, 22))
+
+            self.assertEqual(fetch.call_count, 1)
+            self.assertIn("/2026-05-22/2026-05-22", fetch.call_args.args[0])
+            self.assertEqual(bars, [OptionBar(date(2026, 5, 20), 8.0), OptionBar(date(2026, 5, 22), 9.0)])
+
+    def test_provider_refetches_today_contracts_when_cache_date_is_old(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            provider = PolygonMonthlyOptionProvider("test-key", cache_dir=Path(tmpdir))
+            path = provider._contracts_cache_path("TSLA", date(2026, 5, 22), date(2026, 12, 8), date(2027, 3, 18))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "cache_date": "2026-05-21",
+                        "query": {
+                            "underlying": "TSLA",
+                            "as_of": "2026-05-22",
+                            "expiration_start": "2026-12-08",
+                            "expiration_end": "2027-03-18",
+                        },
+                        "contracts": [{"ticker": "OLD"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch("drawdown.leaps_option_outcomes._utc_today", return_value=date(2026, 5, 22)):
+                with patch(
+                    "drawdown.leaps_option_outcomes._polygon_retry_get",
+                    return_value={"results": [{"ticker": "NEW"}]},
+                ) as fetch:
+                    contracts = provider.fetch_contracts("TSLA", date(2026, 5, 22), date(2026, 12, 8), date(2027, 3, 18))
+
+            self.assertEqual(fetch.call_count, 1)
+            self.assertEqual(contracts, [{"ticker": "NEW"}])
+
+    def test_provider_ignores_corrupt_contract_cache_and_rewrites(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            provider = PolygonMonthlyOptionProvider("test-key", cache_dir=Path(tmpdir))
+            path = provider._contracts_cache_path("TSLA", date(2024, 12, 8), date(2025, 6, 26), date(2025, 10, 4))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("{bad json", encoding="utf-8")
+
+            with patch(
+                "drawdown.leaps_option_outcomes._polygon_retry_get",
+                return_value={
+                    "results": [
+                        {
+                            "ticker": "O:TSLA250815C110000000",
+                            "expiration_date": "2025-08-15",
+                            "strike_price": 110,
+                            "contract_type": "call",
+                        }
+                    ]
+                },
+            ) as fetch:
+                contracts = provider.fetch_contracts("TSLA", date(2024, 12, 8), date(2025, 6, 26), date(2025, 10, 4))
+
+            self.assertEqual(fetch.call_count, 1)
+            self.assertEqual(contracts[0]["ticker"], "O:TSLA250815C110000000")
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["schema_version"], 1)
 
     def test_polygon_retry_get_waits_before_second_request(self):
         limiter = PolygonRequestRateLimiter(interval_seconds=1.0)

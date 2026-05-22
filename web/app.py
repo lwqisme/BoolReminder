@@ -61,7 +61,7 @@ from drawdown.strategy_lab_history import (
     save_experiment_preset,
     save_run_snapshot,
 )
-from drawdown.leaps_option_outcomes import PolygonMonthlyOptionProvider, replay_leaps_option_outcomes
+from drawdown.leaps_option_outcomes import OutcomeCache, PolygonMonthlyOptionProvider, replay_leaps_option_outcomes, replay_leaps_option_outcomes_batch
 from trade_sync.cleanup import run_trade_sync_cleanup
 from trade_sync.normalize import canonical_symbol, normalize_trade_rows
 from trade_sync.store import (
@@ -84,6 +84,7 @@ app = Flask(__name__)
 _leaps_option_provider_lock = threading.Lock()
 _leaps_option_provider: PolygonMonthlyOptionProvider | None = None
 _leaps_option_provider_api_key = ""
+_leaps_option_outcome_cache = OutcomeCache()
 config_manager: Optional[ConfigManager] = None
 latest_result: Optional[WatchlistBollFilterResult] = None
 scheduler_instance = None  # 全局调度器实例，用于动态更新
@@ -9580,7 +9581,7 @@ def api_strategy_lab_parameter_lab_leaps_option_outcomes():
     )
     api_key = _get_polygon_api_key()
     provider = _get_leaps_option_provider(api_key)
-    result = replay_leaps_option_outcomes(signals, api_key, provider=provider)
+    result = replay_leaps_option_outcomes(signals, api_key, provider=provider, outcome_cache=_leaps_option_outcome_cache)
     status_code = 200 if result.get("success") else 400
     response = _json_response_with_optional_gzip({**result, "run_id": run_id, "row_key": row_key}, status_code=status_code)
     summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
@@ -9603,6 +9604,47 @@ def api_strategy_lab_parameter_lab_leaps_option_outcomes():
         skipped_count=summary.get("skipped_count"),
         top_failure_reason=summary.get("top_failure_reason"),
         failure_reason=failure_reason,
+    )
+    return response
+
+
+@app.route('/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch', methods=['POST'])
+def api_strategy_lab_parameter_lab_leaps_option_outcomes_batch():
+    payload = request.get_json(silent=True) or {}
+    raw_signals = payload.get("signals")
+    signals = [item for item in raw_signals if isinstance(item, dict)] if isinstance(raw_signals, list) else []
+    run_id = str(payload.get("run_id") or "").strip()
+    row_key = str(payload.get("row_key") or "").strip()
+    started = time.perf_counter()
+    if not isinstance(raw_signals, list):
+        return _json_error("signals 必须是数组", 400)
+    if not (1 <= len(signals) <= 100):
+        return _json_error("signals 必须包含 1-100 条 signal。", 400)
+    _parameter_lab_log(
+        "leaps_option_outcome_batch_start",
+        run_id=run_id,
+        row_key=row_key,
+        signal_count=len(signals),
+    )
+    api_key = _get_polygon_api_key()
+    provider = _get_leaps_option_provider(api_key)
+    result = replay_leaps_option_outcomes_batch(signals, api_key, provider=provider, outcome_cache=_leaps_option_outcome_cache)
+    status_code = 200 if result.get("success") else 400
+    response = _json_response_with_optional_gzip({**result, "run_id": run_id, "row_key": row_key}, status_code=status_code)
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    cache_stats = result.get("cache_stats") if isinstance(result.get("cache_stats"), dict) else {}
+    _parameter_lab_log(
+        "leaps_option_outcome_batch_done",
+        run_id=run_id,
+        row_key=row_key,
+        signal_count=len(signals),
+        elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+        success=result.get("success"),
+        success_count=summary.get("success_count"),
+        skipped_count=summary.get("skipped_count"),
+        top_failure_reason=summary.get("top_failure_reason"),
+        polygon_requests=cache_stats.get("polygon_requests"),
+        cache_stats=cache_stats,
     )
     return response
 

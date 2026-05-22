@@ -667,14 +667,13 @@ process.stdout.write(JSON.stringify({
         self.assertIn("期权卖出日", html)
         self.assertIn("highGradeLeapsOptionSignals(detailEntry?.all_signals || [])", html)
         self.assertIn("row.leaps_option_summary = entry.summary", html)
-        self.assertNotIn("/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch", html)
+        self.assertIn("/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch", html)
         self.assertIn("function buildLeapsOptionQueue(signals)", html)
-        self.assertIn("return normalizeLeapsOptionSignals(signals).map", html)
-        self.assertIn("signals: [queueItem.signal]", html)
-        self.assertIn("LEAPS_OPTION_OUTCOME_QUEUE_CONCURRENCY = 1", html)
-        self.assertIn("LEAPS_OPTION_OUTCOME_MIN_INTERVAL_MS = 1500", html)
+        self.assertIn("const queueByKey = new Map();", html)
+        self.assertIn("signals: batch.map((queueItem) => queueItem.signal)", html)
+        self.assertIn("LEAPS_OPTION_BATCH_SIZE = 25", html)
         self.assertIn("LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000]", html)
-        self.assertIn("function requestLeapsOptionOutcome(payload, signal, options = {})", html)
+        self.assertIn("function requestLeapsOptionOutcomeBatch(payload, queueItems, options = {})", html)
         self.assertNotIn("LEAPS_OPTION_QUEUE_CONCURRENCY = 2", html)
         self.assertNotIn("Promise.all(Array.from({ length: outcomeEntry.concurrency }, () => runQueueWorker()))", html)
         self.assertIn("stopLeapsOptionOutcomesForActiveRow", html)
@@ -682,7 +681,7 @@ process.stdout.write(JSON.stringify({
         self.assertIn("'partial_done'", html)
         self.assertIn("leapsOptionVisibleOutcomes(outcomeEntry)", html)
         self.assertIn("renderLeapsOptionProgress", html)
-        self.assertIn("浏览器逐条发起请求；Polygon 定价在服务端完成", html)
+        self.assertIn("浏览器批量发起请求；Polygon 定价在服务端完成", html)
         self.assertIn("计算本行", html)
         self.assertIn("计算该信号", html)
         self.assertIn("row.leaps_option_summary = outcomeEntry.summary", html)
@@ -1258,7 +1257,7 @@ process.stdout.write(JSON.stringify({
         self.assertEqual(result["overflowCount"], 1)
         self.assertTrue(result["budgetTruncated"])
 
-    def test_leaps_option_request_helper_runs_serially_with_min_interval(self):
+    def test_leaps_option_request_helper_uses_batch_endpoint(self):
         if shutil.which("node") is None:
             self.skipTest("node is required for JavaScript LEAPS request helper check")
 
@@ -1268,13 +1267,9 @@ process.stdout.write(JSON.stringify({
         ]
         helpers = "\n".join(
             [
-                "const LEAPS_OPTION_OUTCOME_QUEUE_CONCURRENCY = 1;",
-                "const LEAPS_OPTION_OUTCOME_MIN_INTERVAL_MS = 1500;",
+                "const LEAPS_OPTION_BATCH_SIZE = 25;",
                 "const LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000];",
                 "const LEAPS_OPTION_STOPPED_REASON = '已停止，未计算';",
-                "const leapsOptionOutcomeRequestQueue = [];",
-                "let leapsOptionOutcomeRequestActiveCount = 0;",
-                "let leapsOptionOutcomeLastRequestFinishedAt = 0;",
                 helper_body,
             ]
         )
@@ -1282,18 +1277,21 @@ process.stdout.write(JSON.stringify({
 const vm = require('vm');
 const helpers = process.argv[1];
 let now = 100000;
-const fetchStarts = [];
+const urls = [];
 const delays = [];
 const context = {
   Date: { now: () => now },
   Math, Number, String, Array, Map, Set, Promise, Error, RegExp,
   setTimeout: (callback, ms) => { delays.push(ms); now += ms; callback(); return 1; },
   fetch: async (url) => {
-    fetchStarts.push(now);
+    urls.push(url);
     return {
       ok: true,
       status: 200,
-      json: async () => ({ outcomes: [{ status: 'success', symbol: url, roi_pct: fetchStarts.length }] })
+      json: async () => ({ outcomes: [
+        { status: 'success', symbol: 'AAPL.US', roi_pct: 1 },
+        { status: 'success', symbol: 'MSFT.US', roi_pct: 2 }
+      ], cache_stats: { polygon_requests: 0, outcome: { memory_hit: 2 } } })
     };
   }
 };
@@ -1302,11 +1300,11 @@ vm.runInContext(helpers, context);
 (async () => {
   const signalA = { signal_key: 'sig-a', date: '2024-01-10', symbol: 'AAPL.US' };
   const signalB = { signal_key: 'sig-b', date: '2024-01-11', symbol: 'MSFT.US' };
-  const results = await Promise.all([
-    context.requestLeapsOptionOutcome({ signals: [signalA] }, signalA),
-    context.requestLeapsOptionOutcome({ signals: [signalB] }, signalB)
-  ]);
-  process.stdout.write(JSON.stringify({ fetchStarts, delays, statuses: results.map((item) => item.status) }));
+  const result = await context.requestLeapsOptionOutcomeBatch(
+    { signals: [signalA, signalB] },
+    [{ signal: signalA }, { signal: signalB }]
+  );
+  process.stdout.write(JSON.stringify({ urls, delays, statuses: result.outcomes.map((item) => item.status), cacheStats: result.cache_stats }));
 })().catch((error) => {
   console.error(error);
   process.exit(1);
@@ -1316,8 +1314,8 @@ vm.runInContext(helpers, context);
         result = json.loads(completed.stdout)
 
         self.assertEqual(result["statuses"], ["success", "success"])
-        self.assertEqual(result["fetchStarts"], [100000, 101500])
-        self.assertIn(1500, result["delays"])
+        self.assertEqual(result["urls"], ["/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch"])
+        self.assertEqual(result["cacheStats"]["outcome"]["memory_hit"], 2)
 
     def test_top_group_leaps_option_request_retries_and_clones_dedupe_sources(self):
         if shutil.which("node") is None:
@@ -1332,13 +1330,9 @@ vm.runInContext(helpers, context);
         ]
         prefix = "\n".join(
             [
-                "const LEAPS_OPTION_OUTCOME_QUEUE_CONCURRENCY = 1;",
-                "const LEAPS_OPTION_OUTCOME_MIN_INTERVAL_MS = 1500;",
+                "const LEAPS_OPTION_BATCH_SIZE = 25;",
                 "const LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000];",
                 "const LEAPS_OPTION_STOPPED_REASON = '已停止，未计算';",
-                "const leapsOptionOutcomeRequestQueue = [];",
-                "let leapsOptionOutcomeRequestActiveCount = 0;",
-                "let leapsOptionOutcomeLastRequestFinishedAt = 0;",
                 "const leapsOptionOutcomeCache = new Map();",
                 "let activeDetailRowKey = '';",
                 "let lastParameterPacket = { run_id: 'run-1' };",
@@ -1397,8 +1391,8 @@ context.renderTopGroupLeapsOptionControls = () => {};
       { row: rowB, signal: { ...baseSignal, signal_key: 'row-b-sig' } }
     ]
   };
-  const run = { controller: { cancelled: false }, activeLabels: [], startedAt: now, requestCompleted: 0, successCount: 0, skippedCount: 0, lastFailure: '' };
-  await context.processTopGroupLeapsOptionQueueItem(queueItem, run);
+  const run = { controller: { cancelled: false }, activeLabels: [], startedAt: now, requestCompleted: 0, batchCompleted: 0, batchTotal: 1, successCount: 0, skippedCount: 0, lastFailure: '', cacheStats: {} };
+  await context.processTopGroupLeapsOptionBatch([queueItem], run, 0, 1);
   process.stdout.write(JSON.stringify({
     fetchCount,
     delays,
@@ -1442,13 +1436,9 @@ context.renderTopGroupLeapsOptionControls = () => {};
         ]
         prefix = "\n".join(
             [
-                "const LEAPS_OPTION_OUTCOME_QUEUE_CONCURRENCY = 1;",
-                "const LEAPS_OPTION_OUTCOME_MIN_INTERVAL_MS = 1500;",
+                "const LEAPS_OPTION_BATCH_SIZE = 25;",
                 "const LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000];",
                 "const LEAPS_OPTION_STOPPED_REASON = '已停止，未计算';",
-                "const leapsOptionOutcomeRequestQueue = [];",
-                "let leapsOptionOutcomeRequestActiveCount = 0;",
-                "let leapsOptionOutcomeLastRequestFinishedAt = 0;",
                 "const leapsOptionOutcomeCache = new Map();",
                 "let activeDetailRowKey = '';",
                 "let lastParameterPacket = { run_id: 'run-1' };",
@@ -1500,10 +1490,10 @@ context.renderTopGroupLeapsOptionControls = () => {};
       sources: [{ row: secondRow, signal: { signal_key: 'second', date: '2024-01-11', symbol: 'MSFT.US' } }]
     }
   ];
-  const run = { controller: { cancelled: false }, activeLabels: [], startedAt: now, requestCompleted: 0, successCount: 0, skippedCount: 0, lastFailure: '' };
+  const run = { controller: { cancelled: false }, activeLabels: [], startedAt: now, requestCompleted: 0, batchCompleted: 0, batchTotal: 2, successCount: 0, skippedCount: 0, lastFailure: '', cacheStats: {} };
   for (const queueItem of requestQueue) {
     if (run.controller.cancelled) break;
-    await context.processTopGroupLeapsOptionQueueItem(queueItem, run);
+    await context.processTopGroupLeapsOptionBatch([queueItem], run, run.batchCompleted, 2);
     run.controller.cancelled = true;
   }
   if (run.controller.cancelled) {
