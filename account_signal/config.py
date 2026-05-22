@@ -69,16 +69,16 @@ def googl_inputs() -> StrategyInputs:
         max_drawdown_pct=50.0,
         drawdown_basis="rolling_120",
         trade_fee=0.35,
-        sell_min_profit_pct=8.0,
+        sell_min_profit_pct=15.0,
         dca_rearm_drawdown_pct=0.0,
-        sell_stage_rearm_drawdown_pct=10.0,
-        cost_first_profit_pct=8.0,
-        cost_second_profit_pct=15.0,
-        cost_third_profit_pct=25.0,
+        sell_stage_rearm_drawdown_pct=15.0,
+        cost_first_profit_pct=15.0,
+        cost_second_profit_pct=25.0,
+        cost_third_profit_pct=40.0,
         cost_first_sell_pct=40.0,
         cost_second_sell_pct=30.0,
         cost_third_sell_pct=20.0,
-        cost_deleverage_cooldown_days=15,
+        cost_deleverage_cooldown_days=30,
         sell_allow_same_day_sell=False,
         cost_min_sell_amount=0.0,
         core_dip_initial_core_pct=95.0,
@@ -87,9 +87,9 @@ def googl_inputs() -> StrategyInputs:
         core_dip_start_drawdown_pct=3.0,
         core_dip_full_drawdown_pct=15.0,
         core_dip_timing_enabled=True,
-        core_dip_timing_max_delay_days=5,
+        core_dip_timing_max_delay_days=3,
         core_dip_timing_rise_threshold_pct=1.0,
-        core_dip_timing_near_low_pct=1.0,
+        core_dip_timing_near_low_pct=2.0,
     )
 
 
@@ -109,9 +109,9 @@ def account_strategy_summaries() -> dict[str, dict[str, Any]]:
             "sell_strategy": "cost_deleverage",
             "buy_summary": (
                 "核心定投+回撤加仓: 初始95% / 周投核心100% / 现金垫3% / "
-                "加仓3%-15% / 买点优化 延迟5日 大涨1% 近低1%"
+                "加仓3%-15% / 买点优化 延迟3日 大涨1% 近低2%"
             ),
-            "sell_summary": "成本去杠杆: 盈利8/15/25%, 卖出40/30/20%, 冷却15日, 卖后重启0%回撤, 卖档重启10%回撤",
+            "sell_summary": "成本去杠杆: 盈利15/25/40%, 卖出40/30/20%, 冷却30日, 卖后重启0%回撤, 卖档重启15%回撤",
             "params": {
                 "core_dip_initial_core_pct": googl.core_dip_initial_core_pct,
                 "core_dip_weekly_core_pct": googl.core_dip_weekly_core_pct,

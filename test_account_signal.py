@@ -54,27 +54,27 @@ class AccountSignalTest(unittest.TestCase):
     def test_googl_inputs_match_fixed_real_account_strategy(self):
         inputs = googl_inputs()
 
-        self.assertEqual(inputs.cost_first_profit_pct, 8)
-        self.assertEqual(inputs.cost_second_profit_pct, 15)
-        self.assertEqual(inputs.cost_third_profit_pct, 25)
-        self.assertEqual(inputs.cost_deleverage_cooldown_days, 15)
-        self.assertEqual(inputs.sell_min_profit_pct, 8)
+        self.assertEqual(inputs.cost_first_profit_pct, 15)
+        self.assertEqual(inputs.cost_second_profit_pct, 25)
+        self.assertEqual(inputs.cost_third_profit_pct, 40)
+        self.assertEqual(inputs.cost_deleverage_cooldown_days, 30)
+        self.assertEqual(inputs.sell_min_profit_pct, 15)
         self.assertEqual(inputs.dca_rearm_drawdown_pct, 0)
-        self.assertEqual(inputs.sell_stage_rearm_drawdown_pct, 10)
-        self.assertEqual(inputs.core_dip_timing_max_delay_days, 5)
+        self.assertEqual(inputs.sell_stage_rearm_drawdown_pct, 15)
+        self.assertEqual(inputs.core_dip_timing_max_delay_days, 3)
         self.assertEqual(inputs.core_dip_timing_rise_threshold_pct, 1)
-        self.assertEqual(inputs.core_dip_timing_near_low_pct, 1)
+        self.assertEqual(inputs.core_dip_timing_near_low_pct, 2)
 
     def test_googl_cost_deleverage_thresholds(self):
         cases = [
-            (107.9, [], None, None),
-            (108.0, [], "cost_1", 4.0),
-            (115.0, [{"trade_date": "2026-05-01", "side": "sell", "shares": 4, "price": 108, "amount": 432}], "cost_2", 1.8),
+            (114.9, [], None, None),
+            (115.0, [], "cost_1", 4.0),
+            (125.0, [{"trade_date": "2026-04-15", "side": "sell", "shares": 4, "price": 115, "amount": 460}], "cost_2", 1.8),
             (
-                125.0,
+                140.0,
                 [
-                    {"trade_date": "2026-05-01", "side": "sell", "shares": 4, "price": 108, "amount": 432},
-                    {"trade_date": "2026-05-02", "side": "sell", "shares": 1.8, "price": 115, "amount": 207},
+                    {"trade_date": "2026-04-15", "side": "sell", "shares": 4, "price": 115, "amount": 460},
+                    {"trade_date": "2026-04-16", "side": "sell", "shares": 1.8, "price": 125, "amount": 225},
                 ],
                 "cost_3",
                 0.84,
@@ -82,7 +82,7 @@ class AccountSignalTest(unittest.TestCase):
         ]
 
         for price, sells, expected_stage, expected_shares in cases:
-            rows = [{"trade_date": "2026-05-01", "side": "buy", "shares": 10, "price": 100, "amount": 1000}]
+            rows = [{"trade_date": "2026-04-01", "side": "buy", "shares": 10, "price": 100, "amount": 1000}]
             rows.extend(sells)
             position = recover_position("GOOGL.US", rows)
             market = {"GOOGL.US": points(("2026-05-18", 120), ("2026-05-19", 118), ("2026-05-20", price))}
@@ -102,17 +102,17 @@ class AccountSignalTest(unittest.TestCase):
         position = recover_position(
             "GOOGL.US",
             [
-                {"trade_date": "2026-04-20", "side": "buy", "shares": 10, "price": 100, "amount": 1000},
-                {"trade_date": "2026-05-01", "side": "sell", "shares": 4, "price": 108, "amount": 432},
+                {"trade_date": "2026-04-01", "side": "buy", "shares": 10, "price": 100, "amount": 1000},
+                {"trade_date": "2026-04-15", "side": "sell", "shares": 4, "price": 115, "amount": 460},
             ],
         )
         market = {
             "GOOGL.US": points(
-                ("2026-04-20", 100),
-                ("2026-05-01", 108),
+                ("2026-04-01", 100),
+                ("2026-04-15", 115),
                 ("2026-05-18", 128),
                 ("2026-05-19", 126),
-                ("2026-05-20", 116),
+                ("2026-05-20", 126),
             )
         }
 
@@ -131,11 +131,11 @@ class AccountSignalTest(unittest.TestCase):
 
         rearmed_market = {
             "GOOGL.US": points(
-                ("2026-04-20", 100),
-                ("2026-05-01", 108),
-                ("2026-05-18", 128),
+                ("2026-04-01", 100),
+                ("2026-04-15", 115),
+                ("2026-05-18", 150),
                 ("2026-05-19", 126),
-                ("2026-05-20", 115),
+                ("2026-05-20", 125),
             )
         }
         with self._patched_runtime({"GOOGL.US": position, "TSLA.US": recover_position("TSLA.US", [])}):
@@ -170,15 +170,15 @@ class AccountSignalTest(unittest.TestCase):
             "GOOGL.US",
             [
                 {"trade_date": "2026-05-01", "side": "buy", "shares": 100, "price": 100, "amount": 10000},
-                {"trade_date": "2026-05-18", "side": "sell", "shares": 40, "price": 108, "amount": 4320},
+                {"trade_date": "2026-05-18", "side": "sell", "shares": 40, "price": 115, "amount": 4600},
             ],
         )
         market = {
             "GOOGL.US": points(
-                ("2026-05-17", 127.8),
+                ("2026-05-17", 140),
                 ("2026-05-18", 115),
                 ("2026-05-19", 121),
-                ("2026-05-20", 120),
+                ("2026-05-20", 128),
             )
         }
         account = AccountSnapshot("2026-05-20", "USD", 500, 500, 50000)
@@ -204,17 +204,17 @@ class AccountSignalTest(unittest.TestCase):
         position = recover_position(
             "GOOGL.US",
             [
-                {"trade_date": "2026-05-01", "side": "buy", "shares": 100, "price": 100, "amount": 10000},
-                {"trade_date": "2026-05-01", "side": "sell", "shares": 40, "price": 108, "amount": 4320},
+                {"trade_date": "2026-03-01", "side": "buy", "shares": 100, "price": 100, "amount": 10000},
+                {"trade_date": "2026-04-01", "side": "sell", "shares": 40, "price": 115, "amount": 4600},
             ],
         )
         market = {
             "GOOGL.US": points(
-                ("2026-05-01", 108),
-                ("2026-05-17", 127.8),
+                ("2026-04-01", 115),
+                ("2026-05-17", 140),
                 ("2026-05-18", 115),
                 ("2026-05-19", 121),
-                ("2026-05-20", 120),
+                ("2026-05-20", 128),
             )
         }
         account = AccountSnapshot("2026-05-20", "USD", 500, 500, 50000)
@@ -244,9 +244,10 @@ class AccountSignalTest(unittest.TestCase):
 
         googl = status["strategies"]["GOOGL.US"]
         self.assertIn("大涨1%", googl["buy_summary"])
-        self.assertIn("盈利8/15/25%", googl["sell_summary"])
-        self.assertIn("卖档重启10%回撤", googl["sell_summary"])
-        self.assertEqual(googl["params"]["cost_profit_pcts"], [8, 15, 25])
+        self.assertIn("近低2%", googl["buy_summary"])
+        self.assertIn("盈利15/25/40%", googl["sell_summary"])
+        self.assertIn("卖档重启15%回撤", googl["sell_summary"])
+        self.assertEqual(googl["params"]["cost_profit_pcts"], [15, 25, 40])
 
     def test_tsla_linear_buy_skips_completed_thresholds_and_aggregates(self):
         position = recover_position(
