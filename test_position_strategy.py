@@ -10,7 +10,9 @@ from datetime import datetime, timedelta
 from drawdown.generate_drawdown_report import build_price_points_from_series
 from drawdown.position_strategy import (
     PortfolioTarget,
+    SymbolState,
     StrategyInputs,
+    _rearm_position_sell_cycle_after_dca_buy,
     _score_question_strategies,
     build_strategy_tranches,
     run_longbridge_strategy_scorecard,
@@ -972,6 +974,30 @@ class PositionStrategyTest(unittest.TestCase):
         ]
         self.assertEqual(len(sells), 3)
         self.assertEqual(rearming_buys, [])
+
+    def test_sell_stage_rearm_defaults_to_dca_rearm_threshold(self):
+        state = SymbolState(symbol="TSLA.US", name="TSLA", weight=100, budget=10000, cash=0, sell_marks={"cost_1"})
+        inputs = StrategyInputs(max_drawdown_pct=50, dca_rearm_drawdown_pct=5)
+
+        rearmed = _rearm_position_sell_cycle_after_dca_buy(state, 5, inputs, "cost_deleverage")
+
+        self.assertTrue(rearmed)
+        self.assertEqual(state.sell_marks, set())
+
+    def test_sell_stage_rearm_can_delay_cost_mark_reset_after_dca_buy(self):
+        state = SymbolState(symbol="TSLA.US", name="TSLA", weight=100, budget=10000, cash=0, sell_marks={"cost_1"})
+        inputs = StrategyInputs(
+            max_drawdown_pct=50,
+            dca_rearm_drawdown_pct=5,
+            sell_stage_rearm_drawdown_pct=15,
+        )
+
+        shallow_rearmed = _rearm_position_sell_cycle_after_dca_buy(state, 5, inputs, "cost_deleverage")
+        deep_rearmed = _rearm_position_sell_cycle_after_dca_buy(state, 15, inputs, "cost_deleverage")
+
+        self.assertFalse(shallow_rearmed)
+        self.assertTrue(deep_rearmed)
+        self.assertEqual(state.sell_marks, set())
 
     def test_scorecard_weights_return_more_than_drawdown(self):
         scored = _score_question_strategies(

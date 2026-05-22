@@ -71,6 +71,7 @@ def googl_inputs() -> StrategyInputs:
         trade_fee=0.35,
         sell_min_profit_pct=15.0,
         dca_rearm_drawdown_pct=5.0,
+        sell_stage_rearm_drawdown_pct=None,
         cost_first_profit_pct=15.0,
         cost_second_profit_pct=25.0,
         cost_third_profit_pct=40.0,
@@ -126,6 +127,7 @@ def account_strategy_summaries() -> dict[str, dict[str, Any]]:
                 "cost_sell_pcts": [sell_pct for _, _, sell_pct in googl_stages],
                 "cost_deleverage_cooldown_days": googl.cost_deleverage_cooldown_days,
                 "dca_rearm_drawdown_pct": googl.dca_rearm_drawdown_pct,
+                "sell_stage_rearm_drawdown_pct": googl.sell_stage_rearm_drawdown_pct,
             },
         },
         "TSLA.US": {

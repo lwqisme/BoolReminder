@@ -67,6 +67,7 @@ position_strategy:
   default_repair_sell_cooldown_days: 30
   default_repair_stage_sell_pct: 12
   default_dca_rearm_drawdown_pct: 5
+  default_sell_stage_rearm_drawdown_pct: 15
   default_grid_rebound_step_pct: 5
   default_grid_first_sell_pct: 40
   default_grid_second_sell_pct: 40

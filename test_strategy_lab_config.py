@@ -9,6 +9,7 @@ class StrategyLabConfigTest(unittest.TestCase):
         config = StrategyLabConfig.from_saved_defaults(defaults)
         self.assertEqual(config.to_legacy_defaults()["default_initial_cash"], 20000.0)
         self.assertEqual(config.to_legacy_defaults()["default_dca_rearm_drawdown_pct"], 5.0)
+        self.assertEqual(config.to_legacy_defaults()["default_sell_stage_rearm_drawdown_pct"], 15.0)
         self.assertEqual(config.to_legacy_defaults()["default_grid_rebound_step_pct"], 5.0)
         self.assertEqual(config.to_legacy_defaults()["default_grid_first_sell_pct"], 40.0)
         self.assertEqual(config.to_legacy_defaults()["default_grid_second_sell_pct"], 40.0)
@@ -38,6 +39,7 @@ class StrategyLabConfigTest(unittest.TestCase):
                 "monthly_contribution": 1200,
                 "max_drawdown_pct": 45,
                 "dca_rearm_drawdown_pct": 10,
+                "sell_stage_rearm_drawdown_pct": 15,
                 "grid_rebound_step_pct": 7.5,
                 "grid_first_sell_pct": 35,
                 "grid_second_sell_pct": 30,
@@ -72,6 +74,7 @@ class StrategyLabConfigTest(unittest.TestCase):
         self.assertEqual(inputs.monthly_contribution, 1200.0)
         self.assertEqual(inputs.max_drawdown_pct, 45.0)
         self.assertEqual(inputs.dca_rearm_drawdown_pct, 10.0)
+        self.assertEqual(inputs.sell_stage_rearm_drawdown_pct, 15.0)
         self.assertEqual(inputs.grid_rebound_step_pct, 7.5)
         self.assertEqual(inputs.grid_first_sell_pct, 35.0)
         self.assertEqual(inputs.grid_second_sell_pct, 30.0)

@@ -91,6 +91,7 @@ class StrategyParameterRegistryTest(unittest.TestCase):
         self.assertEqual(payload["definitions"]["grid_rebound"]["parameter_space"]["sell_allow_same_day_sell"], [False, True])
         cost_space = payload["definitions"]["cost_deleverage"]["parameter_space"]
         self.assertEqual(cost_space["sell_allow_same_day_sell"], [False, True])
+        self.assertEqual(cost_space["sell_stage_rearm_drawdown_pct"], [10.0, 15.0])
         core_space = payload["definitions"]["core_dip_dca"]["parameter_space"]
         self.assertEqual(core_space["core_dip_timing_max_delay_days"], [1, 3, 5])
         self.assertEqual(core_space["core_dip_timing_rise_threshold_pct"], [1.0, 1.5, 2.5])
@@ -123,9 +124,27 @@ class StrategyParameterRegistryTest(unittest.TestCase):
 
         same_day = [item for item in candidates if item["sell_allow_same_day_sell"]]
         default = [item for item in candidates if not item["sell_allow_same_day_sell"]]
+        self.assertEqual(len(candidates), 540)
         self.assertEqual(len(same_day), len(default))
         self.assertTrue(all("买入日可卖" in item["label"] for item in same_day))
         self.assertTrue(all("same1" in item["key"] for item in same_day))
+        protected = [item for item in candidates if item.get("sell_stage_rearm_drawdown_pct") is not None]
+        self.assertTrue(protected)
+        self.assertTrue(all("sellrearm" in item["key"] for item in protected))
+        self.assertTrue(all("卖档重启" in item["label"] for item in protected))
+        self.assertTrue(
+            all(
+                item["sell_stage_rearm_drawdown_pct"] > item["dca_rearm_drawdown_pct"]
+                for item in protected
+            )
+        )
+        self.assertNotIn(
+            (10.0, 10.0),
+            {
+                (item.get("dca_rearm_drawdown_pct"), item.get("sell_stage_rearm_drawdown_pct"))
+                for item in candidates
+            },
+        )
 
     def test_non_none_sell_candidates_include_same_day_sell_variants(self):
         candidates = expand_strategy_candidate_payloads(

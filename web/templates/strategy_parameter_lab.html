@@ -119,7 +119,7 @@
             top: 3px;
             width: 3.5px;
             height: 7px;
-            border: solid #1167d8;
+            border: solid #ffffff;
             border-width: 0 1.75px 1.75px 0;
             transform: rotate(45deg) scale(0);
             transform-origin: center;
@@ -134,7 +134,7 @@
         }
         input[type="checkbox"]:checked {
             border-color: rgba(17, 103, 216, 0.34);
-            background: #dbeafe;
+            background: rgb(53, 124, 228);
             box-shadow: none;
         }
         input[type="checkbox"]:checked::before { transform: rotate(45deg) scale(1); }
@@ -564,6 +564,12 @@
                 inset -1px 0 rgba(196, 208, 224, 0.40),
                 inset 0 -1px rgba(174, 185, 200, 0.40);
         }
+        #matrixTable thead th,
+        #detailDrawer table thead th {
+            background: #ffffff;
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
+        }
         .matrix-wrap th:last-child,
         .matrix-wrap td:last-child {
             box-shadow: inset 0 -1px rgba(196, 208, 224, 0.42);
@@ -584,6 +590,11 @@
             min-width: 88px !important;
             max-width: 88px !important;
             white-space: nowrap !important;
+        }
+        .leaps-detail-table th:first-child {
+            background: #ffffff;
+        }
+        .leaps-detail-table td:first-child {
             background: inherit;
         }
         .leaps-option-summary {
@@ -811,6 +822,21 @@
             background: rgba(220, 252, 231, 0.62);
             color: #15803d;
         }
+        .cell-chart-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin: 8px 0;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 900;
+        }
+        .cell-chart-toolbar button {
+            min-height: 28px;
+            padding: 5px 9px;
+            font-size: 12px;
+        }
         .cell-detail-chart {
             height: 360px;
             min-height: 360px;
@@ -820,6 +846,83 @@
                 rgba(255, 255, 255, 0.24);
             box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.58);
             overflow: visible;
+        }
+        .cell-detail-chart.is-expandable {
+            cursor: zoom-in;
+        }
+        .cell-detail-chart.is-expandable:focus {
+            outline: 2px solid rgba(17, 103, 216, 0.55);
+            outline-offset: 2px;
+        }
+        .chart-fullscreen {
+            position: fixed;
+            inset: 0;
+            z-index: 60;
+            display: grid;
+            place-items: center;
+            padding: 18px;
+            background: rgba(15, 23, 42, 0.46);
+        }
+        .chart-fullscreen-panel {
+            display: grid;
+            grid-template-rows: auto auto minmax(0, 1fr);
+            gap: 10px;
+            width: min(1320px, calc(100vw - 36px));
+            max-height: calc(100vh - 36px);
+            padding: 14px;
+            border: var(--liquid-glass-border);
+            border-radius: var(--radius);
+            background: rgba(250, 252, 255, 0.96);
+            box-shadow: 0 28px 90px rgba(15, 23, 42, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.78);
+        }
+        .chart-fullscreen-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .chart-fullscreen-head h2 {
+            margin: 0;
+            color: var(--ink);
+            font-size: 16px;
+            line-height: 1.35;
+        }
+        .chart-fullscreen-head p {
+            margin: 3px 0 0;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 800;
+        }
+        .chart-fullscreen-head button {
+            min-height: 30px;
+            padding: 6px 10px;
+            font-size: 12px;
+        }
+        .chart-fullscreen-summary {
+            display: grid;
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .chart-fullscreen-summary .stat {
+            min-height: 58px;
+            padding: 8px;
+        }
+        .chart-fullscreen-summary .stat strong {
+            overflow: hidden;
+            font-size: 14px;
+            line-height: 1.3;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .chart-fullscreen-summary .stat.is-wide {
+            grid-column: span 2;
+        }
+        .fullscreen-trade-chart {
+            min-height: min(70vh, 680px);
+            height: min(70vh, 680px);
+            border-radius: var(--radius-sm);
+            background: #fafafa;
+            box-shadow: inset 0 0 0 1px rgba(174, 185, 200, 0.42);
         }
         .hidden { display: none !important; }
         @media (max-width: 980px) {
@@ -839,6 +942,29 @@
             .cell-detail-chart {
                 height: 300px;
                 min-height: 300px;
+            }
+            .chart-fullscreen {
+                padding: 10px;
+            }
+            .chart-fullscreen-panel {
+                width: calc(100vw - 20px);
+                max-height: calc(100vh - 20px);
+                padding: 10px;
+            }
+            .chart-fullscreen-head {
+                align-items: stretch;
+            }
+            .chart-fullscreen-summary {
+                grid-template-columns: 1fr;
+                max-height: 30vh;
+                overflow: auto;
+            }
+            .chart-fullscreen-summary .stat.is-wide {
+                grid-column: auto;
+            }
+            .fullscreen-trade-chart {
+                min-height: 58vh;
+                height: 58vh;
             }
         }
     </style>
@@ -973,6 +1099,7 @@
                         <label>HKD/USD<input id="hkdToUsd" type="number" step="0.001" value="{{ default_config.default_hkd_to_usd }}"></label>
                         <label>底仓 %<input id="reservePosition" type="number" step="1" value="{{ default_config.default_reserve_position_pct }}"></label>
                         <label>卖后重启 %<input id="dcaRearmDrawdown" type="number" step="0.5" value="{{ default_config.default_dca_rearm_drawdown_pct }}"></label>
+                        <label>卖档重启 %<input id="sellStageRearmDrawdown" type="number" step="0.5" value="{{ default_config.default_sell_stage_rearm_drawdown_pct if default_config.default_sell_stage_rearm_drawdown_pct is not none else '' }}"></label>
                         <label>最小盈利 %<input id="sellMinProfit" type="number" step="0.5" value="{{ default_config.default_sell_min_profit_pct }}"></label>
                         <label>修复冷却<input id="repairSellCooldown" type="number" step="1" value="{{ default_config.default_repair_sell_cooldown_days }}"></label>
                         <label>单档卖出 %<input id="repairStageSellPct" type="number" step="0.5" value="{{ default_config.default_repair_stage_sell_pct }}"></label>
@@ -1099,7 +1226,11 @@
 
             <h2 style="font-size:14px;">Cell 复核</h2>
             <div id="detailCellStatus" class="cell-detail-status">点击矩阵 cell 后在这里显示单题目重放。</div>
-            <div id="detailTradeChart" class="cell-detail-chart"></div>
+            <div class="cell-chart-toolbar">
+                <span>买卖点图</span>
+                <button id="detailTradeChartExpand" type="button" onclick="event.stopPropagation(); openCellChartFullscreen();" disabled>放大</button>
+            </div>
+            <div id="detailTradeChart" class="cell-detail-chart" onclick="openCellChartFullscreen()" onkeydown="handleDetailTradeChartKeydown(event)" aria-label="买卖点图，重放完成后可放大"></div>
             <details class="drawer-section" id="detailTradesSection">
                 <summary>交易日期明细</summary>
                 <div class="matrix-wrap" style="max-height:260px;">
@@ -1123,6 +1254,20 @@
                     <tbody id="detailCells"></tbody>
                 </table>
             </div>
+        </div>
+    </div>
+
+    <div id="cellChartFullscreen" class="chart-fullscreen hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="cellChartFullscreenTitle" onclick="handleCellChartFullscreenBackdrop(event)">
+        <div class="chart-fullscreen-panel" onclick="event.stopPropagation()">
+            <div class="chart-fullscreen-head">
+                <div>
+                    <h2 id="cellChartFullscreenTitle">买卖点图</h2>
+                    <p id="cellChartFullscreenSubtitle">当前 cell 重放结果</p>
+                </div>
+                <button id="cellChartFullscreenClose" type="button" onclick="closeCellChartFullscreen()">关闭</button>
+            </div>
+            <div id="cellChartFullscreenSummary" class="chart-fullscreen-summary"></div>
+            <div id="fullscreenTradeChart" class="fullscreen-trade-chart"></div>
         </div>
     </div>
 
@@ -1178,7 +1323,8 @@
             'cost_deleverage_cooldown_days',
             'sell_allow_same_day_sell',
             'cost_min_sell_amount',
-            'dca_rearm_drawdown_pct'
+            'dca_rearm_drawdown_pct',
+            'sell_stage_rearm_drawdown_pct'
         ];
         const buyParameterFields = parameterFields.slice(0, 11);
         const sellParameterFields = parameterFields.slice(11);
@@ -1564,6 +1710,12 @@
             const n = Number(document.getElementById(id)?.value);
             return Number.isFinite(n) ? n : 0;
         }
+        function readOptionalNumber(id) {
+            const value = document.getElementById(id)?.value;
+            if (value === undefined || value === null || String(value).trim() === '') return null;
+            const n = Number(value);
+            return Number.isFinite(n) ? n : null;
+        }
         function selectedValues(name) {
             return Array.from(document.querySelectorAll(`input[name="${name}"]:checked`)).map((input) => input.value);
         }
@@ -1636,6 +1788,7 @@
                 repair_sell_cooldown_days: readNumber('repairSellCooldown'),
                 repair_stage_sell_pct: readNumber('repairStageSellPct'),
                 dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown'),
+                sell_stage_rearm_drawdown_pct: readOptionalNumber('sellStageRearmDrawdown'),
                 grid_rebound_step_pct: readNumber('gridReboundStep'),
                 grid_first_sell_pct: readNumber('gridFirstSellPct'),
                 grid_second_sell_pct: readNumber('gridSecondSellPct'),
@@ -1776,6 +1929,11 @@
                 {
                     label: '卖后重启',
                     values: repair.parameter_space?.dca_rearm_drawdown_pct || [],
+                    formatter: percentChip
+                },
+                {
+                    label: '卖档重启',
+                    values: repair.parameter_space?.sell_stage_rearm_drawdown_pct || [],
                     formatter: percentChip
                 }
             ];
@@ -1935,6 +2093,7 @@
             }
             if (sellStrategy !== 'none' && sellParams.sell_allow_same_day_sell) parts.push('same1');
             if (sellParams.dca_rearm_drawdown_pct !== null && sellParams.dca_rearm_drawdown_pct !== undefined) parts.push(`rearm${formatCompact(sellParams.dca_rearm_drawdown_pct)}`);
+            if (sellParams.sell_stage_rearm_drawdown_pct !== null && sellParams.sell_stage_rearm_drawdown_pct !== undefined) parts.push(`sellrearm${formatCompact(sellParams.sell_stage_rearm_drawdown_pct)}`);
             return parts.join('__');
         }
         function buildBuyLabel(strategyKey, params) {
@@ -1970,6 +2129,7 @@
             }
             if (strategyKey !== 'none' && params.sell_allow_same_day_sell) label = `${label} / 买入日可卖`;
             if (params.dca_rearm_drawdown_pct !== null && params.dca_rearm_drawdown_pct !== undefined) label = `${label} / 卖后重启 ${formatCompact(params.dca_rearm_drawdown_pct)}%回撤`;
+            if (params.sell_stage_rearm_drawdown_pct !== null && params.sell_stage_rearm_drawdown_pct !== undefined) label = `${label} / 卖档重启 ${formatCompact(params.sell_stage_rearm_drawdown_pct)}%回撤`;
             return label;
         }
         function inflateCandidate(packet, candidateRow) {
@@ -2803,16 +2963,27 @@
             const chart = document.getElementById('detailTradeChart');
             if (!chart) return;
             if (window.Plotly) Plotly.purge(chart);
+            setDetailTradeChartExpandable(false);
             chart.innerHTML = `<div style="padding:12px;color:var(--muted);font-size:12px;">${escapeHtml(message)}</div>`;
         }
-        function renderCellTradeChart(cell) {
+        function setDetailTradeChartExpandable(enabled) {
             const chart = document.getElementById('detailTradeChart');
-            if (!chart) return;
-            if (!window.Plotly || !cell?.series?.dates?.length) {
-                clearCellTradeChart('等待重放序列。');
-                return;
+            const button = document.getElementById('detailTradeChartExpand');
+            if (chart) {
+                chart.classList.toggle('is-expandable', Boolean(enabled));
+                if (enabled) {
+                    chart.setAttribute('role', 'button');
+                    chart.setAttribute('tabindex', '0');
+                    chart.setAttribute('title', '点击放大买卖点图');
+                } else {
+                    chart.removeAttribute('role');
+                    chart.removeAttribute('tabindex');
+                    chart.removeAttribute('title');
+                }
             }
-            Plotly.purge(chart);
+            if (button) button.disabled = !enabled;
+        }
+        function buildCellTradeChartFigure(cell, options = {}) {
             const dates = cell.series.dates || [];
             const portfolioValues = cell.series.portfolio_values || [];
             const cashValues = cell.series.cash_values || [];
@@ -2836,27 +3007,137 @@
                 tradeTrace('buy', '买入', '#ff7e67', 'circle'),
                 tradeTrace('sell', '卖出', '#054d76', 'diamond')
             ];
-            Plotly.react(chart, traces, {
-                title: {
-                    text: '买卖点 / 现金余额（交易后）',
-                    x: 0,
-                    y: 0.98,
-                    xanchor: 'left',
-                    yanchor: 'top',
-                    font: { size: 14, color: '#06324c' }
+            const fullscreen = Boolean(options.fullscreen);
+            return {
+                traces,
+                layout: {
+                    title: {
+                        text: '买卖点 / 现金余额（交易后）',
+                        x: 0,
+                        y: 0.98,
+                        xanchor: 'left',
+                        yanchor: 'top',
+                        font: { size: fullscreen ? 16 : 14, color: '#06324c' }
+                    },
+                    margin: fullscreen ? { l: 58, r: 24, t: 62, b: 82 } : { l: 46, r: 12, t: 54, b: 68 },
+                    paper_bgcolor: '#fafafa',
+                    plot_bgcolor: '#fafafa',
+                    font: { color: '#06324c', family: 'Aptos, IBM Plex Sans, Noto Sans SC, sans-serif' },
+                    hovermode: 'x unified',
+                    legend: { orientation: 'h', y: fullscreen ? -0.14 : -0.18, x: 0, yanchor: 'top', font: { color: '#315d78' } },
+                    xaxis: { type: 'date', gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2' },
+                    yaxis: { gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2', tickprefix: '$' }
                 },
-                margin: { l: 46, r: 12, t: 54, b: 68 },
-                paper_bgcolor: '#fafafa',
-                plot_bgcolor: '#fafafa',
-                font: { color: '#06324c', family: 'Aptos, IBM Plex Sans, Noto Sans SC, sans-serif' },
-                hovermode: 'x unified',
-                legend: { orientation: 'h', y: -0.18, x: 0, yanchor: 'top', font: { color: '#315d78' } },
-                xaxis: { type: 'date', gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2' },
-                yaxis: { gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2', tickprefix: '$' }
-            }, { displayModeBar: false, responsive: true });
+                config: { displayModeBar: fullscreen, displaylogo: false, responsive: true }
+            };
+        }
+        function renderCellTradeChartPlot(chart, cell, options = {}) {
+            if (!chart || !window.Plotly || !cell?.series?.dates?.length) return false;
+            Plotly.purge(chart);
+            const figure = buildCellTradeChartFigure(cell, options);
+            Plotly.react(chart, figure.traces, figure.layout, figure.config);
             requestAnimationFrame(() => {
                 if (window.Plotly?.Plots?.resize) Plotly.Plots.resize(chart);
             });
+            return true;
+        }
+        function renderCellTradeChart(cell) {
+            const chart = document.getElementById('detailTradeChart');
+            if (!chart) return;
+            if (!window.Plotly || !cell?.series?.dates?.length) {
+                clearCellTradeChart('等待重放序列。');
+                return;
+            }
+            setDetailTradeChartExpandable(renderCellTradeChartPlot(chart, cell, { fullscreen: false }));
+        }
+        function getActiveCellReplayContext() {
+            const row = findRow(activeDetailRowKey);
+            const topicKey = activeDetailTopicKey || '';
+            if (!row || !topicKey) return null;
+            const sourceCell = findSourceCell(row, topicKey);
+            const entry = cellDetailCache.get(cellDetailCacheKey(row, topicKey));
+            const cell = entry?.status === 'done' ? entry.cell : null;
+            if (!cell?.series?.dates?.length) return null;
+            return {
+                row,
+                topicKey,
+                sourceCell,
+                cell,
+                mismatch: cellMetricsMismatch(sourceCell, cell)
+            };
+        }
+        function compactCellChartCombinationLabel(row) {
+            const groupLabel = row?.group_label || strategyGroupLabel(row?.candidate || {});
+            const groupRank = Number(row?.group_rank || 0);
+            const rankSuffix = groupRank ? ` · 组内 #${number(groupRank, 0)}` : '';
+            return `${groupLabel || '参数组合'}${rankSuffix}`;
+        }
+        function cellChartFullscreenMetric(label, value, options = {}) {
+            const title = options.title || value;
+            const className = options.wide ? 'stat is-wide' : 'stat';
+            return `<div class="${className}" title="${escapeHtml(title)}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+        }
+        function renderCellChartFullscreenSummary(context) {
+            const { row, sourceCell, cell, mismatch } = context;
+            const trades = Array.isArray(cell.trade_log) ? cell.trade_log : [];
+            const buyCount = trades.filter((trade) => trade.action === 'buy').length;
+            const sellCount = trades.filter((trade) => trade.action === 'sell').length;
+            const dates = cell.series?.dates || [];
+            const dateRange = dates.length ? `${dates[0]} ~ ${dates[dates.length - 1]}` : '--';
+            const topicLabel = sourceCell ? `${sourceCell.portfolio_label || ''} / ${sourceCell.period_label || ''}`.trim() : context.topicKey;
+            const fullCombinationLabel = row.candidate?.label || row.key || '--';
+            return [
+                cellChartFullscreenMetric('参数组合', compactCellChartCombinationLabel(row), { title: fullCombinationLabel, wide: true }),
+                cellChartFullscreenMetric('题目/周期', topicLabel || '--'),
+                cellChartFullscreenMetric('排名', `全局 #${number(row.global_rank, 0)} / 题内 #${number(sourceCell?.topic_rank, 0)}`),
+                cellChartFullscreenMetric('收益', pct(cell.return_pct)),
+                cellChartFullscreenMetric('回撤', pct(cell.max_drawdown_pct)),
+                cellChartFullscreenMetric('交易数', `${number(cell.trade_count ?? trades.length, 0)} 笔`),
+                cellChartFullscreenMetric('买入/卖出', `${number(buyCount, 0)} / ${number(sellCount, 0)}`),
+                cellChartFullscreenMetric('日期范围', dateRange),
+                cellChartFullscreenMetric('重放一致性', mismatch ? '不一致' : '一致')
+            ].join('');
+        }
+        function openCellChartFullscreen() {
+            const context = getActiveCellReplayContext();
+            if (!context || !window.Plotly) return;
+            const overlay = document.getElementById('cellChartFullscreen');
+            const chart = document.getElementById('fullscreenTradeChart');
+            const title = document.getElementById('cellChartFullscreenTitle');
+            const subtitle = document.getElementById('cellChartFullscreenSubtitle');
+            const summary = document.getElementById('cellChartFullscreenSummary');
+            if (!overlay || !chart || !title || !subtitle || !summary) return;
+            const topicLabel = context.sourceCell
+                ? `${context.sourceCell.portfolio_label || ''} / ${context.sourceCell.period_label || ''}`.trim()
+                : context.topicKey;
+            title.textContent = compactCellChartCombinationLabel(context.row);
+            title.title = context.row.candidate?.label || context.row.key || '';
+            subtitle.textContent = topicLabel || '当前 cell 重放结果';
+            summary.innerHTML = renderCellChartFullscreenSummary(context);
+            overlay.classList.remove('hidden');
+            overlay.setAttribute('aria-hidden', 'false');
+            renderCellTradeChartPlot(chart, context.cell, { fullscreen: true });
+            requestAnimationFrame(() => document.getElementById('cellChartFullscreenClose')?.focus());
+        }
+        function closeCellChartFullscreen() {
+            const overlay = document.getElementById('cellChartFullscreen');
+            const chart = document.getElementById('fullscreenTradeChart');
+            if (chart && window.Plotly) Plotly.purge(chart);
+            if (overlay) {
+                overlay.classList.add('hidden');
+                overlay.setAttribute('aria-hidden', 'true');
+            }
+        }
+        function handleCellChartFullscreenBackdrop(event) {
+            if (event.target === event.currentTarget) closeCellChartFullscreen();
+        }
+        function handleCellChartFullscreenKeydown(event) {
+            if (event.key === 'Escape') closeCellChartFullscreen();
+        }
+        function handleDetailTradeChartKeydown(event) {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            openCellChartFullscreen();
         }
         function renderCellReplay(row, topicKey) {
             const status = document.getElementById('detailCellStatus');
@@ -3122,7 +3403,7 @@
                 </tr>
             `).join('');
             return `
-                <div class="matrix-wrap" style="max-height:260px;box-shadow:none;">
+                <div class="matrix-wrap" data-leaps-scroll-key="top-signals" style="max-height:260px;box-shadow:none;">
                     <table class="mini-table leaps-detail-table">
                         <thead><tr><th>日期</th><th>标的</th><th>信号</th><th>回撤</th><th>现金</th><th>股票买入</th><th>预算上限</th><th>正股卖出</th><th>原因</th></tr></thead>
                         <tbody>${rows}</tbody>
@@ -3150,9 +3431,9 @@
             `;
             }).join('');
             return `
-                <details class="leaps-group-detail">
+                <details class="leaps-group-detail" data-leaps-detail-key="${escapeHtml(group.key || '')}">
                     <summary>展开明细</summary>
-                    <div class="matrix-wrap">
+                    <div class="matrix-wrap" data-leaps-scroll-key="group-detail:${escapeHtml(group.key || '')}">
                         <table class="mini-table">
                             <thead><tr><th>题目/周期</th><th>回撤</th><th>现金</th><th>股票买入</th><th>预算上限</th><th>正股卖出</th><th>月期权收益</th><th>原因</th><th>操作</th></tr></thead>
                             <tbody>${rows}</tbody>
@@ -3186,7 +3467,7 @@
                 </tr>
             `).join('');
             return `
-                <div class="matrix-wrap" style="max-height:300px;box-shadow:none;">
+                <div class="matrix-wrap" data-leaps-scroll-key="option-outcomes" style="max-height:300px;box-shadow:none;">
                     <table class="mini-table leaps-detail-table">
                         <thead><tr><th>日期</th><th>标的</th><th>合约</th><th>到期</th><th>行权价</th><th>DTE</th><th>入场日</th><th>入场价</th><th>卖出日</th><th>卖出价</th><th>ROI</th><th>状态</th></tr></thead>
                         <tbody>${rows}</tbody>
@@ -3328,7 +3609,7 @@
                     </div>
                 </div>
                 ${renderLeapsOptionControls(row, entry)}
-                <div class="matrix-wrap" style="max-height:420px;box-shadow:none;">
+                <div class="matrix-wrap" data-leaps-scroll-key="full-groups" style="max-height:420px;box-shadow:none;">
                     <table class="mini-table leaps-detail-table">
                         <thead><tr><th>日期</th><th>标的</th><th>最高信号</th><th>次数</th><th>来源题目数</th><th>回撤范围</th><th>现金范围</th><th>股票买入合计</th><th>预算上限合计</th><th>正股卖出</th><th>月期权收益</th><th>原因</th><th>展开明细</th></tr></thead>
                         <tbody>${rows}</tbody>
@@ -3366,22 +3647,45 @@
         function renderDetailLeapsIntoDrawer(row, preserveScroll = false) {
             const detailEl = document.getElementById('detailLeaps');
             if (!detailEl) return;
-            const matrixScroll = preserveScroll
-                ? Array.from(detailEl.querySelectorAll('.matrix-wrap')).map((el) => ({
-                    top: el.scrollTop,
-                    left: el.scrollLeft
-                }))
-                : [];
-            const openDetails = preserveScroll
-                ? Array.from(detailEl.querySelectorAll('details')).map((el) => el.open)
-                : [];
+            const matrixScrollByKey = new Map();
+            const matrixScrollByIndex = [];
+            const openDetailsByKey = new Map();
+            const openDetailsByIndex = [];
+            if (preserveScroll) {
+                Array.from(detailEl.querySelectorAll('.matrix-wrap')).forEach((el, index) => {
+                    const pos = {
+                        top: el.scrollTop,
+                        left: el.scrollLeft
+                    };
+                    if (el.dataset.leapsScrollKey) {
+                        matrixScrollByKey.set(el.dataset.leapsScrollKey, pos);
+                    } else {
+                        matrixScrollByIndex[index] = pos;
+                    }
+                });
+                Array.from(detailEl.querySelectorAll('details')).forEach((el, index) => {
+                    if (el.dataset.leapsDetailKey) {
+                        openDetailsByKey.set(el.dataset.leapsDetailKey, el.open);
+                    } else {
+                        openDetailsByIndex[index] = el.open;
+                    }
+                });
+            }
             detailEl.innerHTML = renderDetailLeaps(row);
             if (!preserveScroll) return;
             Array.from(detailEl.querySelectorAll('details')).forEach((el, index) => {
-                el.open = Boolean(openDetails[index]);
+                if (el.dataset.leapsDetailKey && openDetailsByKey.has(el.dataset.leapsDetailKey)) {
+                    el.open = Boolean(openDetailsByKey.get(el.dataset.leapsDetailKey));
+                    return;
+                }
+                if (!el.dataset.leapsDetailKey) {
+                    el.open = Boolean(openDetailsByIndex[index]);
+                }
             });
             Array.from(detailEl.querySelectorAll('.matrix-wrap')).forEach((el, index) => {
-                const pos = matrixScroll[index];
+                const pos = el.dataset.leapsScrollKey
+                    ? matrixScrollByKey.get(el.dataset.leapsScrollKey)
+                    : matrixScrollByIndex[index];
                 if (!pos) return;
                 el.scrollTop = pos.top;
                 el.scrollLeft = pos.left;
@@ -3651,6 +3955,7 @@
         function openRowDetail(key, topicKey = '') {
             const row = findRow(key);
             if (!row) return;
+            closeCellChartFullscreen();
             activeDetailRowKey = key;
             activeDetailTopicKey = topicKey || '';
             activeDetailLoadToken += 1;
@@ -3685,9 +3990,11 @@
             loadFullLeapsDetails(row);
         }
         function closeDetail() {
+            closeCellChartFullscreen();
             document.getElementById('detailDrawer').classList.remove('show');
             const chart = document.getElementById('detailTradeChart');
             if (chart && window.Plotly) Plotly.purge(chart);
+            setDetailTradeChartExpandable(false);
         }
         function applyParameterRow(key) {
             const row = findRow(key);
@@ -3706,6 +4013,7 @@
 
         document.getElementById('workerCount').value = Math.max(1, Math.min(4, Number(navigator.hardwareConcurrency || 4)));
         document.getElementById('workerCount').addEventListener('input', () => { workerCountTouched = true; });
+        document.addEventListener('keydown', handleCellChartFullscreenKeydown);
         refreshUniverseTopics();
         renderCandidateGridSummary();
         document.getElementById('resultMeta').textContent = `registry ${strategyRegistry.version}`;

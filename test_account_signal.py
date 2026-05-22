@@ -59,6 +59,7 @@ class AccountSignalTest(unittest.TestCase):
         self.assertEqual(inputs.cost_third_profit_pct, 40)
         self.assertEqual(inputs.cost_deleverage_cooldown_days, 0)
         self.assertEqual(inputs.sell_min_profit_pct, 15)
+        self.assertIsNone(inputs.sell_stage_rearm_drawdown_pct)
         self.assertEqual(inputs.core_dip_timing_rise_threshold_pct, 1.5)
         self.assertEqual(inputs.core_dip_timing_near_low_pct, 1)
 

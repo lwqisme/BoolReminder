@@ -39,6 +39,7 @@ DEFAULT_STRATEGY_LAB_DEFAULTS: dict[str, object] = {
     "default_repair_sell_cooldown_days": 30,
     "default_repair_stage_sell_pct": 12,
     "default_dca_rearm_drawdown_pct": 5,
+    "default_sell_stage_rearm_drawdown_pct": 15,
     "default_grid_rebound_step_pct": 5,
     "default_grid_first_sell_pct": 40,
     "default_grid_second_sell_pct": 40,
@@ -111,6 +112,7 @@ class StrategyLabConfig:
     repair_sell_cooldown_days: int = 30
     repair_stage_sell_pct: float = 12.0
     dca_rearm_drawdown_pct: float = 5.0
+    sell_stage_rearm_drawdown_pct: float | None = 15.0
     grid_rebound_step_pct: float = 5.0
     grid_first_sell_pct: float = 40.0
     grid_second_sell_pct: float = 40.0
@@ -165,6 +167,11 @@ class StrategyLabConfig:
             repair_sell_cooldown_days=_read_int(raw, "default_repair_sell_cooldown_days"),
             repair_stage_sell_pct=_read_float(raw, "default_repair_stage_sell_pct"),
             dca_rearm_drawdown_pct=_read_float(raw, "default_dca_rearm_drawdown_pct"),
+            sell_stage_rearm_drawdown_pct=_read_optional_float(
+                raw,
+                "default_sell_stage_rearm_drawdown_pct",
+                float(_default("default_sell_stage_rearm_drawdown_pct")),
+            ),
             grid_rebound_step_pct=_read_float(raw, "default_grid_rebound_step_pct"),
             grid_first_sell_pct=_read_float(raw, "default_grid_first_sell_pct"),
             grid_second_sell_pct=_read_float(raw, "default_grid_second_sell_pct"),
@@ -253,6 +260,11 @@ class StrategyLabConfig:
                 payload,
                 "dca_rearm_drawdown_pct",
                 base_config.dca_rearm_drawdown_pct,
+            ),
+            sell_stage_rearm_drawdown_pct=_read_optional_float(
+                payload,
+                "sell_stage_rearm_drawdown_pct",
+                base_config.sell_stage_rearm_drawdown_pct,
             ),
             grid_rebound_step_pct=_read_float(
                 payload,
@@ -419,6 +431,8 @@ class StrategyLabConfig:
             raise ValueError("评分卖出策略无效。")
         if self.dca_rearm_drawdown_pct < 0:
             raise ValueError("DCA 卖出重启回撤不能小于 0。")
+        if self.sell_stage_rearm_drawdown_pct is not None and self.sell_stage_rearm_drawdown_pct < 0:
+            raise ValueError("卖出档位重启回撤不能小于 0。")
         if self.grid_rebound_step_pct <= 0:
             raise ValueError("网格回弹步长必须大于 0。")
         if not 0 <= self.grid_first_sell_pct <= 100:
@@ -479,6 +493,7 @@ class StrategyLabConfig:
             repair_sell_cooldown_days=self.repair_sell_cooldown_days,
             repair_stage_sell_pct=self.repair_stage_sell_pct,
             dca_rearm_drawdown_pct=self.dca_rearm_drawdown_pct,
+            sell_stage_rearm_drawdown_pct=self.sell_stage_rearm_drawdown_pct,
             grid_rebound_step_pct=self.grid_rebound_step_pct,
             grid_first_sell_pct=self.grid_first_sell_pct,
             grid_second_sell_pct=self.grid_second_sell_pct,
@@ -538,6 +553,7 @@ class StrategyLabConfig:
             "default_repair_sell_cooldown_days": self.repair_sell_cooldown_days,
             "default_repair_stage_sell_pct": self.repair_stage_sell_pct,
             "default_dca_rearm_drawdown_pct": self.dca_rearm_drawdown_pct,
+            "default_sell_stage_rearm_drawdown_pct": self.sell_stage_rearm_drawdown_pct,
             "default_grid_rebound_step_pct": self.grid_rebound_step_pct,
             "default_grid_first_sell_pct": self.grid_first_sell_pct,
             "default_grid_second_sell_pct": self.grid_second_sell_pct,
@@ -594,6 +610,20 @@ def _read_float(payload: Mapping[str, object], key: str, default: float | None =
     parsed = float(value)
     if not math.isfinite(parsed):
         return float(fallback)
+    return parsed
+
+
+def _read_optional_float(
+    payload: Mapping[str, object],
+    key: str,
+    default: float | None = None,
+) -> float | None:
+    value = payload.get(key, default)
+    if value in (None, ""):
+        return default
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        return default
     return parsed
 
 

@@ -198,7 +198,7 @@ def _extract_sheet_rows(payload: dict[str, object], sheet_name: str) -> list[dic
     return []
 
 
-PARAMETER_LAB_PAYLOAD_SCHEMA = "strategy_parameter_lab_packet_v5"
+PARAMETER_LAB_PAYLOAD_SCHEMA = "strategy_parameter_lab_packet_v6"
 PARAMETER_LAB_LARGE_RUN_GUARDRAIL = int(os.environ.get("STRATEGY_PARAMETER_LAB_LARGE_RUN_GUARDRAIL", "50000"))
 
 def _parameter_lab_price_series_from_tasks(tasks: list[dict[str, object]]) -> tuple[dict[str, object], int]:
@@ -3308,6 +3308,10 @@ STRATEGY_LAB_TEMPLATE = """
                             <input id="dcaRearmDrawdown" type="number" min="0" max="95" step="0.5" value="{{ default_config.default_dca_rearm_drawdown_pct }}">
                         </div>
                         <div>
+                            <label for="sellStageRearmDrawdown">卖档重启回撤 %</label>
+                            <input id="sellStageRearmDrawdown" type="number" min="0" max="95" step="0.5" value="{{ default_config.default_sell_stage_rearm_drawdown_pct if default_config.default_sell_stage_rearm_drawdown_pct is not none else '' }}">
+                        </div>
+                        <div>
                             <label for="gridReboundStep">网格回弹步长 %</label>
                             <input id="gridReboundStep" type="number" min="0.5" max="100" step="0.5" value="{{ default_config.default_grid_rebound_step_pct }}">
                         </div>
@@ -4302,6 +4306,13 @@ STRATEGY_LAB_TEMPLATE = """
             return Number(document.getElementById(id).value || 0);
         }
 
+        function readOptionalNumber(id) {
+            const value = document.getElementById(id)?.value;
+            if (value === undefined || value === null || String(value).trim() === '') return null;
+            const n = Number(value);
+            return Number.isFinite(n) ? n : null;
+        }
+
         function selectedStrategies(id, labels) {
             const value = document.getElementById(id).value;
             return value === 'all' ? Object.keys(labels) : [value];
@@ -4363,6 +4374,7 @@ STRATEGY_LAB_TEMPLATE = """
                 repair_sell_cooldown_days: parameterValues('repair_step', 'repair_sell_cooldown_days'),
                 repair_stage_sell_pct: parameterValues('repair_step', 'repair_stage_sell_pct'),
                 dca_rearm_drawdown_pct: parameterValues('repair_step', 'dca_rearm_drawdown_pct'),
+                sell_stage_rearm_drawdown_pct: parameterValues('repair_step', 'sell_stage_rearm_drawdown_pct'),
                 grid_rebound_step_pct: parameterValues('grid_rebound', 'grid_rebound_step_pct'),
                 grid_first_sell_pct: parameterValues('grid_rebound', 'grid_first_sell_pct'),
                 grid_second_sell_pct: parameterValues('grid_rebound', 'grid_second_sell_pct'),
@@ -4401,7 +4413,11 @@ STRATEGY_LAB_TEMPLATE = """
         }
 
         function robustSellVariantCount(buyStrategy, sellStrategy) {
-            const rearmMultiplier = (buyStrategy === 'pyramid_3' || buyStrategy === 'weekly_dca' || buyStrategy === 'salary_flow_dca' || buyStrategy === 'core_dip_dca') ? 5 : 1;
+            const rearmValues = parameterValues(sellStrategy, 'dca_rearm_drawdown_pct');
+            const sellStageRearmValues = parameterValues(sellStrategy, 'sell_stage_rearm_drawdown_pct');
+            const rearmMultiplier = (buyStrategy === 'pyramid_3' || buyStrategy === 'weekly_dca' || buyStrategy === 'salary_flow_dca' || buyStrategy === 'core_dip_dca')
+                ? rearmValues.reduce((sum, rearm) => sum + 1 + sellStageRearmValues.filter((value) => Number(value) > Number(rearm)).length, 0)
+                : 1;
             const sameDayMultiplier = sellStrategy === 'none' ? 1 : Math.max(1, parameterValues(sellStrategy, 'sell_allow_same_day_sell').length);
             const gridVariantCount = Math.max(1, parameterValues('grid_rebound', 'grid_rebound_step_pct').length)
                 * Math.max(1, parameterValues('grid_rebound', 'grid_first_sell_pct').length)
@@ -4423,7 +4439,7 @@ STRATEGY_LAB_TEMPLATE = """
                         * rearmMultiplier;
                 }
                 if (buyStrategy === 'weekly_dca' || buyStrategy === 'salary_flow_dca' || buyStrategy === 'core_dip_dca') {
-                    return 5 * sameDayMultiplier;
+                    return rearmMultiplier * sameDayMultiplier;
                 }
                 return 0;
             }
@@ -4594,6 +4610,7 @@ STRATEGY_LAB_TEMPLATE = """
                 repair_sell_cooldown_days: readNumber('repairSellCooldown'),
                 repair_stage_sell_pct: readNumber('repairStageSellPct'),
                 dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown'),
+                sell_stage_rearm_drawdown_pct: readOptionalNumber('sellStageRearmDrawdown'),
                 grid_rebound_step_pct: readNumber('gridReboundStep'),
                 grid_first_sell_pct: readNumber('gridFirstSellPct'),
                 grid_second_sell_pct: readNumber('gridSecondSellPct'),
@@ -5061,6 +5078,7 @@ STRATEGY_LAB_TEMPLATE = """
             setFieldValue('repairSellCooldown', payload.repair_sell_cooldown_days);
             setFieldValue('repairStageSellPct', payload.repair_stage_sell_pct);
             setFieldValue('dcaRearmDrawdown', payload.dca_rearm_drawdown_pct);
+            setFieldValue('sellStageRearmDrawdown', payload.sell_stage_rearm_drawdown_pct ?? '');
             setFieldValue('gridReboundStep', payload.grid_rebound_step_pct);
             setFieldValue('gridFirstSellPct', payload.grid_first_sell_pct);
             setFieldValue('gridSecondSellPct', payload.grid_second_sell_pct);
@@ -6001,6 +6019,7 @@ STRATEGY_LAB_TEMPLATE = """
                 repair_sell_cooldown_days: readNumber('repairSellCooldown'),
                 repair_stage_sell_pct: readNumber('repairStageSellPct'),
                 dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown'),
+                sell_stage_rearm_drawdown_pct: readOptionalNumber('sellStageRearmDrawdown'),
                 grid_rebound_step_pct: readNumber('gridReboundStep'),
                 grid_first_sell_pct: readNumber('gridFirstSellPct'),
                 grid_second_sell_pct: readNumber('gridSecondSellPct'),
@@ -6050,6 +6069,7 @@ STRATEGY_LAB_TEMPLATE = """
                 default_repair_sell_cooldown_days: readNumber('repairSellCooldown'),
                 default_repair_stage_sell_pct: readNumber('repairStageSellPct'),
                 default_dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown'),
+                default_sell_stage_rearm_drawdown_pct: readOptionalNumber('sellStageRearmDrawdown'),
                 default_grid_rebound_step_pct: readNumber('gridReboundStep'),
                 default_grid_first_sell_pct: readNumber('gridFirstSellPct'),
                 default_grid_second_sell_pct: readNumber('gridSecondSellPct'),
@@ -6367,6 +6387,7 @@ STRATEGY_LAB_TEMPLATE = """
             }
             if ([...selectedSell].some((item) => item !== 'none')) {
                 rows.push({ label: '卖后重启', values: grid.dca_rearm_drawdown_pct || [], formatter: pct });
+                rows.push({ label: '卖档重启', values: grid.sell_stage_rearm_drawdown_pct || [], formatter: pct });
             }
             const node = document.getElementById('robustCandidateGridSummary');
             if (!node) {
@@ -6404,6 +6425,7 @@ STRATEGY_LAB_TEMPLATE = """
             }
             if ((data.sell_strategies || []).some((item) => item !== 'none')) {
                 bits.push(`卖后重启: ${grid.dca_rearm_drawdown_pct || []}`);
+                bits.push(`卖档重启: ${grid.sell_stage_rearm_drawdown_pct || []}`);
             }
             return bits.join('\\n') || '本次只遍历不卖出策略，无卖出参数。';
         }
@@ -6445,6 +6467,9 @@ STRATEGY_LAB_TEMPLATE = """
                 const dcaRearmParam = candidate.dca_rearm_drawdown_pct !== null && candidate.dca_rearm_drawdown_pct !== undefined
                     ? `卖后重启 ${pct(candidate.dca_rearm_drawdown_pct)}`
                     : '';
+                const sellStageRearmParam = candidate.sell_stage_rearm_drawdown_pct !== null && candidate.sell_stage_rearm_drawdown_pct !== undefined
+                    ? `卖档重启 ${pct(candidate.sell_stage_rearm_drawdown_pct)}`
+                    : '';
                 const sellParams = [
                     candidate.sell_strategy === 'repair_step'
                         ? `${pct(candidate.sell_min_profit_pct)} 盈利 / ${number(candidate.repair_sell_cooldown_days)} 日冷却 / ${pct(candidate.repair_stage_sell_pct)} 单档`
@@ -6455,6 +6480,9 @@ STRATEGY_LAB_TEMPLATE = """
                                 : '无阶梯参数',
                     dcaRearmParam
                         ? `${escapeHtml(dcaRearmParam)} ${scoreHelpButton('解释卖后重启', '卖后重启回撤\\n三档金字塔：整仓/网格/成本卖出后，回撤需要从卖出当天再加深这些百分点，已用过的买入档位才会重新打开。\\n定投类策略：后续买入发生在不低于这个回撤的位置时，整仓卖出档位会重新打开。\\n0% 表示卖出后只要仍在当前回撤附近即可重启。')}`
+                        : '',
+                    sellStageRearmParam
+                        ? `${escapeHtml(sellStageRearmParam)} ${scoreHelpButton('解释卖档重启', '卖档重启回撤\\n控制定投/补仓买入后，是否清空整仓卖出档位标记。\\n留空时继承卖后重启回撤；设得更深可以避免浅回撤补仓后立刻重新触发已卖过的成本去杠杆档位。')}`
                         : ''
                 ].filter(Boolean).join(' / ');
                 return `
@@ -6539,6 +6567,7 @@ STRATEGY_LAB_TEMPLATE = """
             if (candidate.dca_rearm_drawdown_pct !== null && candidate.dca_rearm_drawdown_pct !== undefined) {
                 setFieldValue('dcaRearmDrawdown', candidate.dca_rearm_drawdown_pct);
             }
+            setFieldValue('sellStageRearmDrawdown', candidate.sell_stage_rearm_drawdown_pct ?? '');
             updateCommandBar();
             activateTab('scorecard');
             setStatus('success', '已应用收益 Top10 参数，并保持评分为全量策略。点击“运行评分”即可在全量组合里对比这组参数。');
@@ -6609,6 +6638,7 @@ STRATEGY_LAB_TEMPLATE = """
             if (candidate.dca_rearm_drawdown_pct !== null && candidate.dca_rearm_drawdown_pct !== undefined) {
                 setFieldValue('dcaRearmDrawdown', candidate.dca_rearm_drawdown_pct);
             }
+            setFieldValue('sellStageRearmDrawdown', candidate.sell_stage_rearm_drawdown_pct ?? '');
             const sameDay = document.getElementById('sellAllowSameDaySell');
             if (sameDay && candidate.sell_allow_same_day_sell !== null && candidate.sell_allow_same_day_sell !== undefined) {
                 sameDay.checked = Boolean(candidate.sell_allow_same_day_sell);
@@ -7297,7 +7327,8 @@ function recordBuy(state, point, inputs, tradeLog, buyStrategy, sellStrategy, gr
 function rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy) {
   if (!['repair_step', 'grid_rebound', 'cost_deleverage'].includes(sellStrategy)) return false;
   if (!Object.keys(state.sell_marks).length) return false;
-  if (drawdown + 1e-9 < Math.min(Math.max(0, num(inputs.dca_rearm_drawdown_pct)), num(inputs.max_drawdown_pct))) return false;
+  const rawThreshold = inputs.sell_stage_rearm_drawdown_pct ?? inputs.dca_rearm_drawdown_pct;
+  if (drawdown + 1e-9 < Math.min(Math.max(0, num(rawThreshold)), num(inputs.max_drawdown_pct))) return false;
   state.sell_marks = {};
   return true;
 }
@@ -7392,7 +7423,6 @@ function executeTranches(state, point, tranches, executed, inputs, tradeLog, buy
       ? Math.min(target, state.cash)
       : Math.min(Math.max(0, target - already), state.cash);
     if (gross <= 0) { executed[key] = buyStrategy === 'pyramid_3' ? 1 : Math.max(already, target); continue; }
-    if (Object.keys(state.sell_marks).length) state.sell_marks = {};
     bought = recordBuy(state, point, inputs, tradeLog, buyStrategy, sellStrategy, gross, drawdown, { threshold_pct: tranche.threshold_pct, allocation_pct: tranche.allocation_pct }) || bought;
     executed[key] = buyStrategy === 'pyramid_3' ? 1 : already + gross;
   }
@@ -7479,6 +7509,7 @@ function candidateInputs(base, candidate) {
     repair_sell_cooldown_days: candidate.repair_sell_cooldown_days ?? base.repair_sell_cooldown_days,
     repair_stage_sell_pct: candidate.repair_stage_sell_pct ?? base.repair_stage_sell_pct,
     dca_rearm_drawdown_pct: candidate.dca_rearm_drawdown_pct ?? base.dca_rearm_drawdown_pct,
+    sell_stage_rearm_drawdown_pct: candidate.sell_stage_rearm_drawdown_pct ?? base.sell_stage_rearm_drawdown_pct,
     grid_rebound_step_pct: candidate.grid_rebound_step_pct ?? base.grid_rebound_step_pct,
     grid_first_sell_pct: candidate.grid_first_sell_pct ?? base.grid_first_sell_pct,
     grid_second_sell_pct: candidate.grid_second_sell_pct ?? base.grid_second_sell_pct,

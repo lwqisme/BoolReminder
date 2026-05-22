@@ -66,7 +66,8 @@ const sellFields = [
   'grid_min_sell_amount', 'cost_first_profit_pct', 'cost_second_profit_pct',
   'cost_third_profit_pct', 'cost_first_sell_pct', 'cost_second_sell_pct',
   'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
-  'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct'
+  'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct',
+  'sell_stage_rearm_drawdown_pct'
 ];
 function packet(flags) {
   return {
@@ -81,7 +82,8 @@ function packet(flags) {
       reserve_position_pct: 0,
       sell_min_profit_pct: 0,
       sell_allow_same_day_sell: false,
-      dca_rearm_drawdown_pct: 0
+      dca_rearm_drawdown_pct: 0,
+      sell_stage_rearm_drawdown_pct: null
     },
     tasks: [{
       key: 'googl_3y',
@@ -106,7 +108,7 @@ function packet(flags) {
     sell_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...sellFields],
     candidate_schema: ['candidate_id', 'buy_variant_id', 'sell_variant_id'],
     buy_variants: [[0, 'buy:pyramid_3', 'pyramid_3', null, null, null, null, null, null, null, null, null, null, null]],
-    sell_variants: [[0, 'sell:cost', 'cost_deleverage', 0, null, null, null, null, null, null, 15, 25, 35, 25, 25, 25, 2, false, 0, 0]],
+    sell_variants: [[0, 'sell:cost', 'cost_deleverage', 0, null, null, null, null, null, null, 15, 25, 35, 25, 25, 25, 2, false, 0, 0, 15]],
     candidate_rows: [[0, 0, 0]],
     include_trades: Boolean(flags.include_trades),
     include_series: Boolean(flags.include_series)
@@ -175,7 +177,8 @@ const sellFields = [
   'grid_min_sell_amount', 'cost_first_profit_pct', 'cost_second_profit_pct',
   'cost_third_profit_pct', 'cost_first_sell_pct', 'cost_second_sell_pct',
   'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
-  'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct'
+  'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct',
+  'sell_stage_rearm_drawdown_pct'
 ];
 const packet = {
   run_id: 'googl-detail',
@@ -189,7 +192,8 @@ const packet = {
     reserve_position_pct: 0,
     sell_min_profit_pct: 0,
     sell_allow_same_day_sell: false,
-    dca_rearm_drawdown_pct: 0
+    dca_rearm_drawdown_pct: 0,
+    sell_stage_rearm_drawdown_pct: null
   },
   tasks: [{
     key: 'googl_3y',
@@ -214,7 +218,7 @@ const packet = {
   sell_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...sellFields],
   candidate_schema: ['candidate_id', 'buy_variant_id', 'sell_variant_id'],
   buy_variants: [[0, 'buy:pyramid_3', 'pyramid_3', null, null, null, null, null, null, null, null, null, null, null]],
-  sell_variants: [[0, 'sell:cost', 'cost_deleverage', 0, null, null, null, null, null, null, 15, 25, 35, 25, 25, 25, 2, false, 0, 0]],
+  sell_variants: [[0, 'sell:cost', 'cost_deleverage', 0, null, null, null, null, null, null, 15, 25, 35, 25, 25, 25, 2, false, 0, 0, 15]],
   candidate_rows: [[0, 0, 0]],
   include_trades: true,
   include_series: true
@@ -480,6 +484,8 @@ process.stdout.write(JSON.stringify(results));
         self.assertIn("row.candidate_key", html)
         self.assertIn("type: 'pause', run_id: currentRun.run_id", html)
         self.assertIn("type: 'cancel', run_id: runId", html)
+        self.assertIn("sell_stage_rearm_drawdown_pct", html)
+        self.assertIn("卖档重启", html)
         self.assertIn("/api/strategy-lab/parameter-lab/estimate", html)
         self.assertIn("confirmLargeRunIfNeeded", html)
 

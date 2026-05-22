@@ -148,7 +148,8 @@ const SELL_PARAMETER_FIELDS = [
   'cost_deleverage_cooldown_days',
   'sell_allow_same_day_sell',
   'cost_min_sell_amount',
-  'dca_rearm_drawdown_pct'
+  'dca_rearm_drawdown_pct',
+  'sell_stage_rearm_drawdown_pct'
 ];
 
 function priceUsd(symbol, price, inputs) {
@@ -363,6 +364,9 @@ function buildCandidateKey(buyStrategy, sellStrategy, buyParams, sellParams) {
   if (sellParams.dca_rearm_drawdown_pct !== null && sellParams.dca_rearm_drawdown_pct !== undefined) {
     parts.push(`rearm${formatCompact(sellParams.dca_rearm_drawdown_pct)}`);
   }
+  if (sellParams.sell_stage_rearm_drawdown_pct !== null && sellParams.sell_stage_rearm_drawdown_pct !== undefined) {
+    parts.push(`sellrearm${formatCompact(sellParams.sell_stage_rearm_drawdown_pct)}`);
+  }
   return parts.join('__');
 }
 
@@ -409,6 +413,9 @@ function buildSellLabel(strategyKey, params, labels = {}) {
   if (strategyKey !== 'none' && params.sell_allow_same_day_sell) label = `${label} / 买入日可卖`;
   if (params.dca_rearm_drawdown_pct !== null && params.dca_rearm_drawdown_pct !== undefined) {
     label = `${label} / 卖后重启 ${formatCompact(params.dca_rearm_drawdown_pct)}%回撤`;
+  }
+  if (params.sell_stage_rearm_drawdown_pct !== null && params.sell_stage_rearm_drawdown_pct !== undefined) {
+    label = `${label} / 卖档重启 ${formatCompact(params.sell_stage_rearm_drawdown_pct)}%回撤`;
   }
   return label;
 }
@@ -548,7 +555,8 @@ function recordBuy(state, point, inputs, tradeLog, buyStrategy, sellStrategy, gr
 function rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy) {
   if (!['repair_step', 'grid_rebound', 'cost_deleverage'].includes(sellStrategy)) return false;
   if (!Object.keys(state.sell_marks).length) return false;
-  if (drawdown + 1e-9 < Math.min(Math.max(0, num(inputs.dca_rearm_drawdown_pct)), num(inputs.max_drawdown_pct))) return false;
+  const rawThreshold = inputs.sell_stage_rearm_drawdown_pct ?? inputs.dca_rearm_drawdown_pct;
+  if (drawdown + 1e-9 < Math.min(Math.max(0, num(rawThreshold)), num(inputs.max_drawdown_pct))) return false;
   state.sell_marks = {};
   return true;
 }
@@ -669,7 +677,6 @@ function executeTranches(state, point, tranches, executed, inputs, tradeLog, buy
       executed[key] = buyStrategy === 'pyramid_3' ? 1 : Math.max(already, target);
       continue;
     }
-    if (Object.keys(state.sell_marks).length) state.sell_marks = {};
     bought = recordBuy(state, point, inputs, tradeLog, buyStrategy, sellStrategy, gross, drawdown, {
       threshold_pct: tranche.threshold_pct,
       allocation_pct: tranche.allocation_pct
@@ -796,6 +803,7 @@ function candidateInputs(base, candidate) {
     repair_sell_cooldown_days: candidate.repair_sell_cooldown_days ?? base.repair_sell_cooldown_days,
     repair_stage_sell_pct: candidate.repair_stage_sell_pct ?? base.repair_stage_sell_pct,
     dca_rearm_drawdown_pct: candidate.dca_rearm_drawdown_pct ?? base.dca_rearm_drawdown_pct,
+    sell_stage_rearm_drawdown_pct: candidate.sell_stage_rearm_drawdown_pct ?? base.sell_stage_rearm_drawdown_pct,
     grid_rebound_step_pct: candidate.grid_rebound_step_pct ?? base.grid_rebound_step_pct,
     grid_first_sell_pct: candidate.grid_first_sell_pct ?? base.grid_first_sell_pct,
     grid_second_sell_pct: candidate.grid_second_sell_pct ?? base.grid_second_sell_pct,

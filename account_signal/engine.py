@@ -302,7 +302,7 @@ def _position_after_estimated_buy(
         )
     )
     marks = set(position.cost_deleverage_marks)
-    if marks and drawdown_pct + 1e-9 >= min(inputs.max_drawdown_pct, max(0.0, inputs.dca_rearm_drawdown_pct)):
+    if marks and drawdown_pct + 1e-9 >= _sell_stage_rearm_drawdown_pct(inputs):
         marks.clear()
     return AccountPosition(
         symbol=position.symbol,
@@ -376,7 +376,7 @@ def _googl_active_cost_marks(
     current_drawdown = _point_drawdown_pct(point, inputs)
     sell_context = _latest_googl_cost_sell_context(position, points, inputs)
     if sell_context is not None:
-        rearm_drawdown = min(inputs.max_drawdown_pct, sell_context["drawdown_pct"] + inputs.dca_rearm_drawdown_pct)
+        rearm_drawdown = min(inputs.max_drawdown_pct, sell_context["drawdown_pct"] + _sell_stage_rearm_drawdown_pct(inputs))
         if current_drawdown + 1e-9 >= rearm_drawdown:
             debug.append(
                 {
@@ -401,7 +401,7 @@ def _googl_active_cost_marks(
         )
         return marks
 
-    if current_drawdown + 1e-9 >= inputs.dca_rearm_drawdown_pct:
+    if current_drawdown + 1e-9 >= _sell_stage_rearm_drawdown_pct(inputs):
         debug.append(
             {
                 "event": "googl_cost_marks_rearmed",
@@ -411,6 +411,15 @@ def _googl_active_cost_marks(
         )
         return set()
     return marks
+
+
+def _sell_stage_rearm_drawdown_pct(inputs: StrategyInputs) -> float:
+    raw_threshold = (
+        inputs.sell_stage_rearm_drawdown_pct
+        if inputs.sell_stage_rearm_drawdown_pct is not None
+        else inputs.dca_rearm_drawdown_pct
+    )
+    return min(inputs.max_drawdown_pct, max(0.0, float(raw_threshold)))
 
 
 def _latest_googl_cost_sell_context(

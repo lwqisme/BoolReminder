@@ -27,13 +27,14 @@ from drawdown.position_strategy import (
     ROBUST_REPAIR_COOLDOWNS,
     ROBUST_REPAIR_SELL_MIN_PROFITS,
     ROBUST_REPAIR_STAGE_SELLS,
+    ROBUST_SELL_STAGE_REARM_DRAWDOWN_VALUES,
     SELL_STRATEGY_LABELS,
     STRATEGY_LABELS,
     StrategyInputs,
 )
 
 
-STRATEGY_DEFINITION_VERSION = "strategy-params-v3"
+STRATEGY_DEFINITION_VERSION = "strategy-params-v4"
 
 BUY_PARAMETER_FIELDS = (
     "step_pct",
@@ -67,6 +68,7 @@ SELL_PARAMETER_FIELDS = (
     "sell_allow_same_day_sell",
     "cost_min_sell_amount",
     "dca_rearm_drawdown_pct",
+    "sell_stage_rearm_drawdown_pct",
 )
 
 PARAMETER_LAB_BUY_VARIANT_SCHEMA = ("variant_id", "variant_key", "strategy_key", *BUY_PARAMETER_FIELDS)
@@ -453,6 +455,7 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
                 "repair_stage_sell_pct": list(ROBUST_REPAIR_STAGE_SELLS),
                 "sell_allow_same_day_sell": [False, True],
                 "dca_rearm_drawdown_pct": list(ROBUST_DCA_REARM_DRAWDOWN_VALUES),
+                "sell_stage_rearm_drawdown_pct": list(ROBUST_SELL_STAGE_REARM_DRAWDOWN_VALUES),
             },
             compatible_buy_strategies=tuple(REARM_BUY_STRATEGIES),
         ),
@@ -473,6 +476,7 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
                 "grid_second_sell_pct": list(ROBUST_GRID_SECOND_SELLS),
                 "sell_allow_same_day_sell": [False, True],
                 "dca_rearm_drawdown_pct": list(ROBUST_DCA_REARM_DRAWDOWN_VALUES),
+                "sell_stage_rearm_drawdown_pct": list(ROBUST_SELL_STAGE_REARM_DRAWDOWN_VALUES),
             },
             compatible_buy_strategies=all_buys,
         ),
@@ -496,6 +500,7 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
                 "cost_deleverage_cooldown_days": list(ROBUST_COST_COOLDOWNS),
                 "sell_allow_same_day_sell": [False, True],
                 "dca_rearm_drawdown_pct": list(ROBUST_DCA_REARM_DRAWDOWN_VALUES),
+                "sell_stage_rearm_drawdown_pct": list(ROBUST_SELL_STAGE_REARM_DRAWDOWN_VALUES),
             },
             compatible_buy_strategies=all_buys,
         ),
@@ -630,11 +635,27 @@ def _with_rearm_variants(
     result: list[dict[str, object]] = []
     for params in base_variants:
         for rearm in rearm_values:
-            item = dict(params)
-            if rearm is not None:
-                item["dca_rearm_drawdown_pct"] = float(rearm)
-            result.append(item)
+            for sell_stage_rearm in _sell_stage_rearm_variants(rearm):
+                item = dict(params)
+                if rearm is not None:
+                    item["dca_rearm_drawdown_pct"] = float(rearm)
+                if sell_stage_rearm is not None:
+                    item["sell_stage_rearm_drawdown_pct"] = float(sell_stage_rearm)
+                result.append(item)
     return _dedupe_param_dicts(result)
+
+
+def _sell_stage_rearm_variants(dca_rearm_drawdown_pct: float | None) -> list[float | None]:
+    if dca_rearm_drawdown_pct is None:
+        return [None]
+    return [
+        None,
+        *[
+            float(value)
+            for value in ROBUST_SELL_STAGE_REARM_DRAWDOWN_VALUES
+            if float(value) > float(dca_rearm_drawdown_pct)
+        ],
+    ]
 
 
 def _candidate_key(
@@ -707,6 +728,8 @@ def _candidate_key(
         parts.append("same1")
     if sell_params.get("dca_rearm_drawdown_pct") is not None:
         parts.append(f"rearm{float(sell_params['dca_rearm_drawdown_pct']):g}")
+    if sell_params.get("sell_stage_rearm_drawdown_pct") is not None:
+        parts.append(f"sellrearm{float(sell_params['sell_stage_rearm_drawdown_pct']):g}")
     return "__".join(parts)
 
 
@@ -774,6 +797,8 @@ def _sell_label(strategy_key: str, params: Mapping[str, object]) -> str:
         label = f"{label} / 买入日可卖"
     if params.get("dca_rearm_drawdown_pct") is not None:
         label = f"{label} / 卖后重启 {float(params['dca_rearm_drawdown_pct']):g}%回撤"
+    if params.get("sell_stage_rearm_drawdown_pct") is not None:
+        label = f"{label} / 卖档重启 {float(params['sell_stage_rearm_drawdown_pct']):g}%回撤"
     return label
 
 
