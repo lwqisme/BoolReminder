@@ -2824,20 +2824,28 @@
                 };
             };
             const traces = [
-                { type: 'scatter', mode: 'lines', name: '组合价值', x: dates, y: portfolioValues, line: { color: '#1167d8', width: 2.3 } },
+                { type: 'scatter', mode: 'lines', name: '组合价值', x: dates, y: portfolioValues, line: { color: '#07689f', width: 2.2 } },
                 { type: 'scatter', mode: 'lines', name: '现金', x: dates, y: cashValues, line: { color: '#00856f', width: 1.9, dash: 'dot' } },
-                tradeTrace('buy', '买入', '#38bdf8', 'circle', '#eaf7ff'),
-                tradeTrace('sell', '卖出', '#64748b', 'diamond', '#f8fafc')
+                tradeTrace('buy', '买入', '#ff7e67', 'circle'),
+                tradeTrace('sell', '卖出', '#054d76', 'diamond')
             ];
             Plotly.react(chart, traces, {
-                margin: { l: 46, r: 12, t: 8, b: 34 },
-                paper_bgcolor: 'rgba(255,255,255,0)',
-                plot_bgcolor: 'rgba(255,255,255,0)',
-                font: { color: '#111827', family: 'Aptos, Noto Sans SC, Microsoft YaHei, sans-serif' },
+                title: {
+                    text: '买卖点 / 现金余额（交易后）',
+                    x: 0,
+                    y: 0.98,
+                    xanchor: 'left',
+                    yanchor: 'top',
+                    font: { size: 14, color: '#06324c' }
+                },
+                margin: { l: 46, r: 12, t: 54, b: 68 },
+                paper_bgcolor: '#fafafa',
+                plot_bgcolor: '#fafafa',
+                font: { color: '#06324c', family: 'Aptos, IBM Plex Sans, Noto Sans SC, sans-serif' },
                 hovermode: 'x unified',
-                legend: { orientation: 'h', y: 1.12, x: 0, font: { color: '#657184' } },
-                xaxis: { type: 'date', gridcolor: 'rgba(174,185,200,0.30)', zeroline: false, showline: false },
-                yaxis: { gridcolor: 'rgba(174,185,200,0.30)', zeroline: false, showline: false, tickprefix: '$' }
+                legend: { orientation: 'h', y: -0.18, x: 0, yanchor: 'top', font: { color: '#315d78' } },
+                xaxis: { type: 'date', gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2' },
+                yaxis: { gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2', tickprefix: '$' }
             }, { displayModeBar: false, responsive: true });
         }
         function renderCellReplay(row, topicKey) {
