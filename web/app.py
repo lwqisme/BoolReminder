@@ -8375,7 +8375,10 @@ ACCOUNT_SIGNAL_TEMPLATE = """
     .ticker { font-size: 23px; font-weight: 800; }
     .strategy-summary { display: grid; gap: 5px; margin: 10px 0 12px; color: var(--muted); font-size: 13px; line-height: 1.45; }
     .strategy-summary strong { color: var(--ink); font-size: 12px; text-transform: uppercase; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    .pill { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; padding: 3px 7px; border: 1px solid var(--line); background: var(--panel); }
+    .pill { display: inline-flex; align-items: center; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.25; padding: 3px 7px; border: 1px solid var(--line); background: var(--panel); white-space: nowrap; }
+    #signals table { line-height: 1.45; }
+    #signals td { padding: 10px 8px; }
+    #signals .pill { margin-top: 5px; }
     table { width: 100%; border-collapse: collapse; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
     th, td { text-align: left; border-top: 1px solid var(--line); padding: 8px 6px; vertical-align: top; }
     th { color: var(--muted); font-weight: 700; }
