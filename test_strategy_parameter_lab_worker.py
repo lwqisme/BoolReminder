@@ -658,6 +658,13 @@ process.stdout.write(JSON.stringify({
         self.assertIn("function splitTopGroupLeapsOptionQueueByBudget", html)
         self.assertIn("await ensureFullLeapsDetailsForRow(row)", html)
         self.assertIn("runLeapsDetailWorker(row)", html)
+        self.assertIn("function leapsDetailTasksForActiveScope(sourcePacket)", html)
+        self.assertIn("return tasks.filter((task) => String(task.key) === String(activeDetailTopicKey));", html)
+        self.assertIn("topic_key: activeDetailTopicKey || '__row__'", html)
+        self.assertNotIn("const tasks = sourcePacket.tasks || [];\n            const packet = {\n                ...sourcePacket,\n                run_id: runId,", html)
+        self.assertIn("当前题目 LEAPS 明细：", html)
+        self.assertIn("参数行全部题目 LEAPS 明细", html)
+        self.assertIn("期权卖出日", html)
         self.assertIn("highGradeLeapsOptionSignals(detailEntry?.all_signals || [])", html)
         self.assertIn("row.leaps_option_summary = entry.summary", html)
         self.assertNotIn("/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch", html)
@@ -676,6 +683,79 @@ process.stdout.write(JSON.stringify({
         self.assertIn("计算该信号", html)
         self.assertIn("row.leaps_option_summary = outcomeEntry.summary", html)
         self.assertIn("renderLeapsOptionSummary", html)
+
+    def test_page_scopes_leaps_detail_worker_tasks_to_active_cell(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript LEAPS scope check")
+
+        html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
+        helpers = html[
+            html.index("        function leapsDetailCacheKey") : html.index("        function renderTopLeapsTable")
+        ]
+        script = r"""
+const vm = require('vm');
+const helpers = process.argv[1];
+const startedPackets = [];
+function Worker() {
+  this.terminate = () => {};
+  this.postMessage = (message) => {
+    if (message.type === 'start') startedPackets.push(message);
+  };
+}
+const sourcePacket = {
+  run_id: 'run-1',
+  payload_schema: 'schema-1',
+  inputs: { leaps_low_cash_threshold_pct: 10 },
+  tasks: [
+    { key: 'googl_100__1y' },
+    { key: 'googl_100__3y' }
+  ],
+  market_data: {},
+  registry: {},
+  buy_variant_schema: [],
+  sell_variant_schema: [],
+  candidate_schema: [],
+  buy_variants: [],
+  sell_variants: []
+};
+const context = {
+  Worker,
+  Promise,
+  Date: { now: () => 123456 },
+  Math,
+  String,
+  JSON,
+  Array,
+  startedPackets,
+  parameterLabWorkerUrl: '/worker.js',
+  activeDetailTopicKey: 'googl_100__1y',
+  lastParameterPacket: sourcePacket,
+  lastParameterResult: null,
+  findCandidatePacketRow: () => ['candidate-row'],
+  createParameterLabRunId: () => 'generated-run',
+  scoreParameterResults: () => ({ rows: [] }),
+  buildCandidateIndex: () => ({})
+};
+vm.createContext(context);
+vm.runInContext(helpers, context);
+const row = { key: 'row-1' };
+const cellKey = context.leapsDetailCacheKey(row);
+context.runLeapsDetailWorker(row);
+const cellTasks = startedPackets.pop().packet.tasks.map((task) => task.key);
+if (cellTasks.length !== 1 || cellTasks[0] !== 'googl_100__1y') {
+  throw new Error(`cell scope tasks were ${JSON.stringify(cellTasks)}`);
+}
+context.activeDetailTopicKey = '';
+const rowKey = context.leapsDetailCacheKey(row);
+context.runLeapsDetailWorker(row);
+const rowTasks = startedPackets.pop().packet.tasks.map((task) => task.key);
+if (rowTasks.length !== 2 || rowTasks[0] !== 'googl_100__1y' || rowTasks[1] !== 'googl_100__3y') {
+  throw new Error(`row scope tasks were ${JSON.stringify(rowTasks)}`);
+}
+if (!cellKey.includes('"topic_key":"googl_100__1y"')) throw new Error(cellKey);
+if (!rowKey.includes('"topic_key":"__row__"')) throw new Error(rowKey);
+"""
+        subprocess.run(["node", "-e", script, helpers], check=True, capture_output=True, text=True)
 
     def test_partial_done_leaps_option_outcome_is_rendered_for_group_rows(self):
         if shutil.which("node") is None:
@@ -702,8 +782,10 @@ const context = {
   Number,
   String,
   LEAPS_DETAIL_PAGE_SIZE: 25,
+  activeDetailTopicKey: '',
   leapsOptionOutcomeCache: new Map(),
   leapsDetailCacheKey: (row) => row.key,
+  findSourceCell: () => null,
   escapeHtml: (value) => String(value ?? ''),
   renderLeapsBadge: () => '<span class="leaps-badge">LEAPS</span>',
   number: (value) => String(value ?? '--'),

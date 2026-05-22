@@ -4132,6 +4132,7 @@
             const inputs = packet.inputs || {};
             return JSON.stringify({
                 row_key: row?.key || '',
+                topic_key: activeDetailTopicKey || '__row__',
                 run_id: packet.run_id || '',
                 payload_schema: packet.payload_schema || '',
                 task_keys: (packet.tasks || []).map((task) => task.key),
@@ -4145,15 +4146,22 @@
             if (!lastParameterPacket || !row) return null;
             return findCandidatePacketRow(lastParameterPacket, row);
         }
+        function leapsDetailTasksForActiveScope(sourcePacket) {
+            const tasks = sourcePacket?.tasks || [];
+            if (!activeDetailTopicKey) return tasks;
+            return tasks.filter((task) => String(task.key) === String(activeDetailTopicKey));
+        }
         function runLeapsDetailWorker(row) {
             const sourcePacket = lastParameterPacket;
             const candidateRow = findCandidateRowForDetail(row);
             if (!sourcePacket || !candidateRow) return Promise.reject(new Error('找不到当前参数行的数据包。'));
+            const tasks = leapsDetailTasksForActiveScope(sourcePacket);
+            if (activeDetailTopicKey && !tasks.length) return Promise.reject(new Error('找不到当前 cell 的原始数据包。'));
             const runId = `${sourcePacket.run_id || createParameterLabRunId()}-leaps-${Date.now().toString(36)}`;
-            const tasks = sourcePacket.tasks || [];
             const packet = {
                 ...sourcePacket,
                 run_id: runId,
+                tasks,
                 include_leaps_signal_details: true,
                 candidate_rows: [candidateRow],
                 parameter_lab_concurrency: 1
@@ -4312,7 +4320,7 @@
                     <summary>合约详情 <span>${number(count, 0)} 条</span></summary>
                     <div class="matrix-wrap" data-leaps-scroll-key="option-outcomes" style="max-height:300px;">
                         <table class="mini-table leaps-detail-table">
-                            <thead><tr><th>日期</th><th>标的</th><th>合约</th><th>到期</th><th>行权价</th><th>DTE</th><th>入场日</th><th>入场价</th><th>卖出日</th><th>卖出价</th><th>ROI</th><th>状态</th></tr></thead>
+                            <thead><tr><th>日期</th><th>标的</th><th>合约</th><th>到期</th><th>行权价</th><th>DTE</th><th>入场日</th><th>入场价</th><th>期权卖出日</th><th>卖出价</th><th>ROI</th><th>状态</th></tr></thead>
                             <tbody>${rows}</tbody>
                         </table>
                     </div>
@@ -4457,8 +4465,25 @@
                 </div>
             `;
         }
+        function leapsDetailFallbackSummary(row) {
+            if (!activeDetailTopicKey) return row.leaps_signal || {};
+            const sourceCell = findSourceCell(row, activeDetailTopicKey);
+            const summary = sourceCell?.leaps_signal || {};
+            const withTopic = (signal) => ({
+                ...signal,
+                topic_key: sourceCell?.topic_key || activeDetailTopicKey,
+                portfolio_label: sourceCell?.portfolio_label || signal.portfolio_label,
+                period_label: sourceCell?.period_label || signal.period_label
+            });
+            const topSignals = (summary.top_signals || []).map(withTopic);
+            return {
+                ...summary,
+                top_signals: topSignals,
+                all_signals: Array.isArray(summary.all_signals) ? summary.all_signals.map(withTopic) : summary.all_signals
+            };
+        }
         function renderFullLeapsGroups(row, entry) {
-            const summary = row.leaps_signal || {};
+            const summary = entry.summary || leapsDetailFallbackSummary(row);
             const groups = entry.groups || [];
             const outcomeEntry = leapsOptionOutcomeCache.get(leapsDetailCacheKey(row));
             const outcomes = leapsOptionVisibleOutcomes(outcomeEntry);
@@ -4496,6 +4521,7 @@
             `;
             }).join('');
             return `
+                ${renderLeapsDetailScopeTitle(row)}
                 <div class="leaps-strip">${renderLeapsBadge(summary, false)}</div>
                 <div class="leaps-mini">
                     <div><span>最佳日期</span><strong>${escapeHtml(summary.best_date || '--')}</strong></div>
@@ -4520,11 +4546,22 @@
                 </div>
             `;
         }
+        function renderLeapsDetailScopeTitle(row) {
+            if (!activeDetailTopicKey) {
+                return '<p class="leaps-detail-status">参数行全部题目 LEAPS 明细</p>';
+            }
+            const sourceCell = findSourceCell(row, activeDetailTopicKey);
+            const topicLabel = sourceCell
+                ? `${sourceCell.portfolio_label || ''} / ${sourceCell.period_label || ''}`.trim()
+                : activeDetailTopicKey;
+            return `<p class="leaps-detail-status">当前题目 LEAPS 明细：${escapeHtml(topicLabel || activeDetailTopicKey)}</p>`;
+        }
         function renderDetailLeaps(row) {
-            const summary = row.leaps_signal || {};
+            const summary = leapsDetailFallbackSummary(row);
             const signals = summary.top_signals || [];
             if (!signals.length) {
                 return `
+                    ${renderLeapsDetailScopeTitle(row)}
                     <div class="leaps-strip">${renderLeapsBadge(summary, false)}</div>
                     <p style="margin:8px 0 0;color:var(--muted);">当前参数组合没有符合设置的 LEAPS 信号。</p>
                 `;
@@ -4536,6 +4573,7 @@
                 ? '<p class="leaps-detail-status error">完整明细加载失败，当前仅显示 Top 5。</p>'
                 : '<p class="leaps-detail-status">正在加载完整明细，当前先显示 Top 5。</p>';
             return `
+                ${renderLeapsDetailScopeTitle(row)}
                 <div class="leaps-strip">${renderLeapsBadge(summary, false)}</div>
                 <div class="leaps-mini">
                     <div><span>最佳日期</span><strong>${escapeHtml(summary.best_date || '--')}</strong></div>
@@ -4610,6 +4648,7 @@
             const entry = {
                 status: 'done',
                 page: 1,
+                summary: detailRow?.leaps_signal || leapsDetailFallbackSummary(row),
                 all_signals: allSignals,
                 groups: groupLeapsSignalsByDateSymbol(allSignals)
             };
@@ -4636,15 +4675,16 @@
             const cacheKey = leapsDetailCacheKey(row);
             const cached = leapsDetailCache.get(cacheKey);
             const loadToken = activeDetailLoadToken;
+            const topicKey = activeDetailTopicKey || '';
             if (cached?.status === 'done') return;
             if (cached?.status === 'loading') {
                 if (cached.promise) {
                     cached.promise.then(() => {
-                        if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key) {
+                        if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key && activeDetailTopicKey === topicKey) {
                             renderDetailLeapsIntoDrawer(row);
                         }
                     }).catch(() => {
-                        if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key) {
+                        if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key && activeDetailTopicKey === topicKey) {
                             renderDetailLeapsIntoDrawer(row);
                         }
                     });
@@ -4655,16 +4695,17 @@
             renderDetailLeapsIntoDrawer(row);
             try {
                 await promise;
-                if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key) {
+                if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key && activeDetailTopicKey === topicKey) {
                     renderDetailLeapsIntoDrawer(row);
                 }
             } catch (error) {
                 parameterLabWarn('leaps_detail_load_failed', {
                     row_key: row.key,
+                    topic_key: topicKey,
                     message: error.message || String(error)
                 });
                 leapsDetailCache.set(cacheKey, { status: 'error', page: 1 });
-                if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key) {
+                if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key && activeDetailTopicKey === topicKey) {
                     renderDetailLeapsIntoDrawer(row);
                 }
             }
@@ -5072,7 +5113,7 @@
             const detailEntry = leapsDetailCache.get(detailKey);
             const signals = highGradeLeapsOptionSignals(detailEntry?.all_signals || []);
             try {
-                await calculateLeapsOptionOutcomes(row, signals, { scopeLabel: '当前参数行高等级 LEAPS 信号' });
+                await calculateLeapsOptionOutcomes(row, signals, { scopeLabel: activeDetailTopicKey ? '当前题目高等级 LEAPS 信号' : '当前参数行高等级 LEAPS 信号' });
             } catch (error) {
                 const current = leapsOptionOutcomeCache.get(detailKey) || {};
                 leapsOptionOutcomeCache.set(detailKey, {
@@ -5092,7 +5133,7 @@
             const row = findRow(activeDetailRowKey);
             if (!row) return;
             try {
-                await calculateLeapsOptionOutcomes(row, null, { scopeLabel: '当前参数行全部 LEAPS 信号' });
+                await calculateLeapsOptionOutcomes(row, null, { scopeLabel: activeDetailTopicKey ? '当前题目全部 LEAPS 信号' : '当前参数行全部 LEAPS 信号' });
             } catch (error) {
                 const detailKey = leapsDetailCacheKey(row);
                 const current = leapsOptionOutcomeCache.get(detailKey) || {};
