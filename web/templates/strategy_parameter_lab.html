@@ -837,6 +837,29 @@
             padding: 3px 8px;
             font-size: 12px;
         }
+        .top-group-leaps-option-strip {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin: 10px 0 14px;
+            padding: 10px;
+            border: 1px solid rgba(196, 208, 224, 0.54);
+            border-radius: var(--radius-sm);
+            background: rgba(255, 255, 255, 0.72);
+        }
+        .top-group-leaps-option-strip .left,
+        .top-group-leaps-option-strip .right {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+        }
+        .top-group-leaps-option-strip .status-text {
+            color: var(--muted);
+            font-size: 12px;
+        }
         .leaps-option-outcomes {
             margin-top: 10px;
             border: 1px solid rgba(255, 255, 255, 0.58);
@@ -1416,6 +1439,13 @@
                 </div>
             </div>
 
+            <div class="top-group-leaps-option-strip" id="topGroupLeapsOptionBar">
+                <div class="left">
+                    <button type="button" onclick="calculateTopGroupLeapsOptionOutcomes()" disabled>计算各分组 Top3 高等级期权收益</button>
+                    <span class="status-text">运行 Parameter Lab 后可用；只展示 ROI，不参与排名。</span>
+                </div>
+            </div>
+
             <details class="cost-details" id="costDetails">
                 <summary>
                     <span>开销明细</span>
@@ -1521,9 +1551,12 @@
         const PARAMETER_LAB_LARGE_RUN_GUARDRAIL = 50000;
         const LEAPS_DETAIL_PAGE_SIZE = 25;
         const LEAPS_OPTION_QUEUE_CONCURRENCY = 2;
+        const TOP_GROUP_LEAPS_OPTION_ROW_LIMIT = 3;
+        const TOP_GROUP_LEAPS_OPTION_SIGNAL_BUDGET = 300;
         const cellDetailCache = new Map();
         const leapsDetailCache = new Map();
         const leapsOptionOutcomeCache = new Map();
+        let topGroupLeapsOptionRun = null;
         let activeDetailRowKey = '';
         let activeDetailTopicKey = '';
         let activeDetailLoadToken = 0;
@@ -1875,6 +1908,85 @@
         }
         function highGradeLeapsOptionSignals(signals) {
             return normalizeLeapsOptionSignals(signals || []).filter((signal) => signal.grade === '高');
+        }
+        function currentParameterRankMethod() {
+            return document.getElementById('rankMethod')?.value === 'raw' ? 'raw' : 'normalized';
+        }
+        function topGroupLeapsOptionRows(data, rankMethod = currentParameterRankMethod()) {
+            if (!data) return [];
+            return rankedRowsFor(data, rankMethod).filter((row) => (
+                Number(row.group_rank || 0) <= TOP_GROUP_LEAPS_OPTION_ROW_LIMIT
+                && row.leaps_signal?.grade === '高'
+            ));
+        }
+        function buildTopGroupLeapsOptionQueue(rowSignalPairs) {
+            const queueByKey = new Map();
+            (rowSignalPairs || []).forEach((source) => {
+                const signal = source.signal;
+                const key = leapsOptionQueueKey(signal);
+                if (!queueByKey.has(key)) {
+                    queueByKey.set(key, { key, signal, signals: [signal], sources: [] });
+                }
+                queueByKey.get(key).sources.push(source);
+            });
+            return Array.from(queueByKey.values());
+        }
+        function splitTopGroupLeapsOptionQueueByBudget(uniqueQueue, budget = TOP_GROUP_LEAPS_OPTION_SIGNAL_BUDGET) {
+            const cappedBudget = Math.max(0, Number(budget || 0));
+            return {
+                requestQueue: (uniqueQueue || []).slice(0, cappedBudget),
+                overflowQueue: (uniqueQueue || []).slice(cappedBudget),
+                budgetTruncated: (uniqueQueue || []).length > cappedBudget
+            };
+        }
+        function isTopGroupLeapsOptionRunActive() {
+            return topGroupLeapsOptionRun?.status === 'loading' || topGroupLeapsOptionRun?.status === 'stopping';
+        }
+        function renderTopGroupLeapsOptionControls() {
+            const el = document.getElementById('topGroupLeapsOptionBar');
+            if (!el) return;
+            const run = topGroupLeapsOptionRun;
+            const rankMethod = currentParameterRankMethod();
+            const selectedRows = lastParameterResult ? topGroupLeapsOptionRows(lastParameterResult, rankMethod) : [];
+            const canRun = Boolean(lastParameterResult && selectedRows.length && !currentRun && !isTopGroupLeapsOptionRunActive());
+            const rankLabel = rankMethod === 'raw' ? '原始加权分' : '题内归一化';
+            if (isTopGroupLeapsOptionRunActive()) {
+                const elapsed = run.startedAt ? Date.now() - run.startedAt : Number(run.elapsedMs || 0);
+                const requestTotal = Number(run.requestTotal || 0);
+                const uniqueTotal = Number(run.uniqueSignalTotal || 0);
+                const rowText = `行 ${number(run.detailRowsProcessed || 0, 0)} / ${number(run.totalRows || 0, 0)}`;
+                const signalText = `已计算 ${number(run.requestCompleted || 0, 0)} / ${number(requestTotal, 0)}；去重 ${number(uniqueTotal, 0)} 个`;
+                const active = run.status === 'stopping' ? '停止请求已记录' : (run.currentLabel || '准备中');
+                el.innerHTML = `
+                    <div class="left">
+                        <button type="button" onclick="stopTopGroupLeapsOptionOutcomes()" ${run.status === 'stopping' ? 'disabled' : ''}>停止</button>
+                        <span class="status-text">${escapeHtml(rowText)} · ${escapeHtml(signalText)} · 成功 ${number(run.successCount || 0, 0)} / 跳过 ${number(run.skippedCount || 0, 0)} · ${escapeHtml(formatElapsedTime(elapsed))}</span>
+                    </div>
+                    <div class="right">
+                        <span class="status-text">${escapeHtml(active)}${run.budgetTruncated ? ' · 预算截断' : ''}${run.lastFailure ? ` · 最近失败：${escapeHtml(run.lastFailure)}` : ''}</span>
+                    </div>
+                `;
+                return;
+            }
+            if (run && ['done', 'stopped', 'error'].includes(run.status)) {
+                const statusLabel = run.status === 'done' ? '完成' : (run.status === 'stopped' ? '已停止' : '失败');
+                el.innerHTML = `
+                    <div class="left">
+                        <button type="button" onclick="calculateTopGroupLeapsOptionOutcomes()" ${canRun ? '' : 'disabled'}>计算各分组 Top3 高等级期权收益</button>
+                        <span class="status-text">${escapeHtml(statusLabel)} · ${escapeHtml(run.rankLabel || rankLabel)} · 行 ${number(run.detailRowsProcessed || 0, 0)} / ${number(run.totalRows || 0, 0)} · 已计算 ${number(run.requestCompleted || 0, 0)} / ${number(run.requestTotal || 0, 0)} · 去重 ${number(run.uniqueSignalTotal || 0, 0)}${run.budgetTruncated ? ' · 预算截断' : ''}</span>
+                    </div>
+                    <div class="right">
+                        <span class="status-text">成功 ${number(run.successCount || 0, 0)} / 跳过 ${number(run.skippedCount || 0, 0)}${run.lastFailure ? ` · 最近失败：${escapeHtml(run.lastFailure)}` : ''}</span>
+                    </div>
+                `;
+                return;
+            }
+            el.innerHTML = `
+                <div class="left">
+                    <button type="button" onclick="calculateTopGroupLeapsOptionOutcomes()" ${canRun ? '' : 'disabled'}>计算各分组 Top3 高等级期权收益</button>
+                    <span class="status-text">${lastParameterResult ? `${escapeHtml(rankLabel)} Top${number(TOP_GROUP_LEAPS_OPTION_ROW_LIMIT, 0)} 高等级行 ${number(selectedRows.length, 0)} 条；上限 ${number(TOP_GROUP_LEAPS_OPTION_SIGNAL_BUDGET, 0)} 个去重信号。` : '运行 Parameter Lab 后可用；只展示 ROI，不参与排名。'}</span>
+                </div>
+            `;
         }
         function hasRunningLeapsOptionQueue() {
             return Array.from(leapsOptionOutcomeCache.values()).some((entry) => entry?.status === 'loading' || entry?.status === 'stopping');
@@ -2826,6 +2938,11 @@
 
         async function runParameterLab() {
             cancelParameterLab(false);
+            if (topGroupLeapsOptionRun?.status === 'loading' || topGroupLeapsOptionRun?.status === 'stopping') {
+                stopTopGroupLeapsOptionOutcomes();
+            }
+            topGroupLeapsOptionRun = null;
+            renderTopGroupLeapsOptionControls();
             progressFloatDismissed = false;
             cellDetailCache.clear();
             leapsDetailCache.clear();
@@ -3617,6 +3734,7 @@
                 return groupHeader + groupRows;
             }).join('');
             document.getElementById('matrixBody').innerHTML = body || '<tr><td>没有可显示的结果。</td></tr>';
+            renderTopGroupLeapsOptionControls();
         }
         function renderParameterMatrixPreservingScroll() {
             const wrap = document.getElementById('matrixTable')?.closest('.matrix-wrap');
@@ -4487,6 +4605,32 @@
             entry.page = Math.max(1, Math.min(totalPages, Number(page || 1)));
             renderDetailLeapsIntoDrawer(row);
         }
+        function storeFullLeapsDetailEntry(row, detailRow) {
+            const allSignals = normalizeLeapsOptionSignals(detailRow?.leaps_signal?.all_signals || []);
+            const entry = {
+                status: 'done',
+                page: 1,
+                all_signals: allSignals,
+                groups: groupLeapsSignalsByDateSymbol(allSignals)
+            };
+            leapsDetailCache.set(leapsDetailCacheKey(row), entry);
+            return entry;
+        }
+        async function ensureFullLeapsDetailsForRow(row) {
+            if (!row || !lastParameterPacket) throw new Error('找不到当前参数行的数据包。');
+            const cacheKey = leapsDetailCacheKey(row);
+            const cached = leapsDetailCache.get(cacheKey);
+            if (cached?.status === 'done') return cached;
+            if (cached?.status === 'loading' && cached.promise) return cached.promise;
+            const promise = runLeapsDetailWorker(row)
+                .then((detailRow) => storeFullLeapsDetailEntry(row, detailRow))
+                .catch((error) => {
+                    leapsDetailCache.set(cacheKey, { status: 'error', page: 1, message: error.message || String(error) });
+                    throw error;
+                });
+            leapsDetailCache.set(cacheKey, { status: 'loading', page: 1, promise });
+            return promise;
+        }
         async function loadFullLeapsDetails(row) {
             if (!row || !lastParameterPacket) return;
             const cacheKey = leapsDetailCacheKey(row);
@@ -4507,18 +4651,10 @@
                 }
                 return;
             }
-            const promise = runLeapsDetailWorker(row);
-            leapsDetailCache.set(cacheKey, { status: 'loading', page: 1, promise });
+            const promise = ensureFullLeapsDetailsForRow(row);
             renderDetailLeapsIntoDrawer(row);
             try {
-                const detailRow = await promise;
-                const allSignals = normalizeLeapsOptionSignals(detailRow?.leaps_signal?.all_signals || []);
-                leapsDetailCache.set(cacheKey, {
-                    status: 'done',
-                    page: 1,
-                    all_signals: allSignals,
-                    groups: groupLeapsSignalsByDateSymbol(allSignals)
-                });
+                await promise;
                 if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key) {
                     renderDetailLeapsIntoDrawer(row);
                 }
@@ -4650,6 +4786,217 @@
             row.leaps_option_summary = outcomeEntry.summary;
             renderDetailLeapsIntoDrawer(row, true);
             renderParameterMatrixPreservingScroll();
+        }
+        function prepareTopGroupLeapsOptionRow(row, signals, run) {
+            const detailKey = leapsDetailCacheKey(row);
+            const previousEntry = leapsOptionOutcomeCache.get(detailKey) || {};
+            const previousOutcomes = replaceLeapsOutcomesForSignals(previousEntry.outcomes || row.leaps_option_outcomes || [], signals);
+            const summary = aggregateLeapsOptionOutcomes(previousOutcomes);
+            row.leaps_option_outcomes = previousOutcomes.slice();
+            row.leaps_option_summary = previousOutcomes.length ? summary : null;
+            leapsOptionOutcomeCache.set(detailKey, {
+                ...previousEntry,
+                status: 'partial_done',
+                scopeLabel: '各分组 Top3 高等级 LEAPS 信号',
+                scopeAllSignals: false,
+                outcomes: previousOutcomes.slice(),
+                summary,
+                topGroupRunId: run.runId
+            });
+        }
+        function appendTopGroupLeapsOptionOutcome(row, signal, representativeOutcome, run) {
+            const detailKey = leapsDetailCacheKey(row);
+            const entry = leapsOptionOutcomeCache.get(detailKey) || {
+                status: 'partial_done',
+                outcomes: [],
+                scopeLabel: '各分组 Top3 高等级 LEAPS 信号',
+                scopeAllSignals: false,
+                topGroupRunId: run.runId
+            };
+            const outcome = cloneLeapsOptionOutcomeForSignal(representativeOutcome, signal);
+            entry.outcomes = [...(entry.outcomes || []), outcome];
+            entry.summary = aggregateLeapsOptionOutcomes(entry.outcomes);
+            row.leaps_option_outcomes = entry.outcomes;
+            row.leaps_option_summary = entry.summary;
+            leapsOptionOutcomeCache.set(detailKey, entry);
+            if (activeDetailRowKey === row.key) renderDetailLeapsIntoDrawer(row, true);
+        }
+        function appendTopGroupSkippedOutcomes(queueItem, reason, run) {
+            const representativeOutcome = skippedLeapsOptionOutcome(queueItem.signal, reason);
+            queueItem.sources.forEach((source) => appendTopGroupLeapsOptionOutcome(source.row, source.signal, representativeOutcome, run));
+            run.skippedCount += 1;
+            run.lastFailure = reason;
+        }
+        async function fetchLeapsOptionOutcomeForQueueItem(queueItem) {
+            let representativeOutcome = null;
+            try {
+                const response = await fetch('/api/strategy-lab/parameter-lab/leaps-option-outcomes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        run_id: (lastParameterPacket || {}).run_id || '',
+                        row_key: queueItem.sources[0]?.row?.key || '',
+                        signals: [queueItem.signal]
+                    })
+                });
+                const result = await response.json().catch(() => ({}));
+                representativeOutcome = Array.isArray(result.outcomes) ? result.outcomes[0] : null;
+                if (!representativeOutcome && !response.ok) {
+                    representativeOutcome = skippedLeapsOptionOutcome(queueItem.signal, result.message || '期权收益计算失败');
+                }
+            } catch (error) {
+                representativeOutcome = skippedLeapsOptionOutcome(queueItem.signal, error.message || String(error));
+            }
+            return representativeOutcome || skippedLeapsOptionOutcome(queueItem.signal, '期权收益计算失败');
+        }
+        async function processTopGroupLeapsOptionQueueItem(queueItem, run) {
+            queueItem.started = true;
+            const activeLabel = `${queueItem.signal.symbol || '--'} ${queueItem.signal.date || ''}`.trim();
+            run.activeLabels.push(activeLabel);
+            run.currentLabel = run.activeLabels.join(' / ');
+            renderTopGroupLeapsOptionControls();
+            const representativeOutcome = await fetchLeapsOptionOutcomeForQueueItem(queueItem);
+            queueItem.done = true;
+            run.activeLabels = run.activeLabels.filter((label) => label !== activeLabel);
+            run.currentLabel = run.activeLabels.join(' / ');
+            queueItem.sources.forEach((source) => appendTopGroupLeapsOptionOutcome(source.row, source.signal, representativeOutcome, run));
+            run.requestCompleted += 1;
+            if (representativeOutcome.status === 'success') {
+                run.successCount += 1;
+            } else {
+                run.skippedCount += 1;
+                run.lastFailure = representativeOutcome.skipped_reason || '跳过';
+            }
+            run.elapsedMs = Date.now() - run.startedAt;
+            renderTopGroupLeapsOptionControls();
+            renderParameterMatrixPreservingScroll();
+        }
+        async function calculateTopGroupLeapsOptionOutcomes() {
+            if (!lastParameterResult || isTopGroupLeapsOptionRunActive()) return;
+            const rankMethod = currentParameterRankMethod();
+            const rankLabel = rankMethod === 'raw' ? '原始加权分' : '题内归一化';
+            const rows = topGroupLeapsOptionRows(lastParameterResult, rankMethod);
+            if (!rows.length) {
+                topGroupLeapsOptionRun = {
+                    status: 'done',
+                    rankMethod,
+                    rankLabel,
+                    runId: `top-group-leaps-${Date.now().toString(36)}`,
+                    totalRows: 0,
+                    detailRowsProcessed: 0,
+                    uniqueSignalTotal: 0,
+                    requestTotal: 0,
+                    requestCompleted: 0,
+                    successCount: 0,
+                    skippedCount: 0,
+                    lastFailure: '当前排名视图没有 Top3 高等级 LEAPS 行。'
+                };
+                renderTopGroupLeapsOptionControls();
+                return;
+            }
+            const controller = { cancelled: false };
+            const run = {
+                status: 'loading',
+                controller,
+                rankMethod,
+                rankLabel,
+                runId: `top-group-leaps-${Date.now().toString(36)}`,
+                startedAt: Date.now(),
+                elapsedMs: 0,
+                totalRows: rows.length,
+                detailRowsProcessed: 0,
+                totalHighGradeSignals: 0,
+                uniqueSignalTotal: 0,
+                requestTotal: 0,
+                requestCompleted: 0,
+                successCount: 0,
+                skippedCount: 0,
+                activeLabels: [],
+                currentLabel: '准备完整 LEAPS 明细',
+                lastFailure: '',
+                budgetTruncated: false
+            };
+            topGroupLeapsOptionRun = run;
+            renderTopGroupLeapsOptionControls();
+            const rowSignalPairs = [];
+            try {
+                for (const row of rows) {
+                    if (controller.cancelled) break;
+                    run.currentLabel = `加载 ${row.group_label || row.key} #${number(row.group_rank, 0)}`;
+                    renderTopGroupLeapsOptionControls();
+                    const detailEntry = await ensureFullLeapsDetailsForRow(row);
+                    const signals = highGradeLeapsOptionSignals(detailEntry?.all_signals || []);
+                    prepareTopGroupLeapsOptionRow(row, signals, run);
+                    run.detailRowsProcessed += 1;
+                    run.totalHighGradeSignals += signals.length;
+                    signals.forEach((signal) => {
+                        rowSignalPairs.push({ row, signal });
+                    });
+                    run.uniqueSignalTotal = buildTopGroupLeapsOptionQueue(rowSignalPairs).length;
+                    run.budgetTruncated = run.uniqueSignalTotal > TOP_GROUP_LEAPS_OPTION_SIGNAL_BUDGET;
+                    renderTopGroupLeapsOptionControls();
+                    renderParameterMatrixPreservingScroll();
+                }
+                const uniqueQueue = buildTopGroupLeapsOptionQueue(rowSignalPairs);
+                run.uniqueSignalTotal = uniqueQueue.length;
+                const { requestQueue, overflowQueue, budgetTruncated } = splitTopGroupLeapsOptionQueueByBudget(uniqueQueue);
+                run.budgetTruncated = budgetTruncated;
+                run.requestTotal = requestQueue.length;
+                overflowQueue.forEach((queueItem) => appendTopGroupSkippedOutcomes(queueItem, '预算截断，未计算', run));
+                renderTopGroupLeapsOptionControls();
+                if (!controller.cancelled && requestQueue.length) {
+                    let nextQueueIndex = 0;
+                    const runQueueWorker = async () => {
+                        while (!controller.cancelled) {
+                            const queueItem = requestQueue[nextQueueIndex];
+                            nextQueueIndex += 1;
+                            if (!queueItem) break;
+                            await processTopGroupLeapsOptionQueueItem(queueItem, run);
+                        }
+                    };
+                    await Promise.all(Array.from({ length: Math.min(LEAPS_OPTION_QUEUE_CONCURRENCY, requestQueue.length) }, () => runQueueWorker()));
+                }
+                if (controller.cancelled) {
+                    requestQueue.forEach((queueItem) => {
+                        if (!queueItem.started && !queueItem.done) appendTopGroupSkippedOutcomes(queueItem, '已停止，未计算', run);
+                    });
+                }
+                run.elapsedMs = Date.now() - run.startedAt;
+                run.currentLabel = '';
+                run.activeLabels = [];
+                run.status = controller.cancelled ? 'stopped' : 'done';
+                rows.forEach((row) => {
+                    const detailKey = leapsDetailCacheKey(row);
+                    const entry = leapsOptionOutcomeCache.get(detailKey);
+                    if (!entry) return;
+                    entry.status = run.status === 'stopped' ? 'stopped' : 'partial_done';
+                    entry.elapsedMs = run.elapsedMs;
+                    entry.summary = aggregateLeapsOptionOutcomes(entry.outcomes || []);
+                    row.leaps_option_outcomes = entry.outcomes || [];
+                    row.leaps_option_summary = entry.summary;
+                    if (activeDetailRowKey === row.key) renderDetailLeapsIntoDrawer(row, true);
+                });
+                renderTopGroupLeapsOptionControls();
+                renderParameterMatrixPreservingScroll();
+            } catch (error) {
+                run.status = 'error';
+                run.elapsedMs = Date.now() - run.startedAt;
+                run.lastFailure = error.message || String(error);
+                parameterLabWarn('top_group_leaps_option_outcomes_failed', {
+                    rank_method: rankMethod,
+                    message: run.lastFailure
+                });
+                renderTopGroupLeapsOptionControls();
+                renderParameterMatrixPreservingScroll();
+            }
+        }
+        function stopTopGroupLeapsOptionOutcomes() {
+            const run = topGroupLeapsOptionRun;
+            if (!run || run.status !== 'loading') return;
+            if (run.controller) run.controller.cancelled = true;
+            run.status = 'stopping';
+            run.elapsedMs = run.startedAt ? Date.now() - run.startedAt : run.elapsedMs;
+            renderTopGroupLeapsOptionControls();
         }
         function stopLeapsOptionOutcomesForActiveRow() {
             const row = findRow(activeDetailRowKey);
@@ -4839,6 +5186,7 @@
         refreshUniverseTopics();
         renderCandidateGridSummary();
         renderParameterDiagnostics(null);
+        renderTopGroupLeapsOptionControls();
         document.getElementById('resultMeta').textContent = `registry ${strategyRegistry.version}`;
     </script>
 </body>

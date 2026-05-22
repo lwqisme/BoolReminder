@@ -650,6 +650,17 @@ process.stdout.write(JSON.stringify({
         self.assertIn("function highGradeLeapsOptionSignals(signals)", html)
         self.assertIn("只计算高等级信号", html)
         self.assertIn("signal.grade === '高'", html)
+        self.assertIn("计算各分组 Top3 高等级期权收益", html)
+        self.assertIn("TOP_GROUP_LEAPS_OPTION_ROW_LIMIT = 3", html)
+        self.assertIn("TOP_GROUP_LEAPS_OPTION_SIGNAL_BUDGET = 300", html)
+        self.assertIn("function topGroupLeapsOptionRows(data, rankMethod = currentParameterRankMethod())", html)
+        self.assertIn("function buildTopGroupLeapsOptionQueue(rowSignalPairs)", html)
+        self.assertIn("function splitTopGroupLeapsOptionQueueByBudget", html)
+        self.assertIn("await ensureFullLeapsDetailsForRow(row)", html)
+        self.assertIn("runLeapsDetailWorker(row)", html)
+        self.assertIn("highGradeLeapsOptionSignals(detailEntry?.all_signals || [])", html)
+        self.assertIn("row.leaps_option_summary = entry.summary", html)
+        self.assertNotIn("/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch", html)
         self.assertIn("function buildLeapsOptionQueue(signals)", html)
         self.assertIn("return normalizeLeapsOptionSignals(signals).map", html)
         self.assertIn("signals: [queueItem.signal]", html)
@@ -979,6 +990,146 @@ process.stdout.write(JSON.stringify({ normalized, raw }));
             [("a2", "buy_a__sell_x", 1), ("c1", "buy_a__sell_y", 1), ("b1", "buy_b__sell_y", 1), ("a1", "buy_a__sell_x", 2)],
         )
         self.assertEqual(result["normalized"][1]["group_label"], "买A / 卖X")
+
+    def test_top_group_leaps_option_helpers_select_dedupe_and_cap_signals(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript top group LEAPS helper check")
+
+        html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
+        rank_match = re.search(
+            r"function strategyGroupKey\(candidate\) \{.*?\n        function scoreParameterResults",
+            html,
+            re.S,
+        )
+        self.assertIsNotNone(rank_match)
+        rank_helpers = rank_match.group(0).rsplit("\n        function scoreParameterResults", 1)[0]
+        match = re.search(
+            r"function median\(values\) \{.*?\n        function hasRunningLeapsOptionQueue",
+            html,
+            re.S,
+        )
+        self.assertIsNotNone(match)
+        helpers = "\n".join([rank_helpers, match.group(0).rsplit("\n        function hasRunningLeapsOptionQueue", 1)[0]])
+        script = """
+const vm = require('vm');
+const helpers = process.argv[1];
+const rows = JSON.parse(process.argv[2]);
+const context = {
+  buyStrategyLabels: { buy_a: '买A', buy_b: '买B' },
+  sellStrategyLabels: { sell_x: '卖X', sell_y: '卖Y' },
+  Number,
+  String,
+  Array,
+  Map,
+  Set,
+  Math,
+  TOP_GROUP_LEAPS_OPTION_ROW_LIMIT: 3,
+  TOP_GROUP_LEAPS_OPTION_SIGNAL_BUDGET: 300,
+  document: { getElementById: () => ({ value: 'normalized' }) }
+};
+vm.createContext(context);
+vm.runInContext(helpers, context);
+const selected = context.topGroupLeapsOptionRows({ rows }, 'normalized');
+const rowSignalPairs = [];
+selected.forEach((row) => {
+  context.highGradeLeapsOptionSignals(row.detailSignals || []).forEach((signal) => {
+    rowSignalPairs.push({ row, signal });
+  });
+});
+const uniqueQueue = context.buildTopGroupLeapsOptionQueue(rowSignalPairs);
+const split = context.splitTopGroupLeapsOptionQueueByBudget(uniqueQueue, 3);
+process.stdout.write(JSON.stringify({
+  selected: selected.map((row) => [row.key, row.group_key, row.group_rank]),
+  highSignalCount: rowSignalPairs.length,
+  uniqueCount: uniqueQueue.length,
+  firstSourceCount: uniqueQueue[0].sources.length,
+  requestCount: split.requestQueue.length,
+  overflowCount: split.overflowQueue.length,
+  budgetTruncated: split.budgetTruncated
+}));
+"""
+        rows = [
+            {
+                "key": "a1",
+                "final_score": 100,
+                "raw_score": 1,
+                "buy_strategy": "buy_a",
+                "sell_strategy": "sell_x",
+                "leaps_signal": {"grade": "高"},
+                "detailSignals": [
+                    {"signal_key": "a1-s1", "grade": "高", "date": "2024-01-10", "symbol": "TSLA.US", "next_stock_sell_date": "2024-01-20", "stock_buy_price": 10},
+                    {"signal_key": "a1-s2", "grade": "中", "date": "2024-01-11", "symbol": "TSLA.US", "next_stock_sell_date": "2024-01-21", "stock_buy_price": 11},
+                ],
+            },
+            {
+                "key": "a2",
+                "final_score": 90,
+                "raw_score": 2,
+                "buy_strategy": "buy_a",
+                "sell_strategy": "sell_x",
+                "leaps_signal": {"grade": "中"},
+                "detailSignals": [
+                    {"signal_key": "a2-s1", "grade": "高", "date": "2024-01-12", "symbol": "MSFT.US", "next_stock_sell_date": "2024-01-22", "stock_buy_price": 20}
+                ],
+            },
+            {
+                "key": "a3",
+                "final_score": 80,
+                "raw_score": 3,
+                "buy_strategy": "buy_a",
+                "sell_strategy": "sell_x",
+                "leaps_signal": {"grade": "高"},
+                "detailSignals": [
+                    {"signal_key": "a3-s1", "grade": "高", "date": "2024-01-10", "symbol": "TSLA.US", "next_stock_sell_date": "2024-01-20", "stock_buy_price": 10},
+                    {"signal_key": "a3-s2", "grade": "高", "date": "2024-01-13", "symbol": "AAPL.US", "next_stock_sell_date": "2024-01-23", "stock_buy_price": 30},
+                ],
+            },
+            {
+                "key": "a4",
+                "final_score": 70,
+                "raw_score": 4,
+                "buy_strategy": "buy_a",
+                "sell_strategy": "sell_x",
+                "leaps_signal": {"grade": "高"},
+                "detailSignals": [
+                    {"signal_key": "a4-s1", "grade": "高", "date": "2024-01-14", "symbol": "NVDA.US", "next_stock_sell_date": "2024-01-24", "stock_buy_price": 40}
+                ],
+            },
+            {
+                "key": "b1",
+                "final_score": 60,
+                "raw_score": 5,
+                "buy_strategy": "buy_b",
+                "sell_strategy": "sell_y",
+                "leaps_signal": {"grade": "高"},
+                "detailSignals": [
+                    {"signal_key": "b1-s1", "grade": "高", "date": "2024-01-15", "symbol": "AMZN.US", "next_stock_sell_date": "2024-01-25", "stock_buy_price": 50},
+                    {"signal_key": "b1-s2", "grade": "高", "date": "2024-01-16", "symbol": "GOOG.US", "next_stock_sell_date": "2024-01-26", "stock_buy_price": 60},
+                ],
+            },
+        ]
+        completed = subprocess.run(
+            ["node", "-e", script, helpers, json.dumps(rows)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+
+        self.assertEqual(
+            result["selected"],
+            [
+                ["a1", "buy_a__sell_x", 1],
+                ["a3", "buy_a__sell_x", 3],
+                ["b1", "buy_b__sell_y", 1],
+            ],
+        )
+        self.assertEqual(result["highSignalCount"], 5)
+        self.assertEqual(result["uniqueCount"], 4)
+        self.assertEqual(result["firstSourceCount"], 2)
+        self.assertEqual(result["requestCount"], 3)
+        self.assertEqual(result["overflowCount"], 1)
+        self.assertTrue(result["budgetTruncated"])
 
     def test_parameter_lab_page_no_longer_exposes_option_scan(self):
         html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
