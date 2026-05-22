@@ -699,6 +699,36 @@
             font-size: 12px;
             font-weight: 800;
         }
+        .leaps-option-progress-float {
+            position: fixed;
+            right: 24px;
+            bottom: 88px;
+            z-index: 50;
+            display: none;
+            width: min(520px, calc(100vw - 32px));
+        }
+        .leaps-option-progress-float.show { display: block; }
+        .leaps-option-progress-float .leaps-option-progress {
+            margin: 0;
+            background: rgba(255, 255, 255, 0.92);
+            box-shadow: 0 18px 48px rgba(15, 23, 42, 0.20);
+            backdrop-filter: blur(18px);
+            -webkit-backdrop-filter: blur(18px);
+        }
+        .leaps-option-progress-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            color: var(--ink);
+            font-size: 13px;
+            font-weight: 900;
+        }
+        .leaps-option-progress-head button {
+            min-height: 26px;
+            padding: 3px 8px;
+            font-size: 12px;
+        }
         .leaps-option-outcomes {
             margin-top: 10px;
             border: 1px solid rgba(255, 255, 255, 0.58);
@@ -1005,6 +1035,11 @@
             .progress-float {
                 right: 10px;
                 bottom: 10px;
+                width: calc(100vw - 20px);
+            }
+            .leaps-option-progress-float {
+                right: 10px;
+                bottom: 72px;
                 width: calc(100vw - 20px);
             }
             .cell-detail-chart {
@@ -1346,6 +1381,7 @@
         <div class="progress-float-text" id="progressFloatText">等待运行。</div>
         <div class="progress"><span id="progressBar"></span></div>
     </div>
+    <div class="leaps-option-progress-float" id="leapsOptionProgressFloat" aria-live="polite"></div>
 
     <script src="/static/vendor/plotly-2.35.2.min.js"></script>
     <script>
@@ -1371,6 +1407,8 @@
         let activeDetailTopicKey = '';
         let activeDetailLoadToken = 0;
         let leapsOptionProgressTimer = null;
+        let leapsOptionProgressAutoHideTimer = null;
+        let dismissedLeapsOptionProgressKey = '';
         const parameterFields = [
             'step_pct',
             'equal_slice_allocation_pct',
@@ -3568,8 +3606,48 @@
         function outcomesForSignals(outcomes, signals) {
             return (signals || []).map((signal) => (outcomes || []).find((outcome) => optionOutcomeMatchesSignal(outcome, signal))).filter(Boolean);
         }
-        function renderLeapsOptionProgress(entry) {
+        function leapsOptionProgressKey(row, entry) {
+            return `${leapsDetailCacheKey(row)}::${entry?.startedAt || ''}::${entry?.scopeKey || ''}::${entry?.scopeSignalKey || ''}`;
+        }
+        function dismissLeapsOptionProgressFloat() {
+            const el = document.getElementById('leapsOptionProgressFloat');
+            if (!el) return;
+            dismissedLeapsOptionProgressKey = el.dataset.progressKey || dismissedLeapsOptionProgressKey;
+            el.classList.remove('show');
+            if (leapsOptionProgressAutoHideTimer) {
+                window.clearTimeout(leapsOptionProgressAutoHideTimer);
+                leapsOptionProgressAutoHideTimer = null;
+            }
+        }
+        function scheduleLeapsOptionProgressAutoHide(entry) {
+            if (leapsOptionProgressAutoHideTimer) {
+                window.clearTimeout(leapsOptionProgressAutoHideTimer);
+                leapsOptionProgressAutoHideTimer = null;
+            }
+            if (!entry || entry.status === 'loading' || entry.status === 'stopping') return;
+            leapsOptionProgressAutoHideTimer = window.setTimeout(() => {
+                dismissLeapsOptionProgressFloat();
+            }, 7000);
+        }
+        function renderLeapsOptionProgressFloat(row) {
+            const el = document.getElementById('leapsOptionProgressFloat');
+            if (!el || !row) return;
+            const entry = leapsOptionOutcomeCache.get(leapsDetailCacheKey(row));
+            const visibleStatuses = ['loading', 'stopping', 'stopped', 'done', 'partial_done', 'error'];
+            if (!entry || !visibleStatuses.includes(entry.status)) {
+                el.classList.remove('show');
+                return;
+            }
+            const key = leapsOptionProgressKey(row, entry);
+            if (dismissedLeapsOptionProgressKey === key) return;
+            el.dataset.progressKey = key;
+            el.innerHTML = renderLeapsOptionProgress(entry, { floating: true });
+            el.classList.add('show');
+            scheduleLeapsOptionProgressAutoHide(entry);
+        }
+        function renderLeapsOptionProgress(entry, options = {}) {
             if (!entry) return '';
+            const floating = Boolean(options.floating);
             const total = Number(entry.total || 0);
             const completed = Number(entry.completed || 0);
             const percent = total ? Math.min(100, Math.max(0, (completed / total) * 100)) : 0;
@@ -3578,6 +3656,12 @@
             const stopped = entry.status === 'stopping' ? '停止请求已记录，当前单条请求完成后停止。' : current;
             return `
                 <div class="leaps-option-progress">
+                    ${floating ? `
+                    <div class="leaps-option-progress-head">
+                        <span>合约收益计算</span>
+                        <button type="button" onclick="dismissLeapsOptionProgressFloat()">关闭</button>
+                    </div>
+                    ` : ''}
                     <div class="leaps-option-progress-row">
                         <span>已完成 <strong>${number(completed, 0)} / ${number(total, 0)}</strong></span>
                         <span>成功 <strong>${number(entry.successCount || 0, 0)}</strong> / 跳过 <strong>${number(entry.skippedCount || 0, 0)}</strong></span>
@@ -3599,9 +3683,8 @@
             const outcomeEntry = leapsOptionOutcomeCache.get(leapsDetailCacheKey(row));
             if (outcomeEntry?.status === 'loading' || outcomeEntry?.status === 'stopping') {
                 return `
-                    ${renderLeapsOptionProgress(outcomeEntry)}
                     <div class="leaps-option-actions">
-                        <span class="leaps-detail-status">正在逐条计算 200-300D 月期权收益。</span>
+                        <span class="leaps-detail-status">正在逐条计算 200-300D 月期权收益，进度在浮窗显示。</span>
                         <button type="button" onclick="stopLeapsOptionOutcomesForActiveRow()" ${outcomeEntry.status === 'stopping' ? 'disabled' : ''}>停止计算</button>
                     </div>
                     ${(outcomeEntry.outcomes || []).length ? renderLeapsOptionOutcomeTable(outcomeEntry.outcomes || []) : ''}
@@ -3619,7 +3702,6 @@
             }
             if (outcomeEntry?.status === 'stopped') {
                 return `
-                    ${renderLeapsOptionProgress(outcomeEntry)}
                     <div class="leaps-option-actions">
                         <span class="leaps-detail-status">计算已停止，已保留当前结果。</span>
                         <button type="button" onclick="calculateLeapsOptionOutcomesForActiveRow()">重新计算 200-300D 月期权收益</button>
@@ -3629,7 +3711,6 @@
             }
             if (outcomeEntry?.status === 'error') {
                 return `
-                    ${renderLeapsOptionProgress(outcomeEntry)}
                     <div class="leaps-option-actions">
                         <span class="leaps-detail-status error">${escapeHtml(outcomeEntry.message || '期权收益计算失败')}</span>
                         <button type="button" onclick="calculateLeapsOptionOutcomesForActiveRow()">重试 200-300D 月期权收益</button>
@@ -3762,6 +3843,7 @@
                 });
             }
             detailEl.innerHTML = renderDetailLeaps(row);
+            renderLeapsOptionProgressFloat(row);
             if (!preserveScroll) return;
             Array.from(detailEl.querySelectorAll('details')).forEach((el, index) => {
                 if (el.dataset.leapsDetailKey && openDetailsByKey.has(el.dataset.leapsDetailKey)) {
@@ -3878,6 +3960,7 @@
                 outcomes: previousOutcomes.slice(),
                 summary: aggregateLeapsOptionOutcomes(previousOutcomes)
             };
+            dismissedLeapsOptionProgressKey = '';
             leapsOptionOutcomeCache.set(detailKey, outcomeEntry);
             ensureLeapsOptionProgressTimer();
             renderDetailLeapsIntoDrawer(row, true);
