@@ -265,6 +265,63 @@ class StrategyLabScorePayloadTest(unittest.TestCase):
         self.assertEqual(estimate["task_count"], 1)
         self.assertEqual(estimate["estimated_simulations"], len(expected_candidates))
 
+    def test_parameter_lab_estimate_and_packet_use_selected_values(self):
+        payload = {
+            "end": "2025-12-31",
+            "buy_strategies": ["salary_flow_dca"],
+            "sell_strategies": ["cost_deleverage"],
+            "scorecard_portfolio_keys": ["tsm_100"],
+            "scorecard_periods": [{"key": "1y", "label": "一年", "start": "2025-01-01", "end": "2025-12-31"}],
+            "targets": [{"symbol": "TSM.US", "weight": 100}],
+        }
+        full_estimate = _estimate_strategy_parameter_lab_payload(payload)
+        fixed_payload = {
+            **payload,
+            "parameter_lab_selected_values": {
+                "cost_first_profit_pct": [],
+                "cost_second_profit_pct": [],
+                "cost_third_profit_pct": [],
+                "cost_first_sell_pct": [],
+                "cost_second_sell_pct": [],
+                "cost_third_sell_pct": [],
+                "cost_deleverage_cooldown_days": [],
+                "sell_allow_same_day_sell": [],
+                "dca_rearm_drawdown_pct": [],
+                "sell_stage_rearm_drawdown_pct": [],
+            },
+        }
+        fixed_estimate = _estimate_strategy_parameter_lab_payload(fixed_payload)
+
+        with patch("web.app._fetch_scorecard_points", return_value=({"TSM.US": []}, [])):
+            with patch("web.app._build_robust_tasks", return_value=[synthetic_parameter_lab_task("TSM.US")]):
+                packet = _prepare_strategy_parameter_lab_payload(fixed_payload)
+
+        self.assertLess(fixed_estimate["candidate_count"], full_estimate["candidate_count"])
+        self.assertEqual(fixed_estimate["candidate_count"], 1)
+        self.assertEqual(len(packet["candidate_rows"]), fixed_estimate["candidate_count"])
+        self.assertEqual(packet["candidate_counts"]["total"], fixed_estimate["candidate_count"])
+        self.assertIn("parameter_lab_selected_values", packet)
+        self.assertNotIn("parameter_lab_active_fields", packet)
+
+    def test_parameter_lab_selected_values_take_priority_over_active_fields(self):
+        payload = {
+            "end": "2025-12-31",
+            "buy_strategies": ["equal_slice"],
+            "sell_strategies": ["none"],
+            "scorecard_portfolio_keys": ["tsm_100"],
+            "scorecard_periods": [{"key": "1y", "label": "一年", "start": "2025-01-01", "end": "2025-12-31"}],
+            "targets": [{"symbol": "TSM.US", "weight": 100}],
+            "parameter_lab_active_fields": [],
+            "parameter_lab_selected_values": {
+                "step_pct": [2.5, 10.0],
+                "equal_slice_allocation_pct": [2.5],
+            },
+        }
+
+        estimate = _estimate_strategy_parameter_lab_payload(payload)
+
+        self.assertEqual(estimate["candidate_count"], 2)
+
     def test_parameter_lab_large_estimate_recommends_up_to_four_workers(self):
         payload = {
             "end": "2025-12-31",

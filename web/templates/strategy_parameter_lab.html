@@ -250,6 +250,7 @@
             color: var(--ink);
             font-size: 12px;
             line-height: 1.35;
+            padding-top: 4px;
         }
         .candidate-chip-list {
             display: flex;
@@ -268,6 +269,23 @@
             font-family: var(--mono);
             font-size: 11px;
             font-weight: 900;
+        }
+        button.candidate-chip {
+            cursor: pointer;
+            transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+        }
+        button.candidate-chip.selected {
+            color: #ffffff;
+            border-color: rgba(17, 103, 216, 0.92);
+            background: linear-gradient(135deg, #1167d8, #0a9f8d);
+            box-shadow: 0 8px 18px rgba(17, 103, 216, 0.18);
+        }
+        button.candidate-chip:not(.selected) {
+            opacity: 0.58;
+        }
+        button.candidate-chip:focus-visible {
+            outline: 2px solid rgba(17, 103, 216, 0.42);
+            outline-offset: 2px;
         }
         .candidate-chip.muted {
             color: var(--muted);
@@ -1547,6 +1565,36 @@
         ];
         const buyParameterFields = parameterFields.slice(0, 11);
         const sellParameterFields = parameterFields.slice(11);
+        const parameterLabScanFieldDefinitions = {
+            step_pct: { label: '步长候选', input: 'stepPct', formatter: percentChip },
+            equal_slice_allocation_pct: { label: '每步投入', input: 'equalSliceAllocation', formatter: percentChip },
+            core_dip_initial_core_pct: { label: '核心初始', input: 'coreDipInitialCorePct', formatter: percentChip },
+            core_dip_weekly_core_pct: { label: '核心周投', input: 'coreDipWeeklyCorePct', formatter: percentChip },
+            core_dip_cash_reserve_pct: { label: '核心现金垫', input: 'coreDipCashReservePct', formatter: percentChip },
+            core_dip_start_drawdown_pct: { label: '开始加仓', input: 'coreDipStartDrawdownPct', formatter: percentChip },
+            core_dip_full_drawdown_pct: { label: '满额加仓', input: 'coreDipFullDrawdownPct', formatter: percentChip },
+            core_dip_timing_enabled: { label: '买点优化', input: 'coreDipTimingEnabled', formatter: (value) => value === true || value === 'true' ? '开启' : '关闭' },
+            core_dip_timing_max_delay_days: { label: '优化延迟日', input: 'coreDipTimingMaxDelayDays', formatter: (value) => `${number(value, 0)}日` },
+            core_dip_timing_rise_threshold_pct: { label: '大涨阈值', input: 'coreDipTimingRiseThresholdPct', formatter: percentChip },
+            core_dip_timing_near_low_pct: { label: '近低距离', input: 'coreDipTimingNearLowPct', formatter: percentChip },
+            sell_min_profit_pct: { label: '修复卖出', input: 'sellMinProfit', formatter: (value) => `${number(value)}%盈利` },
+            repair_sell_cooldown_days: { label: '修复冷却', input: 'repairSellCooldown', formatter: (value) => `${number(value, 0)}日` },
+            repair_stage_sell_pct: { label: '单档卖出', input: 'repairStageSellPct', formatter: percentChip },
+            grid_rebound_step_pct: { label: '网格回弹', input: 'gridReboundStep', formatter: (value) => `${number(value)}%步长` },
+            grid_first_sell_pct: { label: '网格一档', input: 'gridFirstSellPct', formatter: percentChip },
+            grid_second_sell_pct: { label: '网格二档', input: 'gridSecondSellPct', formatter: percentChip },
+            cost_first_profit_pct: { label: '成本一档盈利', input: 'costFirstProfitPct', formatter: percentChip },
+            cost_second_profit_pct: { label: '成本二档盈利', input: 'costSecondProfitPct', formatter: percentChip },
+            cost_third_profit_pct: { label: '成本三档盈利', input: 'costThirdProfitPct', formatter: percentChip },
+            cost_first_sell_pct: { label: '成本一档卖', input: 'costFirstSellPct', formatter: percentChip },
+            cost_second_sell_pct: { label: '成本二档卖', input: 'costSecondSellPct', formatter: percentChip },
+            cost_third_sell_pct: { label: '成本三档卖', input: 'costThirdSellPct', formatter: percentChip },
+            cost_deleverage_cooldown_days: { label: '成本冷却', input: 'costDeleverageCooldown', formatter: (value) => `${number(value, 0)}日` },
+            sell_allow_same_day_sell: { label: '买入日可卖', input: 'sellAllowSameDaySell', formatter: (value) => value === true || value === 'true' ? '开启' : '关闭' },
+            dca_rearm_drawdown_pct: { label: '卖后重启', input: 'dcaRearmDrawdown', formatter: percentChip },
+            sell_stage_rearm_drawdown_pct: { label: '卖档重启', input: 'sellStageRearmDrawdown', formatter: (value) => value === null || value === undefined ? '关闭' : percentChip(value) }
+        };
+        const selectedParameterValues = {};
         const leapsGradeRank = { '高': 3, '中': 2, '低': 1, '无': 0 };
 
         function escapeHtml(value) {
@@ -2078,6 +2126,7 @@
                 targets: readPortfolio(),
                 investment_universe: readInvestmentUniverse(),
                 parameter_lab_concurrency: readNumber('workerCount'),
+                parameter_lab_selected_values: selectedParameterValuesPayload(),
                 core_dip_timing_filter: document.getElementById('coreDipTimingFilter').value
             };
             return payload;
@@ -2089,111 +2138,121 @@
             const n = Number(value);
             return Number.isFinite(n) ? `${number(n)}%` : String(value ?? '--');
         }
-        function listCandidateValues(values, formatter = percentChip) {
+        function parameterValueKey(value) {
+            if (value === null || value === undefined) return 'none:null';
+            if (typeof value === 'boolean') return `bool:${value ? '1' : '0'}`;
+            const n = Number(value);
+            if (Number.isFinite(n)) return `number:${String(Math.round(n * 10000000000) / 10000000000)}`;
+            return `string:${String(value)}`;
+        }
+        function ensureSelectedParameterValues(field, definitions = strategyRegistry.definitions || {}) {
+            if (selectedParameterValues[field]) return selectedParameterValues[field];
+            selectedParameterValues[field] = new Set(parameterCandidateValues(field, definitions).map(parameterValueKey));
+            return selectedParameterValues[field];
+        }
+        function listCandidateValues(field, values, formatter = percentChip, options = {}) {
             const list = Array.isArray(values) ? values : [];
             if (!list.length) return '<span class="candidate-chip muted">沿用基线</span>';
-            return list.map((value) => `<span class="candidate-chip">${escapeHtml(formatter(value))}</span>`).join('');
+            const selected = ensureSelectedParameterValues(field, options.definitions);
+            const chips = list.map((value) => {
+                const key = parameterValueKey(value);
+                const isSelected = selected.has(key);
+                return `<button type="button" class="candidate-chip ${isSelected ? 'selected' : 'muted'}" data-parameter-field="${escapeHtml(field)}" data-parameter-value-key="${escapeHtml(key)}" aria-pressed="${isSelected ? 'true' : 'false'}">${escapeHtml(formatter(value))}</button>`;
+            });
+            if (!list.some((value) => selected.has(parameterValueKey(value)))) {
+                chips.push(`<span class="candidate-chip muted">固定: ${escapeHtml(options.fixedLabel ?? '--')}</span>`);
+            }
+            return chips.join('');
         }
-        function renderCandidateGridSummary() {
+        function uniqueCandidateValues(values) {
+            return (Array.isArray(values) ? values : [])
+                .filter((value) => value !== undefined && value !== null)
+                .filter((value, index, list) => list.findIndex((item) => Number(item) === Number(value)) === index);
+        }
+        function selectedParameterValuesPayload() {
             const definitions = strategyRegistry.definitions || {};
+            return Object.fromEntries(Object.keys(parameterLabScanFieldDefinitions).map((field) => {
+                const values = parameterCandidateValues(field, definitions);
+                const selected = ensureSelectedParameterValues(field, definitions);
+                return [field, values.filter((value) => selected.has(parameterValueKey(value)))];
+            }));
+        }
+        function toggleParameterValue(field, valueKey) {
+            if (!parameterLabScanFieldDefinitions[field]) return;
+            const selected = ensureSelectedParameterValues(field);
+            if (selected.has(valueKey)) selected.delete(valueKey);
+            else selected.add(valueKey);
+            renderCandidateGridSummary();
+        }
+        function parameterBaselineValue(field) {
+            const definition = parameterLabScanFieldDefinitions[field] || {};
+            const element = document.getElementById(definition.input);
+            if (!element) return null;
+            if (element.type === 'checkbox') return Boolean(element.checked);
+            if (element.tagName === 'SELECT' && (element.value === 'true' || element.value === 'false')) return element.value === 'true';
+            if (element.value === '') return null;
+            const n = Number(element.value);
+            return Number.isFinite(n) ? n : element.value;
+        }
+        function parameterBaselineLabel(field, formatter = percentChip) {
+            return formatter(parameterBaselineValue(field));
+        }
+        function parameterCandidateValues(field, definitions) {
             const equalSlice = definitions.equal_slice || {};
             const linearSlice = definitions.linear_weighted_slice || {};
             const repair = definitions.repair_step || {};
             const grid = definitions.grid_rebound || {};
             const cost = definitions.cost_deleverage || {};
             const core = definitions.core_dip_dca || {};
-            const firstCostSet = (cost.parameter_space?.cost_profit_sets || [])[0] || [];
-            const firstCoreSet = (core.parameter_space?.core_dip_param_sets || [])[0] || [];
-            const coreSetColumn = (index) => (core.parameter_space?.core_dip_param_sets || [])
-                .map((set) => Array.isArray(set) ? set[index] : undefined)
-                .filter((value) => value !== undefined && value !== null)
-                .filter((value, index, values) => values.findIndex((item) => Number(item) === Number(value)) === index);
-            const rows = [
-                {
-                    label: '步长候选',
-                    values: equalSlice.parameter_space?.step_pct || linearSlice.parameter_space?.step_pct || [],
-                    formatter: percentChip
-                },
-                {
-                    label: '每步投入',
-                    values: equalSlice.parameter_space?.equal_slice_allocation_pct || [],
-                    formatter: percentChip
-                },
-                {
-                    label: '修复卖出',
-                    values: repair.parameter_space?.sell_min_profit_pct || [],
-                    formatter: (value) => `${number(value)}%盈利`
-                },
-                {
-                    label: '网格回弹',
-                    values: grid.parameter_space?.grid_rebound_step_pct || [],
-                    formatter: (value) => `${number(value)}%步长`
-                },
-                {
-                    label: '成本盈利组',
-                    values: firstCostSet.length ? (cost.parameter_space?.cost_profit_sets || []) : [],
-                    formatter: (value) => `[${(value || []).map(percentChip).join(', ')}]`
-                },
-                {
-                    label: '核心参数组',
-                    values: firstCoreSet.length ? (core.parameter_space?.core_dip_param_sets || []) : [],
-                    formatter: (value) => `[${(value || []).map(percentChip).join(', ')}]`
-                },
-                {
-                    label: '核心周投',
-                    values: coreSetColumn(1),
-                    formatter: percentChip
-                },
-                {
-                    label: '核心现金垫',
-                    values: coreSetColumn(2),
-                    formatter: percentChip
-                },
-                {
-                    label: '开始加仓',
-                    values: coreSetColumn(3),
-                    formatter: percentChip
-                },
-                {
-                    label: '满额加仓',
-                    values: coreSetColumn(4),
-                    formatter: percentChip
-                },
-                {
-                    label: '买点优化',
-                    values: core.parameter_space?.core_dip_timing_enabled || [],
-                    formatter: (value) => value ? '开启' : '关闭'
-                },
-                {
-                    label: '优化延迟日',
-                    values: core.parameter_space?.core_dip_timing_max_delay_days || [],
-                    formatter: (value) => `${number(value)}日`
-                },
-                {
-                    label: '大涨阈值',
-                    values: core.parameter_space?.core_dip_timing_rise_threshold_pct || [],
-                    formatter: percentChip
-                },
-                {
-                    label: '近低距离',
-                    values: core.parameter_space?.core_dip_timing_near_low_pct || [],
-                    formatter: percentChip
-                },
-                {
-                    label: '卖后重启',
-                    values: repair.parameter_space?.dca_rearm_drawdown_pct || [],
-                    formatter: percentChip
-                },
-                {
-                    label: '卖档重启',
-                    values: repair.parameter_space?.sell_stage_rearm_drawdown_pct || [],
-                    formatter: percentChip
-                }
-            ];
+            const coreSetColumn = (index) => uniqueCandidateValues((core.parameter_space?.core_dip_param_sets || []).map((set) => Array.isArray(set) ? set[index] : undefined));
+            const costProfitColumn = (index) => uniqueCandidateValues((cost.parameter_space?.cost_profit_sets || []).map((set) => Array.isArray(set) ? set[index] : undefined));
+            const costSellColumn = (index) => uniqueCandidateValues((cost.parameter_space?.cost_sell_sets || []).map((set) => Array.isArray(set) ? set[index] : undefined));
+            const spaces = {
+                step_pct: equalSlice.parameter_space?.step_pct || linearSlice.parameter_space?.step_pct || [],
+                equal_slice_allocation_pct: equalSlice.parameter_space?.equal_slice_allocation_pct || [],
+                core_dip_initial_core_pct: coreSetColumn(0),
+                core_dip_weekly_core_pct: coreSetColumn(1),
+                core_dip_cash_reserve_pct: coreSetColumn(2),
+                core_dip_start_drawdown_pct: coreSetColumn(3),
+                core_dip_full_drawdown_pct: coreSetColumn(4),
+                core_dip_timing_enabled: core.parameter_space?.core_dip_timing_enabled || [],
+                core_dip_timing_max_delay_days: core.parameter_space?.core_dip_timing_max_delay_days || [],
+                core_dip_timing_rise_threshold_pct: core.parameter_space?.core_dip_timing_rise_threshold_pct || [],
+                core_dip_timing_near_low_pct: core.parameter_space?.core_dip_timing_near_low_pct || [],
+                sell_min_profit_pct: repair.parameter_space?.sell_min_profit_pct || [],
+                repair_sell_cooldown_days: repair.parameter_space?.repair_sell_cooldown_days || [],
+                repair_stage_sell_pct: repair.parameter_space?.repair_stage_sell_pct || [],
+                grid_rebound_step_pct: grid.parameter_space?.grid_rebound_step_pct || [],
+                grid_first_sell_pct: grid.parameter_space?.grid_first_sell_pct || [],
+                grid_second_sell_pct: grid.parameter_space?.grid_second_sell_pct || [],
+                cost_first_profit_pct: costProfitColumn(0),
+                cost_second_profit_pct: costProfitColumn(1),
+                cost_third_profit_pct: costProfitColumn(2),
+                cost_first_sell_pct: costSellColumn(0),
+                cost_second_sell_pct: costSellColumn(1),
+                cost_third_sell_pct: costSellColumn(2),
+                cost_deleverage_cooldown_days: cost.parameter_space?.cost_deleverage_cooldown_days || [],
+                sell_allow_same_day_sell: cost.parameter_space?.sell_allow_same_day_sell || repair.parameter_space?.sell_allow_same_day_sell || [false, true],
+                dca_rearm_drawdown_pct: repair.parameter_space?.dca_rearm_drawdown_pct || [],
+                sell_stage_rearm_drawdown_pct: [null, ...(repair.parameter_space?.sell_stage_rearm_drawdown_pct || [])]
+            };
+            return spaces[field] || [];
+        }
+        function renderCandidateGridSummary() {
+            const definitions = strategyRegistry.definitions || {};
+            const rows = Object.entries(parameterLabScanFieldDefinitions).map(([field, definition]) => ({
+                field,
+                label: definition.label,
+                values: parameterCandidateValues(field, definitions),
+                formatter: definition.formatter || percentChip
+            }));
             document.getElementById('candidateGridSummary').innerHTML = rows.map((row) => `
                 <div class="candidate-grid-row">
                     <strong>${escapeHtml(row.label)}</strong>
-                    <div class="candidate-chip-list">${listCandidateValues(row.values, row.formatter)}</div>
+                    <div class="candidate-chip-list">${listCandidateValues(row.field, row.values, row.formatter, {
+                        definitions,
+                        fixedLabel: parameterBaselineLabel(row.field, row.formatter)
+                    })}</div>
                 </div>
             `).join('');
         }
@@ -4767,6 +4826,15 @@
 
         document.getElementById('workerCount').value = Math.max(1, Math.min(4, Number(navigator.hardwareConcurrency || 4)));
         document.getElementById('workerCount').addEventListener('input', () => { workerCountTouched = true; });
+        document.getElementById('candidateGridSummary').addEventListener('click', (event) => {
+            const chip = event.target.closest('[data-parameter-value-key]');
+            if (chip) toggleParameterValue(chip.dataset.parameterField, chip.dataset.parameterValueKey);
+        });
+        Object.values(parameterLabScanFieldDefinitions).forEach((definition) => {
+            const element = document.getElementById(definition.input);
+            if (element) element.addEventListener('input', renderCandidateGridSummary);
+            if (element) element.addEventListener('change', renderCandidateGridSummary);
+        });
         document.addEventListener('keydown', handleCellChartFullscreenKeydown);
         refreshUniverseTopics();
         renderCandidateGridSummary();

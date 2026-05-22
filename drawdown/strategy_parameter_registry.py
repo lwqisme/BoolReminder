@@ -181,14 +181,17 @@ def expand_buy_parameter_variants(
     inputs: StrategyInputs | None = None,
     *,
     core_dip_timing_filter: str = "all",
+    selected_parameter_values: Mapping[str, Iterable[object]] | None = None,
+    active_parameter_fields: Iterable[str] | None = None,
 ) -> list[ParameterVariant]:
     inputs = inputs or StrategyInputs()
+    value_selection = _normalize_parameter_value_selection(selected_parameter_values, active_parameter_fields)
     selected = _validate_keys(buy_strategies or STRATEGY_LABELS.keys(), STRATEGY_LABELS, "买入策略")
     if core_dip_timing_filter not in {"all", "enabled", "disabled"}:
         raise ValueError("核心买点优化候选必须是 all、enabled 或 disabled。")
     variants: list[ParameterVariant] = []
     for strategy_key in selected:
-        for params in _buy_param_variants(strategy_key, core_dip_timing_filter):
+        for params in _buy_param_variants(strategy_key, core_dip_timing_filter, inputs, value_selection):
             variants.append(
                 ParameterVariant(
                     variant_key=_variant_key(strategy_key, params),
@@ -207,12 +210,15 @@ def expand_sell_parameter_variants(
     inputs: StrategyInputs | None = None,
     *,
     buy_variant: ParameterVariant,
+    selected_parameter_values: Mapping[str, Iterable[object]] | None = None,
+    active_parameter_fields: Iterable[str] | None = None,
 ) -> list[ParameterVariant]:
     inputs = inputs or StrategyInputs()
+    value_selection = _normalize_parameter_value_selection(selected_parameter_values, active_parameter_fields)
     selected = _validate_keys(sell_strategies or SELL_STRATEGY_LABELS.keys(), SELL_STRATEGY_LABELS, "卖出策略")
     variants: list[ParameterVariant] = []
     for strategy_key in selected:
-        for params in _sell_param_variants(strategy_key, buy_variant.strategy_key, inputs):
+        for params in _sell_param_variants(strategy_key, buy_variant.strategy_key, inputs, value_selection):
             variants.append(
                 ParameterVariant(
                     variant_key=_variant_key(strategy_key, params),
@@ -232,6 +238,8 @@ def expand_strategy_combinations(
     inputs: StrategyInputs | None = None,
     *,
     core_dip_timing_filter: str = "all",
+    selected_parameter_values: Mapping[str, Iterable[object]] | None = None,
+    active_parameter_fields: Iterable[str] | None = None,
 ) -> list[StrategyCombination]:
     inputs = inputs or StrategyInputs()
     combinations: list[StrategyCombination] = []
@@ -239,11 +247,15 @@ def expand_strategy_combinations(
         buy_strategies,
         inputs,
         core_dip_timing_filter=core_dip_timing_filter,
+        selected_parameter_values=selected_parameter_values,
+        active_parameter_fields=active_parameter_fields,
     ):
         sell_variants = expand_sell_parameter_variants(
             sell_strategies,
             inputs,
             buy_variant=buy_variant,
+            selected_parameter_values=selected_parameter_values,
+            active_parameter_fields=active_parameter_fields,
         )
         for sell_variant in sell_variants:
             combination_key = f"{buy_variant.variant_key}__{sell_variant.variant_key}"
@@ -264,6 +276,8 @@ def expand_strategy_candidate_payloads(
     inputs: StrategyInputs | None = None,
     *,
     core_dip_timing_filter: str = "all",
+    selected_parameter_values: Mapping[str, Iterable[object]] | None = None,
+    active_parameter_fields: Iterable[str] | None = None,
 ) -> list[dict[str, object]]:
     return [
         combination.to_candidate_payload()
@@ -272,6 +286,8 @@ def expand_strategy_candidate_payloads(
             sell_strategies,
             inputs,
             core_dip_timing_filter=core_dip_timing_filter,
+            selected_parameter_values=selected_parameter_values,
+            active_parameter_fields=active_parameter_fields,
         )
     ]
 
@@ -282,6 +298,8 @@ def strategy_parameter_lab_manifest_payload(
     inputs: StrategyInputs | None = None,
     *,
     core_dip_timing_filter: str = "all",
+    selected_parameter_values: Mapping[str, Iterable[object]] | None = None,
+    active_parameter_fields: Iterable[str] | None = None,
 ) -> dict[str, object]:
     inputs = inputs or StrategyInputs()
     combinations = expand_strategy_combinations(
@@ -289,6 +307,8 @@ def strategy_parameter_lab_manifest_payload(
         sell_strategies,
         inputs,
         core_dip_timing_filter=core_dip_timing_filter,
+        selected_parameter_values=selected_parameter_values,
+        active_parameter_fields=active_parameter_fields,
     )
     buy_variants: list[list[object]] = []
     sell_variants: list[list[object]] = []
@@ -363,6 +383,133 @@ def apply_candidate_to_inputs(inputs: StrategyInputs, candidate: Mapping[str, ob
         if value is not None and hasattr(inputs, field):
             replacements[field] = value
     return replace(inputs, **replacements)
+
+
+ParameterValueSelection = dict[str, frozenset[tuple[str, object]]]
+
+CORE_DIP_TIMING_DETAIL_FIELDS = frozenset(
+    {
+        "core_dip_timing_max_delay_days",
+        "core_dip_timing_rise_threshold_pct",
+        "core_dip_timing_near_low_pct",
+    }
+)
+
+
+def _normalize_parameter_value_selection(
+    selected_parameter_values: Mapping[str, Iterable[object]] | None,
+    active_parameter_fields: Iterable[str] | None,
+) -> ParameterValueSelection | None:
+    if selected_parameter_values is not None:
+        return _normalize_selected_parameter_values(selected_parameter_values)
+    active_fields = _normalize_active_parameter_fields(active_parameter_fields)
+    if active_fields is None:
+        return None
+    known_fields = set(BUY_PARAMETER_FIELDS + SELL_PARAMETER_FIELDS)
+    return {field: frozenset() for field in known_fields if field not in active_fields}
+
+
+def _normalize_selected_parameter_values(
+    selected_parameter_values: Mapping[str, Iterable[object]],
+) -> ParameterValueSelection:
+    known_fields = set(BUY_PARAMETER_FIELDS + SELL_PARAMETER_FIELDS)
+    selected: ParameterValueSelection = {}
+    unknown = set(str(field) for field in selected_parameter_values) - known_fields
+    if unknown:
+        raise ValueError("未知参数维度: " + ", ".join(sorted(unknown)))
+    for field, values in selected_parameter_values.items():
+        if isinstance(values, (str, bytes)) or not isinstance(values, Iterable):
+            raise ValueError(f"{field} 的候选值必须是数组")
+        selected[str(field)] = frozenset(_canonical_parameter_value(value) for value in values)
+    return selected
+
+
+def _normalize_active_parameter_fields(active_parameter_fields: Iterable[str] | None) -> frozenset[str] | None:
+    if active_parameter_fields is None:
+        return None
+    known_fields = set(BUY_PARAMETER_FIELDS + SELL_PARAMETER_FIELDS)
+    active = frozenset(str(field) for field in active_parameter_fields)
+    unknown = active - known_fields
+    if unknown:
+        raise ValueError("未知参数维度: " + ", ".join(sorted(unknown)))
+    return active
+
+
+def _parameter_field_is_fixed(value_selection: ParameterValueSelection | None, field: str) -> bool:
+    return value_selection is not None and field in value_selection and not value_selection[field]
+
+
+def _parameter_value_is_selected(
+    value_selection: ParameterValueSelection | None,
+    field: str,
+    value: object,
+) -> bool:
+    if value_selection is None or field not in value_selection:
+        return True
+    selected_values = value_selection[field]
+    if not selected_values:
+        return True
+    return _canonical_parameter_value(value) in selected_values
+
+
+def _canonical_parameter_value(value: object) -> tuple[str, object]:
+    if value is None:
+        return ("none", None)
+    if isinstance(value, bool):
+        return ("bool", value)
+    if isinstance(value, (int, float)):
+        return ("number", round(float(value), 10))
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized == "null":
+            return ("none", None)
+        if normalized == "true":
+            return ("bool", True)
+        if normalized == "false":
+            return ("bool", False)
+        try:
+            return ("number", round(float(value), 10))
+        except ValueError:
+            return ("string", value)
+    return ("string", str(value))
+
+
+def _field_applies_to_variant(variant: Mapping[str, object], field: str) -> bool:
+    if field in CORE_DIP_TIMING_DETAIL_FIELDS and not bool(variant.get("core_dip_timing_enabled")):
+        return False
+    return True
+
+
+def _filter_and_project_param_variants(
+    variants: Iterable[Mapping[str, object]],
+    fields: tuple[str, ...],
+    inputs: StrategyInputs,
+    value_selection: ParameterValueSelection | None,
+) -> list[dict[str, object]]:
+    if value_selection is None:
+        return [dict(item) for item in variants]
+    projected: list[dict[str, object]] = []
+    for variant in variants:
+        if any(
+            _field_applies_to_variant(variant, field)
+            and field in value_selection
+            and value_selection[field]
+            and not _parameter_value_is_selected(value_selection, field, variant.get(field))
+            for field in fields
+        ):
+            continue
+        item: dict[str, object] = {}
+        for field in fields:
+            if not _field_applies_to_variant({**variant, **item}, field):
+                continue
+            if _parameter_field_is_fixed(value_selection, field):
+                value = getattr(inputs, field)
+            else:
+                value = variant.get(field)
+            if value is not None:
+                item[field] = value
+        projected.append(item)
+    return _dedupe_param_dicts(projected)
 
 
 def _buy_definitions() -> dict[str, StrategyDefinition]:
@@ -507,22 +654,40 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
     }
 
 
-def _buy_param_variants(strategy_key: str, core_dip_timing_filter: str) -> list[dict[str, object]]:
+def _buy_param_variants(
+    strategy_key: str,
+    core_dip_timing_filter: str,
+    inputs: StrategyInputs,
+    value_selection: ParameterValueSelection | None,
+) -> list[dict[str, object]]:
     if strategy_key == "equal_slice":
-        return [
-            {"step_pct": float(step), "equal_slice_allocation_pct": float(allocation)}
-            for step in ROBUST_BUY_STEP_VALUES
-            for allocation in ROBUST_EQUAL_SLICE_ALLOCATION_VALUES
-        ]
+        return _filter_and_project_param_variants(
+            [
+                {"step_pct": float(step), "equal_slice_allocation_pct": float(allocation)}
+                for step in ROBUST_BUY_STEP_VALUES
+                for allocation in ROBUST_EQUAL_SLICE_ALLOCATION_VALUES
+            ],
+            ("step_pct", "equal_slice_allocation_pct"),
+            inputs,
+            value_selection,
+        )
     if strategy_key == "linear_weighted_slice":
-        return [{"step_pct": float(step)} for step in ROBUST_BUY_STEP_VALUES]
+        return _filter_and_project_param_variants(
+            [{"step_pct": float(step)} for step in ROBUST_BUY_STEP_VALUES],
+            ("step_pct",),
+            inputs,
+            value_selection,
+        )
     if strategy_key == "core_dip_dca":
         variants = []
         timing_values = [False, True]
-        if core_dip_timing_filter == "enabled":
-            timing_values = [True]
-        elif core_dip_timing_filter == "disabled":
-            timing_values = [False]
+        if _parameter_field_is_fixed(value_selection, "core_dip_timing_enabled"):
+            timing_values = [bool(inputs.core_dip_timing_enabled)]
+        else:
+            if core_dip_timing_filter == "enabled":
+                timing_values = [True]
+            elif core_dip_timing_filter == "disabled":
+                timing_values = [False]
         for initial_core, weekly_core, cash_reserve, start_drawdown, full_drawdown in ROBUST_CORE_DIP_PARAM_SETS:
             for timing_enabled in timing_values:
                 params = {
@@ -548,11 +713,31 @@ def _buy_param_variants(strategy_key: str, core_dip_timing_filter: str) -> list[
                                 variants.append(timing_params)
                 else:
                     variants.append(params)
-        return variants
+        return _filter_and_project_param_variants(
+            variants,
+            (
+                "core_dip_initial_core_pct",
+                "core_dip_weekly_core_pct",
+                "core_dip_cash_reserve_pct",
+                "core_dip_start_drawdown_pct",
+                "core_dip_full_drawdown_pct",
+                "core_dip_timing_enabled",
+                "core_dip_timing_max_delay_days",
+                "core_dip_timing_rise_threshold_pct",
+                "core_dip_timing_near_low_pct",
+            ),
+            inputs,
+            value_selection,
+        )
     return [{}]
 
 
-def _sell_param_variants(strategy_key: str, buy_strategy: str, inputs: StrategyInputs) -> list[dict[str, object]]:
+def _sell_param_variants(
+    strategy_key: str,
+    buy_strategy: str,
+    inputs: StrategyInputs,
+    value_selection: ParameterValueSelection | None,
+) -> list[dict[str, object]]:
     if strategy_key == "none":
         return [{}]
     if strategy_key == "repair_step":
@@ -576,7 +761,19 @@ def _sell_param_variants(strategy_key: str, buy_strategy: str, inputs: StrategyI
                             }
                         )
         variants.append(current)
-        return _with_rearm_variants(_with_same_day_sell_variants(variants), buy_strategy, strategy_key)
+        variants = _filter_and_project_param_variants(
+            variants,
+            ("sell_min_profit_pct", "repair_sell_cooldown_days", "repair_stage_sell_pct"),
+            inputs,
+            value_selection,
+        )
+        return _with_rearm_variants(
+            _with_same_day_sell_variants(variants, inputs, value_selection),
+            buy_strategy,
+            strategy_key,
+            inputs,
+            value_selection,
+        )
     if strategy_key == "grid_rebound":
         variants = [
             {
@@ -589,7 +786,19 @@ def _sell_param_variants(strategy_key: str, buy_strategy: str, inputs: StrategyI
             for first_sell in ROBUST_GRID_FIRST_SELLS
             for second_sell in ROBUST_GRID_SECOND_SELLS
         ]
-        return _with_rearm_variants(_with_same_day_sell_variants(variants), buy_strategy, strategy_key)
+        variants = _filter_and_project_param_variants(
+            variants,
+            ("grid_rebound_step_pct", "grid_first_sell_pct", "grid_second_sell_pct", "grid_min_sell_amount"),
+            inputs,
+            value_selection,
+        )
+        return _with_rearm_variants(
+            _with_same_day_sell_variants(variants, inputs, value_selection),
+            buy_strategy,
+            strategy_key,
+            inputs,
+            value_selection,
+        )
     if strategy_key == "cost_deleverage":
         variants = [
             {
@@ -600,22 +809,47 @@ def _sell_param_variants(strategy_key: str, buy_strategy: str, inputs: StrategyI
                 "cost_second_sell_pct": float(sell_set[1]),
                 "cost_third_sell_pct": float(sell_set[2]),
                 "cost_deleverage_cooldown_days": int(cooldown),
-                "sell_allow_same_day_sell": bool(allow_same_day_sell),
                 "cost_min_sell_amount": float(inputs.cost_min_sell_amount),
             }
             for profit_set in ROBUST_COST_PROFIT_SETS
             for sell_set in ROBUST_COST_SELL_SETS
             for cooldown in ROBUST_COST_COOLDOWNS
-            for allow_same_day_sell in (False, True)
         ]
-        return _with_rearm_variants(variants, buy_strategy, strategy_key)
+        variants = _filter_and_project_param_variants(
+            variants,
+            (
+                "cost_first_profit_pct",
+                "cost_second_profit_pct",
+                "cost_third_profit_pct",
+                "cost_first_sell_pct",
+                "cost_second_sell_pct",
+                "cost_third_sell_pct",
+                "cost_deleverage_cooldown_days",
+                "cost_min_sell_amount",
+            ),
+            inputs,
+            value_selection,
+        )
+        variants = _with_same_day_sell_variants(variants, inputs, value_selection)
+        return _with_rearm_variants(variants, buy_strategy, strategy_key, inputs, value_selection)
     return []
 
 
-def _with_same_day_sell_variants(base_variants: list[dict[str, object]]) -> list[dict[str, object]]:
+def _with_same_day_sell_variants(
+    base_variants: list[dict[str, object]],
+    inputs: StrategyInputs,
+    value_selection: ParameterValueSelection | None,
+) -> list[dict[str, object]]:
     result: list[dict[str, object]] = []
+    values = (
+        (False, True)
+        if not _parameter_field_is_fixed(value_selection, "sell_allow_same_day_sell")
+        else (bool(inputs.sell_allow_same_day_sell),)
+    )
     for params in base_variants:
-        for allow_same_day_sell in (False, True):
+        for allow_same_day_sell in values:
+            if not _parameter_value_is_selected(value_selection, "sell_allow_same_day_sell", allow_same_day_sell):
+                continue
             item = dict(params)
             item["sell_allow_same_day_sell"] = bool(allow_same_day_sell)
             result.append(item)
@@ -626,16 +860,23 @@ def _with_rearm_variants(
     base_variants: list[dict[str, object]],
     buy_strategy: str,
     sell_strategy: str,
+    inputs: StrategyInputs,
+    value_selection: ParameterValueSelection | None,
 ) -> list[dict[str, object]]:
     rearm_values: list[float | None]
     if buy_strategy in REARM_BUY_STRATEGIES and sell_strategy in POSITION_SELL_REARM_STRATEGIES:
-        rearm_values = list(ROBUST_DCA_REARM_DRAWDOWN_VALUES)
+        if not _parameter_field_is_fixed(value_selection, "dca_rearm_drawdown_pct"):
+            rearm_values = list(ROBUST_DCA_REARM_DRAWDOWN_VALUES)
+        else:
+            rearm_values = [float(inputs.dca_rearm_drawdown_pct)]
     else:
         rearm_values = [None]
     result: list[dict[str, object]] = []
     for params in base_variants:
         for rearm in rearm_values:
-            for sell_stage_rearm in _sell_stage_rearm_variants(rearm):
+            if rearm is not None and not _parameter_value_is_selected(value_selection, "dca_rearm_drawdown_pct", rearm):
+                continue
+            for sell_stage_rearm in _sell_stage_rearm_variants(rearm, inputs, value_selection):
                 item = dict(params)
                 if rearm is not None:
                     item["dca_rearm_drawdown_pct"] = float(rearm)
@@ -645,16 +886,31 @@ def _with_rearm_variants(
     return _dedupe_param_dicts(result)
 
 
-def _sell_stage_rearm_variants(dca_rearm_drawdown_pct: float | None) -> list[float | None]:
+def _sell_stage_rearm_variants(
+    dca_rearm_drawdown_pct: float | None,
+    inputs: StrategyInputs,
+    value_selection: ParameterValueSelection | None,
+) -> list[float | None]:
     if dca_rearm_drawdown_pct is None:
         return [None]
-    return [
+    if _parameter_field_is_fixed(value_selection, "sell_stage_rearm_drawdown_pct"):
+        fixed_value = inputs.sell_stage_rearm_drawdown_pct
+        if fixed_value is None:
+            return [None]
+        fixed = float(fixed_value)
+        return [fixed] if fixed > float(dca_rearm_drawdown_pct) else [None]
+    values: list[float | None] = [
         None,
         *[
             float(value)
             for value in ROBUST_SELL_STAGE_REARM_DRAWDOWN_VALUES
             if float(value) > float(dca_rearm_drawdown_pct)
         ],
+    ]
+    return [
+        value
+        for value in values
+        if _parameter_value_is_selected(value_selection, "sell_stage_rearm_drawdown_pct", value)
     ]
 
 

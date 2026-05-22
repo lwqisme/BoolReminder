@@ -332,13 +332,40 @@ def _build_parameter_lab_manifest(
     selected_buy_strategies,
     selected_sell_strategies,
     core_dip_timing_filter: str,
+    selected_parameter_values: dict[str, list[object]] | None = None,
+    active_parameter_fields: list[str] | None = None,
 ) -> dict[str, object]:
     return strategy_parameter_lab_manifest_payload(
         selected_buy_strategies,
         selected_sell_strategies,
         inputs,
         core_dip_timing_filter=core_dip_timing_filter,
+        selected_parameter_values=selected_parameter_values,
+        active_parameter_fields=active_parameter_fields,
     )
+
+
+def _parameter_lab_selected_values_from_payload(payload: dict[str, object]) -> dict[str, list[object]] | None:
+    if "parameter_lab_selected_values" not in payload:
+        return None
+    raw = payload.get("parameter_lab_selected_values")
+    if not isinstance(raw, dict):
+        raise ValueError("parameter_lab_selected_values 必须是对象")
+    selected: dict[str, list[object]] = {}
+    for field, values in raw.items():
+        if not isinstance(values, list):
+            raise ValueError(f"parameter_lab_selected_values.{field} 必须是数组")
+        selected[str(field)] = list(values)
+    return selected
+
+
+def _parameter_lab_active_fields_from_payload(payload: dict[str, object]) -> list[str] | None:
+    if "parameter_lab_active_fields" not in payload:
+        return None
+    raw = payload.get("parameter_lab_active_fields")
+    if not isinstance(raw, list):
+        raise ValueError("parameter_lab_active_fields 必须是数组")
+    return [str(item) for item in raw]
 
 
 def _count_estimated_trading_rows(start_date: date, end_date: date) -> int:
@@ -362,11 +389,15 @@ def _estimate_strategy_parameter_lab_payload(payload: dict[str, object]) -> dict
     inputs = lab_config.to_strategy_inputs()
     selected_buy_strategies = payload.get("buy_strategies")
     selected_sell_strategies = payload.get("sell_strategies") or payload.get("score_sell_strategies")
+    selected_parameter_values = _parameter_lab_selected_values_from_payload(payload)
+    active_parameter_fields = None if selected_parameter_values is not None else _parameter_lab_active_fields_from_payload(payload)
     manifest = _build_parameter_lab_manifest(
         inputs,
         selected_buy_strategies,
         selected_sell_strategies,
         str(payload.get("core_dip_timing_filter") or "all"),
+        selected_parameter_values,
+        active_parameter_fields,
     )
     scorecard_portfolios = _resolve_scorecard_portfolios(
         targets,
@@ -8980,6 +9011,8 @@ def _prepare_strategy_parameter_lab_payload(payload: dict[str, object]) -> dict[
     run_id = str(payload.get("run_id") or "").strip()
     selected_buy_strategies = payload.get("buy_strategies")
     selected_sell_strategies = payload.get("sell_strategies") or payload.get("score_sell_strategies")
+    selected_parameter_values = _parameter_lab_selected_values_from_payload(payload)
+    active_parameter_fields = None if selected_parameter_values is not None else _parameter_lab_active_fields_from_payload(payload)
     requested_concurrency_raw = payload.get("parameter_lab_concurrency") or payload.get("robust_concurrency") or 1
     _parameter_lab_log(
         "packet_prepare_start",
@@ -8990,6 +9023,8 @@ def _prepare_strategy_parameter_lab_payload(payload: dict[str, object]) -> dict[
         scorecard_portfolio_keys=payload.get("scorecard_portfolio_keys"),
         scorecard_period_count=len(payload.get("scorecard_periods") or []) if isinstance(payload.get("scorecard_periods"), list) else None,
         requested_concurrency=requested_concurrency_raw,
+        selected_parameter_value_fields=sorted(selected_parameter_values) if selected_parameter_values is not None else None,
+        active_parameter_fields=active_parameter_fields,
     )
     inputs = lab_config.to_strategy_inputs()
     manifest = _build_parameter_lab_manifest(
@@ -8997,6 +9032,8 @@ def _prepare_strategy_parameter_lab_payload(payload: dict[str, object]) -> dict[
         selected_buy_strategies,
         selected_sell_strategies,
         str(payload.get("core_dip_timing_filter") or "all"),
+        selected_parameter_values,
+        active_parameter_fields,
     )
     scorecard_portfolios = _resolve_scorecard_portfolios(
         targets,
@@ -9030,6 +9067,10 @@ def _prepare_strategy_parameter_lab_payload(payload: dict[str, object]) -> dict[
         "tasks": tasks,
         "warnings": warnings,
     }
+    if selected_parameter_values is not None:
+        packet["parameter_lab_selected_values"] = selected_parameter_values
+    if active_parameter_fields is not None:
+        packet["parameter_lab_active_fields"] = active_parameter_fields
     try:
         concurrency = int(float(payload.get("parameter_lab_concurrency") or payload.get("robust_concurrency") or 1))
     except (TypeError, ValueError):
