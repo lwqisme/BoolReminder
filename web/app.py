@@ -6609,6 +6609,10 @@ STRATEGY_LAB_TEMPLATE = """
             if (candidate.dca_rearm_drawdown_pct !== null && candidate.dca_rearm_drawdown_pct !== undefined) {
                 setFieldValue('dcaRearmDrawdown', candidate.dca_rearm_drawdown_pct);
             }
+            const sameDay = document.getElementById('sellAllowSameDaySell');
+            if (sameDay && candidate.sell_allow_same_day_sell !== null && candidate.sell_allow_same_day_sell !== undefined) {
+                sameDay.checked = Boolean(candidate.sell_allow_same_day_sell);
+            }
             updateCommandBar();
             activateTab('scorecard');
             setStatus('success', '已应用 Parameter Lab 参数，并恢复原评分题目与周期。点击"运行评分"可复核。');

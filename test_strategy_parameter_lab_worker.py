@@ -34,6 +34,216 @@ class StrategyParameterLabWorkerTest(unittest.TestCase):
         self.assertIn("type: 'batch_done'", source)
         self.assertIn("leaps_signal: summarizeLeapsSignals(tradeLog, inputs, Boolean(workerState?.include_leaps_signal_details))", source)
 
+    def test_worker_trade_log_and_series_are_detail_only(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript worker detail payload check")
+
+        script = r"""
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const messages = [];
+const context = {
+  console: { info() {}, warn() {}, error() {} },
+  postMessage(message) { messages.push(message); },
+  performance: { now: () => 0 },
+  setTimeout
+};
+context.self = context;
+vm.createContext(context);
+vm.runInContext(source, context);
+
+const buyFields = [
+  'step_pct', 'equal_slice_allocation_pct', 'core_dip_initial_core_pct',
+  'core_dip_weekly_core_pct', 'core_dip_cash_reserve_pct',
+  'core_dip_start_drawdown_pct', 'core_dip_full_drawdown_pct',
+  'core_dip_timing_enabled', 'core_dip_timing_max_delay_days',
+  'core_dip_timing_rise_threshold_pct', 'core_dip_timing_near_low_pct'
+];
+const sellFields = [
+  'sell_min_profit_pct', 'repair_sell_cooldown_days', 'repair_stage_sell_pct',
+  'grid_rebound_step_pct', 'grid_first_sell_pct', 'grid_second_sell_pct',
+  'grid_min_sell_amount', 'cost_first_profit_pct', 'cost_second_profit_pct',
+  'cost_third_profit_pct', 'cost_first_sell_pct', 'cost_second_sell_pct',
+  'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
+  'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct'
+];
+function packet(flags) {
+  return {
+    run_id: flags.run_id,
+    inputs: {
+      initial_cash: 1000,
+      monthly_contribution: 0,
+      max_drawdown_pct: 50,
+      drawdown_basis: 'ath',
+      trade_fee: 0,
+      hkd_to_usd: 0.128,
+      reserve_position_pct: 0,
+      sell_min_profit_pct: 0,
+      sell_allow_same_day_sell: false,
+      dca_rearm_drawdown_pct: 0
+    },
+    tasks: [{
+      key: 'googl_3y',
+      portfolio_key: 'googl_100',
+      portfolio_label: 'GOOGL',
+      period_key: 'three_years',
+      period_label: '近三年',
+      start: '2025-09-01',
+      end: '2025-09-08',
+      symbols: ['GOOGL.US'],
+      targets: [{ symbol: 'GOOGL.US', weight: 100, name: 'GOOGL', max_drawdown_pct: 50 }]
+    }],
+    market_data: {
+      symbols: {
+        'GOOGL.US': {
+          dates: ['2025-09-01', '2025-09-02', '2025-09-03', '2025-09-04', '2025-09-05', '2025-09-08'],
+          closes: [200, 100, 116, 130, 130, 100]
+        }
+      }
+    },
+    buy_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...buyFields],
+    sell_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...sellFields],
+    candidate_schema: ['candidate_id', 'buy_variant_id', 'sell_variant_id'],
+    buy_variants: [[0, 'buy:pyramid_3', 'pyramid_3', null, null, null, null, null, null, null, null, null, null, null]],
+    sell_variants: [[0, 'sell:cost', 'cost_deleverage', 0, null, null, null, null, null, null, 15, 25, 35, 25, 25, 25, 2, false, 0, 0]],
+    candidate_rows: [[0, 0, 0]],
+    include_trades: Boolean(flags.include_trades),
+    include_series: Boolean(flags.include_series)
+  };
+}
+async function run(flags) {
+  messages.length = 0;
+  const p = packet(flags);
+  await context.initRun(p, 0, p.run_id, 1);
+  await context.processBatch({ run_id: p.run_id, worker_index: 0, batch_id: 'b1', candidate_rows: p.candidate_rows }, 0, p.run_id);
+  const done = messages.find((message) => message.type === 'batch_done');
+  return done.rows[0].observations[0];
+}
+(async () => {
+  const normal = await run({ run_id: 'normal' });
+  const detailed = await run({ run_id: 'detail', include_trades: true, include_series: true });
+  process.stdout.write(JSON.stringify({ normal, detailed }));
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+"""
+        completed = subprocess.run(
+            ["node", "-e", script, str(WORKER_JS)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+
+        self.assertNotIn("trade_log", result["normal"])
+        self.assertNotIn("series", result["normal"])
+        self.assertIn("trade_log", result["detailed"])
+        self.assertIn("series", result["detailed"])
+        self.assertGreater(len(result["detailed"]["trade_log"]), 0)
+        self.assertEqual(result["detailed"]["series"]["dates"][0], "2025-09-01")
+
+    def test_worker_googl_cost_detail_replay_skips_cooldown_day_sell(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript GOOGL replay check")
+
+        script = r"""
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const messages = [];
+const context = {
+  console: { info() {}, warn() {}, error() {} },
+  postMessage(message) { messages.push(message); },
+  performance: { now: () => 0 },
+  setTimeout
+};
+context.self = context;
+vm.createContext(context);
+vm.runInContext(source, context);
+const buyFields = [
+  'step_pct', 'equal_slice_allocation_pct', 'core_dip_initial_core_pct',
+  'core_dip_weekly_core_pct', 'core_dip_cash_reserve_pct',
+  'core_dip_start_drawdown_pct', 'core_dip_full_drawdown_pct',
+  'core_dip_timing_enabled', 'core_dip_timing_max_delay_days',
+  'core_dip_timing_rise_threshold_pct', 'core_dip_timing_near_low_pct'
+];
+const sellFields = [
+  'sell_min_profit_pct', 'repair_sell_cooldown_days', 'repair_stage_sell_pct',
+  'grid_rebound_step_pct', 'grid_first_sell_pct', 'grid_second_sell_pct',
+  'grid_min_sell_amount', 'cost_first_profit_pct', 'cost_second_profit_pct',
+  'cost_third_profit_pct', 'cost_first_sell_pct', 'cost_second_sell_pct',
+  'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
+  'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct'
+];
+const packet = {
+  run_id: 'googl-detail',
+  inputs: {
+    initial_cash: 1000,
+    monthly_contribution: 0,
+    max_drawdown_pct: 50,
+    drawdown_basis: 'ath',
+    trade_fee: 0,
+    hkd_to_usd: 0.128,
+    reserve_position_pct: 0,
+    sell_min_profit_pct: 0,
+    sell_allow_same_day_sell: false,
+    dca_rearm_drawdown_pct: 0
+  },
+  tasks: [{
+    key: 'googl_3y',
+    portfolio_key: 'googl_100',
+    portfolio_label: 'GOOGL',
+    period_key: 'three_years',
+    period_label: '近三年',
+    start: '2025-09-01',
+    end: '2025-09-08',
+    symbols: ['GOOGL.US'],
+    targets: [{ symbol: 'GOOGL.US', weight: 100, name: 'GOOGL', max_drawdown_pct: 50 }]
+  }],
+  market_data: {
+    symbols: {
+      'GOOGL.US': {
+        dates: ['2025-09-01', '2025-09-02', '2025-09-03', '2025-09-04', '2025-09-05', '2025-09-08'],
+        closes: [200, 100, 116, 130, 130, 100]
+      }
+    }
+  },
+  buy_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...buyFields],
+  sell_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...sellFields],
+  candidate_schema: ['candidate_id', 'buy_variant_id', 'sell_variant_id'],
+  buy_variants: [[0, 'buy:pyramid_3', 'pyramid_3', null, null, null, null, null, null, null, null, null, null, null]],
+  sell_variants: [[0, 'sell:cost', 'cost_deleverage', 0, null, null, null, null, null, null, 15, 25, 35, 25, 25, 25, 2, false, 0, 0]],
+  candidate_rows: [[0, 0, 0]],
+  include_trades: true,
+  include_series: true
+};
+(async () => {
+  await context.initRun(packet, 0, packet.run_id, 1);
+  await context.processBatch({ run_id: packet.run_id, worker_index: 0, batch_id: 'b1', candidate_rows: packet.candidate_rows }, 0, packet.run_id);
+  const done = messages.find((message) => message.type === 'batch_done');
+  process.stdout.write(JSON.stringify(done.rows[0].observations[0].trade_log));
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+"""
+        completed = subprocess.run(
+            ["node", "-e", script, str(WORKER_JS)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        trades = json.loads(completed.stdout)
+        actions = [(trade["date"], trade["action"], trade.get("trigger_value")) for trade in trades]
+
+        self.assertIn(("2025-09-02", "buy", None), actions)
+        self.assertIn(("2025-09-03", "sell", 15), actions)
+        self.assertIn(("2025-09-05", "sell", 25), actions)
+        self.assertIn(("2025-09-08", "buy", None), actions)
+        self.assertNotIn(("2025-09-04", "sell", 25), actions)
+
     def test_leaps_signal_helper_scores_low_cash_deep_drawdown_above_chasing_buy(self):
         if shutil.which("node") is None:
             self.skipTest("node is required for JavaScript LEAPS helper check")

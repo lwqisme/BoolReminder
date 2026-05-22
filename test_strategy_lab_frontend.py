@@ -253,7 +253,7 @@ class StrategyLabFrontendTest(unittest.TestCase):
 
         self.assertIn("Strategy + params full lab", html)
         self.assertIn("/api/strategy-lab/parameter-lab/packet", html)
-        self.assertIn("new Worker('/static/strategy_parameter_lab_worker.js')", html)
+        self.assertIn("new Worker(parameterLabWorkerUrl)", html)
         self.assertIn("function runWorkerPool(packet, startedAt)", html)
         self.assertIn("function scoreParameterResults(packet, partialRows, workerStats, wallMs, candidateIndex = null)", html)
         self.assertIn("chunks_completed_per_worker", html)
@@ -312,6 +312,7 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("function applyPendingParameterLabCandidate()", html)
         self.assertIn("localStorage.getItem('strategyLabPendingParameterCandidate')", html)
         self.assertIn("applyRunConfigPayload(payload)", html)
+        self.assertIn("sameDay.checked = Boolean(candidate.sell_allow_same_day_sell)", html)
         self.assertIn("已应用 Parameter Lab 参数，并恢复原评分题目与周期", html)
         self.assertIn("loadScorecardDetail(topicKey, cand.buy_strategy, cand.sell_strategy)", html)
 
@@ -327,13 +328,18 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("首日买入金额", html)
         self.assertIn("现金 USD（交易后）", html)
 
-    def test_parameter_lab_cell_opens_main_lab_auto_detail_path(self):
+    def test_parameter_lab_cell_replays_detail_inside_parameter_lab(self):
         with app.test_client() as client:
             html = client.get("/strategy-lab/parameter-lab").get_data(as_text=True)
 
         self.assertIn("function openCellInLab(rowKey, topicKey)", html)
-        self.assertIn("source: 'parameter-lab-cell'", html)
-        self.assertIn("window.open('/strategy-lab?apply_parameter_lab=1&auto_run_lab=1'", html)
+        self.assertIn("openRowDetail(rowKey, topicKey)", html)
+        self.assertIn("function runCellDetailWorker(row, topicKey)", html)
+        self.assertIn("include_trades: true", html)
+        self.assertIn("include_series: true", html)
+        self.assertIn("不一致: 原 cell 与详情重放指标不同。", html)
+        self.assertNotIn("source: 'parameter-lab-cell'", html)
+        self.assertNotIn("window.open('/strategy-lab?apply_parameter_lab=1&auto_run_lab=1'", html)
 
 
 if __name__ == "__main__":

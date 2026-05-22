@@ -588,6 +588,33 @@
             font-size: 12px;
         }
         .mini-table th, .mini-table td { font-size: 12px; padding: 6px; }
+        .cell-detail-status {
+            margin: 0 0 10px;
+            padding: 9px 10px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #f7fafc;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 800;
+        }
+        .cell-detail-status.warn {
+            border-color: rgba(220, 38, 38, 0.28);
+            background: rgba(254, 226, 226, 0.65);
+            color: var(--red);
+        }
+        .cell-detail-status.ok {
+            border-color: rgba(22, 163, 74, 0.25);
+            background: rgba(220, 252, 231, 0.62);
+            color: #15803d;
+        }
+        .cell-detail-chart {
+            height: 310px;
+            min-height: 310px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #fff;
+        }
         .hidden { display: none !important; }
         @media (max-width: 980px) {
             .shell { grid-template-columns: 1fr; }
@@ -854,6 +881,16 @@
         <div class="panel-body">
             <div id="detailMetrics" class="stat-grid" style="grid-template-columns:repeat(5,minmax(0,1fr));"></div>
 
+            <h2 style="font-size:14px;">Cell 复核</h2>
+            <div id="detailCellStatus" class="cell-detail-status">点击矩阵 cell 后在这里显示单题目重放。</div>
+            <div id="detailTradeChart" class="cell-detail-chart"></div>
+            <div class="matrix-wrap" style="max-height:260px;box-shadow:none;margin-top:10px;">
+                <table class="mini-table">
+                    <thead><tr><th>日期</th><th>动作</th><th>标的</th><th>价格</th><th>回撤</th><th>金额</th><th>股数</th><th>触发</th></tr></thead>
+                    <tbody id="detailTrades"></tbody>
+                </table>
+            </div>
+
             <h2 style="font-size:14px;">参数快照</h2>
             <pre id="detailJson"></pre>
             <h2 style="font-size:14px;">LEAPS 信号</h2>
@@ -885,9 +922,11 @@
         const PARAMETER_LAB_LARGE_RUN_GUARDRAIL = 50000;
         const LEAPS_DETAIL_PAGE_SIZE = 25;
         const LEAPS_OPTION_QUEUE_CONCURRENCY = 2;
+        const cellDetailCache = new Map();
         const leapsDetailCache = new Map();
         const leapsOptionOutcomeCache = new Map();
         let activeDetailRowKey = '';
+        let activeDetailTopicKey = '';
         let activeDetailLoadToken = 0;
         let leapsOptionProgressTimer = null;
         const parameterFields = [
@@ -1779,9 +1818,11 @@
 
         async function runParameterLab() {
             cancelParameterLab(false);
+            cellDetailCache.clear();
             leapsDetailCache.clear();
             leapsOptionOutcomeCache.clear();
             activeDetailRowKey = '';
+            activeDetailTopicKey = '';
             activeDetailLoadToken += 1;
             refreshUniverseTopics();
             const runId = createParameterLabRunId();
@@ -2474,6 +2515,245 @@
         function findRow(key) {
             return lastParameterResult ? lastParameterResult.rows.find((row) => row.key === key) : null;
         }
+        function findSourceCell(row, topicKey) {
+            return (row?.cells || []).find((cell) => String(cell.topic_key) === String(topicKey)) || null;
+        }
+        function cellDetailCacheKey(row, topicKey) {
+            const packet = lastParameterPacket || {};
+            return JSON.stringify({
+                run_id: packet.run_id || '',
+                payload_schema: packet.payload_schema || '',
+                market_data_hash: packet.market_data_hash || packet.market_data?.hash || '',
+                candidate_manifest_hash: packet.candidate_manifest_hash || '',
+                candidate_id: row?.candidate?.candidate_id ?? row?.cells?.[0]?.candidate_id ?? '',
+                candidate_key: row?.key || '',
+                topic_key: topicKey || ''
+            });
+        }
+        function cellMetricsMismatch(sourceCell, replayCell) {
+            if (!sourceCell || !replayCell) return false;
+            const returnDiff = Math.abs(Number(sourceCell.return_pct || 0) - Number(replayCell.return_pct || 0));
+            const drawdownDiff = Math.abs(Number(sourceCell.max_drawdown_pct || 0) - Number(replayCell.max_drawdown_pct || 0));
+            const tradeDiff = Number(sourceCell.trade_count || 0) !== Number(replayCell.trade_count || 0);
+            return returnDiff > 0.01 || drawdownDiff > 0.01 || tradeDiff;
+        }
+        function renderCellReplayStatus(row, topicKey) {
+            if (!topicKey) return '点击矩阵 cell 后在这里显示单题目重放。';
+            const sourceCell = findSourceCell(row, topicKey);
+            const entry = cellDetailCache.get(cellDetailCacheKey(row, topicKey));
+            const topicLabel = sourceCell ? `${sourceCell.portfolio_label || ''} / ${sourceCell.period_label || ''}`.trim() : topicKey;
+            if (entry?.status === 'loading') return `${escapeHtml(topicLabel)} 正在用原始数据包重放 cell。`;
+            if (entry?.status === 'error') return `重放失败: ${escapeHtml(entry.message || '未知错误')}`;
+            if (entry?.status !== 'done') return `${escapeHtml(topicLabel)} 等待重放。`;
+            const replayCell = entry.cell || null;
+            const mismatch = cellMetricsMismatch(sourceCell, replayCell);
+            return `
+                ${mismatch ? '<strong>不一致: 原 cell 与详情重放指标不同。</strong><br>' : '<strong>一致: 详情使用同一 worker 重放结果。</strong><br>'}
+                原 cell: 收益 ${pct(sourceCell?.return_pct)} / 回撤 ${pct(sourceCell?.max_drawdown_pct)} / 交易 ${number(sourceCell?.trade_count, 0)}
+                · 重放: 收益 ${pct(replayCell?.return_pct)} / 回撤 ${pct(replayCell?.max_drawdown_pct)} / 交易 ${number(replayCell?.trade_count, 0)}
+            `;
+        }
+        function renderCellTradeRows(cell) {
+            const trades = Array.isArray(cell?.trade_log) ? cell.trade_log : [];
+            if (!trades.length) return '<tr><td colspan="8">本题目没有交易。</td></tr>';
+            return trades.map((trade) => `
+                <tr>
+                    <td>${escapeHtml(trade.date || '')}</td>
+                    <td>${escapeHtml(trade.action || '')}</td>
+                    <td>${escapeHtml(trade.symbol || '')}</td>
+                    <td>${number(trade.price)}</td>
+                    <td>${pct(trade.drawdown_pct)}</td>
+                    <td>${money(trade.gross_amount)}</td>
+                    <td>${number(trade.shares, 4)}</td>
+                    <td>${trade.trigger_value === null || trade.trigger_value === undefined ? '--' : number(trade.trigger_value)}</td>
+                </tr>
+            `).join('');
+        }
+        function renderCellTradeChart(cell) {
+            const chart = document.getElementById('detailTradeChart');
+            if (!chart) return;
+            if (!window.Plotly || !cell?.series?.dates?.length) {
+                chart.innerHTML = '<div style="padding:12px;color:var(--muted);font-size:12px;">等待重放序列。</div>';
+                return;
+            }
+            const dates = cell.series.dates || [];
+            const portfolioValues = cell.series.portfolio_values || [];
+            const cashValues = cell.series.cash_values || [];
+            const yByDate = new Map(dates.map((date, index) => [date, portfolioValues[index]]));
+            const trades = Array.isArray(cell.trade_log) ? cell.trade_log : [];
+            const tradeTrace = (action, name, color, symbol) => {
+                const items = trades.filter((trade) => trade.action === action);
+                return {
+                    type: 'scatter',
+                    mode: 'markers',
+                    name,
+                    x: items.map((trade) => trade.date),
+                    y: items.map((trade) => yByDate.get(trade.date) || portfolioValues[portfolioValues.length - 1] || 0),
+                    text: items.map((trade) => `${trade.date} ${trade.symbol || ''} ${money(trade.gross_amount)}`),
+                    marker: { color, size: 10, symbol }
+                };
+            };
+            const traces = [
+                { type: 'scatter', mode: 'lines', name: '组合价值', x: dates, y: portfolioValues, line: { color: '#2563eb', width: 2 } },
+                { type: 'scatter', mode: 'lines', name: '现金', x: dates, y: cashValues, line: { color: '#64748b', width: 1.5, dash: 'dot' } },
+                tradeTrace('buy', '买入', '#16a34a', 'triangle-up'),
+                tradeTrace('sell', '卖出', '#dc2626', 'triangle-down')
+            ];
+            Plotly.react(chart, traces, {
+                margin: { l: 46, r: 12, t: 8, b: 34 },
+                paper_bgcolor: '#fff',
+                plot_bgcolor: '#fff',
+                hovermode: 'x unified',
+                legend: { orientation: 'h', y: 1.12, x: 0 },
+                xaxis: { type: 'date', gridcolor: '#eef2f7' },
+                yaxis: { gridcolor: '#eef2f7', tickprefix: '$' }
+            }, { displayModeBar: false, responsive: true });
+        }
+        function renderCellReplay(row, topicKey) {
+            const status = document.getElementById('detailCellStatus');
+            const trades = document.getElementById('detailTrades');
+            if (!status || !trades) return;
+            const entry = topicKey ? cellDetailCache.get(cellDetailCacheKey(row, topicKey)) : null;
+            status.className = 'cell-detail-status';
+            if (entry?.status === 'done') {
+                status.classList.add(cellMetricsMismatch(findSourceCell(row, topicKey), entry.cell) ? 'warn' : 'ok');
+                trades.innerHTML = renderCellTradeRows(entry.cell);
+                renderCellTradeChart(entry.cell);
+            } else {
+                trades.innerHTML = '<tr><td colspan="8">等待 cell 重放。</td></tr>';
+                renderCellTradeChart(null);
+            }
+            if (entry?.status === 'error') status.classList.add('warn');
+            status.innerHTML = renderCellReplayStatus(row, topicKey);
+        }
+        function runCellDetailWorker(row, topicKey) {
+            const sourcePacket = lastParameterPacket;
+            const candidateRow = findCandidateRowForDetail(row);
+            const task = (sourcePacket?.tasks || []).find((item) => String(item.key) === String(topicKey));
+            if (!sourcePacket || !candidateRow || !task) return Promise.reject(new Error('找不到当前 cell 的原始数据包。'));
+            const runId = `${sourcePacket.run_id || createParameterLabRunId()}-cell-${Date.now().toString(36)}`;
+            const packet = {
+                ...sourcePacket,
+                run_id: runId,
+                include_trades: true,
+                include_series: true,
+                candidate_rows: [candidateRow],
+                tasks: [task],
+                parameter_lab_concurrency: 1
+            };
+            const workerPacketBase = {
+                run_id: runId,
+                inputs: packet.inputs || {},
+                tasks: packet.tasks || [],
+                market_data: packet.market_data || {},
+                payload_schema: packet.payload_schema || '',
+                registry: packet.registry || {},
+                buy_variant_schema: packet.buy_variant_schema || [],
+                sell_variant_schema: packet.sell_variant_schema || [],
+                candidate_schema: packet.candidate_schema || [],
+                buy_variants: packet.buy_variants || [],
+                sell_variants: packet.sell_variants || [],
+                include_trades: true,
+                include_series: true,
+                diagnostics: {
+                    verbose_simulation_logs: false,
+                    progress_every: 1,
+                    progress_min_ms: 500,
+                    slow_simulation_ms: 3000
+                }
+            };
+            return new Promise((resolve, reject) => {
+                const worker = new Worker(parameterLabWorkerUrl);
+                const partialRows = [];
+                let settled = false;
+                const cleanup = () => worker.terminate();
+                worker.onmessage = (event) => {
+                    if (settled) return;
+                    const message = event.data || {};
+                    if (!message.run_id || message.run_id !== runId) return;
+                    if (message.type === 'ready') {
+                        worker.postMessage({
+                            type: 'batch',
+                            run_id: runId,
+                            worker_index: 0,
+                            batch_id: 'cell-detail',
+                            candidate_rows: [candidateRow]
+                        });
+                    } else if (message.type === 'batch_done') {
+                        partialRows.push(...(message.rows || []));
+                        worker.postMessage({ type: 'finish', run_id: runId, worker_index: 0 });
+                    } else if (message.type === 'done') {
+                        settled = true;
+                        cleanup();
+                        const scored = scoreParameterResults(packet, partialRows, [{
+                            worker_index: 0,
+                            chunk_size: 1,
+                            elapsed_ms: Number(message.elapsed_ms || 0)
+                        }], Number(message.elapsed_ms || 0), buildCandidateIndex(packet));
+                        const detailRow = scored.rows[0] || null;
+                        const detailCell = findSourceCell(detailRow, topicKey) || detailRow?.cells?.[0] || null;
+                        resolve({ row: detailRow, cell: detailCell });
+                    } else if (message.type === 'error' || message.type === 'cancelled') {
+                        settled = true;
+                        cleanup();
+                        reject(new Error(message.message || 'cell 详情重放失败'));
+                    }
+                };
+                worker.onerror = (error) => {
+                    if (settled) return;
+                    settled = true;
+                    cleanup();
+                    reject(error);
+                };
+                worker.postMessage({
+                    type: 'start',
+                    run_id: runId,
+                    worker_index: 0,
+                    total_simulations: 1,
+                    packet: workerPacketBase
+                });
+            });
+        }
+        async function loadCellReplay(row, topicKey) {
+            if (!row || !topicKey || !lastParameterPacket) return;
+            const cacheKey = cellDetailCacheKey(row, topicKey);
+            const cached = cellDetailCache.get(cacheKey);
+            const loadToken = activeDetailLoadToken;
+            if (cached?.status === 'done') {
+                renderCellReplay(row, topicKey);
+                return;
+            }
+            if (cached?.status === 'loading') {
+                if (cached.promise) {
+                    cached.promise.finally(() => {
+                        if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key && activeDetailTopicKey === topicKey) {
+                            renderCellReplay(row, topicKey);
+                        }
+                    });
+                }
+                return;
+            }
+            const promise = runCellDetailWorker(row, topicKey);
+            cellDetailCache.set(cacheKey, { status: 'loading', promise });
+            renderCellReplay(row, topicKey);
+            try {
+                const detail = await promise;
+                cellDetailCache.set(cacheKey, { status: 'done', ...detail });
+                if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key && activeDetailTopicKey === topicKey) {
+                    renderCellReplay(row, topicKey);
+                }
+            } catch (error) {
+                parameterLabWarn('cell_detail_replay_failed', {
+                    row_key: row.key,
+                    topic_key: topicKey,
+                    message: error.message || String(error)
+                });
+                cellDetailCache.set(cacheKey, { status: 'error', message: error.message || String(error) });
+                if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key && activeDetailTopicKey === topicKey) {
+                    renderCellReplay(row, topicKey);
+                }
+            }
+        }
         function leapsDetailCacheKey(row) {
             const packet = lastParameterPacket || lastParameterResult || {};
             const inputs = packet.inputs || {};
@@ -3096,12 +3376,15 @@
                 });
             }
         }
-        function openRowDetail(key) {
+        function openRowDetail(key, topicKey = '') {
             const row = findRow(key);
             if (!row) return;
             activeDetailRowKey = key;
+            activeDetailTopicKey = topicKey || '';
             activeDetailLoadToken += 1;
-            document.getElementById('detailTitle').textContent = row.candidate.label || row.key;
+            const sourceCell = topicKey ? findSourceCell(row, topicKey) : null;
+            const topicLabel = sourceCell ? ` · ${sourceCell.portfolio_label || ''} / ${sourceCell.period_label || ''}` : '';
+            document.getElementById('detailTitle').textContent = `${row.candidate.label || row.key}${topicLabel}`;
             document.getElementById('detailMetrics').innerHTML = `
                 <div class="stat"><span>全局排名</span><strong>#${number(row.global_rank, 0)}</strong></div>
                 <div class="stat"><span>组内排名</span><strong>#${number(row.group_rank, 0)}</strong></div>
@@ -3121,6 +3404,8 @@
                 </tr>
             `).join('');
             document.getElementById('detailDrawer').classList.add('show');
+            renderCellReplay(row, activeDetailTopicKey);
+            if (activeDetailTopicKey) loadCellReplay(row, activeDetailTopicKey);
             loadFullLeapsDetails(row);
         }
         function closeDetail() {
@@ -3138,16 +3423,7 @@
             window.location.href = '/strategy-lab?apply_parameter_lab=1';
         }
         function openCellInLab(rowKey, topicKey) {
-            const row = findRow(rowKey);
-            if (!row) return;
-            localStorage.setItem('strategyLabPendingParameterCandidate', JSON.stringify({
-                candidate: row.candidate,
-                payload: parameterLabPayload(),
-                topic_key: topicKey,
-                source: 'parameter-lab-cell',
-                applied_at: new Date().toISOString()
-            }));
-            window.open('/strategy-lab?apply_parameter_lab=1&auto_run_lab=1', '_blank');
+            openRowDetail(rowKey, topicKey);
         }
 
         document.getElementById('workerCount').value = Math.max(1, Math.min(4, Number(navigator.hardwareConcurrency || 4)));

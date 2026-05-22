@@ -1053,15 +1053,23 @@ function simulate(task, baseInputs, candidate) {
   const finalValue = portfolioValues[portfolioValues.length - 1] || 0;
   const totalContributed = num(inputs.initial_cash) + totalMonthlyContributions;
   const metrics = sellMetrics(tradeLog, portfolioValues, cashValues);
-  return {
+  const result = {
     return_pct: totalContributed > 0 ? pct(finalValue / totalContributed - 1) : 0,
     max_drawdown_pct: maxDrawdown(portfolioValues),
     trade_count: Object.values(states).reduce((sum, state) => sum + state.trades, 0),
     contribution_count: contributionCount,
     leaps_signal: summarizeLeapsSignals(tradeLog, inputs, Boolean(workerState?.include_leaps_signal_details)),
-    trade_log: tradeLog,
     ...metrics
   };
+  if (workerState?.include_trades) result.trade_log = tradeLog;
+  if (workerState?.include_series) {
+    result.series = {
+      dates: allDays.slice(),
+      portfolio_values: portfolioValues,
+      cash_values: cashValues
+    };
+  }
+  return result;
 }
 
 async function initRun(packet, workerIndex, runId, declaredTotal) {
@@ -1077,6 +1085,7 @@ async function initRun(packet, workerIndex, runId, declaredTotal) {
     taskContexts,
     diagnostics,
     include_trades: Boolean(packet.include_trades),
+    include_series: Boolean(packet.include_series),
     include_leaps_signal_details: Boolean(packet.include_leaps_signal_details),
     started,
     completed_simulations: 0,
