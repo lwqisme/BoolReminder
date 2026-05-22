@@ -2799,13 +2799,20 @@
                 </tr>
             `).join('');
         }
+        function clearCellTradeChart(message = '等待重放序列。') {
+            const chart = document.getElementById('detailTradeChart');
+            if (!chart) return;
+            if (window.Plotly) Plotly.purge(chart);
+            chart.innerHTML = `<div style="padding:12px;color:var(--muted);font-size:12px;">${escapeHtml(message)}</div>`;
+        }
         function renderCellTradeChart(cell) {
             const chart = document.getElementById('detailTradeChart');
             if (!chart) return;
             if (!window.Plotly || !cell?.series?.dates?.length) {
-                chart.innerHTML = '<div style="padding:12px;color:var(--muted);font-size:12px;">等待重放序列。</div>';
+                clearCellTradeChart('等待重放序列。');
                 return;
             }
+            Plotly.purge(chart);
             const dates = cell.series.dates || [];
             const portfolioValues = cell.series.portfolio_values || [];
             const cashValues = cell.series.cash_values || [];
@@ -2847,6 +2854,9 @@
                 xaxis: { type: 'date', gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2' },
                 yaxis: { gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2', tickprefix: '$' }
             }, { displayModeBar: false, responsive: true });
+            requestAnimationFrame(() => {
+                if (window.Plotly?.Plots?.resize) Plotly.Plots.resize(chart);
+            });
         }
         function renderCellReplay(row, topicKey) {
             const status = document.getElementById('detailCellStatus');
@@ -3676,6 +3686,8 @@
         }
         function closeDetail() {
             document.getElementById('detailDrawer').classList.remove('show');
+            const chart = document.getElementById('detailTradeChart');
+            if (chart && window.Plotly) Plotly.purge(chart);
         }
         function applyParameterRow(key) {
             const row = findRow(key);
