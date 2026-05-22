@@ -3174,7 +3174,10 @@
                 });
                 setStatus('Error', error.message || String(error), 100);
             } finally {
-                if (currentRun && currentRun.run_id === runId) currentRun = null;
+                if (currentRun && currentRun.run_id === runId) {
+                    currentRun = null;
+                    renderTopGroupLeapsOptionControls();
+                }
             }
         }
 
@@ -3528,6 +3531,7 @@
             if (currentRun.cleanup) currentRun.cleanup();
             if (currentRun.reject) currentRun.reject(new Error('Parameter Lab 已停止'));
             currentRun = null;
+            renderTopGroupLeapsOptionControls();
             if (showStatus) setStatus('Stopped', '本次计算已停止。', 100);
         }
 

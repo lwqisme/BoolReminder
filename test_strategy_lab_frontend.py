@@ -369,6 +369,7 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("holding: '持有中'", html)
         self.assertIn("expired_without_stock_sell: '已到期'", html)
         self.assertIn("sold: '正股卖点'", html)
+        self.assertIn("currentRun = null;\n                    renderTopGroupLeapsOptionControls();", html)
         self.assertIn('data-leaps-scroll-key="top-signals"', html)
         self.assertIn('data-leaps-scroll-key="option-outcomes"', html)
         self.assertIn('data-leaps-scroll-key="full-groups"', html)

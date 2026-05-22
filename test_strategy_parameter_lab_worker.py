@@ -689,6 +689,7 @@ process.stdout.write(JSON.stringify({
         self.assertIn("function formatLeapsOptionExitStatus(outcome)", html)
         self.assertIn("holding: '持有中'", html)
         self.assertIn("expired_without_stock_sell: '已到期'", html)
+        self.assertIn("currentRun = null;\n                    renderTopGroupLeapsOptionControls();", html)
 
     def test_page_scopes_leaps_detail_worker_tasks_to_active_cell(self):
         if shutil.which("node") is None:
