@@ -337,6 +337,8 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("function runCellDetailWorker(row, topicKey)", html)
         self.assertIn("include_trades: true", html)
         self.assertIn("include_series: true", html)
+        self.assertIn("width: min(1120px, calc(100vw - 36px));", html)
+        self.assertIn("height: 360px;", html)
         self.assertIn("不一致: 原 cell 与详情重放指标不同。", html)
         self.assertNotIn("source: 'parameter-lab-cell'", html)
         self.assertNotIn("window.open('/strategy-lab?apply_parameter_lab=1&auto_run_lab=1'", html)

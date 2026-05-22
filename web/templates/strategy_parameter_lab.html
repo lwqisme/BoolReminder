@@ -563,10 +563,10 @@
         .cell-metrics b:last-child { color: var(--red); }
         .drawer {
             position: fixed;
+            top: 18px;
             right: 18px;
             bottom: 18px;
-            width: min(620px, calc(100vw - 36px));
-            max-height: min(760px, calc(100vh - 36px));
+            width: min(1120px, calc(100vw - 36px));
             overflow: auto;
             border: 1px solid var(--line);
             border-radius: 8px;
@@ -609,8 +609,8 @@
             color: #15803d;
         }
         .cell-detail-chart {
-            height: 310px;
-            min-height: 310px;
+            height: 360px;
+            min-height: 360px;
             border: 1px solid var(--line);
             border-radius: 6px;
             background: #fff;
@@ -624,6 +624,16 @@
             .runbar { grid-template-columns: 1fr; }
             .topbar { display: grid; }
             .actions { justify-content: flex-start; }
+            .drawer {
+                top: 10px;
+                right: 10px;
+                bottom: 10px;
+                width: calc(100vw - 20px);
+            }
+            .cell-detail-chart {
+                height: 300px;
+                min-height: 300px;
+            }
         }
     </style>
 </head>
