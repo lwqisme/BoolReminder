@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 
 import requests
 
+import drawdown.leaps_option_outcomes as leaps_module
 from drawdown.leaps_option_outcomes import (
     NO_EXIT_PRICE,
     NO_POLYGON_KEY,
@@ -339,6 +340,35 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(provider.select_count, 1)
         self.assertEqual([item["signal_key"] for item in result["outcomes"]], ["sig-1", "sig-2"])
+
+    def test_batch_replay_circuit_breaks_after_repeated_429s(self):
+        signals = [
+            {
+                "signal_key": f"sig-{index}",
+                "date": f"2024-12-{index + 1:02d}",
+                "symbol": "TSLA.US",
+                "stock_buy_price": 100 + index,
+                "next_stock_sell_date": "2024-12-20",
+            }
+            for index in range(5)
+        ]
+
+        def raise_429(provider, signal):
+            leaps_module._increment_cache_stat("polygon_429s", amount=3)
+            raise requests.HTTPError(response=FakeResponse(status_code=429))
+
+        with patch("drawdown.leaps_option_outcomes.replay_signal", side_effect=raise_429) as replay:
+            result = replay_leaps_option_outcomes_batch(
+                signals,
+                api_key="",
+                provider=FakeProvider(),
+                outcome_cache=OutcomeCache(cache_enabled=False),
+            )
+
+        self.assertEqual(replay.call_count, 2)
+        reasons = [item["skipped_reason"] for item in result["outcomes"]]
+        self.assertEqual(reasons[:2], ["API 限流/超时", "API 限流/超时"])
+        self.assertTrue(all("熔断" in reason for reason in reasons[2:]))
 
     def test_outcome_cache_hit_skips_provider(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -1441,7 +1441,7 @@
 
             <div class="top-group-leaps-option-strip" id="topGroupLeapsOptionBar">
                 <div class="left">
-                    <button type="button" onclick="calculateTopGroupLeapsOptionOutcomes()" disabled>计算各分组 Top3 高等级期权收益</button>
+                    <button type="button" onclick="calculateTopGroupLeapsOptionOutcomes()" disabled>计算 Top3 参数行高等级期权收益</button>
                     <span class="status-text">运行 Parameter Lab 后可用；只展示 ROI，不参与排名。</span>
                 </div>
             </div>
@@ -1550,7 +1550,7 @@
         let workerCountTouched = false;
         const PARAMETER_LAB_LARGE_RUN_GUARDRAIL = 50000;
         const LEAPS_DETAIL_PAGE_SIZE = 25;
-        const LEAPS_OPTION_BATCH_SIZE = 25;
+        const LEAPS_OPTION_BATCH_SIZE = 5;
         const LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000];
         const LEAPS_OPTION_STOPPED_REASON = '已停止，未计算';
         const TOP_GROUP_LEAPS_OPTION_ROW_LIMIT = 3;
@@ -2084,7 +2084,7 @@
                 const requestTotal = Number(run.requestTotal || 0);
                 const uniqueTotal = Number(run.uniqueSignalTotal || 0);
                 const rowText = `行 ${number(run.detailRowsProcessed || 0, 0)} / ${number(run.totalRows || 0, 0)}`;
-                const signalText = `批次 ${number(run.batchCompleted || 0, 0)} / ${number(run.batchTotal || 0, 0)}；信号 ${number(run.requestCompleted || 0, 0)} / ${number(requestTotal, 0)}；去重 ${number(uniqueTotal, 0)} 个`;
+                const signalText = `高等级信号 ${number(run.totalHighGradeSignals || 0, 0)}；去重 ${number(uniqueTotal, 0)}；批次 ${number(run.batchCompleted || 0, 0)} / ${number(run.batchTotal || 0, 0)}；已返回 ${number(run.requestCompleted || 0, 0)} / ${number(requestTotal, 0)}`;
                 const active = run.status === 'stopping' ? '停止请求已记录' : (run.currentLabel || '准备中');
                 const cacheText = formatLeapsOptionCacheStats(run.cacheStats);
                 el.innerHTML = `
@@ -2102,8 +2102,8 @@
                 const statusLabel = run.status === 'done' ? '完成' : (run.status === 'stopped' ? '已停止' : '失败');
                 el.innerHTML = `
                     <div class="left">
-                        <button type="button" onclick="calculateTopGroupLeapsOptionOutcomes()" ${canRun ? '' : 'disabled'}>计算各分组 Top3 高等级期权收益</button>
-                        <span class="status-text">${escapeHtml(statusLabel)} · ${escapeHtml(run.rankLabel || rankLabel)} · 行 ${number(run.detailRowsProcessed || 0, 0)} / ${number(run.totalRows || 0, 0)} · 已计算 ${number(run.requestCompleted || 0, 0)} / ${number(run.requestTotal || 0, 0)} · 去重 ${number(run.uniqueSignalTotal || 0, 0)}${run.budgetTruncated ? ' · 预算截断' : ''}</span>
+                        <button type="button" onclick="calculateTopGroupLeapsOptionOutcomes()" ${canRun ? '' : 'disabled'}>计算 Top3 参数行高等级期权收益</button>
+                        <span class="status-text">${escapeHtml(statusLabel)} · ${escapeHtml(run.rankLabel || rankLabel)} Top${number(TOP_GROUP_LEAPS_OPTION_ROW_LIMIT, 0)} 参数行 · 高等级信号 ${number(run.totalHighGradeSignals || 0, 0)} · 已返回 ${number(run.requestCompleted || 0, 0)} / ${number(run.requestTotal || 0, 0)} · 去重 ${number(run.uniqueSignalTotal || 0, 0)}${run.budgetTruncated ? ' · 预算截断' : ''}</span>
                     </div>
                     <div class="right">
                         <span class="status-text">成功 ${number(run.successCount || 0, 0)} / 跳过 ${number(run.skippedCount || 0, 0)}${run.lastFailure ? ` · 最近失败：${escapeHtml(run.lastFailure)}` : ''}</span>
@@ -2113,8 +2113,8 @@
             }
             el.innerHTML = `
                 <div class="left">
-                    <button type="button" onclick="calculateTopGroupLeapsOptionOutcomes()" ${canRun ? '' : 'disabled'}>计算各分组 Top3 高等级期权收益</button>
-                    <span class="status-text">${lastParameterResult ? `${escapeHtml(rankLabel)} Top${number(TOP_GROUP_LEAPS_OPTION_ROW_LIMIT, 0)} 高等级行 ${number(selectedRows.length, 0)} 条；上限 ${number(TOP_GROUP_LEAPS_OPTION_SIGNAL_BUDGET, 0)} 个去重信号。` : '运行 Parameter Lab 后可用；只展示 ROI，不参与排名。'}</span>
+                    <button type="button" onclick="calculateTopGroupLeapsOptionOutcomes()" ${canRun ? '' : 'disabled'}>计算 Top3 参数行高等级期权收益</button>
+                    <span class="status-text">${lastParameterResult ? `${escapeHtml(rankLabel)} Top${number(TOP_GROUP_LEAPS_OPTION_ROW_LIMIT, 0)} 参数行 ${number(selectedRows.length, 0)} 条；计算这些行里的全部高等级 LEAPS 信号，去重后上限 ${number(TOP_GROUP_LEAPS_OPTION_SIGNAL_BUDGET, 0)} 个；后端每批 ${number(LEAPS_OPTION_BATCH_SIZE, 0)} 个。` : '运行 Parameter Lab 后可用；只展示 ROI，不参与排名。'}</span>
                 </div>
             `;
         }

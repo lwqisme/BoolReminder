@@ -650,7 +650,9 @@ process.stdout.write(JSON.stringify({
         self.assertIn("function highGradeLeapsOptionSignals(signals)", html)
         self.assertIn("只计算高等级信号", html)
         self.assertIn("signal.grade === '高'", html)
-        self.assertIn("计算各分组 Top3 高等级期权收益", html)
+        self.assertIn("计算 Top3 参数行高等级期权收益", html)
+        self.assertIn("计算这些行里的全部高等级 LEAPS 信号", html)
+        self.assertIn("后端每批 ${number(LEAPS_OPTION_BATCH_SIZE, 0)} 个", html)
         self.assertIn("TOP_GROUP_LEAPS_OPTION_ROW_LIMIT = 3", html)
         self.assertIn("TOP_GROUP_LEAPS_OPTION_SIGNAL_BUDGET = 300", html)
         self.assertIn("function topGroupLeapsOptionRows(data, rankMethod = currentParameterRankMethod())", html)
@@ -671,7 +673,7 @@ process.stdout.write(JSON.stringify({
         self.assertIn("function buildLeapsOptionQueue(signals)", html)
         self.assertIn("const queueByKey = new Map();", html)
         self.assertIn("signals: batch.map((queueItem) => queueItem.signal)", html)
-        self.assertIn("LEAPS_OPTION_BATCH_SIZE = 25", html)
+        self.assertIn("LEAPS_OPTION_BATCH_SIZE = 5", html)
         self.assertIn("LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000]", html)
         self.assertIn("function requestLeapsOptionOutcomeBatch(payload, queueItems, options = {})", html)
         self.assertNotIn("LEAPS_OPTION_QUEUE_CONCURRENCY = 2", html)
@@ -1268,7 +1270,7 @@ process.stdout.write(JSON.stringify({
         ]
         helpers = "\n".join(
             [
-                "const LEAPS_OPTION_BATCH_SIZE = 25;",
+                "const LEAPS_OPTION_BATCH_SIZE = 5;",
                 "const LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000];",
                 "const LEAPS_OPTION_STOPPED_REASON = '已停止，未计算';",
                 helper_body,
@@ -1331,7 +1333,7 @@ vm.runInContext(helpers, context);
         ]
         prefix = "\n".join(
             [
-                "const LEAPS_OPTION_BATCH_SIZE = 25;",
+                "const LEAPS_OPTION_BATCH_SIZE = 5;",
                 "const LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000];",
                 "const LEAPS_OPTION_STOPPED_REASON = '已停止，未计算';",
                 "const leapsOptionOutcomeCache = new Map();",
@@ -1437,7 +1439,7 @@ context.renderTopGroupLeapsOptionControls = () => {};
         ]
         prefix = "\n".join(
             [
-                "const LEAPS_OPTION_BATCH_SIZE = 25;",
+                "const LEAPS_OPTION_BATCH_SIZE = 5;",
                 "const LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000];",
                 "const LEAPS_OPTION_STOPPED_REASON = '已停止，未计算';",
                 "const leapsOptionOutcomeCache = new Map();",

@@ -29,6 +29,7 @@ API_LIMIT_OR_TIMEOUT = "API 限流/超时"
 POLYGON_REQUEST_INTERVAL_SECONDS = 1.0
 OPTION_CACHE_SCHEMA_VERSION = 1
 LEAPS_OPTION_SELECTION_POLICY_VERSION = "monthly-call-200-300d-otm10-v1"
+POLYGON_BATCH_429_CIRCUIT_BREAKER = 6
 OUTCOME_CACHEABLE_FAILURES = {
     UNSUPPORTED_UNDERLYING,
     NO_MONTHLY_CONTRACT,
@@ -127,6 +128,11 @@ def _cache_stats_delta(before: dict[str, object], after: dict[str, object] | Non
 
 def _log_option_event(event: str, **fields: object) -> None:
     logger.info("LEAPS option %s %s", event, fields)
+
+
+def _delta_429_count(delta: dict[str, object]) -> int:
+    value = delta.get("polygon_429s", 0)
+    return int(value) if isinstance(value, (int, float)) else 0
 
 
 _LOCKS_LOCK = threading.Lock()
@@ -1230,8 +1236,22 @@ def _replay_leaps_option_outcomes_batch(
         outcome_cache_enabled=bool(active_outcome_cache and active_outcome_cache.cache_enabled),
     )
     batch_started = time.perf_counter()
+    batch_429s = 0
     outcome_by_key: dict[str, dict[str, object]] = {}
     for key, signal in unique_by_key.items():
+        if batch_429s >= POLYGON_BATCH_429_CIRCUIT_BREAKER:
+            reason = f"{API_LIMIT_OR_TIMEOUT}: Polygon 429 熔断，稍后重试"
+            outcome_by_key[key] = skipped_outcome(signal, reason)
+            _log_option_event(
+                "batch_unique_circuit_skipped",
+                key=key,
+                signal_key=str(signal.get("signal_key") or ""),
+                symbol=str(signal.get("symbol") or ""),
+                date=str(signal.get("date") or ""),
+                reason=reason,
+                batch_429s=batch_429s,
+            )
+            continue
         if active_outcome_cache is not None:
             cached = active_outcome_cache.read(signal)
             if cached is not None:
@@ -1245,6 +1265,8 @@ def _replay_leaps_option_outcomes_batch(
                 cached = active_outcome_cache.read(signal, count_miss=False)
                 if cached is not None:
                     outcome_by_key[key] = cached
+                    signal_delta = _cache_stats_delta(signal_stats_before)
+                    batch_429s += _delta_429_count(signal_delta)
                     _log_option_event(
                         "batch_unique_done",
                         key=key,
@@ -1254,7 +1276,8 @@ def _replay_leaps_option_outcomes_batch(
                         status=str(cached.get("status") or ""),
                         source="cache_after_lock",
                         elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3),
-                        cache_delta=_cache_stats_delta(signal_stats_before),
+                        cache_delta=signal_delta,
+                        batch_429s=batch_429s,
                     )
                     continue
             try:
@@ -1262,6 +1285,8 @@ def _replay_leaps_option_outcomes_batch(
                 if active_outcome_cache is not None:
                     active_outcome_cache.write(signal, outcome)
                 outcome_by_key[key] = outcome
+                signal_delta = _cache_stats_delta(signal_stats_before)
+                batch_429s += _delta_429_count(signal_delta)
                 _log_option_event(
                     "batch_unique_done",
                     key=key,
@@ -1273,19 +1298,26 @@ def _replay_leaps_option_outcomes_batch(
                     skipped_reason=str(outcome.get("skipped_reason") or ""),
                     source="replay",
                     elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3),
-                    cache_delta=_cache_stats_delta(signal_stats_before),
+                    cache_delta=signal_delta,
+                    batch_429s=batch_429s,
                 )
             except (requests.Timeout, requests.ConnectionError) as exc:
                 outcome_by_key[key] = skipped_outcome(signal, f"{API_LIMIT_OR_TIMEOUT}: {exc}")
-                _log_option_event("batch_unique_error", key=key, signal_key=str(signal.get("signal_key") or ""), error=type(exc).__name__, message=str(exc), elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=_cache_stats_delta(signal_stats_before))
+                signal_delta = _cache_stats_delta(signal_stats_before)
+                batch_429s += _delta_429_count(signal_delta)
+                _log_option_event("batch_unique_error", key=key, signal_key=str(signal.get("signal_key") or ""), error=type(exc).__name__, message=str(exc), elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=signal_delta, batch_429s=batch_429s)
             except requests.HTTPError as exc:
                 status = getattr(exc.response, "status_code", None)
                 reason = API_LIMIT_OR_TIMEOUT if status in {429, 502, 503, 504} else f"Polygon API 错误: {status or exc}"
                 outcome_by_key[key] = skipped_outcome(signal, reason)
-                _log_option_event("batch_unique_http_error", key=key, signal_key=str(signal.get("signal_key") or ""), status_code=status, reason=reason, elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=_cache_stats_delta(signal_stats_before))
+                signal_delta = _cache_stats_delta(signal_stats_before)
+                batch_429s += _delta_429_count(signal_delta)
+                _log_option_event("batch_unique_http_error", key=key, signal_key=str(signal.get("signal_key") or ""), status_code=status, reason=reason, elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=signal_delta, batch_429s=batch_429s)
             except Exception as exc:
                 outcome_by_key[key] = skipped_outcome(signal, f"Polygon API 错误: {exc}")
-                _log_option_event("batch_unique_error", key=key, signal_key=str(signal.get("signal_key") or ""), error=type(exc).__name__, message=str(exc), elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=_cache_stats_delta(signal_stats_before))
+                signal_delta = _cache_stats_delta(signal_stats_before)
+                batch_429s += _delta_429_count(signal_delta)
+                _log_option_event("batch_unique_error", key=key, signal_key=str(signal.get("signal_key") or ""), error=type(exc).__name__, message=str(exc), elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=signal_delta, batch_429s=batch_429s)
 
     outcomes = [
         clone_outcome_for_signal(outcome_by_key.get(key) or skipped_outcome(signal, "期权收益计算失败"), signal)
@@ -1296,6 +1328,7 @@ def _replay_leaps_option_outcomes_batch(
         signal_count=len(signals),
         unique_count=len(unique_by_key),
         elapsed_ms=round((time.perf_counter() - batch_started) * 1000, 3),
+        batch_429s=batch_429s,
         summary=summarize_outcomes(outcomes),
         cache_stats=_cache_stats_snapshot(),
     )
