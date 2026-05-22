@@ -1,6 +1,8 @@
 import unittest
 from datetime import date
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+import requests
 
 from drawdown.leaps_option_outcomes import (
     NO_POLYGON_KEY,
@@ -8,6 +10,8 @@ from drawdown.leaps_option_outcomes import (
     OptionBar,
     OptionContract,
     PolygonMonthlyOptionProvider,
+    PolygonRequestRateLimiter,
+    _polygon_retry_get,
     is_standard_monthly_expiration,
     replay_leaps_option_outcomes,
     summarize_outcomes,
@@ -29,6 +33,19 @@ class FakeProvider:
 
     def fetch_bars(self, ticker, start, end):
         return self.bars
+
+
+class FakeResponse:
+    def __init__(self, payload=None, status_code=200):
+        self.payload = payload or {}
+        self.status_code = status_code
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(response=self)
+
+    def json(self):
+        return self.payload
 
 
 class LeapsOptionOutcomesTest(unittest.TestCase):
@@ -200,6 +217,35 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
             provider.fetch_bars("O:TSLA250815C110000000", date(2024, 12, 8), date(2024, 12, 20))
 
         self.assertEqual(fetch.call_count, 2)
+
+    def test_polygon_retry_get_waits_before_second_request(self):
+        limiter = PolygonRequestRateLimiter(interval_seconds=1.0)
+        response = FakeResponse({"ok": True})
+
+        with patch("drawdown.leaps_option_outcomes._POLYGON_RATE_LIMITER", limiter):
+            with patch("drawdown.leaps_option_outcomes.time.monotonic", side_effect=[10.0, 10.2]):
+                with patch("drawdown.leaps_option_outcomes.time.sleep") as sleep:
+                    with patch("drawdown.leaps_option_outcomes.requests.get", return_value=response) as get:
+                        _polygon_retry_get("https://api.polygon.io/v1/a", {"apiKey": "secret"}, 15)
+                        _polygon_retry_get("https://api.polygon.io/v1/b", {"apiKey": "secret"}, 15)
+
+        self.assertEqual(get.call_count, 2)
+        sleep.assert_called_once()
+        self.assertAlmostEqual(sleep.call_args.args[0], 0.8)
+
+    def test_polygon_retry_get_rate_limits_each_retry_after_429(self):
+        limiter = Mock()
+        limiter.wait.return_value = 0.0
+        responses = [FakeResponse(status_code=429), FakeResponse({"ok": True})]
+
+        with patch("drawdown.leaps_option_outcomes._POLYGON_RATE_LIMITER", limiter):
+            with patch("drawdown.leaps_option_outcomes.time.sleep") as sleep:
+                with patch("drawdown.leaps_option_outcomes.requests.get", side_effect=responses):
+                    payload = _polygon_retry_get("https://api.polygon.io/v1/a", {"apiKey": "secret"}, 15)
+
+        self.assertEqual(payload, {"ok": True})
+        self.assertEqual(limiter.wait.call_count, 2)
+        sleep.assert_called_once_with(0.5)
 
 
 if __name__ == "__main__":

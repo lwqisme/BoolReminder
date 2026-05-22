@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import threading
 import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -19,6 +21,29 @@ NO_EXIT_PRICE = "无可用卖出价"
 NO_STOCK_SELL = "无下一次正股卖点"
 NO_PRE_EXPIRATION_PRICE = "卖点晚于到期且无可用到期前价格"
 API_LIMIT_OR_TIMEOUT = "API 限流/超时"
+POLYGON_REQUEST_INTERVAL_SECONDS = 1.0
+logger = logging.getLogger(__name__)
+
+
+class PolygonRequestRateLimiter:
+    def __init__(self, interval_seconds: float = POLYGON_REQUEST_INTERVAL_SECONDS):
+        self.interval_seconds = interval_seconds
+        self._lock = threading.Lock()
+        self._next_request_at = 0.0
+
+    def wait(self) -> float:
+        with self._lock:
+            now = time.monotonic()
+            wait_seconds = max(0.0, self._next_request_at - now)
+            request_at = now + wait_seconds
+            self._next_request_at = request_at + self.interval_seconds
+        if wait_seconds > 0:
+            logger.info("Polygon request rate limited", extra={"wait_seconds": round(wait_seconds, 3)})
+            time.sleep(wait_seconds)
+        return wait_seconds
+
+
+_POLYGON_RATE_LIMITER = PolygonRequestRateLimiter()
 
 
 @dataclass(frozen=True)
@@ -143,8 +168,14 @@ def _polygon_retry_get(url: str, params: dict[str, object], timeout: int) -> dic
     last_exc: Exception | None = None
     for attempt in range(3):
         try:
+            wait_seconds = _POLYGON_RATE_LIMITER.wait()
+            logger.debug(
+                "Polygon request starting",
+                extra={"url": url, "attempt": attempt + 1, "wait_seconds": round(wait_seconds, 3)},
+            )
             response = requests.get(url, params=params, timeout=timeout)
             response.raise_for_status()
+            logger.debug("Polygon request completed", extra={"url": url, "attempt": attempt + 1, "status_code": response.status_code})
             return response.json()
         except (requests.Timeout, requests.ConnectionError) as exc:
             last_exc = exc
