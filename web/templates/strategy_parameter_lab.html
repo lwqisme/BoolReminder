@@ -2591,7 +2591,7 @@
             const cashValues = cell.series.cash_values || [];
             const yByDate = new Map(dates.map((date, index) => [date, portfolioValues[index]]));
             const trades = Array.isArray(cell.trade_log) ? cell.trade_log : [];
-            const tradeTrace = (action, name, color, symbol) => {
+            const tradeTrace = (action, name, color, symbol, lineColor = '#fafafa') => {
                 const items = trades.filter((trade) => trade.action === action);
                 return {
                     type: 'scatter',
@@ -2600,23 +2600,24 @@
                     x: items.map((trade) => trade.date),
                     y: items.map((trade) => yByDate.get(trade.date) || portfolioValues[portfolioValues.length - 1] || 0),
                     text: items.map((trade) => `${trade.date} ${trade.symbol || ''} ${money(trade.gross_amount)}`),
-                    marker: { color, size: 10, symbol }
+                    marker: { color, size: 11, symbol, line: { color: lineColor, width: 1 } }
                 };
             };
             const traces = [
-                { type: 'scatter', mode: 'lines', name: '组合价值', x: dates, y: portfolioValues, line: { color: '#2563eb', width: 2 } },
-                { type: 'scatter', mode: 'lines', name: '现金', x: dates, y: cashValues, line: { color: '#64748b', width: 1.5, dash: 'dot' } },
-                tradeTrace('buy', '买入', '#16a34a', 'triangle-up'),
-                tradeTrace('sell', '卖出', '#dc2626', 'triangle-down')
+                { type: 'scatter', mode: 'lines', name: '组合价值', x: dates, y: portfolioValues, line: { color: '#07689f', width: 2.2 } },
+                { type: 'scatter', mode: 'lines', name: '现金', x: dates, y: cashValues, line: { color: '#00856f', width: 1.9, dash: 'dot' } },
+                tradeTrace('buy', '买入', '#ff7e67', 'circle'),
+                tradeTrace('sell', '卖出', '#054d76', 'diamond')
             ];
             Plotly.react(chart, traces, {
                 margin: { l: 46, r: 12, t: 8, b: 34 },
-                paper_bgcolor: '#fff',
-                plot_bgcolor: '#fff',
+                paper_bgcolor: '#fafafa',
+                plot_bgcolor: '#fafafa',
+                font: { color: '#06324c', family: 'Aptos, IBM Plex Sans, Noto Sans SC, sans-serif' },
                 hovermode: 'x unified',
-                legend: { orientation: 'h', y: 1.12, x: 0 },
-                xaxis: { type: 'date', gridcolor: '#eef2f7' },
-                yaxis: { gridcolor: '#eef2f7', tickprefix: '$' }
+                legend: { orientation: 'h', y: 1.12, x: 0, font: { color: '#315d78' } },
+                xaxis: { type: 'date', gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2' },
+                yaxis: { gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2', tickprefix: '$' }
             }, { displayModeBar: false, responsive: true });
         }
         function renderCellReplay(row, topicKey) {
