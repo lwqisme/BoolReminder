@@ -99,6 +99,36 @@ def _reset_cache_stats(token) -> None:
     _REQUEST_CACHE_STATS.reset(token)
 
 
+def _cache_stats_snapshot() -> dict[str, object]:
+    stats = _REQUEST_CACHE_STATS.get()
+    if not isinstance(stats, dict):
+        return {}
+    snapshot: dict[str, object] = {}
+    for key, value in stats.items():
+        snapshot[key] = dict(value) if isinstance(value, dict) else value
+    return snapshot
+
+
+def _cache_stats_delta(before: dict[str, object], after: dict[str, object] | None = None) -> dict[str, object]:
+    after = after or _cache_stats_snapshot()
+    delta: dict[str, object] = {}
+    for key, value in after.items():
+        previous = before.get(key, {} if isinstance(value, dict) else 0)
+        if isinstance(value, dict):
+            bucket: dict[str, object] = {}
+            previous_bucket = previous if isinstance(previous, dict) else {}
+            for inner_key, inner_value in value.items():
+                bucket[inner_key] = inner_value - previous_bucket.get(inner_key, 0)
+            delta[key] = bucket
+        elif isinstance(value, (int, float)) and isinstance(previous, (int, float)):
+            delta[key] = value - previous
+    return delta
+
+
+def _log_option_event(event: str, **fields: object) -> None:
+    logger.info("LEAPS option %s %s", event, fields)
+
+
 _LOCKS_LOCK = threading.Lock()
 _KEY_LOCKS: dict[str, threading.Lock] = {}
 
@@ -419,32 +449,75 @@ def skipped_outcome(signal: dict[str, object], reason: str) -> dict[str, object]
 def _polygon_retry_get(url: str, params: dict[str, object], timeout: int) -> dict[str, object]:
     last_exc: Exception | None = None
     for attempt in range(3):
+        request_started = time.perf_counter()
         try:
             wait_seconds = _POLYGON_RATE_LIMITER.wait()
             _increment_cache_stat("polygon_requests")
             _increment_cache_stat("polygon_wait_ms", amount=round(wait_seconds * 1000, 3))
             if attempt:
                 _increment_cache_stat("polygon_retries")
-            logger.debug(
-                "Polygon request starting",
-                extra={"url": url, "attempt": attempt + 1, "wait_seconds": round(wait_seconds, 3)},
+            _log_option_event(
+                "polygon_request_start",
+                endpoint=url.replace("https://api.polygon.io", ""),
+                attempt=attempt + 1,
+                wait_ms=round(wait_seconds * 1000, 3),
             )
             response = requests.get(url, params=params, timeout=timeout)
             response.raise_for_status()
-            logger.debug("Polygon request completed", extra={"url": url, "attempt": attempt + 1, "status_code": response.status_code})
+            _log_option_event(
+                "polygon_request_done",
+                endpoint=url.replace("https://api.polygon.io", ""),
+                attempt=attempt + 1,
+                status_code=response.status_code,
+                elapsed_ms=round((time.perf_counter() - request_started) * 1000, 3),
+            )
             return response.json()
         except (requests.Timeout, requests.ConnectionError) as exc:
             last_exc = exc
+            _log_option_event(
+                "polygon_request_retryable_error",
+                endpoint=url.replace("https://api.polygon.io", ""),
+                attempt=attempt + 1,
+                error=type(exc).__name__,
+                elapsed_ms=round((time.perf_counter() - request_started) * 1000, 3),
+            )
         except requests.HTTPError as exc:
             last_exc = exc
             status = getattr(exc.response, "status_code", None)
             if status == 429:
                 _increment_cache_stat("polygon_429s")
             if status not in {429, 502, 503, 504}:
+                _log_option_event(
+                    "polygon_request_http_error",
+                    endpoint=url.replace("https://api.polygon.io", ""),
+                    attempt=attempt + 1,
+                    status_code=status,
+                    elapsed_ms=round((time.perf_counter() - request_started) * 1000, 3),
+                )
                 raise
+            _log_option_event(
+                "polygon_request_retryable_http_error",
+                endpoint=url.replace("https://api.polygon.io", ""),
+                attempt=attempt + 1,
+                status_code=status,
+                elapsed_ms=round((time.perf_counter() - request_started) * 1000, 3),
+            )
         if attempt < 2:
-            time.sleep(0.5 * (2**attempt))
+            sleep_seconds = 0.5 * (2**attempt)
+            _log_option_event(
+                "polygon_request_retry_sleep",
+                endpoint=url.replace("https://api.polygon.io", ""),
+                attempt=attempt + 1,
+                sleep_ms=round(sleep_seconds * 1000, 3),
+            )
+            time.sleep(sleep_seconds)
     if last_exc:
+        _log_option_event(
+            "polygon_request_failed",
+            endpoint=url.replace("https://api.polygon.io", ""),
+            error=type(last_exc).__name__,
+            message=str(last_exc),
+        )
         raise last_exc
     return {}
 
@@ -458,7 +531,7 @@ class OutcomeCache:
     def _path(self, key: str) -> Path:
         return self.cache_dir / f"{_safe_cache_name(key)}.json"
 
-    def read(self, signal: dict[str, object]) -> dict[str, object] | None:
+    def read(self, signal: dict[str, object], count_miss: bool = True) -> dict[str, object] | None:
         if not self.cache_enabled:
             return None
         for key in _outcome_cache_keys_for_read(signal):
@@ -467,6 +540,13 @@ class OutcomeCache:
                 cached = self._memory.get(key)
                 if cached is not None:
                     _increment_cache_stat("outcome", "memory_hit")
+                    _log_option_event(
+                        "outcome_cache_memory_hit",
+                        key=key,
+                        signal_key=str(signal.get("signal_key") or ""),
+                        symbol=str(signal.get("symbol") or ""),
+                        date=str(signal.get("date") or ""),
+                    )
                     return clone_outcome_for_signal(cached, signal)
                 payload = _read_json_file(self._path(key))
                 if payload is None:
@@ -478,14 +558,40 @@ class OutcomeCache:
                     continue
                 self._memory[key] = outcome
                 _increment_cache_stat("outcome", "disk_hit")
+                _log_option_event(
+                    "outcome_cache_disk_hit",
+                    key=key,
+                    signal_key=str(signal.get("signal_key") or ""),
+                    symbol=str(signal.get("symbol") or ""),
+                    date=str(signal.get("date") or ""),
+                )
                 return clone_outcome_for_signal(outcome, signal)
-        _increment_cache_stat("outcome", "miss")
+        if count_miss:
+            _increment_cache_stat("outcome", "miss")
+            _log_option_event(
+                "outcome_cache_miss",
+                signal_key=str(signal.get("signal_key") or ""),
+                symbol=str(signal.get("symbol") or ""),
+                date=str(signal.get("date") or ""),
+                next_stock_sell_date=str(signal.get("next_stock_sell_date") or ""),
+            )
         return None
 
     def write(self, signal: dict[str, object], outcome: dict[str, object]) -> None:
         if not self.cache_enabled:
             return
-        for key in _outcome_cache_keys_for_write(signal, outcome):
+        keys = _outcome_cache_keys_for_write(signal, outcome)
+        if not keys:
+            _log_option_event(
+                "outcome_cache_skip_write",
+                signal_key=str(signal.get("signal_key") or ""),
+                symbol=str(signal.get("symbol") or ""),
+                date=str(signal.get("date") or ""),
+                status=str(outcome.get("status") or ""),
+                skipped_reason=str(outcome.get("skipped_reason") or ""),
+            )
+            return
+        for key in keys:
             stored = clone_outcome_for_signal(outcome, {**signal, "signal_key": ""})
             stored["signal_key"] = ""
             lock = _lock_for("outcome", key)
@@ -499,6 +605,16 @@ class OutcomeCache:
                 }
                 _write_json_file(self._path(key), payload)
                 _increment_cache_stat("outcome", "write")
+                _log_option_event(
+                    "outcome_cache_write",
+                    key=key,
+                    signal_key=str(signal.get("signal_key") or ""),
+                    symbol=str(signal.get("symbol") or ""),
+                    date=str(signal.get("date") or ""),
+                    status=str(outcome.get("status") or ""),
+                    exit_status=str(outcome.get("exit_status") or ""),
+                    skipped_reason=str(outcome.get("skipped_reason") or ""),
+                )
 
 
 _OUTCOME_CACHE = OutcomeCache()
@@ -633,19 +749,43 @@ class PolygonMonthlyOptionProvider:
         cache_key = (underlying, as_of.isoformat(), start_expiration.isoformat(), end_expiration.isoformat())
         lock = _lock_for("contract", "|".join(cache_key))
         with lock:
+            started = time.perf_counter()
             today = _utc_today()
             if cache_key in self._contracts_cache and _is_cache_fresh(as_of, self._contracts_cache_dates.get(cache_key), today):
                 _increment_cache_stat("contract", "memory_hit")
-                logger.debug("LEAPS option contracts memory cache hit", extra={"underlying": underlying, "as_of": as_of.isoformat()})
+                _log_option_event(
+                    "contracts_cache_memory_hit",
+                    underlying=underlying,
+                    as_of=as_of.isoformat(),
+                    expiration_start=start_expiration.isoformat(),
+                    expiration_end=end_expiration.isoformat(),
+                    count=len(self._contracts_cache[cache_key]),
+                    elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+                )
                 return self._contracts_cache[cache_key]
             cached_contracts = self._read_contracts_cache(underlying, as_of, start_expiration, end_expiration)
             if cached_contracts is not None:
                 _increment_cache_stat("contract", "disk_hit")
                 self._contracts_cache[cache_key] = cached_contracts
                 self._contracts_cache_dates[cache_key] = today.isoformat()
+                _log_option_event(
+                    "contracts_cache_disk_hit",
+                    underlying=underlying,
+                    as_of=as_of.isoformat(),
+                    expiration_start=start_expiration.isoformat(),
+                    expiration_end=end_expiration.isoformat(),
+                    count=len(cached_contracts),
+                    elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+                )
                 return cached_contracts
             _increment_cache_stat("contract", "miss")
-            logger.info("LEAPS option contracts cache miss", extra={"underlying": underlying, "as_of": as_of.isoformat()})
+            _log_option_event(
+                "contracts_cache_miss",
+                underlying=underlying,
+                as_of=as_of.isoformat(),
+                expiration_start=start_expiration.isoformat(),
+                expiration_end=end_expiration.isoformat(),
+            )
             payload = _polygon_retry_get(
                 f"{self.base_url}/v3/reference/options/contracts",
                 {
@@ -665,6 +805,15 @@ class PolygonMonthlyOptionProvider:
             self._contracts_cache[cache_key] = contracts
             self._contracts_cache_dates[cache_key] = today.isoformat()
             self._write_contracts_cache(underlying, as_of, start_expiration, end_expiration, contracts)
+            _log_option_event(
+                "contracts_fetch_done",
+                underlying=underlying,
+                as_of=as_of.isoformat(),
+                expiration_start=start_expiration.isoformat(),
+                expiration_end=end_expiration.isoformat(),
+                count=len(contracts),
+                elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+            )
             return contracts
 
     def select_monthly_call(self, underlying: str, as_of: date, stock_price: float) -> tuple[OptionContract | None, str]:
@@ -707,10 +856,18 @@ class PolygonMonthlyOptionProvider:
         cache_key = (ticker, start.isoformat(), end.isoformat())
         lock = _lock_for("bars", ticker)
         with lock:
+            started = time.perf_counter()
             today = _utc_today()
             if cache_key in self._bars_cache and _is_cache_fresh(end, self._bars_cache_dates.get(cache_key), today):
                 _increment_cache_stat("bars", "memory_hit")
-                logger.debug("LEAPS option bars memory cache hit", extra={"ticker": ticker, "start": start.isoformat(), "end": end.isoformat()})
+                _log_option_event(
+                    "bars_cache_memory_hit",
+                    ticker=ticker,
+                    start=start.isoformat(),
+                    end=end.isoformat(),
+                    count=len(self._bars_cache[cache_key]),
+                    elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+                )
                 return self._bars_cache[cache_key]
             cached = self._read_bars_cache(ticker, start, end)
             if cached is not None:
@@ -720,30 +877,63 @@ class PolygonMonthlyOptionProvider:
                     bars = [bar for bar in cached_bars if start <= bar.date <= end]
                     self._bars_cache[cache_key] = bars
                     self._bars_cache_dates[cache_key] = today.isoformat()
-                    logger.debug("LEAPS option bars cache hit", extra={"ticker": ticker, "start": start.isoformat(), "end": end.isoformat()})
+                    _log_option_event(
+                        "bars_cache_disk_hit",
+                        ticker=ticker,
+                        start=start.isoformat(),
+                        end=end.isoformat(),
+                        count=len(bars),
+                        covered_range_count=len(covered_ranges),
+                        elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+                    )
                     return bars
                 _increment_cache_stat("bars", "partial")
-                logger.info("LEAPS option bars cache partial", extra={"ticker": ticker, "start": start.isoformat(), "end": end.isoformat()})
+                _log_option_event(
+                    "bars_cache_partial",
+                    ticker=ticker,
+                    start=start.isoformat(),
+                    end=end.isoformat(),
+                    cached_bar_count=len(cached_bars),
+                    covered_range_count=len(covered_ranges),
+                )
             else:
                 cached_bars = []
                 covered_ranges = []
                 _increment_cache_stat("bars", "miss")
-                logger.info("LEAPS option bars cache miss", extra={"ticker": ticker, "start": start.isoformat(), "end": end.isoformat()})
+                _log_option_event("bars_cache_miss", ticker=ticker, start=start.isoformat(), end=end.isoformat())
 
             fetched_bars: list[OptionBar] = []
             fetched_ranges = _missing_ranges(covered_ranges, start, end)
+            _log_option_event(
+                "bars_fetch_missing_ranges",
+                ticker=ticker,
+                start=start.isoformat(),
+                end=end.isoformat(),
+                missing_ranges=[(range_start.isoformat(), range_end.isoformat()) for range_start, range_end in fetched_ranges],
+            )
             for fetch_start, fetch_end in fetched_ranges:
+                range_started = time.perf_counter()
                 payload = _polygon_retry_get(
                     f"{self.base_url}/v2/aggs/ticker/{ticker}/range/1/day/{fetch_start.isoformat()}/{fetch_end.isoformat()}",
                     {"adjusted": "true", "sort": "asc", "apiKey": self.api_key},
                     self.timeout,
                 )
+                range_count = 0
                 for item in payload.get("results") or []:
                     close = _float_or_none(item.get("c"))
                     timestamp = item.get("t")
                     if close is None or timestamp is None:
                         continue
                     fetched_bars.append(OptionBar(date=datetime.fromtimestamp(float(timestamp) / 1000, timezone.utc).date(), close=close))
+                    range_count += 1
+                _log_option_event(
+                    "bars_fetch_range_done",
+                    ticker=ticker,
+                    start=fetch_start.isoformat(),
+                    end=fetch_end.isoformat(),
+                    count=range_count,
+                    elapsed_ms=round((time.perf_counter() - range_started) * 1000, 3),
+                )
             fetched_bars.sort(key=lambda bar: bar.date)
             merged_by_date = {bar.date: bar for bar in cached_bars}
             merged_by_date.update({bar.date: bar for bar in fetched_bars})
@@ -753,6 +943,17 @@ class PolygonMonthlyOptionProvider:
             requested_bars = [bar for bar in merged_bars if start <= bar.date <= end]
             self._bars_cache[cache_key] = requested_bars
             self._bars_cache_dates[cache_key] = today.isoformat()
+            _log_option_event(
+                "bars_fetch_done",
+                ticker=ticker,
+                start=start.isoformat(),
+                end=end.isoformat(),
+                fetched_bar_count=len(fetched_bars),
+                requested_bar_count=len(requested_bars),
+                merged_bar_count=len(merged_bars),
+                covered_range_count=len(merged_ranges),
+                elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+            )
             return requested_bars
 
 
@@ -776,20 +977,46 @@ def last_bar_after_on_or_before(bars: list[OptionBar], after: date, target: date
 
 
 def replay_signal(provider: PolygonMonthlyOptionProvider, signal: dict[str, object]) -> dict[str, object]:
+    started = time.perf_counter()
     signal_date = parse_iso_date(signal.get("date"))
     sell_date = parse_iso_date(signal.get("next_stock_sell_date"))
     stock_buy_price = _float_or_none(signal.get("stock_buy_price"))
     underlying = polygon_underlying(signal.get("symbol"))
+    _log_option_event(
+        "signal_replay_start",
+        signal_key=str(signal.get("signal_key") or ""),
+        symbol=str(signal.get("symbol") or ""),
+        date=str(signal.get("date") or ""),
+        next_stock_sell_date=str(signal.get("next_stock_sell_date") or ""),
+        stock_buy_price=stock_buy_price,
+        underlying=underlying or "",
+    )
     if not signal_date or stock_buy_price is None:
-        return skipped_outcome(signal, NO_ENTRY_PRICE)
+        outcome = skipped_outcome(signal, NO_ENTRY_PRICE)
+        _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=NO_ENTRY_PRICE, elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
+        return outcome
     if not underlying:
-        return skipped_outcome(signal, UNSUPPORTED_UNDERLYING)
+        outcome = skipped_outcome(signal, UNSUPPORTED_UNDERLYING)
+        _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=UNSUPPORTED_UNDERLYING, elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
+        return outcome
     if sell_date and sell_date <= signal_date:
-        return skipped_outcome(signal, NO_STOCK_SELL)
+        outcome = skipped_outcome(signal, NO_STOCK_SELL)
+        _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=NO_STOCK_SELL, elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
+        return outcome
 
     contract, reason = provider.select_monthly_call(underlying, signal_date, stock_buy_price)
     if contract is None:
-        return skipped_outcome(signal, reason)
+        outcome = skipped_outcome(signal, reason)
+        _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=reason, elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
+        return outcome
+    _log_option_event(
+        "signal_contract_selected",
+        signal_key=str(signal.get("signal_key") or ""),
+        contract=contract.ticker,
+        underlying=contract.underlying,
+        expiration=contract.expiration.isoformat(),
+        strike=contract.strike,
+    )
 
     entry_end = min(signal_date + timedelta(days=7), contract.expiration)
     if sell_date:
@@ -798,31 +1025,47 @@ def replay_signal(provider: PolygonMonthlyOptionProvider, signal: dict[str, obje
         today = _utc_today()
         history_end = max(entry_end, min(today, contract.expiration))
     bars = provider.fetch_bars(contract.ticker, signal_date, history_end)
+    _log_option_event(
+        "signal_bars_loaded",
+        signal_key=str(signal.get("signal_key") or ""),
+        contract=contract.ticker,
+        start=signal_date.isoformat(),
+        end=history_end.isoformat(),
+        bar_count=len(bars),
+    )
     entry_bar = first_bar_on_or_after(bars, signal_date, 7, latest=contract.expiration)
     if not entry_bar:
-        return {**skipped_outcome(signal, NO_ENTRY_PRICE), **contract_payload(contract)}
+        outcome = {**skipped_outcome(signal, NO_ENTRY_PRICE), **contract_payload(contract)}
+        _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=NO_ENTRY_PRICE, contract=contract.ticker, elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
+        return outcome
 
     if not sell_date:
         today = _utc_today()
         exit_boundary = min(today, contract.expiration)
         exit_bar = last_bar_after_on_or_before(bars, entry_bar.date, exit_boundary)
         if not exit_bar:
-            return {**skipped_outcome(signal, NO_EXIT_PRICE), **contract_payload(contract), "entry_price": entry_bar.close}
+            outcome = {**skipped_outcome(signal, NO_EXIT_PRICE), **contract_payload(contract), "entry_price": entry_bar.close}
+            _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=NO_EXIT_PRICE, contract=contract.ticker, entry_date=entry_bar.date.isoformat(), elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
+            return outcome
         exit_status = "expired_without_stock_sell" if today >= contract.expiration else "holding"
     elif sell_date > contract.expiration:
         exit_bar = last_bar_on_or_before(bars, contract.expiration, 7)
         if not exit_bar:
-            return {**skipped_outcome(signal, NO_PRE_EXPIRATION_PRICE), **contract_payload(contract), "entry_price": entry_bar.close}
+            outcome = {**skipped_outcome(signal, NO_PRE_EXPIRATION_PRICE), **contract_payload(contract), "entry_price": entry_bar.close}
+            _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=NO_PRE_EXPIRATION_PRICE, contract=contract.ticker, entry_date=entry_bar.date.isoformat(), elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
+            return outcome
         exit_status = "expired_before_stock_sell"
     else:
         exit_bar = first_bar_on_or_after(bars, sell_date, 7, latest=contract.expiration)
         if not exit_bar:
-            return {**skipped_outcome(signal, NO_EXIT_PRICE), **contract_payload(contract), "entry_price": entry_bar.close}
+            outcome = {**skipped_outcome(signal, NO_EXIT_PRICE), **contract_payload(contract), "entry_price": entry_bar.close}
+            _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=NO_EXIT_PRICE, contract=contract.ticker, entry_date=entry_bar.date.isoformat(), elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
+            return outcome
         exit_status = "sold"
 
     roi_pct = (exit_bar.close / entry_bar.close - 1) * 100
     dte = (contract.expiration - signal_date).days
-    return {
+    outcome = {
         "signal_key": str(signal.get("signal_key") or ""),
         "date": signal_date.isoformat(),
         "symbol": str(signal.get("symbol") or ""),
@@ -841,6 +1084,18 @@ def replay_signal(provider: PolygonMonthlyOptionProvider, signal: dict[str, obje
         "exit_status": exit_status,
         "skipped_reason": "",
     }
+    _log_option_event(
+        "signal_replay_done",
+        signal_key=str(signal.get("signal_key") or ""),
+        status=outcome["status"],
+        exit_status=exit_status,
+        contract=contract.ticker,
+        entry_date=entry_bar.date.isoformat(),
+        exit_date=exit_bar.date.isoformat(),
+        roi_pct=round(roi_pct, 4),
+        elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+    )
+    return outcome
 
 
 def contract_payload(contract: OptionContract) -> dict[str, object]:
@@ -967,6 +1222,14 @@ def _replay_leaps_option_outcomes_batch(
         key_by_index.append(key)
         unique_by_key.setdefault(key, signal)
 
+    _log_option_event(
+        "batch_replay_start",
+        signal_count=len(signals),
+        unique_count=len(unique_by_key),
+        provider=type(active_provider).__name__,
+        outcome_cache_enabled=bool(active_outcome_cache and active_outcome_cache.cache_enabled),
+    )
+    batch_started = time.perf_counter()
     outcome_by_key: dict[str, dict[str, object]] = {}
     for key, signal in unique_by_key.items():
         if active_outcome_cache is not None:
@@ -976,27 +1239,64 @@ def _replay_leaps_option_outcomes_batch(
                 continue
         lock = _lock_for("outcome-replay", key)
         with lock:
+            signal_stats_before = _cache_stats_snapshot()
+            signal_started = time.perf_counter()
             if active_outcome_cache is not None:
-                cached = active_outcome_cache.read(signal)
+                cached = active_outcome_cache.read(signal, count_miss=False)
                 if cached is not None:
                     outcome_by_key[key] = cached
+                    _log_option_event(
+                        "batch_unique_done",
+                        key=key,
+                        signal_key=str(signal.get("signal_key") or ""),
+                        symbol=str(signal.get("symbol") or ""),
+                        date=str(signal.get("date") or ""),
+                        status=str(cached.get("status") or ""),
+                        source="cache_after_lock",
+                        elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3),
+                        cache_delta=_cache_stats_delta(signal_stats_before),
+                    )
                     continue
             try:
                 outcome = replay_signal(active_provider, signal)
                 if active_outcome_cache is not None:
                     active_outcome_cache.write(signal, outcome)
                 outcome_by_key[key] = outcome
+                _log_option_event(
+                    "batch_unique_done",
+                    key=key,
+                    signal_key=str(signal.get("signal_key") or ""),
+                    symbol=str(signal.get("symbol") or ""),
+                    date=str(signal.get("date") or ""),
+                    status=str(outcome.get("status") or ""),
+                    exit_status=str(outcome.get("exit_status") or ""),
+                    skipped_reason=str(outcome.get("skipped_reason") or ""),
+                    source="replay",
+                    elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3),
+                    cache_delta=_cache_stats_delta(signal_stats_before),
+                )
             except (requests.Timeout, requests.ConnectionError) as exc:
                 outcome_by_key[key] = skipped_outcome(signal, f"{API_LIMIT_OR_TIMEOUT}: {exc}")
+                _log_option_event("batch_unique_error", key=key, signal_key=str(signal.get("signal_key") or ""), error=type(exc).__name__, message=str(exc), elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=_cache_stats_delta(signal_stats_before))
             except requests.HTTPError as exc:
                 status = getattr(exc.response, "status_code", None)
                 reason = API_LIMIT_OR_TIMEOUT if status in {429, 502, 503, 504} else f"Polygon API 错误: {status or exc}"
                 outcome_by_key[key] = skipped_outcome(signal, reason)
+                _log_option_event("batch_unique_http_error", key=key, signal_key=str(signal.get("signal_key") or ""), status_code=status, reason=reason, elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=_cache_stats_delta(signal_stats_before))
             except Exception as exc:
                 outcome_by_key[key] = skipped_outcome(signal, f"Polygon API 错误: {exc}")
+                _log_option_event("batch_unique_error", key=key, signal_key=str(signal.get("signal_key") or ""), error=type(exc).__name__, message=str(exc), elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=_cache_stats_delta(signal_stats_before))
 
     outcomes = [
         clone_outcome_for_signal(outcome_by_key.get(key) or skipped_outcome(signal, "期权收益计算失败"), signal)
         for key, signal in zip(key_by_index, signals)
     ]
+    _log_option_event(
+        "batch_replay_done",
+        signal_count=len(signals),
+        unique_count=len(unique_by_key),
+        elapsed_ms=round((time.perf_counter() - batch_started) * 1000, 3),
+        summary=summarize_outcomes(outcomes),
+        cache_stats=_cache_stats_snapshot(),
+    )
     return {"success": True, "outcomes": outcomes, "summary": summarize_outcomes(outcomes)}
