@@ -671,8 +671,12 @@ process.stdout.write(JSON.stringify({
         self.assertIn("function buildLeapsOptionQueue(signals)", html)
         self.assertIn("return normalizeLeapsOptionSignals(signals).map", html)
         self.assertIn("signals: [queueItem.signal]", html)
-        self.assertIn("LEAPS_OPTION_QUEUE_CONCURRENCY = 2", html)
-        self.assertIn("Promise.all(Array.from({ length: outcomeEntry.concurrency }, () => runQueueWorker()))", html)
+        self.assertIn("LEAPS_OPTION_OUTCOME_QUEUE_CONCURRENCY = 1", html)
+        self.assertIn("LEAPS_OPTION_OUTCOME_MIN_INTERVAL_MS = 1500", html)
+        self.assertIn("LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000]", html)
+        self.assertIn("function requestLeapsOptionOutcome(payload, signal, options = {})", html)
+        self.assertNotIn("LEAPS_OPTION_QUEUE_CONCURRENCY = 2", html)
+        self.assertNotIn("Promise.all(Array.from({ length: outcomeEntry.concurrency }, () => runQueueWorker()))", html)
         self.assertIn("stopLeapsOptionOutcomesForActiveRow", html)
         self.assertIn("function leapsOptionVisibleOutcomes(entry)", html)
         self.assertIn("'partial_done'", html)
@@ -1212,6 +1216,285 @@ process.stdout.write(JSON.stringify({
         self.assertEqual(result["requestCount"], 3)
         self.assertEqual(result["overflowCount"], 1)
         self.assertTrue(result["budgetTruncated"])
+
+    def test_leaps_option_request_helper_runs_serially_with_min_interval(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript LEAPS request helper check")
+
+        html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
+        helper_body = html[
+            html.index("        function skippedLeapsOptionOutcome") : html.index("        function formatElapsedTime")
+        ]
+        helpers = "\n".join(
+            [
+                "const LEAPS_OPTION_OUTCOME_QUEUE_CONCURRENCY = 1;",
+                "const LEAPS_OPTION_OUTCOME_MIN_INTERVAL_MS = 1500;",
+                "const LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000];",
+                "const LEAPS_OPTION_STOPPED_REASON = '已停止，未计算';",
+                "const leapsOptionOutcomeRequestQueue = [];",
+                "let leapsOptionOutcomeRequestActiveCount = 0;",
+                "let leapsOptionOutcomeLastRequestFinishedAt = 0;",
+                helper_body,
+            ]
+        )
+        script = """
+const vm = require('vm');
+const helpers = process.argv[1];
+let now = 100000;
+const fetchStarts = [];
+const delays = [];
+const context = {
+  Date: { now: () => now },
+  Math, Number, String, Array, Map, Set, Promise, Error, RegExp,
+  setTimeout: (callback, ms) => { delays.push(ms); now += ms; callback(); return 1; },
+  fetch: async (url) => {
+    fetchStarts.push(now);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ outcomes: [{ status: 'success', symbol: url, roi_pct: fetchStarts.length }] })
+    };
+  }
+};
+vm.createContext(context);
+vm.runInContext(helpers, context);
+(async () => {
+  const signalA = { signal_key: 'sig-a', date: '2024-01-10', symbol: 'AAPL.US' };
+  const signalB = { signal_key: 'sig-b', date: '2024-01-11', symbol: 'MSFT.US' };
+  const results = await Promise.all([
+    context.requestLeapsOptionOutcome({ signals: [signalA] }, signalA),
+    context.requestLeapsOptionOutcome({ signals: [signalB] }, signalB)
+  ]);
+  process.stdout.write(JSON.stringify({ fetchStarts, delays, statuses: results.map((item) => item.status) }));
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+"""
+        completed = subprocess.run(["node", "-e", script, helpers], check=True, capture_output=True, text=True)
+        result = json.loads(completed.stdout)
+
+        self.assertEqual(result["statuses"], ["success", "success"])
+        self.assertEqual(result["fetchStarts"], [100000, 101500])
+        self.assertIn(1500, result["delays"])
+
+    def test_top_group_leaps_option_request_retries_and_clones_dedupe_sources(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript top group LEAPS request helper check")
+
+        html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
+        request_helpers = html[
+            html.index("        function skippedLeapsOptionOutcome") : html.index("        function updateLeapsOptionEntrySummary")
+        ]
+        top_group_helpers = html[
+            html.index("        function appendTopGroupLeapsOptionOutcome") : html.index("        async function calculateTopGroupLeapsOptionOutcomes")
+        ]
+        prefix = "\n".join(
+            [
+                "const LEAPS_OPTION_OUTCOME_QUEUE_CONCURRENCY = 1;",
+                "const LEAPS_OPTION_OUTCOME_MIN_INTERVAL_MS = 1500;",
+                "const LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000];",
+                "const LEAPS_OPTION_STOPPED_REASON = '已停止，未计算';",
+                "const leapsOptionOutcomeRequestQueue = [];",
+                "let leapsOptionOutcomeRequestActiveCount = 0;",
+                "let leapsOptionOutcomeLastRequestFinishedAt = 0;",
+                "const leapsOptionOutcomeCache = new Map();",
+                "let activeDetailRowKey = '';",
+                "let lastParameterPacket = { run_id: 'run-1' };",
+            ]
+        )
+        script = """
+const vm = require('vm');
+const helpers = process.argv[1];
+let now = 100000;
+let fetchCount = 0;
+const delays = [];
+const context = {
+  Date: { now: () => now },
+  Math, Number, String, Array, Map, Set, Promise, Error, RegExp, Boolean,
+  setTimeout: (callback, ms) => { delays.push(ms); now += ms; callback(); return 1; },
+  fetch: async () => {
+    fetchCount += 1;
+    if (fetchCount === 1) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ outcomes: [{ status: 'skipped', skipped_reason: 'API 限流/超时: retry later' }] })
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ outcomes: [{ status: 'success', symbol: 'TSLA.US', roi_pct: 12.3, contract: 'TSLA250117C00100000' }] })
+    };
+  },
+  number: (value) => String(value ?? 0),
+  escapeHtml: (value) => String(value ?? ''),
+  aggregateLeapsOptionOutcomes: (outcomes) => ({ total: outcomes.length, success_count: outcomes.filter((item) => item.status === 'success').length }),
+  leapsDetailCacheKey: (row) => row.key,
+  renderDetailLeapsIntoDrawer: () => {},
+  renderParameterMatrixPreservingScroll: () => {},
+  document: { getElementById: () => null },
+  currentParameterRankMethod: () => 'normalized',
+  topGroupLeapsOptionRows: () => [],
+  lastParameterResult: null,
+  currentRun: null,
+  topGroupLeapsOptionRun: null
+};
+vm.createContext(context);
+vm.runInContext(helpers, context);
+context.renderTopGroupLeapsOptionControls = () => {};
+(async () => {
+  const rowA = { key: 'row-a' };
+  const rowB = { key: 'row-b' };
+  const baseSignal = { signal_key: 'base', date: '2024-01-10', symbol: 'TSLA.US', next_stock_sell_date: '2024-01-20' };
+  const queueItem = {
+    key: 'dedupe',
+    signal: baseSignal,
+    sources: [
+      { row: rowA, signal: { ...baseSignal, signal_key: 'row-a-sig' } },
+      { row: rowB, signal: { ...baseSignal, signal_key: 'row-b-sig' } }
+    ]
+  };
+  const run = { controller: { cancelled: false }, activeLabels: [], startedAt: now, requestCompleted: 0, successCount: 0, skippedCount: 0, lastFailure: '' };
+  await context.processTopGroupLeapsOptionQueueItem(queueItem, run);
+  process.stdout.write(JSON.stringify({
+    fetchCount,
+    delays,
+    rowA: rowA.leaps_option_outcomes,
+    rowB: rowB.leaps_option_outcomes,
+    successCount: run.successCount,
+    skippedCount: run.skippedCount
+  }));
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+"""
+        completed = subprocess.run(
+            ["node", "-e", script, "\n".join([prefix, request_helpers, top_group_helpers])],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+
+        self.assertEqual(result["fetchCount"], 2)
+        self.assertIn(5000, result["delays"])
+        self.assertEqual(result["successCount"], 1)
+        self.assertEqual(result["skippedCount"], 0)
+        self.assertEqual(result["rowA"][0]["status"], "success")
+        self.assertEqual(result["rowA"][0]["signal_key"], "row-a-sig")
+        self.assertEqual(result["rowB"][0]["status"], "success")
+        self.assertEqual(result["rowB"][0]["signal_key"], "row-b-sig")
+
+    def test_top_group_leaps_option_stop_marks_unstarted_items(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript top group LEAPS stop helper check")
+
+        html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
+        request_helpers = html[
+            html.index("        function skippedLeapsOptionOutcome") : html.index("        function updateLeapsOptionEntrySummary")
+        ]
+        top_group_helpers = html[
+            html.index("        function appendTopGroupLeapsOptionOutcome") : html.index("        async function calculateTopGroupLeapsOptionOutcomes")
+        ]
+        prefix = "\n".join(
+            [
+                "const LEAPS_OPTION_OUTCOME_QUEUE_CONCURRENCY = 1;",
+                "const LEAPS_OPTION_OUTCOME_MIN_INTERVAL_MS = 1500;",
+                "const LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000];",
+                "const LEAPS_OPTION_STOPPED_REASON = '已停止，未计算';",
+                "const leapsOptionOutcomeRequestQueue = [];",
+                "let leapsOptionOutcomeRequestActiveCount = 0;",
+                "let leapsOptionOutcomeLastRequestFinishedAt = 0;",
+                "const leapsOptionOutcomeCache = new Map();",
+                "let activeDetailRowKey = '';",
+                "let lastParameterPacket = { run_id: 'run-1' };",
+            ]
+        )
+        script = """
+const vm = require('vm');
+const helpers = process.argv[1];
+let now = 100000;
+const context = {
+  Date: { now: () => now },
+  Math, Number, String, Array, Map, Set, Promise, Error, RegExp, Boolean,
+  setTimeout: (callback, ms) => { now += ms; callback(); return 1; },
+  fetch: async () => {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ outcomes: [{ status: 'success', symbol: 'TSLA.US', roi_pct: 12.3 }] })
+    };
+  },
+  number: (value) => String(value ?? 0),
+  escapeHtml: (value) => String(value ?? ''),
+  aggregateLeapsOptionOutcomes: (outcomes) => ({ total: outcomes.length, success_count: outcomes.filter((item) => item.status === 'success').length }),
+  leapsDetailCacheKey: (row) => row.key,
+  renderDetailLeapsIntoDrawer: () => {},
+  renderParameterMatrixPreservingScroll: () => {},
+  document: { getElementById: () => null },
+  currentParameterRankMethod: () => 'normalized',
+  topGroupLeapsOptionRows: () => [],
+  lastParameterResult: null,
+  currentRun: null,
+  topGroupLeapsOptionRun: null
+};
+vm.createContext(context);
+vm.runInContext(helpers, context);
+context.renderTopGroupLeapsOptionControls = () => {};
+(async () => {
+  const firstRow = { key: 'row-first' };
+  const secondRow = { key: 'row-second' };
+  const requestQueue = [
+    {
+      key: 'first',
+      signal: { signal_key: 'first', date: '2024-01-10', symbol: 'TSLA.US' },
+      sources: [{ row: firstRow, signal: { signal_key: 'first', date: '2024-01-10', symbol: 'TSLA.US' } }]
+    },
+    {
+      key: 'second',
+      signal: { signal_key: 'second', date: '2024-01-11', symbol: 'MSFT.US' },
+      sources: [{ row: secondRow, signal: { signal_key: 'second', date: '2024-01-11', symbol: 'MSFT.US' } }]
+    }
+  ];
+  const run = { controller: { cancelled: false }, activeLabels: [], startedAt: now, requestCompleted: 0, successCount: 0, skippedCount: 0, lastFailure: '' };
+  for (const queueItem of requestQueue) {
+    if (run.controller.cancelled) break;
+    await context.processTopGroupLeapsOptionQueueItem(queueItem, run);
+    run.controller.cancelled = true;
+  }
+  if (run.controller.cancelled) {
+    requestQueue.forEach((queueItem) => {
+      if (!queueItem.started && !queueItem.done) context.appendTopGroupSkippedOutcomes(queueItem, context.LEAPS_OPTION_STOPPED_REASON || '已停止，未计算', run);
+    });
+  }
+  process.stdout.write(JSON.stringify({
+    first: firstRow.leaps_option_outcomes,
+    second: secondRow.leaps_option_outcomes,
+    requestCompleted: run.requestCompleted,
+    skippedCount: run.skippedCount,
+    lastFailure: run.lastFailure
+  }));
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+"""
+        completed = subprocess.run(
+            ["node", "-e", script, "\n".join([prefix, request_helpers, top_group_helpers])],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+
+        self.assertEqual(result["requestCompleted"], 1)
+        self.assertEqual(result["first"][0]["status"], "success")
+        self.assertEqual(result["second"][0]["status"], "skipped")
+        self.assertEqual(result["second"][0]["skipped_reason"], "已停止，未计算")
+        self.assertEqual(result["lastFailure"], "已停止，未计算")
 
     def test_parameter_lab_page_no_longer_exposes_option_scan(self):
         html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
