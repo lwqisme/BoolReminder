@@ -93,8 +93,8 @@
         input[type="checkbox"] {
             appearance: none;
             -webkit-appearance: none;
-            display: inline-grid;
-            place-content: center;
+            position: relative;
+            display: inline-block;
             flex: 0 0 auto;
             width: 18px;
             height: 18px;
@@ -114,10 +114,13 @@
         }
         input[type="checkbox"]::before {
             content: "";
-            width: 6px;
-            height: 10px;
+            position: absolute;
+            left: 6px;
+            top: 3px;
+            width: 3.5px;
+            height: 7px;
             border: solid #1167d8;
-            border-width: 0 2px 2px 0;
+            border-width: 0 1.75px 1.75px 0;
             transform: rotate(45deg) scale(0);
             transform-origin: center;
             transition: transform 120ms ease;
