@@ -356,6 +356,9 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertNotIn("transparent", html)
         self.assertNotIn("backdrop-filter", html)
         self.assertNotIn("opacity:", html)
+        self.assertNotIn("--liquid-glass-lens", html)
+        self.assertNotIn("border: 1px solid #ffffff", html)
+        self.assertNotIn("inset 0 1px 0 #ffffff", html)
         self.assertNotIn("source: 'parameter-lab-cell'", html)
         self.assertNotIn("window.open('/strategy-lab?apply_parameter_lab=1&auto_run_lab=1'", html)
 
