@@ -505,33 +505,44 @@
             overflow: auto;
             border: var(--liquid-glass-border);
             border-radius: var(--radius);
-            background: rgba(255, 255, 255, 0.56);
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.56), rgba(244, 249, 255, 0.34)),
+                rgba(255, 255, 255, 0.28);
             box-shadow: var(--liquid-glass-shadow);
             backdrop-filter: var(--liquid-glass-filter);
             -webkit-backdrop-filter: var(--liquid-glass-filter);
             max-height: calc(100vh - 250px);
         }
-        table { width: 100%; border-collapse: separate; border-spacing: 0; }
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            background: transparent;
+        }
         th, td {
             border: 0;
             box-shadow:
-                inset -1px 0 rgba(217, 224, 234, 0.58),
-                inset 0 -1px rgba(217, 224, 234, 0.68);
+                inset -1px 0 rgba(196, 208, 224, 0.38),
+                inset 0 -1px rgba(196, 208, 224, 0.42);
             padding: 8px;
             vertical-align: top;
+        }
+        td {
+            background: rgba(255, 255, 255, 0.34);
         }
         th {
             position: sticky;
             top: 0;
             z-index: 2;
-            background: rgba(237, 243, 248, 0.88);
+            background:
+                linear-gradient(180deg, rgba(250, 253, 255, 0.92), rgba(232, 241, 250, 0.78));
             text-align: left;
             font-size: 12px;
             backdrop-filter: blur(18px) saturate(1.14);
             -webkit-backdrop-filter: blur(18px) saturate(1.14);
             box-shadow:
-                inset -1px 0 rgba(217, 224, 234, 0.54),
-                inset 0 -1px rgba(174, 185, 200, 0.44);
+                inset -1px 0 rgba(196, 208, 224, 0.36),
+                inset 0 -1px rgba(174, 185, 200, 0.40);
         }
         th:first-child, td:first-child {
             position: sticky;
@@ -539,17 +550,30 @@
             z-index: 1;
             min-width: 320px;
             max-width: 380px;
-            background: rgba(255, 255, 255, 0.86);
+            background:
+                linear-gradient(90deg, rgba(255, 255, 255, 0.88), rgba(246, 250, 255, 0.76));
             box-shadow:
-                inset -1px 0 rgba(217, 224, 234, 0.58),
-                inset 0 -1px rgba(217, 224, 234, 0.68);
+                inset -1px 0 rgba(196, 208, 224, 0.44),
+                inset 0 -1px rgba(196, 208, 224, 0.42);
         }
         th:first-child {
             z-index: 3;
-            background: rgba(237, 243, 248, 0.92);
+            background:
+                linear-gradient(180deg, rgba(250, 253, 255, 0.95), rgba(232, 241, 250, 0.84));
             box-shadow:
-                inset -1px 0 rgba(217, 224, 234, 0.54),
-                inset 0 -1px rgba(174, 185, 200, 0.44);
+                inset -1px 0 rgba(196, 208, 224, 0.40),
+                inset 0 -1px rgba(174, 185, 200, 0.40);
+        }
+        .matrix-wrap th:last-child,
+        .matrix-wrap td:last-child {
+            box-shadow: inset 0 -1px rgba(196, 208, 224, 0.42);
+        }
+        .matrix-wrap tbody tr:last-child > td,
+        .matrix-wrap tbody tr:last-child > td:first-child {
+            box-shadow: inset -1px 0 rgba(196, 208, 224, 0.38);
+        }
+        .matrix-wrap tbody tr:last-child > td:last-child {
+            box-shadow: none;
         }
         .leaps-detail-table th:first-child,
         .leaps-detail-table td:first-child {
@@ -728,6 +752,44 @@
             font-family: var(--mono);
             font-size: 12px;
         }
+        .drawer-section {
+            margin-top: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.58);
+            border-radius: var(--radius-sm);
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.48), rgba(244, 249, 255, 0.30)),
+                rgba(255, 255, 255, 0.18);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.70);
+            overflow: hidden;
+        }
+        .drawer-section summary {
+            cursor: pointer;
+            list-style: none;
+            padding: 10px 12px;
+            color: var(--ink);
+            font-size: 13px;
+            font-weight: 900;
+        }
+        .drawer-section summary::-webkit-details-marker { display: none; }
+        .drawer-section summary::after {
+            content: "+";
+            float: right;
+            color: var(--blue);
+            font-family: var(--mono);
+            font-weight: 900;
+        }
+        .drawer-section[open] summary::after { content: "-"; }
+        .drawer-section > .matrix-wrap {
+            border-width: 1px 0 0;
+            border-radius: 0;
+            box-shadow: none;
+            margin-top: 0 !important;
+        }
+        .drawer-section > pre {
+            border-width: 1px 0 0;
+            border-radius: 0;
+            background: rgba(247, 250, 252, 0.46);
+        }
         .mini-table th, .mini-table td { font-size: 12px; padding: 6px; }
         .cell-detail-status {
             margin: 0 0 10px;
@@ -752,9 +814,12 @@
         .cell-detail-chart {
             height: 360px;
             min-height: 360px;
-            border: 1px solid rgba(174, 185, 200, 0.50);
             border-radius: var(--radius-sm);
-            background: rgba(250, 250, 250, 0.78);
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.54), rgba(244, 249, 255, 0.34)),
+                rgba(255, 255, 255, 0.24);
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.58);
+            overflow: visible;
         }
         .hidden { display: none !important; }
         @media (max-width: 980px) {
@@ -1035,15 +1100,20 @@
             <h2 style="font-size:14px;">Cell 复核</h2>
             <div id="detailCellStatus" class="cell-detail-status">点击矩阵 cell 后在这里显示单题目重放。</div>
             <div id="detailTradeChart" class="cell-detail-chart"></div>
-            <div class="matrix-wrap" style="max-height:260px;box-shadow:none;margin-top:10px;">
+            <details class="drawer-section" id="detailTradesSection">
+                <summary>交易日期明细</summary>
+                <div class="matrix-wrap" style="max-height:260px;">
                 <table class="mini-table">
                     <thead><tr><th>日期</th><th>动作</th><th>标的</th><th>价格</th><th>回撤</th><th>金额</th><th>股数</th><th>触发</th></tr></thead>
                     <tbody id="detailTrades"></tbody>
                 </table>
-            </div>
+                </div>
+            </details>
 
-            <h2 style="font-size:14px;">参数快照</h2>
-            <pre id="detailJson"></pre>
+            <details class="drawer-section" id="detailSnapshotSection">
+                <summary>参数快照</summary>
+                <pre id="detailJson"></pre>
+            </details>
             <h2 style="font-size:14px;">LEAPS 信号</h2>
             <div id="detailLeaps"></div>
             <h2 style="font-size:14px;">题目结果</h2>
@@ -1400,7 +1470,7 @@
                 }
                 const row = findRow(activeDetailRowKey);
                 const detail = document.getElementById('detailLeaps');
-                if (row && detail) detail.innerHTML = renderDetailLeaps(row);
+                if (row && detail) renderDetailLeapsIntoDrawer(row, true);
             }, 1000);
         }
         function optionOutcomeMatchesSignal(outcome, signal) {
@@ -2663,6 +2733,15 @@
             }).join('');
             document.getElementById('matrixBody').innerHTML = body || '<tr><td>没有可显示的结果。</td></tr>';
         }
+        function renderParameterMatrixPreservingScroll() {
+            const wrap = document.getElementById('matrixTable')?.closest('.matrix-wrap');
+            const top = wrap ? wrap.scrollTop : 0;
+            const left = wrap ? wrap.scrollLeft : 0;
+            renderParameterMatrix();
+            if (!wrap) return;
+            wrap.scrollTop = top;
+            wrap.scrollLeft = left;
+        }
         function findRow(key) {
             return lastParameterResult ? lastParameterResult.rows.find((row) => row.key === key) : null;
         }
@@ -2745,20 +2824,20 @@
                 };
             };
             const traces = [
-                { type: 'scatter', mode: 'lines', name: '组合价值', x: dates, y: portfolioValues, line: { color: '#07689f', width: 2.2 } },
+                { type: 'scatter', mode: 'lines', name: '组合价值', x: dates, y: portfolioValues, line: { color: '#1167d8', width: 2.3 } },
                 { type: 'scatter', mode: 'lines', name: '现金', x: dates, y: cashValues, line: { color: '#00856f', width: 1.9, dash: 'dot' } },
-                tradeTrace('buy', '买入', '#ff7e67', 'circle'),
-                tradeTrace('sell', '卖出', '#054d76', 'diamond')
+                tradeTrace('buy', '买入', '#38bdf8', 'circle', '#eaf7ff'),
+                tradeTrace('sell', '卖出', '#64748b', 'diamond', '#f8fafc')
             ];
             Plotly.react(chart, traces, {
                 margin: { l: 46, r: 12, t: 8, b: 34 },
-                paper_bgcolor: '#fafafa',
-                plot_bgcolor: '#fafafa',
-                font: { color: '#06324c', family: 'Aptos, IBM Plex Sans, Noto Sans SC, sans-serif' },
+                paper_bgcolor: 'rgba(255,255,255,0)',
+                plot_bgcolor: 'rgba(255,255,255,0)',
+                font: { color: '#111827', family: 'Aptos, Noto Sans SC, Microsoft YaHei, sans-serif' },
                 hovermode: 'x unified',
-                legend: { orientation: 'h', y: 1.12, x: 0, font: { color: '#315d78' } },
-                xaxis: { type: 'date', gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2' },
-                yaxis: { gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2', tickprefix: '$' }
+                legend: { orientation: 'h', y: 1.12, x: 0, font: { color: '#657184' } },
+                xaxis: { type: 'date', gridcolor: 'rgba(174,185,200,0.30)', zeroline: false, showline: false },
+                yaxis: { gridcolor: 'rgba(174,185,200,0.30)', zeroline: false, showline: false, tickprefix: '$' }
             }, { displayModeBar: false, responsive: true });
         }
         function renderCellReplay(row, topicKey) {
@@ -3266,6 +3345,30 @@
                 ${renderTopLeapsTable(signals)}
             `;
         }
+        function renderDetailLeapsIntoDrawer(row, preserveScroll = false) {
+            const detailEl = document.getElementById('detailLeaps');
+            if (!detailEl) return;
+            const matrixScroll = preserveScroll
+                ? Array.from(detailEl.querySelectorAll('.matrix-wrap')).map((el) => ({
+                    top: el.scrollTop,
+                    left: el.scrollLeft
+                }))
+                : [];
+            const openDetails = preserveScroll
+                ? Array.from(detailEl.querySelectorAll('details')).map((el) => el.open)
+                : [];
+            detailEl.innerHTML = renderDetailLeaps(row);
+            if (!preserveScroll) return;
+            Array.from(detailEl.querySelectorAll('details')).forEach((el, index) => {
+                el.open = Boolean(openDetails[index]);
+            });
+            Array.from(detailEl.querySelectorAll('.matrix-wrap')).forEach((el, index) => {
+                const pos = matrixScroll[index];
+                if (!pos) return;
+                el.scrollTop = pos.top;
+                el.scrollLeft = pos.left;
+            });
+        }
         function setLeapsDetailPage(page) {
             const row = findRow(activeDetailRowKey);
             if (!row) return;
@@ -3274,7 +3377,7 @@
             if (!entry || entry.status !== 'done') return;
             const totalPages = Math.max(1, Math.ceil((entry.groups || []).length / LEAPS_DETAIL_PAGE_SIZE));
             entry.page = Math.max(1, Math.min(totalPages, Number(page || 1)));
-            document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+            renderDetailLeapsIntoDrawer(row);
         }
         async function loadFullLeapsDetails(row) {
             if (!row || !lastParameterPacket) return;
@@ -3286,11 +3389,11 @@
                 if (cached.promise) {
                     cached.promise.then(() => {
                         if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key) {
-                            document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+                            renderDetailLeapsIntoDrawer(row);
                         }
                     }).catch(() => {
                         if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key) {
-                            document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+                            renderDetailLeapsIntoDrawer(row);
                         }
                     });
                 }
@@ -3298,7 +3401,7 @@
             }
             const promise = runLeapsDetailWorker(row);
             leapsDetailCache.set(cacheKey, { status: 'loading', page: 1, promise });
-            document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+            renderDetailLeapsIntoDrawer(row);
             try {
                 const detailRow = await promise;
                 const allSignals = normalizeLeapsOptionSignals(detailRow?.leaps_signal?.all_signals || []);
@@ -3309,7 +3412,7 @@
                     groups: groupLeapsSignalsByDateSymbol(allSignals)
                 });
                 if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key) {
-                    document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+                    renderDetailLeapsIntoDrawer(row);
                 }
             } catch (error) {
                 parameterLabWarn('leaps_detail_load_failed', {
@@ -3318,7 +3421,7 @@
                 });
                 leapsDetailCache.set(cacheKey, { status: 'error', page: 1 });
                 if (loadToken === activeDetailLoadToken && activeDetailRowKey === row.key) {
-                    document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+                    renderDetailLeapsIntoDrawer(row);
                 }
             }
         }
@@ -3365,15 +3468,14 @@
             };
             leapsOptionOutcomeCache.set(detailKey, outcomeEntry);
             ensureLeapsOptionProgressTimer();
-            document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+            renderDetailLeapsIntoDrawer(row, true);
 
             let nextQueueIndex = 0;
             const processQueueItem = async (queueItem) => {
                 const activeLabel = `${queueItem.signal.symbol || '--'} ${queueItem.signal.date || ''}`.trim();
                 outcomeEntry.activeSignalLabels.push(activeLabel);
                 outcomeEntry.currentSignalLabel = outcomeEntry.activeSignalLabels.join(' / ');
-                const detailEl = document.getElementById('detailLeaps');
-                if (detailEl) detailEl.innerHTML = renderDetailLeaps(row);
+                renderDetailLeapsIntoDrawer(row, true);
                 let representativeOutcome = null;
                 try {
                     const response = await fetch('/api/strategy-lab/parameter-lab/leaps-option-outcomes', {
@@ -3411,8 +3513,8 @@
                 updateLeapsOptionEntrySummary(outcomeEntry);
                 row.leaps_option_outcomes = outcomeEntry.outcomes;
                 row.leaps_option_summary = outcomeEntry.summary;
-                document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
-                renderParameterMatrix();
+                renderDetailLeapsIntoDrawer(row, true);
+                renderParameterMatrixPreservingScroll();
             };
             const runQueueWorker = async () => {
                 while (!controller.cancelled) {
@@ -3437,8 +3539,8 @@
             }
             row.leaps_option_outcomes = outcomeEntry.outcomes;
             row.leaps_option_summary = outcomeEntry.summary;
-            document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
-            renderParameterMatrix();
+            renderDetailLeapsIntoDrawer(row, true);
+            renderParameterMatrixPreservingScroll();
         }
         function stopLeapsOptionOutcomesForActiveRow() {
             const row = findRow(activeDetailRowKey);
@@ -3449,7 +3551,7 @@
             if (outcomeEntry.controller) outcomeEntry.controller.cancelled = true;
             outcomeEntry.status = 'stopping';
             outcomeEntry.elapsedMs = outcomeEntry.startedAt ? Date.now() - outcomeEntry.startedAt : outcomeEntry.elapsedMs;
-            document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+            renderDetailLeapsIntoDrawer(row, true);
         }
         async function calculateLeapsOptionOutcomesForActiveGroup(groupKey) {
             const row = findRow(activeDetailRowKey);
@@ -3471,7 +3573,7 @@
                     message: error.message || String(error),
                     elapsedMs: current.startedAt ? Date.now() - current.startedAt : current.elapsedMs
                 });
-                document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+                renderDetailLeapsIntoDrawer(row, true);
                 parameterLabWarn('leaps_option_group_outcomes_failed', {
                     row_key: row.key,
                     group_key: groupKey,
@@ -3499,7 +3601,7 @@
                     message: error.message || String(error),
                     elapsedMs: current.startedAt ? Date.now() - current.startedAt : current.elapsedMs
                 });
-                document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+                renderDetailLeapsIntoDrawer(row, true);
                 parameterLabWarn('leaps_option_signal_outcome_failed', {
                     row_key: row.key,
                     signal_key: signalKey,
@@ -3521,7 +3623,7 @@
                     message: error.message || String(error),
                     elapsedMs: current.startedAt ? Date.now() - current.startedAt : current.elapsedMs
                 });
-                document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+                renderDetailLeapsIntoDrawer(row, true);
                 parameterLabWarn('leaps_option_outcomes_failed', {
                     row_key: row.key,
                     message: error.message || String(error)
@@ -3534,6 +3636,10 @@
             activeDetailRowKey = key;
             activeDetailTopicKey = topicKey || '';
             activeDetailLoadToken += 1;
+            const tradesSection = document.getElementById('detailTradesSection');
+            const snapshotSection = document.getElementById('detailSnapshotSection');
+            if (tradesSection) tradesSection.open = false;
+            if (snapshotSection) snapshotSection.open = false;
             const sourceCell = topicKey ? findSourceCell(row, topicKey) : null;
             const topicLabel = sourceCell ? ` · ${sourceCell.portfolio_label || ''} / ${sourceCell.period_label || ''}` : '';
             document.getElementById('detailTitle').textContent = `${row.candidate.label || row.key}${topicLabel}`;
@@ -3545,7 +3651,7 @@
                 <div class="stat"><span>Avg DD</span><strong>${pct(row.avg_drawdown_pct)}</strong></div>
             `;
             document.getElementById('detailJson').textContent = JSON.stringify(candidateDetailPayload(row.candidate, row), null, 2);
-            document.getElementById('detailLeaps').innerHTML = renderDetailLeaps(row);
+            renderDetailLeapsIntoDrawer(row);
             document.getElementById('detailCells').innerHTML = row.cells.map((cell) => `
                 <tr>
                     <td>${escapeHtml(cell.portfolio_label)} / ${escapeHtml(cell.period_label)}</td>
