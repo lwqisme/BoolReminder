@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import requests
@@ -152,6 +152,10 @@ def _float_or_none(value: object) -> float | None:
     return number if number > 0 else None
 
 
+def _utc_today() -> date:
+    return datetime.now(timezone.utc).date()
+
+
 def skipped_outcome(signal: dict[str, object], reason: str) -> dict[str, object]:
     return {
         "signal_key": str(signal.get("signal_key") or ""),
@@ -293,6 +297,11 @@ def last_bar_on_or_before(bars: list[OptionBar], target: date, max_days: int) ->
     return candidates[-1] if candidates else None
 
 
+def last_bar_after_on_or_before(bars: list[OptionBar], after: date, target: date) -> OptionBar | None:
+    candidates = [bar for bar in bars if after < bar.date <= target]
+    return candidates[-1] if candidates else None
+
+
 def replay_signal(provider: PolygonMonthlyOptionProvider, signal: dict[str, object]) -> dict[str, object]:
     signal_date = parse_iso_date(signal.get("date"))
     sell_date = parse_iso_date(signal.get("next_stock_sell_date"))
@@ -302,7 +311,7 @@ def replay_signal(provider: PolygonMonthlyOptionProvider, signal: dict[str, obje
         return skipped_outcome(signal, NO_ENTRY_PRICE)
     if not underlying:
         return skipped_outcome(signal, UNSUPPORTED_UNDERLYING)
-    if not sell_date or sell_date <= signal_date:
+    if sell_date and sell_date <= signal_date:
         return skipped_outcome(signal, NO_STOCK_SELL)
 
     contract, reason = provider.select_monthly_call(underlying, signal_date, stock_buy_price)
@@ -310,13 +319,24 @@ def replay_signal(provider: PolygonMonthlyOptionProvider, signal: dict[str, obje
         return skipped_outcome(signal, reason)
 
     entry_end = min(signal_date + timedelta(days=7), contract.expiration)
-    history_end = max(entry_end, min(sell_date + timedelta(days=7), contract.expiration))
+    if sell_date:
+        history_end = max(entry_end, min(sell_date + timedelta(days=7), contract.expiration))
+    else:
+        today = _utc_today()
+        history_end = max(entry_end, min(today, contract.expiration))
     bars = provider.fetch_bars(contract.ticker, signal_date, history_end)
     entry_bar = first_bar_on_or_after(bars, signal_date, 7, latest=contract.expiration)
     if not entry_bar:
         return {**skipped_outcome(signal, NO_ENTRY_PRICE), **contract_payload(contract)}
 
-    if sell_date > contract.expiration:
+    if not sell_date:
+        today = _utc_today()
+        exit_boundary = min(today, contract.expiration)
+        exit_bar = last_bar_after_on_or_before(bars, entry_bar.date, exit_boundary)
+        if not exit_bar:
+            return {**skipped_outcome(signal, NO_EXIT_PRICE), **contract_payload(contract), "entry_price": entry_bar.close}
+        exit_status = "expired_without_stock_sell" if today >= contract.expiration else "holding"
+    elif sell_date > contract.expiration:
         exit_bar = last_bar_on_or_before(bars, contract.expiration, 7)
         if not exit_bar:
             return {**skipped_outcome(signal, NO_PRE_EXPIRATION_PRICE), **contract_payload(contract), "entry_price": entry_bar.close}
@@ -339,7 +359,7 @@ def replay_signal(provider: PolygonMonthlyOptionProvider, signal: dict[str, obje
         "strike": contract.strike,
         "dte": dte,
         "entry_date": entry_bar.date.isoformat(),
-        "stock_sell_date": sell_date.isoformat(),
+        "stock_sell_date": sell_date.isoformat() if sell_date else "",
         "exit_date": exit_bar.date.isoformat(),
         "entry_price": entry_bar.close,
         "exit_price": exit_bar.close,

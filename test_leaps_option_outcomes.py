@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 import requests
 
 from drawdown.leaps_option_outcomes import (
+    NO_EXIT_PRICE,
     NO_POLYGON_KEY,
     NO_STOCK_SELL,
     OptionBar,
@@ -27,12 +28,14 @@ class FakeProvider:
             OptionBar(date(2024, 12, 20), 14.0),
         ]
         self.reason = reason
+        self.fetch_requests = []
 
     def select_monthly_call(self, underlying, as_of, stock_price):
         return self.contract, self.reason
 
     def fetch_bars(self, ticker, start, end):
-        return self.bars
+        self.fetch_requests.append((ticker, start, end))
+        return [bar for bar in self.bars if start <= bar.date <= end]
 
 
 class FakeResponse:
@@ -113,9 +116,74 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         self.assertFalse(result["success"])
         self.assertEqual(result["outcomes"][0]["skipped_reason"], NO_POLYGON_KEY)
 
-    def test_no_stock_sell_is_skipped(self):
+    def test_no_stock_sell_uses_latest_option_close_as_holding(self):
+        provider = FakeProvider(
+            bars=[
+                OptionBar(date(2024, 12, 9), 10.0),
+                OptionBar(date(2024, 12, 20), 14.0),
+                OptionBar(date(2025, 1, 10), 16.0),
+            ]
+        )
+
+        with patch("drawdown.leaps_option_outcomes._utc_today", return_value=date(2025, 1, 11)):
+            result = replay_leaps_option_outcomes(
+                [{"date": "2024-12-08", "symbol": "TSLA.US", "stock_buy_price": 100}],
+                api_key="",
+                provider=provider,
+            )
+
+        outcome = result["outcomes"][0]
+        self.assertEqual(outcome["status"], "success")
+        self.assertEqual(outcome["exit_status"], "holding")
+        self.assertEqual(outcome["stock_sell_date"], "")
+        self.assertEqual(outcome["exit_date"], "2025-01-10")
+        self.assertAlmostEqual(outcome["roi_pct"], 60.0)
+        self.assertEqual(result["summary"]["success_count"], 1)
+        self.assertEqual(provider.fetch_requests[0][1:], (date(2024, 12, 8), date(2025, 1, 11)))
+
+    def test_expired_contract_without_stock_sell_uses_last_bar_before_expiration(self):
+        provider = FakeProvider(
+            contract=OptionContract("O:TSLA250117C110000000", "TSLA", date(2025, 1, 17), 110.0),
+            bars=[
+                OptionBar(date(2024, 12, 9), 10.0),
+                OptionBar(date(2025, 1, 16), 7.0),
+                OptionBar(date(2025, 1, 21), 12.0),
+            ],
+        )
+
+        with patch("drawdown.leaps_option_outcomes._utc_today", return_value=date(2025, 5, 22)):
+            result = replay_leaps_option_outcomes(
+                [{"date": "2024-12-08", "symbol": "TSLA.US", "stock_buy_price": 100}],
+                api_key="",
+                provider=provider,
+            )
+
+        outcome = result["outcomes"][0]
+        self.assertEqual(outcome["status"], "success")
+        self.assertEqual(outcome["exit_status"], "expired_without_stock_sell")
+        self.assertEqual(outcome["stock_sell_date"], "")
+        self.assertEqual(outcome["exit_date"], "2025-01-16")
+        self.assertAlmostEqual(outcome["roi_pct"], -30.0)
+        self.assertEqual(provider.fetch_requests[0][1:], (date(2024, 12, 8), date(2025, 1, 17)))
+
+    def test_no_stock_sell_without_exit_bar_is_skipped(self):
+        provider = FakeProvider(bars=[OptionBar(date(2024, 12, 9), 10.0)])
+
+        with patch("drawdown.leaps_option_outcomes._utc_today", return_value=date(2024, 12, 10)):
+            result = replay_leaps_option_outcomes(
+                [{"date": "2024-12-08", "symbol": "TSLA.US", "stock_buy_price": 100}],
+                api_key="",
+                provider=provider,
+            )
+
+        outcome = result["outcomes"][0]
+        self.assertEqual(outcome["status"], "skipped")
+        self.assertEqual(outcome["skipped_reason"], NO_EXIT_PRICE)
+        self.assertEqual(outcome["entry_price"], 10.0)
+
+    def test_invalid_stock_sell_date_is_skipped(self):
         result = replay_leaps_option_outcomes(
-            [{"date": "2024-12-08", "symbol": "TSLA.US", "stock_buy_price": 100}],
+            [{"date": "2024-12-08", "symbol": "TSLA.US", "stock_buy_price": 100, "next_stock_sell_date": "2024-12-08"}],
             api_key="",
             provider=FakeProvider(),
         )

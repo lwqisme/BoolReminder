@@ -687,6 +687,9 @@ process.stdout.write(JSON.stringify({
         self.assertIn("计算该信号", html)
         self.assertIn("row.leaps_option_summary = outcomeEntry.summary", html)
         self.assertIn("renderLeapsOptionSummary", html)
+        self.assertIn("function formatLeapsOptionExitStatus(outcome)", html)
+        self.assertIn("holding: '持有中'", html)
+        self.assertIn("expired_without_stock_sell: '已到期'", html)
 
     def test_page_scopes_leaps_detail_worker_tasks_to_active_cell(self):
         if shutil.which("node") is None:
@@ -860,6 +863,44 @@ if (!rendered.includes('ROI summary 1')) throw new Error(rendered);
 if (!rendered.includes('TSLA250117C00100000')) throw new Error(rendered);
 """
         subprocess.run(["node", "-e", script, helpers], check=True, capture_output=True, text=True)
+
+    def test_holding_leaps_option_outcome_status_is_rendered(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript LEAPS render check")
+
+        html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
+        render_helpers = html[
+            html.index("        function renderLeapsOptionOutcome") : html.index("        function outcomesForSignals")
+        ]
+        script = """
+const vm = require('vm');
+const helpers = process.argv[1];
+const context = {
+  Number,
+  String,
+  escapeHtml: (value) => String(value ?? ''),
+  pct: (value) => `${value}%`,
+  number: (value) => String(value ?? '--')
+};
+vm.createContext(context);
+vm.runInContext(helpers, context);
+const holding = {
+  status: 'success',
+  roi_pct: 12.34,
+  contract: 'TSLA250117C00100000',
+  exit_status: 'holding',
+  exit_date: '2025-01-10',
+  exit_price: 16
+};
+const rendered = context.renderLeapsOptionOutcome(holding);
+const table = context.renderLeapsOptionOutcomeTable([holding]);
+if (!rendered.includes('持有中')) throw new Error(rendered);
+if (!table.includes('持有中')) throw new Error(table);
+if (context.formatLeapsOptionExitStatus({ status: 'success', exit_status: 'expired_without_stock_sell' }) !== '已到期') {
+  throw new Error('expired status not translated');
+}
+"""
+        subprocess.run(["node", "-e", script, render_helpers], check=True, capture_output=True, text=True)
 
     def test_page_groups_leaps_signals_by_date_symbol(self):
         if shutil.which("node") is None:

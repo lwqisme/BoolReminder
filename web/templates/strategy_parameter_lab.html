@@ -4425,7 +4425,19 @@
             if (outcome.status !== 'success') {
                 return `<span class="leaps-option-summary warn">${escapeHtml(outcome.skipped_reason || '跳过')}</span>`;
             }
-            return `<span class="leaps-option-summary">${pct(outcome.roi_pct)} · ${escapeHtml(outcome.contract || '')}</span>`;
+            const exitLabel = formatLeapsOptionExitStatus(outcome);
+            const exitSuffix = exitLabel && exitLabel !== '正股卖点' ? ` · ${escapeHtml(exitLabel)}` : '';
+            return `<span class="leaps-option-summary">${pct(outcome.roi_pct)} · ${escapeHtml(outcome.contract || '')}${exitSuffix}</span>`;
+        }
+        function formatLeapsOptionExitStatus(outcome) {
+            if (!outcome || outcome.status !== 'success') return outcome?.skipped_reason || '跳过';
+            const labels = {
+                holding: '持有中',
+                expired_without_stock_sell: '已到期',
+                sold: '正股卖点'
+            };
+            const status = outcome.exit_status || 'sold';
+            return labels[status] || status;
         }
         function renderLeapsOptionOutcomeTable(outcomes) {
             const rows = (outcomes || []).map((outcome) => `
@@ -4441,7 +4453,7 @@
                     <td>${escapeHtml(outcome.exit_date || '--')}</td>
                     <td>${number(outcome.exit_price)}</td>
                     <td>${outcome.status === 'success' ? pct(outcome.roi_pct) : '--'}</td>
-                    <td>${escapeHtml(outcome.status === 'success' ? (outcome.exit_status || 'sold') : (outcome.skipped_reason || '跳过'))}</td>
+                    <td>${escapeHtml(formatLeapsOptionExitStatus(outcome))}</td>
                 </tr>
             `).join('');
             const count = (outcomes || []).length;
