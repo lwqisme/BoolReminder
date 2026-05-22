@@ -351,11 +351,6 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("function renderDetailLeapsIntoDrawer(row, preserveScroll = false)", html)
         self.assertIn("function renderParameterMatrixPreservingScroll()", html)
         self.assertIn("不一致: 原 cell 与详情重放指标不同。", html)
-        self.assertNotIn("rgba(", html)
-        self.assertNotIn("hsla(", html)
-        self.assertNotIn("transparent", html)
-        self.assertNotIn("backdrop-filter", html)
-        self.assertNotIn("opacity:", html)
         self.assertNotIn("source: 'parameter-lab-cell'", html)
         self.assertNotIn("window.open('/strategy-lab?apply_parameter_lab=1&auto_run_lab=1'", html)
 
