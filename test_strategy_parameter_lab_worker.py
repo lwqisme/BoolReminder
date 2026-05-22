@@ -32,6 +32,10 @@ class StrategyParameterLabWorkerTest(unittest.TestCase):
         self.assertIn("rows.push({ candidate_id: candidate.candidate_id, candidate_key: candidate.key, observations })", source)
         self.assertNotIn("rows.push({ candidate, observations })", source)
         self.assertIn("type: 'batch_done'", source)
+        self.assertIn("simulate_elapsed_ms_sum: simulateElapsedMsSum", source)
+        self.assertIn("simulate_elapsed_ms_max: simulateElapsedMsMax", source)
+        self.assertIn("slow_simulation_count: slowSimulationCount", source)
+        self.assertIn("batch_total_simulations: batchTotal", source)
         self.assertIn("leaps_signal: summarizeLeapsSignals(tradeLog, inputs, Boolean(workerState?.include_leaps_signal_details))", source)
 
     def test_worker_trade_log_and_series_are_detail_only(self):
@@ -482,6 +486,11 @@ process.stdout.write(JSON.stringify(results));
         self.assertIn("candidate_rows: next.candidate_rows", html)
         self.assertIn("const candidate = candidateById.get(String(row.candidate_id)) || candidateByKey.get(row.candidate_key)", html)
         self.assertIn("row.candidate_key", html)
+        self.assertIn("function findCandidatePacketRow(packet, row)", html)
+        self.assertIn("function parameterRowCandidate(row, packet = null)", html)
+        self.assertIn("Object.defineProperty(row, '_candidate_cache'", html)
+        self.assertIn("findCandidateRowForDetail(row)", html)
+        self.assertIn("return findCandidatePacketRow(lastParameterPacket, row);", html)
         self.assertIn("type: 'pause', run_id: currentRun.run_id", html)
         self.assertIn("type: 'cancel', run_id: runId", html)
         self.assertIn("sell_stage_rearm_drawdown_pct", html)
@@ -493,9 +502,11 @@ process.stdout.write(JSON.stringify(results));
         html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
 
         self.assertIn("function strategyGroupKey(candidate)", html)
-        self.assertIn("return `${candidate?.buy_strategy || ''}__${candidate?.sell_strategy || ''}`;", html)
+        self.assertIn("const buyKey = candidate?.buy_strategy || candidate?.candidate?.buy_strategy || ''", html)
         self.assertIn("function strategyGroupLabel(candidate)", html)
         self.assertIn("function rankParameterRows(rows, rankMethod = 'normalized')", html)
+        self.assertIn("function rankedRowsFor(data, rankMethod = 'normalized')", html)
+        self.assertIn("Object.defineProperty(data, '_ranked_rows_cache'", html)
         self.assertIn("row.global_rank = index + 1", html)
         self.assertIn("row.final_rank = row.global_rank", html)
         self.assertIn("row.group_rank = index + 1", html)
@@ -508,6 +519,111 @@ process.stdout.write(JSON.stringify(results));
         self.assertIn("<span>组内排名</span>", html)
         self.assertIn("parameters.group_key = row.group_key", html)
         self.assertIn("parameters.group_label = row.group_label", html)
+
+    def test_score_parameter_results_keeps_rows_light_and_compacts_observations(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript score helper check")
+
+        html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
+        setup_match = re.search(r"const parameterFields = \[.*?\n        async function runParameterLab", html, re.S)
+        score_match = re.search(r"function normalize\(value, values\) \{.*?\n        function heatStyle", html, re.S)
+        self.assertIsNotNone(setup_match)
+        self.assertIsNotNone(score_match)
+        helpers = (
+            setup_match.group(0).rsplit("\n        async function runParameterLab", 1)[0]
+            + "\n"
+            + score_match.group(0).rsplit("\n        function heatStyle", 1)[0]
+        )
+        script = """
+const vm = require('vm');
+const helpers = process.argv[1];
+const packet = JSON.parse(process.argv[2]);
+const partialRows = JSON.parse(process.argv[3]);
+const context = {
+  performance: { now: () => 10 },
+  navigator: {},
+  buyStrategyLabels: { buy_a: '买A', buy_b: '买B' },
+  sellStrategyLabels: { sell_x: '卖X' },
+  strategyRegistry: { version: 'test', definitions: {} },
+  console
+};
+vm.createContext(context);
+vm.runInContext(helpers, context);
+const result = context.scoreParameterResults(packet, partialRows, [{
+  worker_index: 0,
+  chunk_size: 2,
+  batch_count: 1,
+  completed_simulations: 4,
+  elapsed_ms: 8,
+  simulate_elapsed_ms_sum: 4,
+  simulate_elapsed_ms_max: 2,
+  slow_simulation_count: 0,
+  batch_total_simulations: 4
+}], 9);
+process.stdout.write(JSON.stringify({
+  row_count: result.rows.length,
+  observation_count: result.observation_count,
+  compacted: result.observations_compacted,
+  observations_length: result.observations.length,
+  diagnostics_observation_count: result.diagnostics.scale.observation_count,
+  row_keys: result.rows.map((row) => row.key),
+  first_row_keys: Object.keys(result.rows[0]),
+  first_cell_count: result.rows[0].cells.length,
+  first_group_key: result.rows[0].group_key,
+  first_global_rank: result.rows[0].global_rank,
+  topic_ranks: result.rows[0].cells.map((cell) => cell.topic_rank)
+}));
+"""
+        packet = {
+            "candidate_schema": ["candidate_id", "buy_variant_id", "sell_variant_id"],
+            "buy_variant_schema": ["variant_id", "variant_key", "strategy", "step_pct", "equal_slice_allocation_pct"],
+            "sell_variant_schema": ["variant_id", "variant_key", "strategy", "sell_min_profit_pct"],
+            "buy_variants": [
+                [0, "buy_a_1", "buy_a", 1, 10],
+                [1, "buy_b_1", "buy_b", 2, 20],
+            ],
+            "sell_variants": [[0, "sell_x_1", "sell_x", 5]],
+            "candidate_rows": [[101, 0, 0], [102, 1, 0]],
+            "tasks": [{"key": "topic_a"}, {"key": "topic_b"}],
+            "market_data": {"symbols": {}},
+        }
+        partial_rows = [
+            {
+                "candidate_id": 101,
+                "candidate_key": "buy_a__step1__alloc10__sell_x",
+                "observations": [
+                    {"topic_key": "topic_a", "return_pct": 10, "max_drawdown_pct": -5},
+                    {"topic_key": "topic_b", "return_pct": 20, "max_drawdown_pct": -8},
+                ],
+            },
+            {
+                "candidate_id": 102,
+                "candidate_key": "buy_b__step2__alloc20__sell_x",
+                "observations": [
+                    {"topic_key": "topic_a", "return_pct": 5, "max_drawdown_pct": -10},
+                    {"topic_key": "topic_b", "return_pct": 12, "max_drawdown_pct": -12},
+                ],
+            },
+        ]
+        completed = subprocess.run(
+            ["node", "-e", script, helpers, json.dumps(packet), json.dumps(partial_rows)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+
+        self.assertEqual(result["row_count"], 2)
+        self.assertEqual(result["observation_count"], 4)
+        self.assertEqual(result["diagnostics_observation_count"], 4)
+        self.assertTrue(result["compacted"])
+        self.assertEqual(result["observations_length"], 0)
+        self.assertNotIn("candidate", result["first_row_keys"])
+        self.assertIn("candidate_id", result["first_row_keys"])
+        self.assertEqual(result["first_cell_count"], 2)
+        self.assertEqual(result["first_group_key"], "buy_a__sell_x")
+        self.assertGreaterEqual(result["first_global_rank"], 1)
+        self.assertEqual(sorted(result["topic_ranks"]), [1, 1])
 
     def test_parameter_lab_page_exposes_leaps_signal_layer_without_option_scan(self):
         html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
@@ -530,6 +646,10 @@ process.stdout.write(JSON.stringify(results));
         self.assertIn("calculateLeapsOptionOutcomesForActiveRow", html)
         self.assertIn("calculateLeapsOptionOutcomesForActiveGroup", html)
         self.assertIn("calculateLeapsOptionOutcomeForActiveSignal", html)
+        self.assertIn("calculateLeapsOptionOutcomesForActiveHighGradeSignals", html)
+        self.assertIn("function highGradeLeapsOptionSignals(signals)", html)
+        self.assertIn("只计算高等级信号", html)
+        self.assertIn("signal.grade === '高'", html)
         self.assertIn("function buildLeapsOptionQueue(signals)", html)
         self.assertIn("return normalizeLeapsOptionSignals(signals).map", html)
         self.assertIn("signals: [queueItem.signal]", html)
@@ -581,6 +701,7 @@ const context = {
   renderLeapsReasons: () => '',
   signalSourceLabel: () => 'source',
   formatStockSell: (signal) => signal.next_stock_sell_date || '未卖出',
+  highGradeLeapsOptionSignals: (signals) => (signals || []).filter((signal) => signal.grade === '高'),
   aggregateLeapsOptionOutcomes: (outcomes) => ({ total: outcomes.length, success_count: outcomes.filter((item) => item.status === 'success').length }),
   renderLeapsOptionSummary: (summary) => `<span class="leaps-option-summary">ROI summary ${summary.total}</span>`
 };

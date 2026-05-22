@@ -331,13 +331,26 @@
         .progress-float.show { display: grid; gap: 8px; }
         .progress-float-head {
             display: flex;
-            align-items: baseline;
+            align-items: center;
             justify-content: space-between;
             gap: 10px;
             font-size: 12px;
         }
         .progress-float-head strong { color: var(--ink); font-size: 13px; }
         .progress-float-head span { font-family: var(--mono); font-weight: 900; color: var(--blue); }
+        .progress-float-title {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            min-width: 0;
+        }
+        .progress-float-close {
+            width: 24px;
+            min-height: 24px;
+            padding: 0;
+            border-radius: 999px;
+            line-height: 1;
+        }
         .progress-float-text {
             overflow: hidden;
             color: var(--muted);
@@ -379,6 +392,83 @@
             background: #fff9ed;
             color: #7a4b13;
         }
+        .cost-details {
+            margin-bottom: 10px;
+            border: var(--liquid-glass-border);
+            border-radius: var(--radius);
+            background: rgba(255, 255, 255, 0.62);
+            box-shadow: var(--liquid-glass-shadow);
+            overflow: hidden;
+        }
+        .cost-details summary {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            min-height: 42px;
+            padding: 10px 12px;
+            cursor: pointer;
+            font-weight: 900;
+            color: var(--ink);
+            list-style: none;
+        }
+        .cost-details summary::-webkit-details-marker { display: none; }
+        .cost-details summary::after {
+            content: "+";
+            color: var(--muted);
+            font-family: var(--mono);
+            font-size: 16px;
+        }
+        .cost-details[open] summary::after { content: "-"; }
+        .cost-summary {
+            margin-left: auto;
+            color: var(--muted);
+            font-family: var(--mono);
+            font-size: 12px;
+            font-weight: 800;
+        }
+        .cost-body {
+            display: grid;
+            gap: 10px;
+            padding: 0 12px 12px;
+        }
+        .cost-section {
+            display: grid;
+            gap: 8px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(217, 224, 234, 0.54);
+        }
+        .cost-section h3 {
+            margin: 0;
+            font-size: 12px;
+            color: var(--muted);
+        }
+        .cost-metrics {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .cost-metric {
+            min-height: 56px;
+            padding: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.58);
+            border-radius: var(--radius-sm);
+            background: rgba(255, 255, 255, 0.50);
+        }
+        .cost-metric span {
+            display: block;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 800;
+        }
+        .cost-metric strong {
+            display: block;
+            margin-top: 3px;
+            overflow-wrap: anywhere;
+            font-family: var(--mono);
+            font-size: 14px;
+        }
+        .cost-note { color: var(--muted); font-size: 12px; line-height: 1.45; }
         .toolbar {
             display: flex;
             flex-wrap: wrap;
@@ -1021,7 +1111,7 @@
         @media (max-width: 980px) {
             .shell { grid-template-columns: 1fr; }
             .side { position: static; height: auto; }
-            .field-grid, .field-grid.three, .stat-grid { grid-template-columns: 1fr; }
+            .field-grid, .field-grid.three, .stat-grid, .cost-metrics { grid-template-columns: 1fr; }
             .leaps-mini { grid-template-columns: 1fr 1fr; }
             .runbar { grid-template-columns: 1fr; }
             .topbar { display: grid; }
@@ -1308,6 +1398,16 @@
                 </div>
             </div>
 
+            <details class="cost-details" id="costDetails">
+                <summary>
+                    <span>开销明细</span>
+                    <span class="cost-summary" id="costSummary">运行后显示</span>
+                </summary>
+                <div class="cost-body" id="costDetailsBody">
+                    <div class="cost-note">运行后显示耗时、worker 分布、规模和内存估算。</div>
+                </div>
+            </details>
+
             <div class="matrix-wrap">
                 <table id="matrixTable">
                     <thead id="matrixHead"><tr><th>策略参数组合</th></tr></thead>
@@ -1375,8 +1475,11 @@
 
     <div class="progress-float" id="progressFloat" aria-live="polite">
         <div class="progress-float-head">
-            <strong id="progressFloatTitle">Ready</strong>
-            <span id="progressFloatPct">0%</span>
+            <div class="progress-float-title">
+                <strong id="progressFloatTitle">Ready</strong>
+                <span id="progressFloatPct">0%</span>
+            </div>
+            <button class="progress-float-close" type="button" onclick="closeProgressFloat()" aria-label="关闭进度">×</button>
         </div>
         <div class="progress-float-text" id="progressFloatText">等待运行。</div>
         <div class="progress"><span id="progressBar"></span></div>
@@ -1409,6 +1512,8 @@
         let leapsOptionProgressTimer = null;
         let leapsOptionProgressAutoHideTimer = null;
         let dismissedLeapsOptionProgressKey = '';
+        let progressFloatAutoHideTimer = null;
+        let progressFloatDismissed = false;
         const parameterFields = [
             'step_pct',
             'equal_slice_allocation_pct',
@@ -1485,6 +1590,9 @@
                 total_simulations: message.total_simulations,
                 batch_completed_simulations: message.batch_completed_simulations,
                 batch_total_simulations: message.batch_total_simulations,
+                simulate_elapsed_ms_sum: message.simulate_elapsed_ms_sum,
+                simulate_elapsed_ms_max: message.simulate_elapsed_ms_max,
+                slow_simulation_count: message.slow_simulation_count,
                 candidate_index: message.candidate_index,
                 candidate_key: message.candidate_key,
                 task_index: message.task_index,
@@ -1717,6 +1825,9 @@
             if (!signalKeys.size) return existingOutcomes || [];
             return (existingOutcomes || []).filter((outcome) => !signalKeys.has(outcome.signal_key));
         }
+        function highGradeLeapsOptionSignals(signals) {
+            return normalizeLeapsOptionSignals(signals || []).filter((signal) => signal.grade === '高');
+        }
         function hasRunningLeapsOptionQueue() {
             return Array.from(leapsOptionOutcomeCache.values()).some((entry) => entry?.status === 'loading' || entry?.status === 'stopping');
         }
@@ -1833,6 +1944,21 @@
         function selectedValues(name) {
             return Array.from(document.querySelectorAll(`input[name="${name}"]:checked`)).map((input) => input.value);
         }
+        function closeProgressFloat(manual = true) {
+            const progressFloat = document.getElementById('progressFloat');
+            if (progressFloat) progressFloat.classList.remove('show');
+            if (progressFloatAutoHideTimer) {
+                window.clearTimeout(progressFloatAutoHideTimer);
+                progressFloatAutoHideTimer = null;
+            }
+            if (manual) progressFloatDismissed = true;
+        }
+        function scheduleProgressFloatAutoHide() {
+            if (progressFloatAutoHideTimer) window.clearTimeout(progressFloatAutoHideTimer);
+            progressFloatAutoHideTimer = window.setTimeout(() => {
+                closeProgressFloat(false);
+            }, 7000);
+        }
         function setStatus(title, text, progress = null) {
             document.querySelector('#status strong').textContent = title;
             document.getElementById('statusText').textContent = text;
@@ -1845,7 +1971,10 @@
                 const normalized = Math.max(0, Math.min(100, Number(progress) || 0));
                 document.getElementById('progressBar').style.width = `${normalized}%`;
                 document.getElementById('progressFloatPct').textContent = `${number(normalized, 0)}%`;
-                progressFloat?.classList.add('show');
+                if (!progressFloatDismissed) {
+                    progressFloat?.classList.add('show');
+                    scheduleProgressFloatAutoHide();
+                }
             }
         }
         function parseJsonTextarea(id, fallback) {
@@ -2076,6 +2205,258 @@
             if (n < 1024 * 1024) return `${number(n / 1024, 1)} KB`;
             return `${number(n / 1024 / 1024, 1)} MB`;
         }
+        function heapSnapshot(label) {
+            const memory = typeof performance !== 'undefined' && performance.memory ? performance.memory : null;
+            if (!memory) return { label, available: false };
+            return {
+                label,
+                available: true,
+                used_js_heap_size: Number(memory.usedJSHeapSize || 0),
+                total_js_heap_size: Number(memory.totalJSHeapSize || 0),
+                js_heap_size_limit: Number(memory.jsHeapSizeLimit || 0)
+            };
+        }
+        function createParameterLabDiagnostics(runId, startedAt) {
+            return {
+                run_id: runId,
+                started_at_ms: startedAt,
+                timing: {},
+                packet: { headers: {} },
+                scale: {},
+                memory: {
+                    device_memory_gb: Number.isFinite(Number(navigator.deviceMemory)) ? Number(navigator.deviceMemory) : null,
+                    snapshots: [heapSnapshot('run_start')]
+                }
+            };
+        }
+        function appendHeapSnapshot(diagnostics, label) {
+            if (!diagnostics) return;
+            diagnostics.memory = diagnostics.memory || { snapshots: [] };
+            diagnostics.memory.snapshots = diagnostics.memory.snapshots || [];
+            diagnostics.memory.snapshots.push(heapSnapshot(label));
+        }
+        function numberHeader(headers, name) {
+            const value = headers && typeof headers.get === 'function' ? headers.get(name) : null;
+            const n = Number(value);
+            return Number.isFinite(n) && n > 0 ? n : null;
+        }
+        function capturePacketHeaders(response) {
+            return {
+                content_length: numberHeader(response.headers, 'content-length'),
+                x_uncompressed_length: numberHeader(response.headers, 'x-uncompressed-length'),
+                x_compressed_length: numberHeader(response.headers, 'x-compressed-length'),
+                content_encoding: response.headers.get('content-encoding') || 'identity',
+                payload_hash: response.headers.get('x-payload-hash') || ''
+            };
+        }
+        function estimateMarketDataScale(packet) {
+            const symbols = packet?.market_data?.symbols || {};
+            const symbolKeys = Object.keys(symbols);
+            return {
+                market_symbol_count: symbolKeys.length,
+                market_price_point_count: symbolKeys.reduce((sum, key) => {
+                    const dates = symbols[key]?.dates || [];
+                    return sum + (Array.isArray(dates) ? dates.length : 0);
+                }, 0)
+            };
+        }
+        function updateDiagnosticsScale(diagnostics, packet, result = null) {
+            if (!diagnostics || !packet) return;
+            const candidateCount = (packet.candidate_rows || []).length;
+            const taskCount = (packet.tasks || []).length;
+            const observationCount = result
+                ? Number(result.observation_count ?? (result.observations || []).length)
+                : undefined;
+            diagnostics.scale = {
+                ...(diagnostics.scale || {}),
+                candidate_count: candidateCount,
+                buy_variant_count: (packet.buy_variants || []).length,
+                sell_variant_count: (packet.sell_variants || []).length,
+                task_count: taskCount,
+                simulation_count: candidateCount * taskCount,
+                candidate_row_count: (packet.candidate_rows || []).length,
+                result_row_count: result ? (result.rows || []).length : undefined,
+                observation_count: observationCount,
+                ...estimateMarketDataScale(packet)
+            };
+        }
+        function costMetric(label, value) {
+            return `<div class="cost-metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+        }
+        function msValue(value) {
+            const n = Number(value);
+            return Number.isFinite(n) ? `${number(n, 0)}ms` : '--';
+        }
+        function countValue(value) {
+            return number(value, 0);
+        }
+        function renderHeapSnapshots(diagnostics) {
+            const snapshots = diagnostics?.memory?.snapshots || [];
+            if (!snapshots.length || !snapshots.some((item) => item.available)) {
+                return '<div class="cost-note">JS heap 实测不可用；当前浏览器未暴露 performance.memory。</div>';
+            }
+            const rows = snapshots.map((item) => `
+                <tr>
+                    <td>${escapeHtml(item.label || '')}</td>
+                    <td>${item.available ? formatBytes(item.used_js_heap_size) : '不可用'}</td>
+                    <td>${item.available ? formatBytes(item.total_js_heap_size) : '不可用'}</td>
+                    <td>${item.available ? formatBytes(item.js_heap_size_limit) : '不可用'}</td>
+                </tr>
+            `).join('');
+            return `
+                <div class="matrix-wrap" style="max-height:220px;box-shadow:none;">
+                    <table class="mini-table">
+                        <thead><tr><th>采样点</th><th>used JS heap</th><th>total JS heap</th><th>heap limit</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+        function renderWorkerDistribution(metrics) {
+            const elapsed = metrics.worker_elapsed_ms || [];
+            const completed = metrics.worker_completed_simulations || [];
+            const batches = metrics.worker_batch_count || [];
+            const chunks = metrics.chunks_completed_per_worker || [];
+            if (!elapsed.length) return '<div class="cost-note">暂无 worker 分布。</div>';
+            const rows = elapsed.map((value, index) => `
+                <tr>
+                    <td>${number(index, 0)}</td>
+                    <td>${countValue(completed[index] || 0)}</td>
+                    <td>${countValue(batches[index] || 0)}</td>
+                    <td>${countValue(chunks[index] || 0)}</td>
+                    <td>${msValue(value)}</td>
+                </tr>
+            `).join('');
+            return `
+                <div class="matrix-wrap" style="max-height:240px;box-shadow:none;">
+                    <table class="mini-table">
+                        <thead><tr><th>Worker</th><th>模拟数</th><th>批次</th><th>候选</th><th>耗时</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>
+            `;
+        }
+        function renderParameterDiagnostics(data) {
+            const summary = document.getElementById('costSummary');
+            const body = document.getElementById('costDetailsBody');
+            if (!summary || !body) return;
+            if (!data) {
+                summary.textContent = '运行后显示';
+                body.innerHTML = '<div class="cost-note">运行后显示耗时、worker 分布、规模和内存估算。</div>';
+                return;
+            }
+            const diagnostics = data.diagnostics || {};
+            const timing = diagnostics.timing || {};
+            const metrics = data.worker_metrics || {};
+            const packetHeaders = diagnostics.packet?.headers || {};
+            const scale = diagnostics.scale || {};
+            const efficiency = Number(metrics.parallel_efficiency || 0);
+            const heapUsed = (diagnostics.memory?.snapshots || []).filter((item) => item.available).slice(-1)[0]?.used_js_heap_size;
+            summary.textContent = `wall ${msValue(metrics.wall_ms)} / CPU ${msValue(metrics.cpu_work_estimate_ms)} / heap ${heapUsed ? formatBytes(heapUsed) : '不可用'}`;
+            body.innerHTML = `
+                <div class="cost-section">
+                    <h3>准备阶段</h3>
+                    <div class="cost-metrics">
+                        ${costMetric('预估耗时', msValue(timing.estimate_ms))}
+                        ${costMetric('数据包请求', msValue(timing.packet_request_ms))}
+                        ${costMetric('JSON parse', msValue(timing.packet_parse_ms))}
+                        ${costMetric('响应编码', packetHeaders.content_encoding || '--')}
+                    </div>
+                </div>
+                <div class="cost-section">
+                    <h3>Worker 阶段</h3>
+                    <div class="cost-metrics">
+                        ${costMetric('Wall time', msValue(metrics.wall_ms))}
+                        ${costMetric('CPU work estimate', msValue(metrics.cpu_work_estimate_ms))}
+                        ${costMetric('并行效率', efficiency ? `${number(efficiency * 100, 1)}%` : '--')}
+                        ${costMetric('Workers / batches', `${countValue(metrics.worker_count)} / ${countValue(metrics.batch_count)}`)}
+                        ${costMetric('Batch size / total', `${countValue(metrics.batch_size)} / ${countValue(metrics.total_batches || metrics.batch_count)}`)}
+                    </div>
+                    ${renderWorkerDistribution(metrics)}
+                </div>
+                <div class="cost-section">
+                    <h3>Worker 内部</h3>
+                    <div class="cost-metrics">
+                        ${costMetric('模拟耗时合计', msValue(metrics.simulate_elapsed_ms_sum))}
+                        ${costMetric('平均单次 simulation', msValue(metrics.avg_simulate_elapsed_ms))}
+                        ${costMetric('最大单次 simulation', msValue(metrics.simulate_elapsed_ms_max))}
+                        ${costMetric('慢 simulation 数', countValue(metrics.slow_simulation_count))}
+                    </div>
+                </div>
+                <div class="cost-section">
+                    <h3>主线程后处理</h3>
+                    <div class="cost-metrics">
+                        ${costMetric('Score/rank 汇总', msValue(timing.score_rank_ms))}
+                        ${costMetric('首次矩阵渲染', msValue(timing.first_render_ms))}
+                        ${costMetric('Rows', countValue(scale.result_row_count))}
+                        ${costMetric('Observations', countValue(scale.observation_count))}
+                    </div>
+                </div>
+                <div class="cost-section">
+                    <h3>规模与数据包</h3>
+                    <div class="cost-metrics">
+                        ${costMetric('Candidates', countValue(scale.candidate_count))}
+                        ${costMetric('Tasks / simulations', `${countValue(scale.task_count)} / ${countValue(scale.simulation_count)}`)}
+                        ${costMetric('Market symbols / points', `${countValue(scale.market_symbol_count)} / ${countValue(scale.market_price_point_count)}`)}
+                        ${costMetric('Packet bytes', `${formatBytes(packetHeaders.content_length)} / ${formatBytes(packetHeaders.x_uncompressed_length)}`)}
+                    </div>
+                    <div class="cost-note">Packet bytes 依次为响应 content-length / x-uncompressed-length；为空表示服务端或代理未提供该响应头。</div>
+                </div>
+                <div class="cost-section">
+                    <h3>内存</h3>
+                    <div class="cost-metrics">
+                        ${costMetric('设备内存档位', diagnostics.memory?.device_memory_gb ? `${number(diagnostics.memory.device_memory_gb, 1)} GB` : '不可用')}
+                        ${costMetric('压缩响应', formatBytes(packetHeaders.x_compressed_length || packetHeaders.content_length))}
+                        ${costMetric('解压响应估算', formatBytes(packetHeaders.x_uncompressed_length))}
+                        ${costMetric('结果对象规模', `${countValue(scale.result_row_count)} rows / ${countValue(scale.observation_count)} obs`)}
+                    </div>
+                    ${renderHeapSnapshots(diagnostics)}
+                </div>
+            `;
+        }
+        function compactParameterDiagnosticsForLog(data) {
+            if (!data) return null;
+            const diagnostics = data.diagnostics || {};
+            const metrics = data.worker_metrics || {};
+            return {
+                run_id: data.run_id || diagnostics.run_id || '',
+                timing: diagnostics.timing || {},
+                scale: diagnostics.scale || {},
+                packet: {
+                    headers: diagnostics.packet?.headers || {},
+                    payload_schema: data.payload_schema || '',
+                    market_data_hash: data.market_data_hash || '',
+                    candidate_manifest_hash: data.candidate_manifest_hash || ''
+                },
+                memory: diagnostics.memory || {},
+                worker_metrics: metrics
+            };
+        }
+        function logParameterDiagnostics(data) {
+            const payload = compactParameterDiagnosticsForLog(data);
+            if (!payload) return;
+            parameterLabLog('run_diagnostics', payload);
+            const body = JSON.stringify(payload);
+            try {
+                if (navigator.sendBeacon) {
+                    const blob = new Blob([body], { type: 'application/json' });
+                    if (navigator.sendBeacon('/api/strategy-lab/parameter-lab/client-diagnostics', blob)) return;
+                }
+            } catch (_error) {
+                // Fall through to fetch.
+            }
+            fetch('/api/strategy-lab/parameter-lab/client-diagnostics', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body,
+                keepalive: true
+            }).catch((error) => {
+                parameterLabWarn('client_diagnostics_log_failed', {
+                    run_id: payload.run_id,
+                    message: error.message || String(error)
+                });
+            });
+        }
         function setEstimateText(estimate) {
             const strip = document.getElementById('estimateStrip');
             if (!estimate) {
@@ -2156,9 +2537,21 @@
         }
         function candidateBatchSizeFor(totalCandidates, taskCount) {
             const tasks = Math.max(1, Number(taskCount || 1));
-            const targetSimulations = tasks >= 8 ? 120 : 240;
+            const totalSimulations = Math.max(0, Number(totalCandidates || 0) * tasks);
+            let targetSimulations = tasks >= 8 ? 120 : 240;
+            let maxCandidatesPerBatch = 64;
+            if (totalSimulations >= 100000) {
+                targetSimulations = 1024;
+                maxCandidatesPerBatch = 512;
+            } else if (totalSimulations >= 50000) {
+                targetSimulations = 512;
+                maxCandidatesPerBatch = 256;
+            } else if (totalSimulations >= 10000) {
+                targetSimulations = 256;
+                maxCandidatesPerBatch = 128;
+            }
             const bySimulation = Math.max(1, Math.floor(targetSimulations / tasks));
-            return Math.max(1, Math.min(64, bySimulation, Math.max(1, Number(totalCandidates || 1))));
+            return Math.max(1, Math.min(maxCandidatesPerBatch, bySimulation, Math.max(1, Number(totalCandidates || 1))));
         }
         function schemaIndexMap(schema) {
             const map = {};
@@ -2290,6 +2683,57 @@
             const byId = new Map(candidates.map((candidate) => [String(candidate.candidate_id), candidate]));
             return { rows, candidates, byKey, byId };
         }
+        function candidateRowIndexFor(packet) {
+            if (!packet) return { rows: [], byId: new Map(), schema: {} };
+            if (packet._candidate_row_index) return packet._candidate_row_index;
+            const rows = packet.candidate_rows || [];
+            const schema = schemaIndexMap(packet.candidate_schema || []);
+            const byId = new Map();
+            rows.forEach((candidateRow) => {
+                const candidateId = candidateRow[schema.candidate_id];
+                if (candidateId !== undefined && candidateId !== null) byId.set(String(candidateId), candidateRow);
+            });
+            const index = { rows, byId, schema };
+            Object.defineProperty(packet, '_candidate_row_index', {
+                value: index,
+                enumerable: false,
+                configurable: true
+            });
+            return index;
+        }
+        function findCandidateRowByKey(packet, key) {
+            if (!packet || !key) return null;
+            const rows = packet.candidate_rows || [];
+            for (let i = 0; i < rows.length; i += 1) {
+                const candidate = inflateCandidate(packet, rows[i]);
+                if (candidate.key === key) return rows[i];
+            }
+            return null;
+        }
+        function findCandidatePacketRow(packet, row) {
+            if (!packet || !row) return null;
+            const index = candidateRowIndexFor(packet);
+            const candidateId = row.candidate_id ?? row._candidate_cache?.candidate_id ?? row.candidate?.candidate_id ?? row.cells?.[0]?.candidate_id;
+            if (candidateId !== undefined && candidateId !== null && index.byId.has(String(candidateId))) {
+                return index.byId.get(String(candidateId));
+            }
+            return findCandidateRowByKey(packet, row.key || row.candidate_key || row.candidate?.key || '');
+        }
+        function parameterRowCandidate(row, packet = null) {
+            if (!row) return null;
+            if (row._candidate_cache) return row._candidate_cache;
+            const sourcePacket = packet || lastParameterPacket || lastParameterResult;
+            const candidateRow = findCandidatePacketRow(sourcePacket, row);
+            const candidate = candidateRow ? inflateCandidate(sourcePacket, candidateRow) : (row.candidate || null);
+            if (candidate) {
+                Object.defineProperty(row, '_candidate_cache', {
+                    value: candidate,
+                    enumerable: false,
+                    configurable: true
+                });
+            }
+            return candidate;
+        }
         function candidateDetailPayload(candidate, row = null) {
             const parameters = {};
             parameterFields.forEach((field) => {
@@ -2323,6 +2767,7 @@
 
         async function runParameterLab() {
             cancelParameterLab(false);
+            progressFloatDismissed = false;
             cellDetailCache.clear();
             leapsDetailCache.clear();
             leapsOptionOutcomeCache.clear();
@@ -2334,14 +2779,19 @@
             const payload = parameterLabPayload();
             payload.run_id = runId;
             const started = performance.now();
+            const diagnostics = createParameterLabDiagnostics(runId, started);
+            renderParameterDiagnostics(null);
             try {
+                const estimateStarted = performance.now();
                 const estimate = await estimateParameterLab(payload, runId);
+                diagnostics.timing.estimate_ms = performance.now() - estimateStarted;
                 if (!confirmLargeRunIfNeeded(estimate)) {
                     setStatus('Needs confirmation', '已取消大规模运行。', 4);
                     return;
                 }
                 payload.parameter_lab_concurrency = readNumber('workerCount');
                 setStatus('Preparing', '正在准备行情数据包。', 4);
+                const packetStarted = performance.now();
                 parameterLabLog('packet_request_start', {
                     run_id: runId,
                     requested_concurrency: payload.parameter_lab_concurrency,
@@ -2355,6 +2805,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
+                diagnostics.timing.packet_request_ms = performance.now() - packetStarted;
+                diagnostics.packet.headers = capturePacketHeaders(response);
                 parameterLabLog('packet_response_headers', {
                     run_id: runId,
                     status: response.status,
@@ -2366,14 +2818,17 @@
                 });
                 const parseStarted = performance.now();
                 const result = await response.json();
+                diagnostics.timing.packet_parse_ms = performance.now() - parseStarted;
                 parameterLabLog('packet_response_json_parsed', {
                     run_id: runId,
-                    parse_ms: performance.now() - parseStarted,
+                    parse_ms: diagnostics.timing.packet_parse_ms,
                     elapsed_ms: performance.now() - started
                 });
                 if (!response.ok || !result.success) throw new Error(result.message || '准备数据包失败');
                 const packet = { ...result.packet, run_id: result.run_id || (result.packet || {}).run_id || runId };
                 lastParameterPacket = packet;
+                updateDiagnosticsScale(diagnostics, packet);
+                appendHeapSnapshot(diagnostics, 'packet_parsed');
                 const candidateCount = (packet.candidate_rows || []).length;
                 const taskCount = (packet.tasks || []).length;
                 parameterLabLog('packet_request_done', {
@@ -2392,9 +2847,15 @@
                 document.getElementById('statCandidates').textContent = number(candidateCount, 0);
                 document.getElementById('statTopics').textContent = number(taskCount, 0);
                 document.getElementById('statSimulations').textContent = number(candidateCount * taskCount, 0);
-                const data = await runWorkerPool(packet, performance.now());
+                const data = await runWorkerPool(packet, performance.now(), diagnostics);
                 lastParameterResult = data;
+                const renderStarted = performance.now();
                 renderParameterMatrix();
+                diagnostics.timing.first_render_ms = performance.now() - renderStarted;
+                appendHeapSnapshot(diagnostics, 'render_done');
+                updateDiagnosticsScale(diagnostics, packet, data);
+                renderParameterDiagnostics(data);
+                logParameterDiagnostics(data);
                 const wall = performance.now() - started;
                 document.getElementById('statWall').textContent = `${number(wall, 0)}ms`;
                 setStatus('Completed', `完成 ${number(data.rows.length, 0)} 个参数组合。`, 100);
@@ -2411,7 +2872,7 @@
             }
         }
 
-        function runWorkerPool(packet, startedAt) {
+        function runWorkerPool(packet, startedAt, diagnostics = null) {
             const runId = packet.run_id || createParameterLabRunId();
             packet.run_id = runId;
             const candidateRows = packet.candidate_rows || [];
@@ -2469,11 +2930,17 @@
                 const partialRows = [];
                 const workerStats = Array.from({ length: workerCount }, (_value, index) => ({
                     worker_index: index,
+                    configured_batch_size: batchSize,
+                    configured_total_batches: totalBatches,
                     chunk_size: 0,
                     batch_count: 0,
                     total_simulations: 0,
                     completed_simulations: 0,
                     elapsed_ms: 0,
+                    simulate_elapsed_ms_sum: 0,
+                    simulate_elapsed_ms_max: 0,
+                    slow_simulation_count: 0,
+                    batch_total_simulations: 0,
                     last_message_at: performance.now(),
                     last_message_type: 'created',
                     last_logged_at: 0,
@@ -2622,6 +3089,10 @@
                             }
                             stats.completed_simulations = nextWorkerCompleted;
                             stats.elapsed_ms += Number(message.elapsed_ms || 0);
+                            stats.simulate_elapsed_ms_sum += Number(message.simulate_elapsed_ms_sum || 0);
+                            stats.simulate_elapsed_ms_max = Math.max(Number(stats.simulate_elapsed_ms_max || 0), Number(message.simulate_elapsed_ms_max || 0));
+                            stats.slow_simulation_count += Number(message.slow_simulation_count || 0);
+                            stats.batch_total_simulations += Number(message.batch_total_simulations || 0);
                             stats.active_batch_id = '';
                             partialRows.push(...(message.rows || []));
                             completedBatches += 1;
@@ -2660,7 +3131,10 @@
                                     rows: partialRows.length,
                                     wall_ms: performance.now() - startedAt
                                 });
-                                resolve(scoreParameterResults(packet, partialRows, workerStats, performance.now() - startedAt, candidateIndex));
+                                appendHeapSnapshot(diagnostics, 'worker_done');
+                                const scored = scoreParameterResults(packet, partialRows, workerStats, performance.now() - startedAt, candidateIndex, diagnostics);
+                                partialRows.length = 0;
+                                resolve(scored);
                             }
                         } else if (message.type === 'cancelled') {
                             settled = true;
@@ -2759,26 +3233,23 @@
             return (Number(value || 0) - min) / (max - min);
         }
         function strategyGroupKey(candidate) {
-            return `${candidate?.buy_strategy || ''}__${candidate?.sell_strategy || ''}`;
+            const buyKey = candidate?.buy_strategy || candidate?.candidate?.buy_strategy || '';
+            const sellKey = candidate?.sell_strategy || candidate?.candidate?.sell_strategy || '';
+            return `${buyKey}__${sellKey}`;
         }
         function strategyGroupLabel(candidate) {
-            const buyKey = candidate?.buy_strategy || '';
-            const sellKey = candidate?.sell_strategy || '';
+            const buyKey = candidate?.buy_strategy || candidate?.candidate?.buy_strategy || '';
+            const sellKey = candidate?.sell_strategy || candidate?.candidate?.sell_strategy || '';
             return `${buyStrategyLabels[buyKey] || buyKey || '未知买入策略'} / ${sellStrategyLabels[sellKey] || sellKey || '未知卖出策略'}`;
         }
         function scoreForRankMethod(row, rankMethod) {
             return Number(rankMethod === 'raw' ? row.raw_score : row.final_score) || 0;
         }
-        function rankParameterRows(rows, rankMethod = 'normalized') {
-            const sorted = [...(rows || [])].sort((a, b) => {
-                const scoreDiff = scoreForRankMethod(b, rankMethod) - scoreForRankMethod(a, rankMethod);
-                if (Math.abs(scoreDiff) > 1e-12) return scoreDiff;
-                return String(a.key || '').localeCompare(String(b.key || ''));
-            });
+        function assignParameterRanks(sortedRows) {
             const byGroup = new Map();
-            sorted.forEach((row, index) => {
-                row.group_key = strategyGroupKey(row.candidate || {});
-                row.group_label = strategyGroupLabel(row.candidate || {});
+            sortedRows.forEach((row, index) => {
+                row.group_key = row.group_key || strategyGroupKey(row);
+                row.group_label = row.group_label || strategyGroupLabel(row);
                 row.global_rank = index + 1;
                 row.final_rank = row.global_rank;
                 if (!byGroup.has(row.group_key)) byGroup.set(row.group_key, []);
@@ -2787,7 +3258,34 @@
             byGroup.forEach((groupRows) => {
                 groupRows.forEach((row, index) => { row.group_rank = index + 1; });
             });
-            return sorted;
+            return sortedRows;
+        }
+        function rankParameterRows(rows, rankMethod = 'normalized') {
+            const sorted = [...(rows || [])].sort((a, b) => {
+                const scoreDiff = scoreForRankMethod(b, rankMethod) - scoreForRankMethod(a, rankMethod);
+                if (Math.abs(scoreDiff) > 1e-12) return scoreDiff;
+                return String(a.key || '').localeCompare(String(b.key || ''));
+            });
+            return assignParameterRanks(sorted);
+        }
+        function rankedRowsFor(data, rankMethod = 'normalized') {
+            if (!data) return [];
+            if (!data._ranked_rows_cache) {
+                Object.defineProperty(data, '_ranked_rows_cache', {
+                    value: new Map(),
+                    enumerable: false,
+                    configurable: true
+                });
+            }
+            const method = rankMethod === 'raw' ? 'raw' : 'normalized';
+            if (!data._ranked_rows_cache.has(method)) {
+                data._ranked_rows_cache.set(method, [...(data.rows || [])].sort((a, b) => {
+                    const scoreDiff = scoreForRankMethod(b, method) - scoreForRankMethod(a, method);
+                    if (Math.abs(scoreDiff) > 1e-12) return scoreDiff;
+                    return String(a.key || '').localeCompare(String(b.key || ''));
+                }));
+            }
+            return assignParameterRanks(data._ranked_rows_cache.get(method));
         }
         function groupVisibleParameterRows(visibleRows, allRows, rankMethod) {
             const totalByGroup = new Map();
@@ -2836,11 +3334,13 @@
             }
             renderParameterMatrix();
         }
-        function scoreParameterResults(packet, partialRows, workerStats, wallMs, candidateIndex = null) {
+        function scoreParameterResults(packet, partialRows, workerStats, wallMs, candidateIndex = null, diagnostics = null) {
+            const scoreStarted = performance.now();
             const index = candidateIndex || buildCandidateIndex(packet);
             const candidateByKey = index.byKey;
             const candidateById = index.byId;
             const observations = [];
+            let observationCount = 0;
             for (let ri = 0; ri < partialRows.length; ri++) {
                 const row = partialRows[ri];
                 const candidate = candidateById.get(String(row.candidate_id)) || candidateByKey.get(row.candidate_key);
@@ -2851,6 +3351,7 @@
                     cell.candidate_id = candidate.candidate_id;
                     cell.candidate_key = candidate.key;
                     observations.push(cell);
+                    observationCount += 1;
                 }
             }
             const byTopic = new Map();
@@ -2885,7 +3386,15 @@
             });
             const byCandidate = new Map();
             index.candidates.forEach((candidate) => {
-                byCandidate.set(candidate.key, { key: candidate.key, candidate, cells: [] });
+                byCandidate.set(candidate.key, {
+                    key: candidate.key,
+                    candidate_id: candidate.candidate_id,
+                    buy_strategy: candidate.buy_strategy,
+                    sell_strategy: candidate.sell_strategy,
+                    group_key: strategyGroupKey(candidate),
+                    group_label: strategyGroupLabel(candidate),
+                    cells: []
+                });
             });
             observations.forEach((cell) => {
                 const row = byCandidate.get(cell.candidate_key);
@@ -2909,17 +3418,48 @@
                 return row;
             });
             rankParameterRows(rows, 'normalized');
-            return {
+            const simulateElapsedMsSum = workerStats.reduce((sum, item) => sum + Number(item.simulate_elapsed_ms_sum || 0), 0);
+            const completedSimulations = workerStats.reduce((sum, item) => sum + Number(item.completed_simulations || 0), 0);
+            const cpuWorkEstimateMs = workerStats.reduce((sum, item) => sum + item.elapsed_ms, 0);
+            if (diagnostics) {
+                diagnostics.timing = diagnostics.timing || {};
+                diagnostics.timing.score_rank_ms = performance.now() - scoreStarted;
+            }
+            const result = {
                 ...packet,
                 rows,
-                observations,
+                observations: [],
+                observations_compacted: true,
+                observation_count: observationCount,
+                diagnostics: diagnostics || {
+                    timing: { score_rank_ms: performance.now() - scoreStarted },
+                    scale: {},
+                    packet: { headers: {} },
+                    memory: { snapshots: [] }
+                },
                 worker_metrics: {
                     worker_count: workerStats.length,
+                    batch_count: workerStats.reduce((sum, item) => sum + Number(item.batch_count || 0), 0),
                     chunks_completed_per_worker: workerStats.map((item) => item.chunk_size),
                     worker_elapsed_ms: workerStats.map((item) => item.elapsed_ms),
+                    worker_completed_simulations: workerStats.map((item) => Number(item.completed_simulations || 0)),
+                    worker_batch_count: workerStats.map((item) => Number(item.batch_count || 0)),
+                    batch_size: Number(workerStats[0]?.configured_batch_size || 0),
+                    total_batches: Number(workerStats[0]?.configured_total_batches || 0),
                     wall_ms: wallMs,
-                    cpu_work_estimate_ms: workerStats.reduce((sum, item) => sum + item.elapsed_ms, 0)
+                    cpu_work_estimate_ms: cpuWorkEstimateMs,
+                    parallel_efficiency: workerStats.length && wallMs > 0 ? cpuWorkEstimateMs / (wallMs * workerStats.length) : 0,
+                    simulate_elapsed_ms_sum: simulateElapsedMsSum,
+                    simulate_elapsed_ms_max: workerStats.reduce((maxValue, item) => Math.max(maxValue, Number(item.simulate_elapsed_ms_max || 0)), 0),
+                    avg_simulate_elapsed_ms: completedSimulations ? simulateElapsedMsSum / completedSimulations : 0,
+                    slow_simulation_count: workerStats.reduce((sum, item) => sum + Number(item.slow_simulation_count || 0), 0),
+                    batch_total_simulations: workerStats.reduce((sum, item) => sum + Number(item.batch_total_simulations || 0), 0)
                 }
+            };
+            updateDiagnosticsScale(result.diagnostics, result, result);
+            observations.length = 0;
+            return {
+                ...result
             };
         }
 
@@ -2936,13 +3476,14 @@
             const limit = limitValue === 'all' ? data.rows.length : Number(limitValue || 300);
             const rankMethod = document.getElementById('rankMethod').value;
             const showLeaps = Boolean(document.getElementById('leapsSignalToggle')?.checked);
-            const sorted = rankParameterRows(data.rows, rankMethod);
+            const sorted = rankedRowsFor(data, rankMethod);
             const rows = sorted.slice(0, limit);
             const groups = groupVisibleParameterRows(rows, sorted, rankMethod);
             const scoreLabel = rankMethod === 'raw' ? '原始加权分' : '归一化分';
             document.getElementById('resultTitle').textContent = `${number(data.rows.length, 0)} rows / ${scoreLabel}`;
             const metrics = data.worker_metrics || {};
             document.getElementById('resultMeta').textContent = `worker ${number(metrics.worker_count, 0)} / CPU ${number(metrics.cpu_work_estimate_ms, 0)}ms / wall ${number(metrics.wall_ms, 0)}ms`;
+            renderParameterDiagnostics(data);
             document.getElementById('matrixHead').innerHTML = `
                 <tr>
                     <th>策略参数组合</th>
@@ -2972,46 +3513,47 @@
                 `;
                 if (collapsed) return groupHeader;
                 const groupRows = group.rows.map((row) => {
-                const cellsByTopic = new Map(row.cells.map((cell) => [cell.topic_key, cell]));
-                const cellHtml = tasks.map((task) => {
-                    const cell = cellsByTopic.get(task.key);
-                    if (!cell) return '<td class="score-cell">--</td>';
-                    const title = [
-                        `${task.portfolio_label} / ${task.period_label}`,
-                        `rank #${number(cell.topic_rank, 0)}`,
-                        `score ${number(cell.topic_score)}`,
-                        `return ${pct(cell.return_pct)}`,
-                        `drawdown ${pct(cell.max_drawdown_pct)}`,
-                        `return score ${number(cell.return_score)}`,
-                        `drawdown score ${number(cell.drawdown_score)}`,
-                        `trades ${number(cell.trade_count, 0)}`,
-                        `LEAPS ${cell.leaps_signal?.grade || '无'} ${cell.leaps_signal?.best_date || ''}`
-                    ].join('\n');
+                    const candidate = parameterRowCandidate(row, data) || {};
+                    const cellsByTopic = new Map(row.cells.map((cell) => [cell.topic_key, cell]));
+                    const cellHtml = tasks.map((task) => {
+                        const cell = cellsByTopic.get(task.key);
+                        if (!cell) return '<td class="score-cell">--</td>';
+                        const title = [
+                            `${task.portfolio_label} / ${task.period_label}`,
+                            `rank #${number(cell.topic_rank, 0)}`,
+                            `score ${number(cell.topic_score)}`,
+                            `return ${pct(cell.return_pct)}`,
+                            `drawdown ${pct(cell.max_drawdown_pct)}`,
+                            `return score ${number(cell.return_score)}`,
+                            `drawdown score ${number(cell.drawdown_score)}`,
+                            `trades ${number(cell.trade_count, 0)}`,
+                            `LEAPS ${cell.leaps_signal?.grade || '无'} ${cell.leaps_signal?.best_date || ''}`
+                        ].join('\n');
+                        return `
+                            <td class="score-cell" style="${heatStyle(cell.topic_score)};cursor:pointer" title="${escapeHtml(title)}&#10;点击查看买卖点演算" onclick="openCellInLab('${escapeHtml(row.key)}', '${escapeHtml(task.key)}')">
+                                <div class="score-rank"><strong>#${number(cell.topic_rank, 0)}</strong><span>${number(cell.topic_score)}</span></div>
+                                <div class="cell-metrics"><b>${pct(cell.return_pct)}</b><b>${pct(cell.max_drawdown_pct)}</b></div>
+                                ${showLeaps ? `<div class="leaps-strip">${renderLeapsBadge(cell.leaps_signal || {}, true)}</div>` : ''}
+                            </td>
+                        `;
+                    }).join('');
                     return `
-                        <td class="score-cell" style="${heatStyle(cell.topic_score)};cursor:pointer" title="${escapeHtml(title)}&#10;点击查看买卖点演算" onclick="openCellInLab('${escapeHtml(row.key)}', '${escapeHtml(task.key)}')">
-                            <div class="score-rank"><strong>#${number(cell.topic_rank, 0)}</strong><span>${number(cell.topic_score)}</span></div>
-                            <div class="cell-metrics"><b>${pct(cell.return_pct)}</b><b>${pct(cell.max_drawdown_pct)}</b></div>
-                            ${showLeaps ? `<div class="leaps-strip">${renderLeapsBadge(cell.leaps_signal || {}, true)}</div>` : ''}
-                        </td>
+                        <tr>
+                            <td>
+                                <div class="rank-pair"><span>全局 #${number(row.global_rank, 0)}</span><span>组内 #${number(row.group_rank, 0)}</span></div>
+                                <div class="strategy-name">${escapeHtml(candidate.label || row.group_label || row.key)}</div>
+                                <div class="strategy-meta">${rankMethod === 'raw' ? 'Raw' : 'Final'} ${number(rankMethod === 'raw' ? row.raw_score : row.final_score)} / Avg return ${pct(row.avg_return_pct)} / Avg DD ${pct(row.avg_drawdown_pct)}</div>
+                                <div class="strategy-meta">${escapeHtml(row.buy_strategy || candidate.buy_strategy || '')} + ${escapeHtml(row.sell_strategy || candidate.sell_strategy || '')}</div>
+                                ${showLeaps ? `<div class="leaps-strip">${renderLeapsBadge(row.leaps_signal || {}, false)}</div>` : ''}
+                                ${showLeaps && row.leaps_option_summary ? `<div class="leaps-strip">${renderLeapsOptionSummary(row.leaps_option_summary)}</div>` : ''}
+                                <div class="row-actions">
+                                    <button type="button" onclick="openRowDetail('${escapeHtml(row.key)}')">参数</button>
+                                    <button type="button" onclick="applyParameterRow('${escapeHtml(row.key)}')">应用到主实验室</button>
+                                </div>
+                            </td>
+                            ${cellHtml}
+                        </tr>
                     `;
-                }).join('');
-                return `
-                    <tr>
-                        <td>
-                            <div class="rank-pair"><span>全局 #${number(row.global_rank, 0)}</span><span>组内 #${number(row.group_rank, 0)}</span></div>
-                            <div class="strategy-name">${escapeHtml(row.candidate.label || row.key)}</div>
-                            <div class="strategy-meta">${rankMethod === 'raw' ? 'Raw' : 'Final'} ${number(rankMethod === 'raw' ? row.raw_score : row.final_score)} / Avg return ${pct(row.avg_return_pct)} / Avg DD ${pct(row.avg_drawdown_pct)}</div>
-                            <div class="strategy-meta">${escapeHtml(row.candidate.buy_strategy)} + ${escapeHtml(row.candidate.sell_strategy)}</div>
-                            ${showLeaps ? `<div class="leaps-strip">${renderLeapsBadge(row.leaps_signal || {}, false)}</div>` : ''}
-                            ${showLeaps && row.leaps_option_summary ? `<div class="leaps-strip">${renderLeapsOptionSummary(row.leaps_option_summary)}</div>` : ''}
-                            <div class="row-actions">
-                                <button type="button" onclick="openRowDetail('${escapeHtml(row.key)}')">参数</button>
-                                <button type="button" onclick="applyParameterRow('${escapeHtml(row.key)}')">应用到主实验室</button>
-                            </div>
-                        </td>
-                        ${cellHtml}
-                    </tr>
-                `;
                 }).join('');
                 return groupHeader + groupRows;
             }).join('');
@@ -3039,7 +3581,7 @@
                 payload_schema: packet.payload_schema || '',
                 market_data_hash: packet.market_data_hash || packet.market_data?.hash || '',
                 candidate_manifest_hash: packet.candidate_manifest_hash || '',
-                candidate_id: row?.candidate?.candidate_id ?? row?.cells?.[0]?.candidate_id ?? '',
+                candidate_id: row?.candidate_id ?? row?._candidate_cache?.candidate_id ?? row?.cells?.[0]?.candidate_id ?? '',
                 candidate_key: row?.key || '',
                 topic_key: topicKey || ''
             });
@@ -3191,7 +3733,7 @@
             };
         }
         function compactCellChartCombinationLabel(row) {
-            const groupLabel = row?.group_label || strategyGroupLabel(row?.candidate || {});
+            const groupLabel = row?.group_label || strategyGroupLabel(row || {});
             const groupRank = Number(row?.group_rank || 0);
             const rankSuffix = groupRank ? ` · 组内 #${number(groupRank, 0)}` : '';
             return `${groupLabel || '参数组合'}${rankSuffix}`;
@@ -3209,7 +3751,7 @@
             const dates = cell.series?.dates || [];
             const dateRange = dates.length ? `${dates[0]} ~ ${dates[dates.length - 1]}` : '--';
             const topicLabel = sourceCell ? `${sourceCell.portfolio_label || ''} / ${sourceCell.period_label || ''}`.trim() : context.topicKey;
-            const fullCombinationLabel = row.candidate?.label || row.key || '--';
+            const fullCombinationLabel = parameterRowCandidate(row)?.label || row.key || '--';
             return [
                 cellChartFullscreenMetric('参数组合', compactCellChartCombinationLabel(row), { title: fullCombinationLabel, wide: true }),
                 cellChartFullscreenMetric('题目/周期', topicLabel || '--'),
@@ -3235,7 +3777,7 @@
                 ? `${context.sourceCell.portfolio_label || ''} / ${context.sourceCell.period_label || ''}`.trim()
                 : context.topicKey;
             title.textContent = compactCellChartCombinationLabel(context.row);
-            title.title = context.row.candidate?.label || context.row.key || '';
+            title.title = parameterRowCandidate(context.row)?.label || context.row.key || '';
             subtitle.textContent = topicLabel || '当前 cell 重放结果';
             summary.innerHTML = renderCellChartFullscreenSummary(context);
             overlay.classList.remove('hidden');
@@ -3424,10 +3966,7 @@
         }
         function findCandidateRowForDetail(row) {
             if (!lastParameterPacket || !row) return null;
-            const index = buildCandidateIndex(lastParameterPacket);
-            let candidateIndex = index.candidates.findIndex((candidate) => String(candidate.candidate_id) === String(row.candidate?.candidate_id));
-            if (candidateIndex < 0) candidateIndex = index.candidates.findIndex((candidate) => candidate.key === row.key);
-            return candidateIndex >= 0 ? index.rows[candidateIndex] : null;
+            return findCandidatePacketRow(lastParameterPacket, row);
         }
         function runLeapsDetailWorker(row) {
             const sourcePacket = lastParameterPacket;
@@ -3681,11 +4220,19 @@
         }
         function renderLeapsOptionControls(row, entry) {
             const outcomeEntry = leapsOptionOutcomeCache.get(leapsDetailCacheKey(row));
+            const highGradeCount = highGradeLeapsOptionSignals(entry?.all_signals || []).length;
+            const highGradeButton = (busy = false) => `
+                <button type="button" onclick="calculateLeapsOptionOutcomesForActiveHighGradeSignals()" ${busy || !highGradeCount ? 'disabled' : ''}>只计算高等级信号</button>
+            `;
+            const highGradeHint = highGradeCount
+                ? `<span class="leaps-detail-status">高等级信号 ${number(highGradeCount, 0)} 条。</span>`
+                : '<span class="leaps-detail-status">当前没有高等级信号。</span>';
             if (outcomeEntry?.status === 'loading' || outcomeEntry?.status === 'stopping') {
                 return `
                     <div class="leaps-option-actions">
                         <span class="leaps-detail-status">正在逐条计算 200-300D 月期权收益，进度在浮窗显示。</span>
                         <button type="button" onclick="stopLeapsOptionOutcomesForActiveRow()" ${outcomeEntry.status === 'stopping' ? 'disabled' : ''}>停止计算</button>
+                        ${highGradeButton(true)}
                     </div>
                     ${(outcomeEntry.outcomes || []).length ? renderLeapsOptionOutcomeTable(outcomeEntry.outcomes || []) : ''}
                 `;
@@ -3696,6 +4243,8 @@
                         ${renderLeapsOptionSummary(outcomeEntry.summary)}
                         ${outcomeEntry.status === 'partial_done' ? '<span class="leaps-detail-status">已计算部分明细。</span>' : ''}
                         <button type="button" onclick="calculateLeapsOptionOutcomesForActiveRow()">重新计算 200-300D 月期权收益</button>
+                        ${highGradeButton()}
+                        ${highGradeHint}
                     </div>
                     ${renderLeapsOptionOutcomeTable(outcomeEntry.outcomes || [])}
                 `;
@@ -3705,6 +4254,8 @@
                     <div class="leaps-option-actions">
                         <span class="leaps-detail-status">计算已停止，已保留当前结果。</span>
                         <button type="button" onclick="calculateLeapsOptionOutcomesForActiveRow()">重新计算 200-300D 月期权收益</button>
+                        ${highGradeButton()}
+                        ${highGradeHint}
                     </div>
                     ${(outcomeEntry.outcomes || []).length ? renderLeapsOptionOutcomeTable(outcomeEntry.outcomes || []) : ''}
                 `;
@@ -3714,6 +4265,8 @@
                     <div class="leaps-option-actions">
                         <span class="leaps-detail-status error">${escapeHtml(outcomeEntry.message || '期权收益计算失败')}</span>
                         <button type="button" onclick="calculateLeapsOptionOutcomesForActiveRow()">重试 200-300D 月期权收益</button>
+                        ${highGradeButton()}
+                        ${highGradeHint}
                     </div>
                     ${(outcomeEntry.outcomes || []).length ? renderLeapsOptionOutcomeTable(outcomeEntry.outcomes || []) : ''}
                 `;
@@ -3721,7 +4274,9 @@
             return `
                 <div class="leaps-option-actions">
                     <button type="button" onclick="calculateLeapsOptionOutcomesForActiveRow()">计算 200-300D 月期权收益</button>
+                    ${highGradeButton()}
                     <span class="leaps-detail-status">也可以在下方每个日期/标的行单独计算。浏览器发起队列，服务端用 Polygon key 定价。</span>
+                    ${highGradeHint}
                 </div>
             `;
         }
@@ -4104,6 +4659,29 @@
                 });
             }
         }
+        async function calculateLeapsOptionOutcomesForActiveHighGradeSignals() {
+            const row = findRow(activeDetailRowKey);
+            if (!row) return;
+            const detailKey = leapsDetailCacheKey(row);
+            const detailEntry = leapsDetailCache.get(detailKey);
+            const signals = highGradeLeapsOptionSignals(detailEntry?.all_signals || []);
+            try {
+                await calculateLeapsOptionOutcomes(row, signals, { scopeLabel: '当前参数行高等级 LEAPS 信号' });
+            } catch (error) {
+                const current = leapsOptionOutcomeCache.get(detailKey) || {};
+                leapsOptionOutcomeCache.set(detailKey, {
+                    ...current,
+                    status: 'error',
+                    message: error.message || String(error),
+                    elapsedMs: current.startedAt ? Date.now() - current.startedAt : current.elapsedMs
+                });
+                renderDetailLeapsIntoDrawer(row, true);
+                parameterLabWarn('leaps_option_high_grade_outcomes_failed', {
+                    row_key: row.key,
+                    message: error.message || String(error)
+                });
+            }
+        }
         async function calculateLeapsOptionOutcomesForActiveRow() {
             const row = findRow(activeDetailRowKey);
             if (!row) return;
@@ -4128,6 +4706,7 @@
         function openRowDetail(key, topicKey = '') {
             const row = findRow(key);
             if (!row) return;
+            const candidate = parameterRowCandidate(row) || {};
             closeCellChartFullscreen();
             activeDetailRowKey = key;
             activeDetailTopicKey = topicKey || '';
@@ -4138,7 +4717,7 @@
             if (snapshotSection) snapshotSection.open = false;
             const sourceCell = topicKey ? findSourceCell(row, topicKey) : null;
             const topicLabel = sourceCell ? ` · ${sourceCell.portfolio_label || ''} / ${sourceCell.period_label || ''}` : '';
-            document.getElementById('detailTitle').textContent = `${row.candidate.label || row.key}${topicLabel}`;
+            document.getElementById('detailTitle').textContent = `${candidate.label || row.group_label || row.key}${topicLabel}`;
             document.getElementById('detailMetrics').innerHTML = `
                 <div class="stat"><span>全局排名</span><strong>#${number(row.global_rank, 0)}</strong></div>
                 <div class="stat"><span>组内排名</span><strong>#${number(row.group_rank, 0)}</strong></div>
@@ -4146,7 +4725,7 @@
                 <div class="stat"><span>Avg Return</span><strong>${pct(row.avg_return_pct)}</strong></div>
                 <div class="stat"><span>Avg DD</span><strong>${pct(row.avg_drawdown_pct)}</strong></div>
             `;
-            document.getElementById('detailJson').textContent = JSON.stringify(candidateDetailPayload(row.candidate, row), null, 2);
+            document.getElementById('detailJson').textContent = JSON.stringify(candidateDetailPayload(candidate, row), null, 2);
             renderDetailLeapsIntoDrawer(row);
             document.getElementById('detailCells').innerHTML = row.cells.map((cell) => `
                 <tr>
@@ -4172,8 +4751,10 @@
         function applyParameterRow(key) {
             const row = findRow(key);
             if (!row) return;
+            const candidate = parameterRowCandidate(row);
+            if (!candidate) return;
             localStorage.setItem('strategyLabPendingParameterCandidate', JSON.stringify({
-                candidate: row.candidate,
+                candidate,
                 payload: parameterLabPayload(),
                 source: 'parameter-lab',
                 applied_at: new Date().toISOString()
@@ -4189,6 +4770,7 @@
         document.addEventListener('keydown', handleCellChartFullscreenKeydown);
         refreshUniverseTopics();
         renderCandidateGridSummary();
+        renderParameterDiagnostics(null);
         document.getElementById('resultMeta').textContent = `registry ${strategyRegistry.version}`;
     </script>
 </body>

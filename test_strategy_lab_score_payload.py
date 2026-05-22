@@ -265,6 +265,23 @@ class StrategyLabScorePayloadTest(unittest.TestCase):
         self.assertEqual(estimate["task_count"], 1)
         self.assertEqual(estimate["estimated_simulations"], len(expected_candidates))
 
+    def test_parameter_lab_large_estimate_recommends_up_to_four_workers(self):
+        payload = {
+            "end": "2025-12-31",
+            "buy_strategies": ["salary_flow_dca"],
+            "sell_strategies": ["repair_step"],
+            "parameter_lab_concurrency": 8,
+            "scorecard_portfolio_keys": ["tsm_100"],
+            "scorecard_periods": [{"key": "1y", "label": "一年", "start": "2025-01-01", "end": "2025-12-31"}],
+            "targets": [{"symbol": "TSM.US", "weight": 100}],
+        }
+
+        with patch("web.app.PARAMETER_LAB_LARGE_RUN_GUARDRAIL", 1):
+            estimate = _estimate_strategy_parameter_lab_payload(payload)
+
+        self.assertTrue(estimate["requires_confirmation"])
+        self.assertEqual(estimate["recommended_worker_count"], 4)
+
     def test_parameter_lab_packet_endpoint_is_deterministic_for_repeated_gzip_requests(self):
         payload = {
             "end": "2025-12-31",

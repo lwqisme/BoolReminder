@@ -429,7 +429,7 @@ def _estimate_strategy_parameter_lab_payload(payload: dict[str, object]) -> dict
         "large_run_guardrail": PARAMETER_LAB_LARGE_RUN_GUARDRAIL,
         "requires_confirmation": candidate_count * task_count > PARAMETER_LAB_LARGE_RUN_GUARDRAIL,
         "recommended_worker_count": (
-            max(1, min(2, requested_concurrency))
+            max(1, min(4, requested_concurrency))
             if candidate_count * task_count > PARAMETER_LAB_LARGE_RUN_GUARDRAIL
             else max(1, min(12, requested_concurrency))
         ),
@@ -9473,6 +9473,44 @@ def api_strategy_lab_parameter_lab_packet():
             stack=traceback.format_exc(),
         )
         return _json_error(f"准备参数实验室数据失败: {exc}", 500)
+
+
+@app.route('/api/strategy-lab/parameter-lab/client-diagnostics', methods=['POST'])
+def api_strategy_lab_parameter_lab_client_diagnostics():
+    payload = request.get_json(silent=True) or {}
+    run_id = str(payload.get("run_id") or "").strip()
+    try:
+        timing = payload.get("timing") if isinstance(payload.get("timing"), dict) else {}
+        scale = payload.get("scale") if isinstance(payload.get("scale"), dict) else {}
+        packet = payload.get("packet") if isinstance(payload.get("packet"), dict) else {}
+        packet_headers = packet.get("headers") if isinstance(packet.get("headers"), dict) else {}
+        worker_metrics = payload.get("worker_metrics") if isinstance(payload.get("worker_metrics"), dict) else {}
+        memory = payload.get("memory") if isinstance(payload.get("memory"), dict) else {}
+        snapshots = memory.get("snapshots") if isinstance(memory.get("snapshots"), list) else []
+        _parameter_lab_log(
+            "client_diagnostics",
+            run_id=run_id,
+            timing=timing,
+            scale=scale,
+            packet_headers=packet_headers,
+            payload_schema=packet.get("payload_schema"),
+            market_data_hash=packet.get("market_data_hash"),
+            candidate_manifest_hash=packet.get("candidate_manifest_hash"),
+            worker_metrics=worker_metrics,
+            memory={
+                "device_memory_gb": memory.get("device_memory_gb"),
+                "snapshots": snapshots[-6:],
+            },
+            remote_addr=request.headers.get("X-Forwarded-For", request.remote_addr),
+        )
+        return jsonify({"success": True})
+    except Exception as exc:
+        _parameter_lab_warn(
+            "client_diagnostics_error",
+            run_id=run_id,
+            message=str(exc),
+        )
+        return _json_error(f"记录 Parameter Lab 诊断失败: {exc}", 500)
 
 
 @app.route('/api/strategy-lab/parameter-lab/leaps-option-outcomes', methods=['POST'])

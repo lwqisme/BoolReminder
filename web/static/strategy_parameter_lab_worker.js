@@ -1143,7 +1143,11 @@ async function processBatch(message, workerIndex, runId) {
   const started = performance.now();
   const rows = [];
   const batchTotal = Math.max(1, candidates.length * taskContexts.length);
+  const slowSimulationMs = Number(diagnostics.slow_simulation_ms || 3000);
   let batchCompleted = 0;
+  let simulateElapsedMsSum = 0;
+  let simulateElapsedMsMax = 0;
+  let slowSimulationCount = 0;
   postMessage({
     type: 'batch_start',
     run_id: runId,
@@ -1219,6 +1223,9 @@ async function processBatch(message, workerIndex, runId) {
         batchCompleted += 1;
         workerState.completed_simulations += 1;
         const simulateElapsed = performance.now() - simulateStarted;
+        simulateElapsedMsSum += simulateElapsed;
+        simulateElapsedMsMax = Math.max(simulateElapsedMsMax, simulateElapsed);
+        if (simulateElapsed >= slowSimulationMs) slowSimulationCount += 1;
         if (verboseSimulationLogs) {
           diagnosticLog('simulate_done', {
             run_id: runId,
@@ -1232,7 +1239,7 @@ async function processBatch(message, workerIndex, runId) {
             completed_simulations: workerState.completed_simulations,
             total_simulations: workerState.total_simulations
           });
-        } else if (simulateElapsed >= Number(diagnostics.slow_simulation_ms || 3000)) {
+        } else if (simulateElapsed >= slowSimulationMs) {
           diagnosticLog('simulate_slow', {
             run_id: runId,
             worker_index: workerIndex,
@@ -1278,6 +1285,9 @@ async function processBatch(message, workerIndex, runId) {
       completed_simulations: workerState.completed_simulations,
       batch_completed_simulations: batchCompleted,
       batch_total_simulations: batchTotal,
+      simulate_elapsed_ms_sum: simulateElapsedMsSum,
+      simulate_elapsed_ms_max: simulateElapsedMsMax,
+      slow_simulation_count: slowSimulationCount,
       chunk_size: candidates.length,
       elapsed_ms: performance.now() - started
     });
