@@ -61,7 +61,15 @@ from drawdown.strategy_lab_history import (
     save_experiment_preset,
     save_run_snapshot,
 )
-from drawdown.leaps_option_outcomes import OutcomeCache, PolygonMonthlyOptionProvider, replay_leaps_option_outcomes, replay_leaps_option_outcomes_batch
+from drawdown.leaps_option_outcomes import (
+    POLYGON_PERMISSION_DENIED,
+    OutcomeCache,
+    PolygonMonthlyOptionProvider,
+    replay_leaps_option_outcomes,
+    replay_leaps_option_outcomes_batch,
+    skipped_outcome,
+    summarize_outcomes,
+)
 from trade_sync.cleanup import run_trade_sync_cleanup
 from trade_sync.normalize import canonical_symbol, normalize_trade_rows
 from trade_sync.store import (
@@ -85,6 +93,9 @@ _leaps_option_provider_lock = threading.Lock()
 _leaps_option_provider: PolygonMonthlyOptionProvider | None = None
 _leaps_option_provider_api_key = ""
 _leaps_option_outcome_cache = OutcomeCache()
+_leaps_option_polygon_permission_lock = threading.Lock()
+_leaps_option_polygon_permission_denied_until_by_key: dict[str, float] = {}
+LEAPS_OPTION_POLYGON_PERMISSION_DENIED_COOLDOWN_SECONDS = 15 * 60
 config_manager: Optional[ConfigManager] = None
 latest_result: Optional[WatchlistBollFilterResult] = None
 scheduler_instance = None  # 全局调度器实例，用于动态更新
@@ -497,6 +508,52 @@ def _get_polygon_api_key() -> str:
     if hasattr(config_manager, "get_polygon_config"):
         return str(config_manager.get_polygon_config().get("api_key") or "").strip()
     return str(config_manager.get("polygon.api_key", "") or os.getenv("POLYGON_API_KEY", "")).strip()
+
+
+def _polygon_api_key_fingerprint(api_key: str) -> str:
+    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16] if api_key else ""
+
+
+def _leaps_option_polygon_permission_denied_active(api_key: str) -> bool:
+    if not api_key:
+        return False
+    fingerprint = _polygon_api_key_fingerprint(api_key)
+    now = time.monotonic()
+    with _leaps_option_polygon_permission_lock:
+        until = _leaps_option_polygon_permission_denied_until_by_key.get(fingerprint, 0)
+        if until <= now:
+            _leaps_option_polygon_permission_denied_until_by_key.pop(fingerprint, None)
+            return False
+        return True
+
+
+def _mark_leaps_option_polygon_permission_denied(api_key: str) -> None:
+    if not api_key:
+        return
+    fingerprint = _polygon_api_key_fingerprint(api_key)
+    with _leaps_option_polygon_permission_lock:
+        _leaps_option_polygon_permission_denied_until_by_key[fingerprint] = (
+            time.monotonic() + LEAPS_OPTION_POLYGON_PERMISSION_DENIED_COOLDOWN_SECONDS
+        )
+
+
+def _leaps_option_result_has_polygon_permission_denied(result: dict[str, object]) -> bool:
+    summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+    if str(summary.get("top_failure_reason") or "") == POLYGON_PERMISSION_DENIED:
+        return True
+    outcomes = result.get("outcomes") if isinstance(result.get("outcomes"), list) else []
+    return any(isinstance(outcome, dict) and outcome.get("skipped_reason") == POLYGON_PERMISSION_DENIED for outcome in outcomes)
+
+
+def _leaps_option_polygon_permission_denied_result(signals: list[dict[str, object]]) -> dict[str, object]:
+    outcomes = [skipped_outcome(signal, POLYGON_PERMISSION_DENIED) for signal in signals]
+    return {
+        "success": True,
+        "outcomes": outcomes,
+        "summary": summarize_outcomes(outcomes),
+        "cache_stats": {"polygon_requests": 0},
+        "permission_circuit_open": True,
+    }
 
 
 def _get_leaps_option_provider(api_key: str) -> PolygonMonthlyOptionProvider | None:
@@ -9601,8 +9658,13 @@ def api_strategy_lab_parameter_lab_leaps_option_outcomes():
         date=signal_date,
     )
     api_key = _get_polygon_api_key()
-    provider = _get_leaps_option_provider(api_key)
-    result = replay_leaps_option_outcomes(signals, api_key, provider=provider, outcome_cache=_leaps_option_outcome_cache)
+    if _leaps_option_polygon_permission_denied_active(api_key):
+        result = _leaps_option_polygon_permission_denied_result(signals)
+    else:
+        provider = _get_leaps_option_provider(api_key)
+        result = replay_leaps_option_outcomes(signals, api_key, provider=provider, outcome_cache=_leaps_option_outcome_cache)
+        if _leaps_option_result_has_polygon_permission_denied(result):
+            _mark_leaps_option_polygon_permission_denied(api_key)
     status_code = 200 if result.get("success") else 400
     response = _json_response_with_optional_gzip({**result, "run_id": run_id, "row_key": row_key}, status_code=status_code)
     summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
@@ -9648,8 +9710,13 @@ def api_strategy_lab_parameter_lab_leaps_option_outcomes_batch():
         signal_count=len(signals),
     )
     api_key = _get_polygon_api_key()
-    provider = _get_leaps_option_provider(api_key)
-    result = replay_leaps_option_outcomes_batch(signals, api_key, provider=provider, outcome_cache=_leaps_option_outcome_cache)
+    if _leaps_option_polygon_permission_denied_active(api_key):
+        result = _leaps_option_polygon_permission_denied_result(signals)
+    else:
+        provider = _get_leaps_option_provider(api_key)
+        result = replay_leaps_option_outcomes_batch(signals, api_key, provider=provider, outcome_cache=_leaps_option_outcome_cache)
+        if _leaps_option_result_has_polygon_permission_denied(result):
+            _mark_leaps_option_polygon_permission_denied(api_key)
     status_code = 200 if result.get("success") else 400
     response = _json_response_with_optional_gzip({**result, "run_id": run_id, "row_key": row_key}, status_code=status_code)
     summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}

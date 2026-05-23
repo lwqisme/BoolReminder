@@ -1337,6 +1337,67 @@ vm.runInContext(helpers, context);
         self.assertEqual(result["urls"], ["/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch"])
         self.assertEqual(result["cacheStats"]["outcome"]["memory_hit"], 2)
 
+    def test_leaps_option_request_helper_does_not_retry_polygon_403(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript LEAPS request helper check")
+
+        html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
+        helper_body = html[
+            html.index("        function skippedLeapsOptionOutcome") : html.index("        function formatElapsedTime")
+        ]
+        helpers = "\n".join(
+            [
+                "const LEAPS_OPTION_BATCH_SIZE = 5;",
+                "const LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000];",
+                "const LEAPS_OPTION_STOPPED_REASON = '已停止，未计算';",
+                helper_body,
+            ]
+        )
+        script = """
+const vm = require('vm');
+const helpers = process.argv[1];
+const urls = [];
+const delays = [];
+const context = {
+  Date, Math, Number, String, Array, Map, Set, Promise, Error, RegExp,
+  setTimeout: (callback, ms) => { delays.push(ms); callback(); return 1; },
+  fetch: async (url) => {
+    urls.push(url);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        outcomes: [{ status: 'skipped', skipped_reason: 'Polygon API 无权限/套餐不支持期权历史K线' }],
+        summary: { top_failure_reason: 'Polygon API 无权限/套餐不支持期权历史K线' },
+        cache_stats: { polygon_requests: 1 }
+      })
+    };
+  }
+};
+vm.createContext(context);
+vm.runInContext(helpers, context);
+(async () => {
+  const signal = { signal_key: 'sig-a', date: '2024-01-10', symbol: 'AAPL.US' };
+  const result = await context.requestLeapsOptionOutcomeBatch({ signals: [signal] }, [{ signal }]);
+  process.stdout.write(JSON.stringify({
+    urls,
+    delays,
+    reason: result.outcomes[0].skipped_reason,
+    permissionDenied: context.leapsOptionPermissionDeniedReason(result)
+  }));
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+"""
+        completed = subprocess.run(["node", "-e", script, helpers], check=True, capture_output=True, text=True)
+        result = json.loads(completed.stdout)
+
+        self.assertEqual(result["urls"], ["/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch"])
+        self.assertEqual(result["delays"], [])
+        self.assertIn("无权限", result["reason"])
+        self.assertIn("无权限", result["permissionDenied"])
+
     def test_top_group_leaps_option_request_retries_and_clones_dedupe_sources(self):
         if shutil.which("node") is None:
             self.skipTest("node is required for JavaScript top group LEAPS request helper check")

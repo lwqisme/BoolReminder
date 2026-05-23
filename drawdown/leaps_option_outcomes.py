@@ -26,10 +26,12 @@ NO_EXIT_PRICE = "无可用卖出价"
 NO_STOCK_SELL = "无下一次正股卖点"
 NO_PRE_EXPIRATION_PRICE = "卖点晚于到期且无可用到期前价格"
 API_LIMIT_OR_TIMEOUT = "API 限流/超时"
+POLYGON_PERMISSION_DENIED = "Polygon API 无权限/套餐不支持期权历史K线"
 POLYGON_REQUEST_INTERVAL_SECONDS = 1.0
 OPTION_CACHE_SCHEMA_VERSION = 1
 LEAPS_OPTION_SELECTION_POLICY_VERSION = "monthly-call-200-300d-otm10-v1"
 POLYGON_BATCH_429_CIRCUIT_BREAKER = 6
+POLYGON_BATCH_403_CIRCUIT_BREAKER = 1
 OUTCOME_CACHEABLE_FAILURES = {
     UNSUPPORTED_UNDERLYING,
     NO_MONTHLY_CONTRACT,
@@ -418,6 +420,21 @@ def _outcome_is_api_limited_or_transient(outcome: dict[str, object]) -> bool:
     return bool(reason.startswith(API_LIMIT_OR_TIMEOUT) or "429" in reason or "timeout" in reason.lower() or "timed out" in reason.lower())
 
 
+def _polygon_http_error_reason(status: int | None, exc: Exception) -> str:
+    if status == 403:
+        return POLYGON_PERMISSION_DENIED
+    if status in {429, 502, 503, 504}:
+        return API_LIMIT_OR_TIMEOUT
+    return f"Polygon API 错误: {status or exc}"
+
+
+def _safe_polygon_error_message(exc: Exception) -> str:
+    message = str(exc)
+    message = re.sub(r"([?&]apiKey=)[^&\s]+", r"\1<redacted>", message)
+    message = re.sub(r"([?&]api_key=)[^&\s]+", r"\1<redacted>", message, flags=re.I)
+    return message
+
+
 def _outcome_cache_keys_for_read(signal: dict[str, object]) -> list[str]:
     sell_date = parse_iso_date(signal.get("next_stock_sell_date"))
     if sell_date:
@@ -522,7 +539,7 @@ def _polygon_retry_get(url: str, params: dict[str, object], timeout: int) -> dic
             "polygon_request_failed",
             endpoint=url.replace("https://api.polygon.io", ""),
             error=type(last_exc).__name__,
-            message=str(last_exc),
+            message=_safe_polygon_error_message(last_exc),
         )
         raise last_exc
     return {}
@@ -1187,7 +1204,7 @@ def _replay_leaps_option_outcomes(
             outcomes.append(skipped_outcome(signal, f"{API_LIMIT_OR_TIMEOUT}: {exc}"))
         except requests.HTTPError as exc:
             status = getattr(exc.response, "status_code", None)
-            reason = API_LIMIT_OR_TIMEOUT if status in {429, 502, 503, 504} else f"Polygon API 错误: {status or exc}"
+            reason = _polygon_http_error_reason(status, exc)
             outcomes.append(skipped_outcome(signal, reason))
         except Exception as exc:
             outcomes.append(skipped_outcome(signal, f"Polygon API 错误: {exc}"))
@@ -1237,8 +1254,21 @@ def _replay_leaps_option_outcomes_batch(
     )
     batch_started = time.perf_counter()
     batch_429s = 0
+    batch_403s = 0
     outcome_by_key: dict[str, dict[str, object]] = {}
     for key, signal in unique_by_key.items():
+        if batch_403s >= POLYGON_BATCH_403_CIRCUIT_BREAKER:
+            outcome_by_key[key] = skipped_outcome(signal, POLYGON_PERMISSION_DENIED)
+            _log_option_event(
+                "batch_unique_circuit_skipped",
+                key=key,
+                signal_key=str(signal.get("signal_key") or ""),
+                symbol=str(signal.get("symbol") or ""),
+                date=str(signal.get("date") or ""),
+                reason=POLYGON_PERMISSION_DENIED,
+                batch_403s=batch_403s,
+            )
+            continue
         if batch_429s >= POLYGON_BATCH_429_CIRCUIT_BREAKER:
             reason = f"{API_LIMIT_OR_TIMEOUT}: Polygon 429 熔断，稍后重试"
             outcome_by_key[key] = skipped_outcome(signal, reason)
@@ -1308,11 +1338,13 @@ def _replay_leaps_option_outcomes_batch(
                 _log_option_event("batch_unique_error", key=key, signal_key=str(signal.get("signal_key") or ""), error=type(exc).__name__, message=str(exc), elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=signal_delta, batch_429s=batch_429s)
             except requests.HTTPError as exc:
                 status = getattr(exc.response, "status_code", None)
-                reason = API_LIMIT_OR_TIMEOUT if status in {429, 502, 503, 504} else f"Polygon API 错误: {status or exc}"
+                reason = _polygon_http_error_reason(status, exc)
                 outcome_by_key[key] = skipped_outcome(signal, reason)
+                if status == 403:
+                    batch_403s += 1
                 signal_delta = _cache_stats_delta(signal_stats_before)
                 batch_429s += _delta_429_count(signal_delta)
-                _log_option_event("batch_unique_http_error", key=key, signal_key=str(signal.get("signal_key") or ""), status_code=status, reason=reason, elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=signal_delta, batch_429s=batch_429s)
+                _log_option_event("batch_unique_http_error", key=key, signal_key=str(signal.get("signal_key") or ""), status_code=status, reason=reason, elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=signal_delta, batch_429s=batch_429s, batch_403s=batch_403s)
             except Exception as exc:
                 outcome_by_key[key] = skipped_outcome(signal, f"Polygon API 错误: {exc}")
                 signal_delta = _cache_stats_delta(signal_stats_before)
@@ -1329,6 +1361,7 @@ def _replay_leaps_option_outcomes_batch(
         unique_count=len(unique_by_key),
         elapsed_ms=round((time.perf_counter() - batch_started) * 1000, 3),
         batch_429s=batch_429s,
+        batch_403s=batch_403s,
         summary=summarize_outcomes(outcomes),
         cache_stats=_cache_stats_snapshot(),
     )

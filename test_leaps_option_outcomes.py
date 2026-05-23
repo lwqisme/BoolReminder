@@ -17,6 +17,7 @@ from drawdown.leaps_option_outcomes import (
     OutcomeCache,
     OptionBar,
     OptionContract,
+    POLYGON_PERMISSION_DENIED,
     PolygonMonthlyOptionProvider,
     PolygonRequestRateLimiter,
     _polygon_retry_get,
@@ -316,6 +317,48 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         self.assertEqual(payload["summary"]["success_count"], 2)
         self.assertIn("cache_stats", payload)
 
+    def test_batch_endpoint_short_circuits_after_polygon_403(self):
+        signal = {
+            "signal_key": "sig-1",
+            "date": "2024-12-08",
+            "symbol": "TSLA.US",
+            "stock_buy_price": 100,
+            "next_stock_sell_date": "2024-12-20",
+        }
+        denied_result = {
+            "success": True,
+            "outcomes": [{**signal, "status": "skipped", "skipped_reason": POLYGON_PERMISSION_DENIED}],
+            "summary": {
+                "total": 1,
+                "success_count": 0,
+                "skipped_count": 1,
+                "top_failure_reason": POLYGON_PERMISSION_DENIED,
+                "failure_reasons": {POLYGON_PERMISSION_DENIED: 1},
+            },
+            "cache_stats": {"polygon_requests": 1},
+        }
+
+        with patch("web.app._leaps_option_polygon_permission_denied_until_by_key", {}):
+            with patch("web.app._get_polygon_api_key", return_value="test-key"):
+                with patch("web.app.replay_leaps_option_outcomes_batch", return_value=denied_result) as replay:
+                    with app.test_client() as client:
+                        first = client.post(
+                            "/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch",
+                            json={"signals": [signal]},
+                        )
+                        second = client.post(
+                            "/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch",
+                            json={"signals": [signal]},
+                        )
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(replay.call_count, 1)
+        payload = second.get_json()
+        self.assertTrue(payload["permission_circuit_open"])
+        self.assertEqual(payload["cache_stats"]["polygon_requests"], 0)
+        self.assertEqual(payload["summary"]["top_failure_reason"], POLYGON_PERMISSION_DENIED)
+
     def test_batch_replay_dedupes_duplicate_signals(self):
         provider = CountingProvider()
         signals = [
@@ -369,6 +412,34 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         reasons = [item["skipped_reason"] for item in result["outcomes"]]
         self.assertEqual(reasons[:2], ["API 限流/超时", "API 限流/超时"])
         self.assertTrue(all("熔断" in reason for reason in reasons[2:]))
+
+    def test_batch_replay_circuit_breaks_after_polygon_403(self):
+        signals = [
+            {
+                "signal_key": f"sig-{index}",
+                "date": f"2024-12-{index + 1:02d}",
+                "symbol": "TSLA.US",
+                "stock_buy_price": 100 + index,
+                "next_stock_sell_date": "2024-12-20",
+            }
+            for index in range(5)
+        ]
+
+        def raise_403(provider, signal):
+            raise requests.HTTPError(response=FakeResponse(status_code=403))
+
+        with patch("drawdown.leaps_option_outcomes.replay_signal", side_effect=raise_403) as replay:
+            result = replay_leaps_option_outcomes_batch(
+                signals,
+                api_key="",
+                provider=FakeProvider(),
+                outcome_cache=OutcomeCache(cache_enabled=False),
+            )
+
+        self.assertEqual(replay.call_count, 1)
+        reasons = [item["skipped_reason"] for item in result["outcomes"]]
+        self.assertEqual(reasons, [POLYGON_PERMISSION_DENIED] * len(signals))
+        self.assertEqual(result["summary"]["top_failure_reason"], POLYGON_PERMISSION_DENIED)
 
     def test_outcome_cache_hit_skips_provider(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -666,6 +737,25 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         self.assertEqual(payload, {"ok": True})
         self.assertEqual(limiter.wait.call_count, 2)
         sleep.assert_called_once_with(0.5)
+
+    def test_polygon_retry_get_redacts_api_key_in_failure_logs(self):
+        limiter = Mock()
+        limiter.wait.return_value = 0.0
+        error = requests.HTTPError(
+            "429 Client Error: Too Many Requests for url: https://api.polygon.io/v1/a?apiKey=secret-token"
+        )
+        error.response = FakeResponse(status_code=429)
+
+        with patch("drawdown.leaps_option_outcomes._POLYGON_RATE_LIMITER", limiter):
+            with patch("drawdown.leaps_option_outcomes.time.sleep"):
+                with patch("drawdown.leaps_option_outcomes.requests.get", side_effect=error):
+                    with self.assertLogs("drawdown.leaps_option_outcomes", level="INFO") as logs:
+                        with self.assertRaises(requests.HTTPError):
+                            _polygon_retry_get("https://api.polygon.io/v1/a", {"apiKey": "secret-token"}, 15)
+
+        output = "\n".join(logs.output)
+        self.assertNotIn("secret-token", output)
+        self.assertIn("apiKey=<redacted>", output)
 
 
 if __name__ == "__main__":

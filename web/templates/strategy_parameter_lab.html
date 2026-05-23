@@ -1948,6 +1948,18 @@
             const reason = leapsOptionRequestFailureText(response, result, outcome, error);
             return /API\s*限流\/超时|429|rate\s*limit|too many requests|timeout|timed out/i.test(reason);
         }
+        function isLeapsOptionPermissionDeniedReason(reason) {
+            return /Polygon\s*API\s*(无权限|错误:\s*403)|套餐不支持|HTTP\s*403|forbidden|permission|entitlement|subscription/i.test(String(reason || ''));
+        }
+        function leapsOptionPermissionDeniedReason(batchResult) {
+            const summary = batchResult?.summary || {};
+            const reasons = [
+                summary.top_failure_reason,
+                ...Object.keys(summary.failure_reasons || {}),
+                ...(batchResult?.outcomes || []).map((outcome) => outcome?.skipped_reason)
+            ].filter(Boolean);
+            return reasons.find(isLeapsOptionPermissionDeniedReason) || '';
+        }
         async function fetchLeapsOptionBatchWithRetry(payload, queueItems, options = {}) {
             let lastReason = '';
             const maxAttempts = LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS.length + 1;
@@ -1988,19 +2000,19 @@
                     await waitForLeapsOptionOutcomeDelay(delayMs);
                     continue;
                 }
-                if (Array.isArray(result.outcomes)) return { outcomes: result.outcomes, cache_stats: result.cache_stats || {} };
+                if (Array.isArray(result.outcomes)) return { outcomes: result.outcomes, cache_stats: result.cache_stats || {}, summary: result.summary || {} };
                 const fallbackOutcomes = queueItems.map((item) => skippedLeapsOptionOutcome(item.signal, lastReason));
-                if (requestError || (response && !response.ok)) return { outcomes: fallbackOutcomes, cache_stats: result.cache_stats || {} };
-                return { outcomes: fallbackOutcomes, cache_stats: result.cache_stats || {} };
+                if (requestError || (response && !response.ok)) return { outcomes: fallbackOutcomes, cache_stats: result.cache_stats || {}, summary: result.summary || {} };
+                return { outcomes: fallbackOutcomes, cache_stats: result.cache_stats || {}, summary: result.summary || {} };
             }
-            return { outcomes: queueItems.map((item) => skippedLeapsOptionOutcome(item.signal, lastReason || '期权收益计算失败')), cache_stats: {} };
+            return { outcomes: queueItems.map((item) => skippedLeapsOptionOutcome(item.signal, lastReason || '期权收益计算失败')), cache_stats: {}, summary: {} };
         }
         async function requestLeapsOptionOutcomeBatch(payload, queueItems, options = {}) {
             try {
                 return await fetchLeapsOptionBatchWithRetry(payload, queueItems, options);
             } catch (error) {
                 const reason = error.message || String(error);
-                return { outcomes: queueItems.map((item) => skippedLeapsOptionOutcome(item.signal, reason)), cache_stats: {} };
+                return { outcomes: queueItems.map((item) => skippedLeapsOptionOutcome(item.signal, reason)), cache_stats: {}, summary: {} };
             }
         }
         function formatElapsedTime(ms) {
@@ -5008,6 +5020,12 @@
                 updateLeapsOptionEntrySummary(outcomeEntry);
                 row.leaps_option_outcomes = outcomeEntry.outcomes;
                 row.leaps_option_summary = outcomeEntry.summary;
+                const permissionDenied = leapsOptionPermissionDeniedReason(batchResult);
+                if (permissionDenied) {
+                    controller.cancelled = true;
+                    controller.cancelReason = permissionDenied;
+                    outcomeEntry.lastFailure = permissionDenied;
+                }
                 renderDetailLeapsIntoDrawer(row, true);
                 renderParameterMatrixPreservingScroll();
             };
@@ -5018,7 +5036,7 @@
             if (controller.cancelled) {
                 queue.forEach((queueItem) => {
                     if (queueItem.started || queueItem.done) return;
-                    appendMappedOutcome(queueItem, skippedLeapsOptionOutcome(queueItem.signal, LEAPS_OPTION_STOPPED_REASON));
+                    appendMappedOutcome(queueItem, skippedLeapsOptionOutcome(queueItem.signal, controller.cancelReason || LEAPS_OPTION_STOPPED_REASON));
                 });
             }
 
@@ -5122,6 +5140,12 @@
                     run.lastFailure = representativeOutcome.skipped_reason || '跳过';
                 }
             });
+            const permissionDenied = leapsOptionPermissionDeniedReason(batchResult);
+            if (permissionDenied && run?.controller) {
+                run.controller.cancelled = true;
+                run.controller.cancelReason = permissionDenied;
+                run.lastFailure = permissionDenied;
+            }
             run.batchCompleted = Number(run.batchCompleted || 0) + 1;
             run.elapsedMs = Date.now() - run.startedAt;
             renderTopGroupLeapsOptionControls();
@@ -5214,7 +5238,7 @@
                 }
                 if (controller.cancelled) {
                     requestQueue.forEach((queueItem) => {
-                        if (!queueItem.started && !queueItem.done) appendTopGroupSkippedOutcomes(queueItem, LEAPS_OPTION_STOPPED_REASON, run);
+                        if (!queueItem.started && !queueItem.done) appendTopGroupSkippedOutcomes(queueItem, controller.cancelReason || LEAPS_OPTION_STOPPED_REASON, run);
                     });
                 }
                 run.elapsedMs = Date.now() - run.startedAt;
