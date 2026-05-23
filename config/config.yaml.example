@@ -8,6 +8,12 @@ longbridge:
 polygon:
   api_key: ""  # 也可通过 POLYGON_API_KEY 环境变量配置
 
+# Alpaca API配置（优先用于 Parameter Lab LEAPS 期权收益回放）
+alpaca:
+  api_key: ""  # 也可通过 ALPACA_API_KEY 环境变量配置
+  secret_key: ""  # 也可通过 ALPACA_SECRET_KEY 环境变量配置
+  option_data_feed: "indicative"  # 可通过 ALPACA_OPTION_DATA_FEED 切换，如 opra
+
 # 邮件通知配置
 email:
   smtp_host: "smtp.gmail.com"  # SMTP服务器地址

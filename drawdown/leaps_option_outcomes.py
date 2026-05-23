@@ -1,4 +1,4 @@
-"""Replay LEAPS-style signal outcomes with Polygon historical option bars."""
+"""Replay LEAPS-style signal outcomes with historical option bars."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ import requests
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 NO_POLYGON_KEY = "无 Polygon key"
+ALPACA_DATA_UNAVAILABLE_BEFORE_2024_02 = "Alpaca 期权历史数据仅支持 2024-02 以后"
 UNSUPPORTED_UNDERLYING = "标的不支持"
 NO_MONTHLY_CONTRACT = "无月度合约"
 NO_200_300D_CONTRACT = "无 200-300D 合约"
@@ -27,12 +28,15 @@ NO_STOCK_SELL = "无下一次正股卖点"
 NO_PRE_EXPIRATION_PRICE = "卖点晚于到期且无可用到期前价格"
 API_LIMIT_OR_TIMEOUT = "API 限流/超时"
 POLYGON_PERMISSION_DENIED = "Polygon API 无权限/套餐不支持期权历史K线"
+ALPACA_PERMISSION_DENIED = "Alpaca API 无权限/套餐不支持期权历史K线"
+ALPACA_OPTION_DATA_START = date(2024, 2, 1)
 POLYGON_REQUEST_INTERVAL_SECONDS = 1.0
 OPTION_CACHE_SCHEMA_VERSION = 1
 LEAPS_OPTION_SELECTION_POLICY_VERSION = "monthly-call-200-300d-otm10-v1"
 POLYGON_BATCH_429_CIRCUIT_BREAKER = 6
 POLYGON_BATCH_403_CIRCUIT_BREAKER = 1
 OUTCOME_CACHEABLE_FAILURES = {
+    ALPACA_DATA_UNAVAILABLE_BEFORE_2024_02,
     UNSUPPORTED_UNDERLYING,
     NO_MONTHLY_CONTRACT,
     NO_200_300D_CONTRACT,
@@ -67,6 +71,8 @@ _POLYGON_RATE_LIMITER = PolygonRequestRateLimiter()
 
 def new_cache_stats() -> dict[str, object]:
     return {
+        "provider": "polygon",
+        "provider_requests": 0,
         "outcome": {"memory_hit": 0, "disk_hit": 0, "miss": 0, "write": 0},
         "contract": {"memory_hit": 0, "disk_hit": 0, "miss": 0, "write": 0},
         "bars": {"memory_hit": 0, "disk_hit": 0, "miss": 0, "partial": 0, "write": 0},
@@ -74,6 +80,7 @@ def new_cache_stats() -> dict[str, object]:
         "polygon_wait_ms": 0,
         "polygon_retries": 0,
         "polygon_429s": 0,
+        "alpaca_requests": 0,
     }
 
 
@@ -92,6 +99,12 @@ def _increment_cache_stat(section: str, key: str | None = None, amount: int | fl
     current = bucket.get(key, 0)
     if isinstance(current, (int, float)):
         bucket[key] = current + amount
+
+
+def _set_cache_stat(section: str, value: object) -> None:
+    stats = _REQUEST_CACHE_STATS.get()
+    if isinstance(stats, dict):
+        stats[section] = value
 
 
 def _with_cache_stats(stats: dict[str, object] | None):
@@ -125,6 +138,8 @@ def _cache_stats_delta(before: dict[str, object], after: dict[str, object] | Non
             delta[key] = bucket
         elif isinstance(value, (int, float)) and isinstance(previous, (int, float)):
             delta[key] = value - previous
+        elif key not in before:
+            delta[key] = value
     return delta
 
 
@@ -135,6 +150,14 @@ def _log_option_event(event: str, **fields: object) -> None:
 def _delta_429_count(delta: dict[str, object]) -> int:
     value = delta.get("polygon_429s", 0)
     return int(value) if isinstance(value, (int, float)) else 0
+
+
+class OptionProviderPermissionError(Exception):
+    pass
+
+
+class OptionProviderTransientError(Exception):
+    pass
 
 
 _LOCKS_LOCK = threading.Lock()
@@ -387,9 +410,10 @@ def _fresh_covered_ranges(ranges: list[tuple[date, date]], cache_date: object, t
     return _merge_covered_ranges(fresh_ranges)
 
 
-def _normalized_outcome_signal_fields(signal: dict[str, object]) -> dict[str, str]:
+def _normalized_outcome_signal_fields(signal: dict[str, object], provider_id: str = "polygon") -> dict[str, str]:
     stock_buy_price = _float_or_none(signal.get("stock_buy_price"))
     return {
+        "provider": provider_id or "polygon",
         "symbol": str(signal.get("symbol") or "").strip().upper(),
         "date": str(signal.get("date") or "").strip()[:10],
         "stock_buy_price": "" if stock_buy_price is None else f"{stock_buy_price:.6f}".rstrip("0").rstrip("."),
@@ -398,8 +422,15 @@ def _normalized_outcome_signal_fields(signal: dict[str, object]) -> dict[str, st
     }
 
 
-def outcome_cache_key(signal: dict[str, object], mark_date: date | None = None) -> str:
-    fields = _normalized_outcome_signal_fields(signal)
+def outcome_cache_key(signal: dict[str, object], mark_date: date | None = None, provider_id: str = "polygon") -> str:
+    fields = _normalized_outcome_signal_fields(signal, provider_id=provider_id)
+    fields["mark_date"] = mark_date.isoformat() if mark_date else ""
+    return "__".join(f"{key}_{_safe_cache_name(value)}" for key, value in sorted(fields.items()))
+
+
+def _legacy_outcome_cache_key(signal: dict[str, object], mark_date: date | None = None) -> str:
+    fields = _normalized_outcome_signal_fields(signal, provider_id="")
+    fields.pop("provider", None)
     fields["mark_date"] = mark_date.isoformat() if mark_date else ""
     return "__".join(f"{key}_{_safe_cache_name(value)}" for key, value in sorted(fields.items()))
 
@@ -435,14 +466,20 @@ def _safe_polygon_error_message(exc: Exception) -> str:
     return message
 
 
-def _outcome_cache_keys_for_read(signal: dict[str, object]) -> list[str]:
+def _outcome_cache_keys_for_read(signal: dict[str, object], provider_id: str = "polygon") -> list[str]:
     sell_date = parse_iso_date(signal.get("next_stock_sell_date"))
     if sell_date:
-        return [outcome_cache_key(signal)]
-    return [outcome_cache_key(signal), outcome_cache_key(signal, _utc_today())]
+        keys = [outcome_cache_key(signal, provider_id=provider_id)]
+        if provider_id == "polygon":
+            keys.append(_legacy_outcome_cache_key(signal))
+        return keys
+    keys = [outcome_cache_key(signal, provider_id=provider_id), outcome_cache_key(signal, _utc_today(), provider_id=provider_id)]
+    if provider_id == "polygon":
+        keys.extend([_legacy_outcome_cache_key(signal), _legacy_outcome_cache_key(signal, _utc_today())])
+    return keys
 
 
-def _outcome_cache_keys_for_write(signal: dict[str, object], outcome: dict[str, object]) -> list[str]:
+def _outcome_cache_keys_for_write(signal: dict[str, object], outcome: dict[str, object], provider_id: str = "polygon") -> list[str]:
     if _outcome_is_api_limited_or_transient(outcome):
         return []
     reason = str(outcome.get("skipped_reason") or "")
@@ -451,10 +488,10 @@ def _outcome_cache_keys_for_write(signal: dict[str, object], outcome: dict[str, 
     sell_date = parse_iso_date(signal.get("next_stock_sell_date"))
     exit_status = str(outcome.get("exit_status") or "")
     if sell_date or exit_status in {"sold", "expired_before_stock_sell", "expired_without_stock_sell"}:
-        return [outcome_cache_key(signal)]
+        return [outcome_cache_key(signal, provider_id=provider_id)]
     if outcome.get("status") != "success" and reason in OUTCOME_CACHEABLE_FAILURES:
-        return [outcome_cache_key(signal)]
-    return [outcome_cache_key(signal, _utc_today())]
+        return [outcome_cache_key(signal, provider_id=provider_id)]
+    return [outcome_cache_key(signal, _utc_today(), provider_id=provider_id)]
 
 
 def skipped_outcome(signal: dict[str, object], reason: str) -> dict[str, object]:
@@ -476,6 +513,7 @@ def _polygon_retry_get(url: str, params: dict[str, object], timeout: int) -> dic
         try:
             wait_seconds = _POLYGON_RATE_LIMITER.wait()
             _increment_cache_stat("polygon_requests")
+            _increment_cache_stat("provider_requests")
             _increment_cache_stat("polygon_wait_ms", amount=round(wait_seconds * 1000, 3))
             if attempt:
                 _increment_cache_stat("polygon_retries")
@@ -554,10 +592,10 @@ class OutcomeCache:
     def _path(self, key: str) -> Path:
         return self.cache_dir / f"{_safe_cache_name(key)}.json"
 
-    def read(self, signal: dict[str, object], count_miss: bool = True) -> dict[str, object] | None:
+    def read(self, signal: dict[str, object], count_miss: bool = True, provider_id: str = "polygon") -> dict[str, object] | None:
         if not self.cache_enabled:
             return None
-        for key in _outcome_cache_keys_for_read(signal):
+        for key in _outcome_cache_keys_for_read(signal, provider_id=provider_id):
             lock = _lock_for("outcome", key)
             with lock:
                 cached = self._memory.get(key)
@@ -600,10 +638,10 @@ class OutcomeCache:
             )
         return None
 
-    def write(self, signal: dict[str, object], outcome: dict[str, object]) -> None:
+    def write(self, signal: dict[str, object], outcome: dict[str, object], provider_id: str = "polygon") -> None:
         if not self.cache_enabled:
             return
-        keys = _outcome_cache_keys_for_write(signal, outcome)
+        keys = _outcome_cache_keys_for_write(signal, outcome, provider_id=provider_id)
         if not keys:
             _log_option_event(
                 "outcome_cache_skip_write",
@@ -623,7 +661,7 @@ class OutcomeCache:
                 payload: dict[str, object] = {
                     "schema_version": OPTION_CACHE_SCHEMA_VERSION,
                     "cache_date": _utc_today().isoformat(),
-                    "query": _normalized_outcome_signal_fields(signal),
+                    "query": _normalized_outcome_signal_fields(signal, provider_id=provider_id),
                     "outcome": stored,
                 }
                 _write_json_file(self._path(key), payload)
@@ -646,6 +684,10 @@ _OUTCOME_CACHE = OutcomeCache()
 class PolygonMonthlyOptionProvider:
     def __init__(self, api_key: str, timeout: int = 15, cache_dir: Path | None = None, cache_enabled: bool = True):
         self.api_key = api_key
+        self.provider_name = "polygon"
+        self.provider_label = "Polygon"
+        self.cache_provider_id = "polygon"
+        self.permission_denied_reason = POLYGON_PERMISSION_DENIED
         self.timeout = timeout
         self.base_url = "https://api.polygon.io"
         self._contracts_cache: dict[tuple[str, str, str, str], list[dict[str, object]]] = {}
@@ -980,6 +1022,312 @@ class PolygonMonthlyOptionProvider:
             return requested_bars
 
 
+def _provider_name(provider: Any | None) -> str:
+    return str(getattr(provider, "provider_name", "") or "polygon")
+
+
+def _provider_label(provider: Any | None) -> str:
+    return str(getattr(provider, "provider_label", "") or ("Alpaca" if _provider_name(provider) == "alpaca" else "Polygon"))
+
+
+def _provider_cache_id(provider: Any | None) -> str:
+    return str(getattr(provider, "cache_provider_id", "") or _provider_name(provider))
+
+
+def _provider_config(provider: Any | None) -> dict[str, object]:
+    config = getattr(provider, "provider_config", None)
+    return dict(config) if isinstance(config, dict) else {}
+
+
+def _provider_permission_denied_reason(provider: Any | None) -> str:
+    return str(getattr(provider, "permission_denied_reason", "") or POLYGON_PERMISSION_DENIED)
+
+
+def _annotate_outcome_provider(outcome: dict[str, object], provider: Any | None) -> dict[str, object]:
+    outcome["provider"] = _provider_name(provider)
+    outcome["provider_label"] = _provider_label(provider)
+    config = _provider_config(provider)
+    if config:
+        outcome["provider_config"] = config
+    return outcome
+
+
+def _exception_status(exc: Exception) -> int | None:
+    for attr in ("status_code", "code", "status"):
+        value = getattr(exc, attr, None)
+        if isinstance(value, int):
+            return value
+        if isinstance(value, str) and value.isdigit():
+            return int(value)
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None)
+    if isinstance(status, int):
+        return status
+    match = re.search(r"\b(401|403|429|502|503|504)\b", str(exc))
+    return int(match.group(1)) if match else None
+
+
+def _provider_http_error_reason(provider: Any | None, status: int | None, exc: Exception) -> str:
+    provider_name = _provider_name(provider)
+    if status in {401, 403}:
+        return _provider_permission_denied_reason(provider)
+    if status in {429, 502, 503, 504}:
+        return API_LIMIT_OR_TIMEOUT
+    label = _provider_label(provider) if provider_name != "polygon" else "Polygon"
+    return f"{label} API 错误: {status or exc}"
+
+
+def _monthly_expirations_between(start: date, end: date) -> list[date]:
+    expirations: list[date] = []
+    cursor = date(start.year, start.month, 1)
+    while cursor <= end:
+        expiration = third_friday(cursor.year, cursor.month)
+        if expiration in observed_us_market_holidays(expiration.year):
+            expiration = expiration - timedelta(days=1)
+        if start <= expiration <= end:
+            expirations.append(expiration)
+        if cursor.month == 12:
+            cursor = date(cursor.year + 1, 1, 1)
+        else:
+            cursor = date(cursor.year, cursor.month + 1, 1)
+    return expirations
+
+
+def _occ_strike(strike: float) -> str:
+    return f"{int(round(strike * 1000)):08d}"
+
+
+def occ_option_symbol(underlying: str, expiration: date, contract_type: str, strike: float) -> str:
+    root = re.sub(r"[^A-Z0-9]", "", underlying.upper())
+    cp = "C" if contract_type.lower().startswith("c") else "P"
+    return f"{root}{expiration:%y%m%d}{cp}{_occ_strike(strike)}"
+
+
+def parse_occ_option_symbol(symbol: str, expected_underlying: str | None = None) -> OptionContract | None:
+    match = re.match(r"^(.+?)(\d{6})([CP])(\d{8})$", str(symbol or "").strip().upper())
+    if not match:
+        return None
+    root, yymmdd, cp, strike_text = match.groups()
+    expected = re.sub(r"[^A-Z0-9]", "", str(expected_underlying or "").upper())
+    if expected and root != expected:
+        return None
+    try:
+        expiration = datetime.strptime(yymmdd, "%y%m%d").date()
+        strike = int(strike_text) / 1000
+    except ValueError:
+        return None
+    return OptionContract(ticker=symbol.strip().upper(), underlying=expected_underlying or root, expiration=expiration, strike=strike, contract_type="call" if cp == "C" else "put")
+
+
+def _strike_step(price: float) -> float:
+    if price < 25:
+        return 0.5
+    if price < 100:
+        return 1.0
+    if price < 250:
+        return 2.5
+    return 5.0
+
+
+class AlpacaMonthlyOptionProvider:
+    def __init__(
+        self,
+        api_key: str,
+        secret_key: str,
+        option_data_feed: str = "indicative",
+        timeout: int = 15,
+        client: Any | None = None,
+        option_bars_request_cls: Any | None = None,
+        option_chain_request_cls: Any | None = None,
+        timeframe_day: Any | None = None,
+    ):
+        self.api_key = api_key
+        self.secret_key = secret_key
+        self.option_data_feed = str(option_data_feed or "indicative").strip() or "indicative"
+        self.timeout = timeout
+        self.provider_name = "alpaca"
+        self.provider_label = "Alpaca"
+        self.cache_provider_id = f"alpaca-{self.option_data_feed.lower()}"
+        self.permission_denied_reason = ALPACA_PERMISSION_DENIED
+        self.min_signal_date = ALPACA_OPTION_DATA_START
+        self.provider_config = {"option_data_feed": self.option_data_feed}
+        self._client = client
+        self._option_bars_request_cls = option_bars_request_cls
+        self._option_chain_request_cls = option_chain_request_cls
+        self._timeframe_day = timeframe_day
+        self._bars_cache: dict[tuple[str, str, str], list[OptionBar]] = {}
+        if self._client is None:
+            self._load_alpaca_sdk()
+
+    def _load_alpaca_sdk(self) -> None:
+        try:
+            from alpaca.data.historical.option import OptionHistoricalDataClient
+            from alpaca.data.requests import OptionBarsRequest, OptionChainRequest
+            from alpaca.data.timeframe import TimeFrame
+        except ImportError as exc:
+            raise RuntimeError("alpaca-py 未安装，请先安装 alpaca-py>=0.43.4,<0.44") from exc
+        self._client = OptionHistoricalDataClient(self.api_key, self.secret_key)
+        self._option_bars_request_cls = OptionBarsRequest
+        self._option_chain_request_cls = OptionChainRequest
+        self._timeframe_day = TimeFrame.Day
+
+    def _request(self, event: str, fn, *args, **kwargs):
+        _increment_cache_stat("provider_requests")
+        _increment_cache_stat("alpaca_requests")
+        _log_option_event(event, provider="alpaca")
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            status = _exception_status(exc)
+            if status in {401, 403}:
+                raise OptionProviderPermissionError(ALPACA_PERMISSION_DENIED) from exc
+            if status in {429, 502, 503, 504}:
+                raise OptionProviderTransientError(f"{API_LIMIT_OR_TIMEOUT}: Alpaca {status}") from exc
+            raise
+
+    def _bars_request(self, symbols: list[str], start: date, end: date):
+        start_dt = datetime.combine(start, datetime.min.time(), tzinfo=timezone.utc)
+        end_dt = datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+        if self._option_bars_request_cls is None:
+            return {"symbol_or_symbols": symbols, "timeframe": self._timeframe_day, "start": start_dt, "end": end_dt, "feed": self.option_data_feed}
+        kwargs = {
+            "symbol_or_symbols": symbols,
+            "timeframe": self._timeframe_day,
+            "start": start_dt,
+            "end": end_dt,
+            "feed": self.option_data_feed,
+        }
+        try:
+            return self._option_bars_request_cls(**kwargs)
+        except TypeError:
+            kwargs.pop("feed", None)
+            return self._option_bars_request_cls(**kwargs)
+
+    def _chain_request(self, underlying: str):
+        if self._option_chain_request_cls is None:
+            return {"underlying_symbol": underlying, "feed": self.option_data_feed}
+        try:
+            return self._option_chain_request_cls(underlying_symbol=underlying, feed=self.option_data_feed)
+        except TypeError:
+            return self._option_chain_request_cls(underlying_symbol=underlying)
+
+    def _extract_bars_by_symbol(self, response: object) -> dict[str, list[OptionBar]]:
+        data = getattr(response, "data", None)
+        if data is None and isinstance(response, dict):
+            data = response.get("bars") or response.get("data") or response
+        if not isinstance(data, dict):
+            return {}
+        parsed: dict[str, list[OptionBar]] = {}
+        for symbol, raw_bars in data.items():
+            if raw_bars is None:
+                continue
+            items = raw_bars if isinstance(raw_bars, list) else list(raw_bars or [])
+            bars: list[OptionBar] = []
+            for item in items:
+                timestamp = getattr(item, "timestamp", None)
+                close = getattr(item, "close", None)
+                if isinstance(item, dict):
+                    timestamp = item.get("t") or item.get("timestamp") or item.get("time")
+                    close = item.get("c") or item.get("close")
+                close_value = _float_or_none(close)
+                bar_date = parse_iso_date(timestamp)
+                if bar_date is None and isinstance(timestamp, (int, float)):
+                    bar_date = datetime.fromtimestamp(float(timestamp) / (1000 if timestamp > 10_000_000_000 else 1), timezone.utc).date()
+                if close_value is None or bar_date is None:
+                    continue
+                bars.append(OptionBar(date=bar_date, close=close_value))
+            if bars:
+                parsed[str(symbol).upper()] = sorted(bars, key=lambda bar: bar.date)
+        return parsed
+
+    def _extract_chain_symbols(self, response: object) -> list[str]:
+        data = getattr(response, "data", None)
+        if data is None and isinstance(response, dict):
+            data = response.get("snapshots") or response.get("data") or response
+        if isinstance(data, dict):
+            return [str(symbol).upper() for symbol in data.keys()]
+        return []
+
+    def _candidate_contracts_from_chain(self, underlying: str, as_of: date, start_expiration: date, end_expiration: date) -> list[OptionContract]:
+        client = self._client
+        if client is None or not hasattr(client, "get_option_chain"):
+            return []
+        try:
+            response = self._request("alpaca_chain_request", client.get_option_chain, self._chain_request(underlying))
+        except OptionProviderPermissionError:
+            raise
+        except Exception as exc:
+            _log_option_event("alpaca_chain_unavailable", underlying=underlying, error=type(exc).__name__, message=str(exc))
+            return []
+        contracts: list[OptionContract] = []
+        for symbol in self._extract_chain_symbols(response):
+            contract = parse_occ_option_symbol(symbol, expected_underlying=underlying)
+            if not contract:
+                continue
+            if contract.contract_type != "call":
+                continue
+            if start_expiration <= contract.expiration <= end_expiration and is_standard_monthly_expiration(contract.expiration):
+                contracts.append(contract)
+        return contracts
+
+    def _generated_candidate_contracts(self, underlying: str, as_of: date, stock_price: float) -> list[OptionContract]:
+        start_expiration = as_of + timedelta(days=200)
+        end_expiration = as_of + timedelta(days=300)
+        target_strike = stock_price * 1.10
+        step = _strike_step(target_strike)
+        strikes = sorted({round(max(step, target_strike + (offset * step)), 3) for offset in range(-20, 21)})
+        candidates = [
+            OptionContract(occ_option_symbol(underlying, expiration, "call", strike), underlying, expiration, strike)
+            for expiration in _monthly_expirations_between(start_expiration, end_expiration)
+            for strike in strikes
+        ]
+        target_expiration = as_of + timedelta(days=250)
+        return sorted(candidates, key=lambda item: (abs(item.strike - target_strike), abs((item.expiration - target_expiration).days)))[:100]
+
+    def select_monthly_call(self, underlying: str, as_of: date, stock_price: float) -> tuple[OptionContract | None, str]:
+        start_expiration = as_of + timedelta(days=200)
+        end_expiration = as_of + timedelta(days=300)
+        target_strike = stock_price * 1.10
+        target_expiration = as_of + timedelta(days=250)
+        contracts = self._candidate_contracts_from_chain(underlying, as_of, start_expiration, end_expiration)
+        if not contracts:
+            contracts = self._generated_candidate_contracts(underlying, as_of, stock_price)
+        if not contracts:
+            return None, NO_200_300D_CONTRACT
+        contracts = sorted(contracts, key=lambda item: (abs(item.strike - target_strike), abs((item.expiration - target_expiration).days)))[:100]
+        availability = self._fetch_bars_for_symbols([contract.ticker for contract in contracts], as_of, min(as_of + timedelta(days=7), end_expiration))
+        for contract in contracts:
+            if first_bar_on_or_after(availability.get(contract.ticker, []), as_of, 7, latest=contract.expiration):
+                return contract, ""
+        return None, NO_ENTRY_PRICE
+
+    def _fetch_bars_for_symbols(self, symbols: list[str], start: date, end: date) -> dict[str, list[OptionBar]]:
+        if not symbols:
+            return {}
+        client = self._client
+        if client is None:
+            raise RuntimeError("Alpaca option data client 未初始化")
+        response = self._request("alpaca_bars_request", client.get_option_bars, self._bars_request(symbols, start, end))
+        bars_by_symbol = self._extract_bars_by_symbol(response)
+        for symbol, bars in bars_by_symbol.items():
+            self._bars_cache[(symbol, start.isoformat(), end.isoformat())] = [bar for bar in bars if start <= bar.date <= end]
+        return bars_by_symbol
+
+    def fetch_bars(self, ticker: str, start: date, end: date) -> list[OptionBar]:
+        cache_key = (ticker.upper(), start.isoformat(), end.isoformat())
+        cached = self._bars_cache.get(cache_key)
+        if cached is not None:
+            _increment_cache_stat("bars", "memory_hit")
+            return cached
+        _increment_cache_stat("bars", "miss")
+        bars_by_symbol = self._fetch_bars_for_symbols([ticker.upper()], start, end)
+        bars = [bar for bar in bars_by_symbol.get(ticker.upper(), []) if start <= bar.date <= end]
+        self._bars_cache[cache_key] = bars
+        if bars:
+            _increment_cache_stat("bars", "write")
+        return bars
+
+
 def first_bar_on_or_after(bars: list[OptionBar], target: date, max_days: int, latest: date | None = None) -> OptionBar | None:
     limit = min(target + timedelta(days=max_days), latest) if latest else target + timedelta(days=max_days)
     for bar in bars:
@@ -999,7 +1347,7 @@ def last_bar_after_on_or_before(bars: list[OptionBar], after: date, target: date
     return candidates[-1] if candidates else None
 
 
-def replay_signal(provider: PolygonMonthlyOptionProvider, signal: dict[str, object]) -> dict[str, object]:
+def replay_signal(provider: Any, signal: dict[str, object]) -> dict[str, object]:
     started = time.perf_counter()
     signal_date = parse_iso_date(signal.get("date"))
     sell_date = parse_iso_date(signal.get("next_stock_sell_date"))
@@ -1017,21 +1365,27 @@ def replay_signal(provider: PolygonMonthlyOptionProvider, signal: dict[str, obje
     if not signal_date or stock_buy_price is None:
         outcome = skipped_outcome(signal, NO_ENTRY_PRICE)
         _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=NO_ENTRY_PRICE, elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
-        return outcome
+        return _annotate_outcome_provider(outcome, provider)
+    min_signal_date = getattr(provider, "min_signal_date", None)
+    if isinstance(min_signal_date, date) and signal_date < min_signal_date:
+        reason = ALPACA_DATA_UNAVAILABLE_BEFORE_2024_02 if _provider_name(provider) == "alpaca" else f"期权历史数据仅支持 {min_signal_date.isoformat()} 以后"
+        outcome = skipped_outcome(signal, reason)
+        _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=reason, elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
+        return _annotate_outcome_provider(outcome, provider)
     if not underlying:
         outcome = skipped_outcome(signal, UNSUPPORTED_UNDERLYING)
         _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=UNSUPPORTED_UNDERLYING, elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
-        return outcome
+        return _annotate_outcome_provider(outcome, provider)
     if sell_date and sell_date <= signal_date:
         outcome = skipped_outcome(signal, NO_STOCK_SELL)
         _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=NO_STOCK_SELL, elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
-        return outcome
+        return _annotate_outcome_provider(outcome, provider)
 
     contract, reason = provider.select_monthly_call(underlying, signal_date, stock_buy_price)
     if contract is None:
         outcome = skipped_outcome(signal, reason)
         _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=reason, elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
-        return outcome
+        return _annotate_outcome_provider(outcome, provider)
     _log_option_event(
         "signal_contract_selected",
         signal_key=str(signal.get("signal_key") or ""),
@@ -1060,7 +1414,7 @@ def replay_signal(provider: PolygonMonthlyOptionProvider, signal: dict[str, obje
     if not entry_bar:
         outcome = {**skipped_outcome(signal, NO_ENTRY_PRICE), **contract_payload(contract)}
         _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=NO_ENTRY_PRICE, contract=contract.ticker, elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
-        return outcome
+        return _annotate_outcome_provider(outcome, provider)
 
     if not sell_date:
         today = _utc_today()
@@ -1069,21 +1423,21 @@ def replay_signal(provider: PolygonMonthlyOptionProvider, signal: dict[str, obje
         if not exit_bar:
             outcome = {**skipped_outcome(signal, NO_EXIT_PRICE), **contract_payload(contract), "entry_price": entry_bar.close}
             _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=NO_EXIT_PRICE, contract=contract.ticker, entry_date=entry_bar.date.isoformat(), elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
-            return outcome
+            return _annotate_outcome_provider(outcome, provider)
         exit_status = "expired_without_stock_sell" if today >= contract.expiration else "holding"
     elif sell_date > contract.expiration:
         exit_bar = last_bar_on_or_before(bars, contract.expiration, 7)
         if not exit_bar:
             outcome = {**skipped_outcome(signal, NO_PRE_EXPIRATION_PRICE), **contract_payload(contract), "entry_price": entry_bar.close}
             _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=NO_PRE_EXPIRATION_PRICE, contract=contract.ticker, entry_date=entry_bar.date.isoformat(), elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
-            return outcome
+            return _annotate_outcome_provider(outcome, provider)
         exit_status = "expired_before_stock_sell"
     else:
         exit_bar = first_bar_on_or_after(bars, sell_date, 7, latest=contract.expiration)
         if not exit_bar:
             outcome = {**skipped_outcome(signal, NO_EXIT_PRICE), **contract_payload(contract), "entry_price": entry_bar.close}
             _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=NO_EXIT_PRICE, contract=contract.ticker, entry_date=entry_bar.date.isoformat(), elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
-            return outcome
+            return _annotate_outcome_provider(outcome, provider)
         exit_status = "sold"
 
     roi_pct = (exit_bar.close / entry_bar.close - 1) * 100
@@ -1118,7 +1472,7 @@ def replay_signal(provider: PolygonMonthlyOptionProvider, signal: dict[str, obje
         roi_pct=round(roi_pct, 4),
         elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
     )
-    return outcome
+    return _annotate_outcome_provider(outcome, provider)
 
 
 def contract_payload(contract: OptionContract) -> dict[str, object]:
@@ -1164,7 +1518,7 @@ def summarize_outcomes(outcomes: list[dict[str, object]]) -> dict[str, object]:
 def replay_leaps_option_outcomes(
     signals: list[dict[str, object]],
     api_key: str,
-    provider: PolygonMonthlyOptionProvider | None = None,
+    provider: Any | None = None,
     outcome_cache: OutcomeCache | None = None,
 ) -> dict[str, object]:
     stats = new_cache_stats()
@@ -1179,7 +1533,7 @@ def replay_leaps_option_outcomes(
 def _replay_leaps_option_outcomes(
     signals: list[dict[str, object]],
     api_key: str,
-    provider: PolygonMonthlyOptionProvider | None = None,
+    provider: Any | None = None,
     outcome_cache: OutcomeCache | None = None,
     use_cache: bool = True,
 ) -> dict[str, object]:
@@ -1187,34 +1541,41 @@ def _replay_leaps_option_outcomes(
         outcomes = [skipped_outcome(signal, NO_POLYGON_KEY) for signal in signals]
         return {"success": False, "message": "Polygon API key 未配置", "outcomes": outcomes, "summary": summarize_outcomes(outcomes)}
     active_provider = provider or PolygonMonthlyOptionProvider(api_key)
+    _set_cache_stat("provider", _provider_name(active_provider))
+    provider_cache_id = _provider_cache_id(active_provider)
     active_outcome_cache = outcome_cache if outcome_cache is not None else (_OUTCOME_CACHE if provider is None else None)
     outcomes: list[dict[str, object]] = []
     for signal in signals:
         if use_cache and active_outcome_cache is not None:
-            cached = active_outcome_cache.read(signal)
+            cached = active_outcome_cache.read(signal, provider_id=provider_cache_id)
             if cached is not None:
+                _annotate_outcome_provider(cached, active_provider)
                 outcomes.append(cached)
                 continue
         try:
             outcome = replay_signal(active_provider, signal)
             if use_cache and active_outcome_cache is not None:
-                active_outcome_cache.write(signal, outcome)
+                active_outcome_cache.write(signal, outcome, provider_id=provider_cache_id)
             outcomes.append(outcome)
+        except OptionProviderPermissionError:
+            outcomes.append(_annotate_outcome_provider(skipped_outcome(signal, _provider_permission_denied_reason(active_provider)), active_provider))
+        except OptionProviderTransientError as exc:
+            outcomes.append(_annotate_outcome_provider(skipped_outcome(signal, str(exc) or API_LIMIT_OR_TIMEOUT), active_provider))
         except (requests.Timeout, requests.ConnectionError) as exc:
-            outcomes.append(skipped_outcome(signal, f"{API_LIMIT_OR_TIMEOUT}: {exc}"))
+            outcomes.append(_annotate_outcome_provider(skipped_outcome(signal, f"{API_LIMIT_OR_TIMEOUT}: {exc}"), active_provider))
         except requests.HTTPError as exc:
             status = getattr(exc.response, "status_code", None)
-            reason = _polygon_http_error_reason(status, exc)
-            outcomes.append(skipped_outcome(signal, reason))
+            reason = _provider_http_error_reason(active_provider, status, exc)
+            outcomes.append(_annotate_outcome_provider(skipped_outcome(signal, reason), active_provider))
         except Exception as exc:
-            outcomes.append(skipped_outcome(signal, f"Polygon API 错误: {exc}"))
-    return {"success": True, "outcomes": outcomes, "summary": summarize_outcomes(outcomes)}
+            outcomes.append(_annotate_outcome_provider(skipped_outcome(signal, f"{_provider_label(active_provider)} API 错误: {exc}"), active_provider))
+    return {"success": True, "provider": _provider_name(active_provider), "outcomes": outcomes, "summary": summarize_outcomes(outcomes)}
 
 
 def replay_leaps_option_outcomes_batch(
     signals: list[dict[str, object]],
     api_key: str,
-    provider: PolygonMonthlyOptionProvider | None = None,
+    provider: Any | None = None,
     outcome_cache: OutcomeCache | None = None,
 ) -> dict[str, object]:
     stats = new_cache_stats()
@@ -1229,7 +1590,7 @@ def replay_leaps_option_outcomes_batch(
 def _replay_leaps_option_outcomes_batch(
     signals: list[dict[str, object]],
     api_key: str,
-    provider: PolygonMonthlyOptionProvider | None = None,
+    provider: Any | None = None,
     outcome_cache: OutcomeCache | None = None,
 ) -> dict[str, object]:
     if not api_key and provider is None:
@@ -1237,11 +1598,13 @@ def _replay_leaps_option_outcomes_batch(
         return {"success": False, "message": "Polygon API key 未配置", "outcomes": outcomes, "summary": summarize_outcomes(outcomes)}
 
     active_provider = provider or PolygonMonthlyOptionProvider(api_key)
+    _set_cache_stat("provider", _provider_name(active_provider))
+    provider_cache_id = _provider_cache_id(active_provider)
     active_outcome_cache = outcome_cache if outcome_cache is not None else (_OUTCOME_CACHE if provider is None else None)
     unique_by_key: dict[str, dict[str, object]] = {}
     key_by_index: list[str] = []
     for signal in signals:
-        key = outcome_cache_key(signal, _utc_today() if not parse_iso_date(signal.get("next_stock_sell_date")) else None)
+        key = outcome_cache_key(signal, _utc_today() if not parse_iso_date(signal.get("next_stock_sell_date")) else None, provider_id=provider_cache_id)
         key_by_index.append(key)
         unique_by_key.setdefault(key, signal)
 
@@ -1258,14 +1621,14 @@ def _replay_leaps_option_outcomes_batch(
     outcome_by_key: dict[str, dict[str, object]] = {}
     for key, signal in unique_by_key.items():
         if batch_403s >= POLYGON_BATCH_403_CIRCUIT_BREAKER:
-            outcome_by_key[key] = skipped_outcome(signal, POLYGON_PERMISSION_DENIED)
+            outcome_by_key[key] = _annotate_outcome_provider(skipped_outcome(signal, _provider_permission_denied_reason(active_provider)), active_provider)
             _log_option_event(
                 "batch_unique_circuit_skipped",
                 key=key,
                 signal_key=str(signal.get("signal_key") or ""),
                 symbol=str(signal.get("symbol") or ""),
                 date=str(signal.get("date") or ""),
-                reason=POLYGON_PERMISSION_DENIED,
+                reason=_provider_permission_denied_reason(active_provider),
                 batch_403s=batch_403s,
             )
             continue
@@ -1283,8 +1646,9 @@ def _replay_leaps_option_outcomes_batch(
             )
             continue
         if active_outcome_cache is not None:
-            cached = active_outcome_cache.read(signal)
+            cached = active_outcome_cache.read(signal, provider_id=provider_cache_id)
             if cached is not None:
+                _annotate_outcome_provider(cached, active_provider)
                 outcome_by_key[key] = cached
                 continue
         lock = _lock_for("outcome-replay", key)
@@ -1292,8 +1656,9 @@ def _replay_leaps_option_outcomes_batch(
             signal_stats_before = _cache_stats_snapshot()
             signal_started = time.perf_counter()
             if active_outcome_cache is not None:
-                cached = active_outcome_cache.read(signal, count_miss=False)
+                cached = active_outcome_cache.read(signal, count_miss=False, provider_id=provider_cache_id)
                 if cached is not None:
+                    _annotate_outcome_provider(cached, active_provider)
                     outcome_by_key[key] = cached
                     signal_delta = _cache_stats_delta(signal_stats_before)
                     batch_429s += _delta_429_count(signal_delta)
@@ -1313,7 +1678,7 @@ def _replay_leaps_option_outcomes_batch(
             try:
                 outcome = replay_signal(active_provider, signal)
                 if active_outcome_cache is not None:
-                    active_outcome_cache.write(signal, outcome)
+                    active_outcome_cache.write(signal, outcome, provider_id=provider_cache_id)
                 outcome_by_key[key] = outcome
                 signal_delta = _cache_stats_delta(signal_stats_before)
                 batch_429s += _delta_429_count(signal_delta)
@@ -1331,22 +1696,33 @@ def _replay_leaps_option_outcomes_batch(
                     cache_delta=signal_delta,
                     batch_429s=batch_429s,
                 )
+            except OptionProviderPermissionError:
+                outcome_by_key[key] = _annotate_outcome_provider(skipped_outcome(signal, _provider_permission_denied_reason(active_provider)), active_provider)
+                batch_403s += 1
+                signal_delta = _cache_stats_delta(signal_stats_before)
+                batch_429s += _delta_429_count(signal_delta)
+                _log_option_event("batch_unique_provider_permission_error", key=key, signal_key=str(signal.get("signal_key") or ""), reason=_provider_permission_denied_reason(active_provider), elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=signal_delta, batch_429s=batch_429s, batch_403s=batch_403s)
+            except OptionProviderTransientError as exc:
+                outcome_by_key[key] = _annotate_outcome_provider(skipped_outcome(signal, str(exc) or API_LIMIT_OR_TIMEOUT), active_provider)
+                signal_delta = _cache_stats_delta(signal_stats_before)
+                batch_429s += _delta_429_count(signal_delta)
+                _log_option_event("batch_unique_provider_transient_error", key=key, signal_key=str(signal.get("signal_key") or ""), message=str(exc), elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=signal_delta, batch_429s=batch_429s)
             except (requests.Timeout, requests.ConnectionError) as exc:
-                outcome_by_key[key] = skipped_outcome(signal, f"{API_LIMIT_OR_TIMEOUT}: {exc}")
+                outcome_by_key[key] = _annotate_outcome_provider(skipped_outcome(signal, f"{API_LIMIT_OR_TIMEOUT}: {exc}"), active_provider)
                 signal_delta = _cache_stats_delta(signal_stats_before)
                 batch_429s += _delta_429_count(signal_delta)
                 _log_option_event("batch_unique_error", key=key, signal_key=str(signal.get("signal_key") or ""), error=type(exc).__name__, message=str(exc), elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=signal_delta, batch_429s=batch_429s)
             except requests.HTTPError as exc:
                 status = getattr(exc.response, "status_code", None)
-                reason = _polygon_http_error_reason(status, exc)
-                outcome_by_key[key] = skipped_outcome(signal, reason)
-                if status == 403:
+                reason = _provider_http_error_reason(active_provider, status, exc)
+                outcome_by_key[key] = _annotate_outcome_provider(skipped_outcome(signal, reason), active_provider)
+                if status in {401, 403}:
                     batch_403s += 1
                 signal_delta = _cache_stats_delta(signal_stats_before)
                 batch_429s += _delta_429_count(signal_delta)
                 _log_option_event("batch_unique_http_error", key=key, signal_key=str(signal.get("signal_key") or ""), status_code=status, reason=reason, elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=signal_delta, batch_429s=batch_429s, batch_403s=batch_403s)
             except Exception as exc:
-                outcome_by_key[key] = skipped_outcome(signal, f"Polygon API 错误: {exc}")
+                outcome_by_key[key] = _annotate_outcome_provider(skipped_outcome(signal, f"{_provider_label(active_provider)} API 错误: {exc}"), active_provider)
                 signal_delta = _cache_stats_delta(signal_stats_before)
                 batch_429s += _delta_429_count(signal_delta)
                 _log_option_event("batch_unique_error", key=key, signal_key=str(signal.get("signal_key") or ""), error=type(exc).__name__, message=str(exc), elapsed_ms=round((time.perf_counter() - signal_started) * 1000, 3), cache_delta=signal_delta, batch_429s=batch_429s)
@@ -1365,4 +1741,7 @@ def _replay_leaps_option_outcomes_batch(
         summary=summarize_outcomes(outcomes),
         cache_stats=_cache_stats_snapshot(),
     )
-    return {"success": True, "outcomes": outcomes, "summary": summarize_outcomes(outcomes)}
+    for outcome in outcomes:
+        if isinstance(outcome, dict):
+            _annotate_outcome_provider(outcome, active_provider)
+    return {"success": True, "provider": _provider_name(active_provider), "outcomes": outcomes, "summary": summarize_outcomes(outcomes)}

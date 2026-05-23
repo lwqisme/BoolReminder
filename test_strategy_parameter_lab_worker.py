@@ -700,7 +700,7 @@ process.stdout.write(JSON.stringify({
         self.assertIn("'partial_done'", html)
         self.assertIn("leapsOptionVisibleOutcomes(outcomeEntry)", html)
         self.assertIn("renderLeapsOptionProgress", html)
-        self.assertIn("浏览器批量发起请求；Polygon 定价在服务端完成", html)
+        self.assertIn("浏览器批量发起请求；期权定价在服务端完成", html)
         self.assertIn("计算本行", html)
         self.assertIn("计算该信号", html)
         self.assertIn("row.leaps_option_summary = outcomeEntry.summary", html)

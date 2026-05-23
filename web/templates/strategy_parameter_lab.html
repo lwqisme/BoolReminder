@@ -1915,7 +1915,8 @@
         function mergeLeapsOptionCacheStats(current, next) {
             const merged = current || {};
             const incoming = next || {};
-            ['polygon_requests', 'polygon_wait_ms', 'polygon_retries', 'polygon_429s'].forEach((key) => {
+            if (incoming.provider) merged.provider = incoming.provider;
+            ['provider_requests', 'polygon_requests', 'polygon_wait_ms', 'polygon_retries', 'polygon_429s', 'alpaca_requests'].forEach((key) => {
                 merged[key] = Number(merged[key] || 0) + Number(incoming[key] || 0);
             });
             ['outcome', 'contract', 'bars'].forEach((section) => {
@@ -1933,7 +1934,9 @@
             const contract = stats.contract || {};
             const hits = Number(outcome.memory_hit || 0) + Number(outcome.disk_hit || 0);
             const misses = Number(outcome.miss || 0);
-            return `缓存命中 ${number(hits, 0)} / miss ${number(misses, 0)}；合约 ${number((contract.memory_hit || 0) + (contract.disk_hit || 0), 0)}；K线 ${number((bars.memory_hit || 0) + (bars.disk_hit || 0), 0)}；Polygon ${number(stats.polygon_requests || 0, 0)}`;
+            const provider = stats.provider === 'alpaca' ? 'Alpaca' : (stats.provider === 'polygon' ? 'Polygon' : 'Market Data API');
+            const requests = Number(stats.provider_requests ?? stats.polygon_requests ?? 0);
+            return `缓存命中 ${number(hits, 0)} / miss ${number(misses, 0)}；合约 ${number((contract.memory_hit || 0) + (contract.disk_hit || 0), 0)}；K线 ${number((bars.memory_hit || 0) + (bars.disk_hit || 0), 0)}；${provider} ${number(requests, 0)}`;
         }
         function leapsOptionRequestFailureText(response, result, outcome, error) {
             if (error) return error.message || String(error);
@@ -1949,7 +1952,7 @@
             return /API\s*限流\/超时|429|rate\s*limit|too many requests|timeout|timed out/i.test(reason);
         }
         function isLeapsOptionPermissionDeniedReason(reason) {
-            return /Polygon\s*API\s*(无权限|错误:\s*403)|套餐不支持|HTTP\s*403|forbidden|permission|entitlement|subscription/i.test(String(reason || ''));
+            return /(Polygon|Alpaca)\s*API\s*(无权限|错误:\s*(401|403))|套餐不支持|HTTP\s*(401|403)|forbidden|permission|entitlement|subscription|unauthorized/i.test(String(reason || ''));
         }
         function leapsOptionPermissionDeniedReason(batchResult) {
             const summary = batchResult?.summary || {};
@@ -4604,7 +4607,7 @@
                     </div>
                     <div class="leaps-option-progress-row">
                         <span>${entry.scopeLabel ? `范围 ${escapeHtml(entry.scopeLabel)} · ` : ''}${stopped}</span>
-                        <span>${escapeHtml(cacheText || '浏览器批量发起请求；Polygon 定价在服务端完成。')}</span>
+                        <span>${escapeHtml(cacheText || '浏览器批量发起请求；期权定价在服务端完成。')}</span>
                         ${entry.lastFailure ? `<span class="leaps-option-progress-error">最近失败：${escapeHtml(entry.lastFailure)}</span>` : ''}
                     </div>
                 </div>
@@ -4667,7 +4670,7 @@
                 <div class="leaps-option-actions">
                     <button type="button" onclick="calculateLeapsOptionOutcomesForActiveRow()">计算 200-300D 月期权收益</button>
                     ${highGradeButton()}
-                    <span class="leaps-detail-status">也可以在下方每个日期/标的行单独计算。浏览器按批次请求，服务端用 Polygon key 定价。</span>
+                    <span class="leaps-detail-status">也可以在下方每个日期/标的行单独计算。浏览器按批次请求，服务端用市场数据凭证定价。</span>
                     ${highGradeHint}
                 </div>
             `;

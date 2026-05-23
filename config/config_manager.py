@@ -55,6 +55,11 @@ class ConfigManager:
             "polygon": {
                 "api_key": ""
             },
+            "alpaca": {
+                "api_key": "",
+                "secret_key": "",
+                "option_data_feed": "indicative",
+            },
             "email": {
                 "smtp_host": "",
                 "smtp_port": 587,
@@ -111,6 +116,14 @@ class ConfigManager:
         # Polygon配置
         if os.getenv("POLYGON_API_KEY"):
             self.config.setdefault("polygon", {})["api_key"] = os.getenv("POLYGON_API_KEY")
+
+        # Alpaca配置
+        if os.getenv("ALPACA_API_KEY"):
+            self.config.setdefault("alpaca", {})["api_key"] = os.getenv("ALPACA_API_KEY")
+        if os.getenv("ALPACA_SECRET_KEY"):
+            self.config.setdefault("alpaca", {})["secret_key"] = os.getenv("ALPACA_SECRET_KEY")
+        if os.getenv("ALPACA_OPTION_DATA_FEED"):
+            self.config.setdefault("alpaca", {})["option_data_feed"] = os.getenv("ALPACA_OPTION_DATA_FEED")
         
         # 邮件配置
         if os.getenv("SMTP_HOST"):
@@ -239,6 +252,16 @@ class ConfigManager:
         polygon_config = self.get("polygon", {})
         return {
             "api_key": polygon_config.get("api_key", "") or os.getenv("POLYGON_API_KEY", ""),
+        }
+
+    def get_alpaca_config(self) -> Dict[str, str]:
+        """获取Alpaca配置"""
+        alpaca_config = self.get("alpaca", {})
+        return {
+            "api_key": alpaca_config.get("api_key", "") or os.getenv("ALPACA_API_KEY", ""),
+            "secret_key": alpaca_config.get("secret_key", "") or os.getenv("ALPACA_SECRET_KEY", ""),
+            "option_data_feed": alpaca_config.get("option_data_feed", "indicative")
+            or os.getenv("ALPACA_OPTION_DATA_FEED", "indicative"),
         }
 
     def get_email_config(self) -> Dict[str, Any]:

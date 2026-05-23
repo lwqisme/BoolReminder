@@ -363,7 +363,7 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertNotIn("LEAPS_OPTION_QUEUE_CONCURRENCY = 2", html)
         self.assertNotIn("Promise.all(Array.from({ length: Math.min(LEAPS_OPTION_QUEUE_CONCURRENCY", html)
         self.assertIn("当前参数行高等级 LEAPS 信号", html)
-        self.assertIn("浏览器批量发起请求；Polygon 定价在服务端完成", html)
+        self.assertIn("浏览器批量发起请求；期权定价在服务端完成", html)
         self.assertIn("renderLeapsOptionProgress", html)
         self.assertIn("renderLeapsOptionOutcomeTable", html)
         self.assertIn("function formatLeapsOptionExitStatus(outcome)", html)

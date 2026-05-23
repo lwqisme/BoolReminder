@@ -10,10 +10,14 @@ from unittest.mock import Mock, patch
 import requests
 
 import drawdown.leaps_option_outcomes as leaps_module
+import web.app as web_app
 from drawdown.leaps_option_outcomes import (
+    ALPACA_DATA_UNAVAILABLE_BEFORE_2024_02,
+    ALPACA_PERMISSION_DENIED,
     NO_EXIT_PRICE,
     NO_POLYGON_KEY,
     NO_STOCK_SELL,
+    AlpacaMonthlyOptionProvider,
     OutcomeCache,
     OptionBar,
     OptionContract,
@@ -45,6 +49,15 @@ class FakeProvider:
     def fetch_bars(self, ticker, start, end):
         self.fetch_requests.append((ticker, start, end))
         return [bar for bar in self.bars if start <= bar.date <= end]
+
+
+class FakeAlpacaProvider(FakeProvider):
+    provider_name = "alpaca"
+    provider_label = "Alpaca"
+    cache_provider_id = "alpaca-indicative"
+    permission_denied_reason = ALPACA_PERMISSION_DENIED
+    provider_config = {"option_data_feed": "indicative"}
+    min_signal_date = date(2024, 2, 1)
 
 
 class CountingProvider(FakeProvider):
@@ -129,6 +142,63 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         self.assertAlmostEqual(outcome["roi_pct"], 40.0)
         self.assertAlmostEqual(result["summary"]["roi_mean_pct"], 40.0)
         self.assertEqual(result["summary"]["success_count"], 1)
+
+    def test_alpaca_pre_2024_02_signal_skips_without_external_api(self):
+        provider = CountingProvider()
+        provider.provider_name = "alpaca"
+        provider.provider_label = "Alpaca"
+        provider.cache_provider_id = "alpaca-indicative"
+        provider.permission_denied_reason = ALPACA_PERMISSION_DENIED
+        provider.provider_config = {"option_data_feed": "indicative"}
+        provider.min_signal_date = date(2024, 2, 1)
+
+        result = replay_leaps_option_outcomes(
+            [{"date": "2024-01-31", "symbol": "TSLA.US", "stock_buy_price": 100}],
+            api_key="",
+            provider=provider,
+            outcome_cache=OutcomeCache(cache_enabled=False),
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(provider.select_count, 0)
+        self.assertEqual(result["outcomes"][0]["status"], "skipped")
+        self.assertEqual(result["outcomes"][0]["skipped_reason"], ALPACA_DATA_UNAVAILABLE_BEFORE_2024_02)
+        self.assertEqual(result["outcomes"][0]["provider"], "alpaca")
+
+    def test_alpaca_bar_response_converts_to_option_bars_and_computes_roi(self):
+        class FakeAlpacaClient:
+            def get_option_bars(self, request):
+                return {
+                    "bars": {
+                        "TSLA250815C00110000": [
+                            {"t": "2024-12-09T05:00:00Z", "c": 10.0},
+                            {"t": "2024-12-20T05:00:00Z", "c": 15.0},
+                        ]
+                    }
+                }
+
+        provider = AlpacaMonthlyOptionProvider("key", "secret", client=FakeAlpacaClient())
+        provider.select_monthly_call = lambda underlying, as_of, stock_price: (
+            OptionContract("TSLA250815C00110000", "TSLA", date(2025, 8, 15), 110.0),
+            "",
+        )
+        signal = {
+            "signal_key": "sig-1",
+            "date": "2024-12-08",
+            "symbol": "TSLA.US",
+            "stock_buy_price": 100,
+            "next_stock_sell_date": "2024-12-20",
+        }
+
+        result = replay_leaps_option_outcomes([signal], api_key="", provider=provider, outcome_cache=OutcomeCache(cache_enabled=False))
+        outcome = result["outcomes"][0]
+
+        self.assertEqual(outcome["status"], "success")
+        self.assertEqual(outcome["provider"], "alpaca")
+        self.assertEqual(outcome["contract"], "TSLA250815C00110000")
+        self.assertEqual(outcome["entry_date"], "2024-12-09")
+        self.assertEqual(outcome["exit_date"], "2024-12-20")
+        self.assertAlmostEqual(outcome["roi_pct"], 50.0)
 
     def test_missing_key_returns_clear_error_and_skipped_outcomes(self):
         result = replay_leaps_option_outcomes(
@@ -242,6 +312,28 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(payload["success"])
         self.assertEqual(payload["summary"]["top_failure_reason"], NO_POLYGON_KEY)
+
+    def test_endpoint_provider_factory_prefers_alpaca_credentials(self):
+        with patch("web.app._leaps_option_provider", None):
+            with patch("web.app._leaps_option_provider_api_key", ""):
+                with patch("web.app._get_alpaca_config", return_value={"api_key": "ak", "secret_key": "sk", "option_data_feed": "indicative"}):
+                    with patch("web.app.AlpacaMonthlyOptionProvider") as alpaca_cls:
+                        alpaca_cls.return_value = FakeAlpacaProvider()
+                        provider = web_app._get_leaps_option_provider("polygon-key")
+
+        self.assertIs(provider, alpaca_cls.return_value)
+        alpaca_cls.assert_called_once_with("ak", "sk", option_data_feed="indicative")
+
+    def test_endpoint_provider_factory_falls_back_to_polygon_without_alpaca_credentials(self):
+        with patch("web.app._leaps_option_provider", None):
+            with patch("web.app._leaps_option_provider_api_key", ""):
+                with patch("web.app._get_alpaca_config", return_value={"api_key": "", "secret_key": "", "option_data_feed": "indicative"}):
+                    with patch("web.app.PolygonMonthlyOptionProvider") as polygon_cls:
+                        polygon_cls.return_value = FakeProvider()
+                        provider = web_app._get_leaps_option_provider("polygon-key")
+
+        self.assertIs(provider, polygon_cls.return_value)
+        polygon_cls.assert_called_once_with("polygon-key")
 
     def test_endpoint_rejects_batch_signals(self):
         with app.test_client() as client:
@@ -440,6 +532,34 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         reasons = [item["skipped_reason"] for item in result["outcomes"]]
         self.assertEqual(reasons, [POLYGON_PERMISSION_DENIED] * len(signals))
         self.assertEqual(result["summary"]["top_failure_reason"], POLYGON_PERMISSION_DENIED)
+
+    def test_batch_replay_circuit_breaks_after_alpaca_permission_error(self):
+        signals = [
+            {
+                "signal_key": f"sig-{index}",
+                "date": f"2024-12-{index + 1:02d}",
+                "symbol": "TSLA.US",
+                "stock_buy_price": 100 + index,
+                "next_stock_sell_date": "2024-12-20",
+            }
+            for index in range(3)
+        ]
+
+        def raise_permission(provider, signal):
+            raise leaps_module.OptionProviderPermissionError(ALPACA_PERMISSION_DENIED)
+
+        with patch("drawdown.leaps_option_outcomes.replay_signal", side_effect=raise_permission) as replay:
+            result = replay_leaps_option_outcomes_batch(
+                signals,
+                api_key="",
+                provider=FakeAlpacaProvider(),
+                outcome_cache=OutcomeCache(cache_enabled=False),
+            )
+
+        self.assertEqual(replay.call_count, 1)
+        reasons = [item["skipped_reason"] for item in result["outcomes"]]
+        self.assertEqual(reasons, [ALPACA_PERMISSION_DENIED] * len(signals))
+        self.assertEqual(result["summary"]["top_failure_reason"], ALPACA_PERMISSION_DENIED)
 
     def test_outcome_cache_hit_skips_provider(self):
         with tempfile.TemporaryDirectory() as tmpdir:
