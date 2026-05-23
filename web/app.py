@@ -523,8 +523,12 @@ def _get_alpaca_config() -> dict[str, str]:
             "option_data_feed": str(config.get("option_data_feed") or "indicative").strip() or "indicative",
         }
     return {
-        "api_key": str(config_manager.get("alpaca.api_key", "") or os.getenv("ALPACA_API_KEY", "")).strip(),
-        "secret_key": str(config_manager.get("alpaca.secret_key", "") or os.getenv("ALPACA_SECRET_KEY", "")).strip(),
+        "api_key": str(config_manager.get("alpaca.api_key", "") or os.getenv("ALPACA_API_KEY", "") or os.getenv("APCA_API_KEY_ID", "")).strip(),
+        "secret_key": str(
+            config_manager.get("alpaca.secret_key", "")
+            or os.getenv("ALPACA_SECRET_KEY", "")
+            or os.getenv("APCA_API_SECRET_KEY", "")
+        ).strip(),
         "option_data_feed": str(
             config_manager.get("alpaca.option_data_feed", "")
             or os.getenv("ALPACA_OPTION_DATA_FEED", "indicative")

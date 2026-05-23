@@ -118,10 +118,12 @@ class ConfigManager:
             self.config.setdefault("polygon", {})["api_key"] = os.getenv("POLYGON_API_KEY")
 
         # Alpaca配置
-        if os.getenv("ALPACA_API_KEY"):
-            self.config.setdefault("alpaca", {})["api_key"] = os.getenv("ALPACA_API_KEY")
-        if os.getenv("ALPACA_SECRET_KEY"):
-            self.config.setdefault("alpaca", {})["secret_key"] = os.getenv("ALPACA_SECRET_KEY")
+        alpaca_api_key = os.getenv("ALPACA_API_KEY") or os.getenv("APCA_API_KEY_ID")
+        alpaca_secret_key = os.getenv("ALPACA_SECRET_KEY") or os.getenv("APCA_API_SECRET_KEY")
+        if alpaca_api_key:
+            self.config.setdefault("alpaca", {})["api_key"] = alpaca_api_key
+        if alpaca_secret_key:
+            self.config.setdefault("alpaca", {})["secret_key"] = alpaca_secret_key
         if os.getenv("ALPACA_OPTION_DATA_FEED"):
             self.config.setdefault("alpaca", {})["option_data_feed"] = os.getenv("ALPACA_OPTION_DATA_FEED")
         
@@ -258,8 +260,8 @@ class ConfigManager:
         """获取Alpaca配置"""
         alpaca_config = self.get("alpaca", {})
         return {
-            "api_key": alpaca_config.get("api_key", "") or os.getenv("ALPACA_API_KEY", ""),
-            "secret_key": alpaca_config.get("secret_key", "") or os.getenv("ALPACA_SECRET_KEY", ""),
+            "api_key": alpaca_config.get("api_key", "") or os.getenv("ALPACA_API_KEY", "") or os.getenv("APCA_API_KEY_ID", ""),
+            "secret_key": alpaca_config.get("secret_key", "") or os.getenv("ALPACA_SECRET_KEY", "") or os.getenv("APCA_API_SECRET_KEY", ""),
             "option_data_feed": alpaca_config.get("option_data_feed", "indicative")
             or os.getenv("ALPACA_OPTION_DATA_FEED", "indicative"),
         }

@@ -10,6 +10,8 @@ services:
       ALPACA_API_KEY: ${ALPACA_API_KEY:-}
       ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
       ALPACA_OPTION_DATA_FEED: ${ALPACA_OPTION_DATA_FEED:-}
+      APCA_API_KEY_ID: ${APCA_API_KEY_ID:-}
+      APCA_API_SECRET_KEY: ${APCA_API_SECRET_KEY:-}
       POLYGON_API_KEY: ${POLYGON_API_KEY:-}
     volumes:
       # 挂载配置文件目录（配置文件在服务器上维护，不包含在镜像中）
