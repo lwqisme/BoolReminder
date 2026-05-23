@@ -9114,6 +9114,27 @@ def _prepare_strategy_parameter_lab_payload(payload: dict[str, object]) -> dict[
         buy_strategies=packet.get("buy_strategies"),
         sell_strategies=packet.get("sell_strategies"),
     )
+    if candidate_count == 0:
+        _parameter_lab_warn(
+            "packet_prepare_zero_candidates",
+            run_id=run_id,
+            buy_strategies=packet.get("buy_strategies"),
+            sell_strategies=packet.get("sell_strategies"),
+            selected_parameter_value_fields=sorted(selected_parameter_values) if selected_parameter_values is not None else None,
+            active_parameter_fields=active_parameter_fields,
+            repair_selected_values={
+                field: selected_parameter_values.get(field)
+                for field in ("sell_min_profit_pct", "repair_sell_cooldown_days", "repair_stage_sell_pct")
+            }
+            if selected_parameter_values is not None
+            else None,
+            rearm_selected_values={
+                field: selected_parameter_values.get(field)
+                for field in ("sell_allow_same_day_sell", "dca_rearm_drawdown_pct", "sell_stage_rearm_drawdown_pct")
+            }
+            if selected_parameter_values is not None
+            else None,
+        )
     return packet
 
 

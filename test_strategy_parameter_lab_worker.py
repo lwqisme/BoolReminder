@@ -38,6 +38,23 @@ class StrategyParameterLabWorkerTest(unittest.TestCase):
         self.assertIn("batch_total_simulations: batchTotal", source)
         self.assertIn("leaps_signal: summarizeLeapsSignals(tradeLog, inputs, Boolean(workerState?.include_leaps_signal_details))", source)
 
+    def test_page_short_circuits_zero_candidate_packets(self):
+        html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
+
+        self.assertIn("0 候选：当前策略和参数筛选没有可运行组合", html)
+        self.assertIn("当前策略和参数筛选没有可运行组合。请调整策略组合或参数筛选后重试。", html)
+        run_function = re.search(
+            r"async function runParameterLab\(\) \{(?P<body>.*?)\n        function runWorkerPool",
+            html,
+            re.S,
+        )
+        self.assertIsNotNone(run_function)
+        body = run_function.group("body")
+        zero_guard = body.find("if (candidateCount === 0)")
+        worker_call = body.find("const data = await runWorkerPool")
+        self.assertGreaterEqual(zero_guard, 0)
+        self.assertGreater(worker_call, zero_guard)
+
     def test_worker_trade_log_and_series_are_detail_only(self):
         if shutil.which("node") is None:
             self.skipTest("node is required for JavaScript worker detail payload check")

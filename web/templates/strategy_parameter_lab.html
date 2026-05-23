@@ -2767,14 +2767,18 @@
             }
             const simulations = Number(estimate.estimated_simulations || 0);
             strip.classList.toggle('warn', Boolean(estimate.requires_confirmation));
+            const candidateCount = Number(estimate.candidate_count || 0);
+            const candidateText = candidateCount === 0
+                ? '0 候选：当前策略和参数筛选没有可运行组合'
+                : `${number(candidateCount, 0)} 候选`;
             document.getElementById('estimateText').textContent = [
-                `${number(estimate.candidate_count, 0)} 候选`,
+                candidateText,
                 `${number(estimate.task_count, 0)} 题目`,
                 `${number(simulations, 0)} 次演算`,
                 `${number(estimate.estimated_price_row_count, 0)} 行价格`,
                 `约 ${formatBytes(estimate.estimated_packet_bytes)}`
             ].join(' / ');
-            document.getElementById('statCandidates').textContent = number(estimate.candidate_count, 0);
+            document.getElementById('statCandidates').textContent = number(candidateCount, 0);
             document.getElementById('statTopics').textContent = number(estimate.task_count, 0);
             document.getElementById('statSimulations').textContent = number(simulations, 0);
         }
@@ -3153,6 +3157,45 @@
                 document.getElementById('statCandidates').textContent = number(candidateCount, 0);
                 document.getElementById('statTopics').textContent = number(taskCount, 0);
                 document.getElementById('statSimulations').textContent = number(candidateCount * taskCount, 0);
+                if (candidateCount === 0) {
+                    diagnostics.timing.worker_pool_ms = 0;
+                    const data = {
+                        ...packet,
+                        rows: [],
+                        observations: [],
+                        observations_compacted: true,
+                        observation_count: 0,
+                        diagnostics,
+                        worker_metrics: {
+                            worker_count: 0,
+                            batch_count: 0,
+                            chunks_completed_per_worker: [],
+                            worker_elapsed_ms: [],
+                            worker_completed_simulations: [],
+                            worker_batch_count: [],
+                            batch_size: 0,
+                            total_batches: 0,
+                            wall_ms: performance.now() - started,
+                            cpu_work_estimate_ms: 0,
+                            parallel_efficiency: 0,
+                            simulate_elapsed_ms_sum: 0,
+                            simulate_elapsed_ms_max: 0,
+                            avg_simulate_elapsed_ms: 0,
+                            slow_simulation_count: 0,
+                            batch_total_simulations: 0
+                        }
+                    };
+                    lastParameterResult = data;
+                    document.getElementById('statWorkers').textContent = '0';
+                    renderParameterMatrix();
+                    updateDiagnosticsScale(diagnostics, packet, data);
+                    renderParameterDiagnostics(data);
+                    logParameterDiagnostics(data);
+                    const wall = performance.now() - started;
+                    document.getElementById('statWall').textContent = `${number(wall, 0)}ms`;
+                    setStatus('Completed', '0 候选：当前策略和参数筛选没有可运行组合。', 100);
+                    return;
+                }
                 const data = await runWorkerPool(packet, performance.now(), diagnostics);
                 lastParameterResult = data;
                 const renderStarted = performance.now();
@@ -3800,6 +3843,11 @@
                     ${tasks.map((task) => `<th>${escapeHtml(task.portfolio_label)}<br>${escapeHtml(task.period_label)}</th>`).join('')}
                 </tr>
             `;
+            if (!(data.candidate_rows || []).length) {
+                document.getElementById('matrixBody').innerHTML = '<tr><td colspan="' + (tasks.length + 1) + '">0 候选：当前策略和参数筛选没有可运行组合。请调整策略组合或参数筛选后重试。</td></tr>';
+                renderTopGroupLeapsOptionControls();
+                return;
+            }
             const body = groups.map((group) => {
                 const collapsed = collapsedParameterGroups.has(group.key);
                 const groupHeader = `

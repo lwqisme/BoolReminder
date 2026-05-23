@@ -81,6 +81,66 @@ class StrategyParameterRegistryTest(unittest.TestCase):
         self.assertTrue(salary_candidates)
         self.assertTrue(all(item["sell_strategy"] == "repair_step" for item in salary_candidates))
 
+    def test_position_repair_step_keeps_baseline_repair_params_outside_selected_values(self):
+        inputs = StrategyInputs(
+            sell_min_profit_pct=12.5,
+            repair_sell_cooldown_days=45,
+            repair_stage_sell_pct=18.0,
+        )
+        selected = {
+            "sell_min_profit_pct": [5.0, 10.0, 20.0],
+            "repair_sell_cooldown_days": [0, 30, 60],
+            "repair_stage_sell_pct": [8.0, 15.0, 25.0],
+        }
+
+        core_candidates = expand_strategy_candidate_payloads(
+            ["core_dip_dca"],
+            ["repair_step"],
+            inputs,
+            selected_parameter_values=selected,
+        )
+        weekly_candidates = expand_strategy_candidate_payloads(
+            ["weekly_dca"],
+            ["repair_step"],
+            inputs,
+            selected_parameter_values=selected,
+        )
+        salary_candidates = expand_strategy_candidate_payloads(
+            ["salary_flow_dca"],
+            ["repair_step"],
+            inputs,
+            selected_parameter_values=selected,
+        )
+
+        self.assertTrue(core_candidates)
+        self.assertTrue(weekly_candidates)
+        self.assertTrue(salary_candidates)
+        for candidates in (core_candidates, weekly_candidates, salary_candidates):
+            self.assertEqual({item["sell_min_profit_pct"] for item in candidates}, {12.5})
+            self.assertEqual({item["repair_sell_cooldown_days"] for item in candidates}, {45})
+            self.assertEqual({item["repair_stage_sell_pct"] for item in candidates}, {18.0})
+
+    def test_lot_repair_step_still_filters_repair_scan_values(self):
+        candidates = expand_strategy_candidate_payloads(
+            ["pyramid_3"],
+            ["repair_step"],
+            StrategyInputs(
+                sell_min_profit_pct=12.5,
+                repair_sell_cooldown_days=45,
+                repair_stage_sell_pct=18.0,
+            ),
+            selected_parameter_values={
+                "sell_min_profit_pct": [5.0],
+                "repair_sell_cooldown_days": [0],
+                "repair_stage_sell_pct": [8.0],
+            },
+        )
+
+        self.assertTrue(candidates)
+        self.assertEqual({item["sell_min_profit_pct"] for item in candidates}, {5.0})
+        self.assertEqual({item["repair_sell_cooldown_days"] for item in candidates}, {0})
+        self.assertEqual({item["repair_stage_sell_pct"] for item in candidates}, {8.0})
+
     def test_registry_payload_exposes_definitions(self):
         payload = strategy_registry_payload()
 

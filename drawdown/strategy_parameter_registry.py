@@ -760,13 +760,15 @@ def _sell_param_variants(
                                 "repair_stage_sell_pct": float(stage),
                             }
                         )
-        variants.append(current)
-        variants = _filter_and_project_param_variants(
-            variants,
-            ("sell_min_profit_pct", "repair_sell_cooldown_days", "repair_stage_sell_pct"),
-            inputs,
-            value_selection,
-        )
+            variants.append(current)
+            variants = _filter_and_project_param_variants(
+                variants,
+                ("sell_min_profit_pct", "repair_sell_cooldown_days", "repair_stage_sell_pct"),
+                inputs,
+                value_selection,
+            )
+        else:
+            variants = [current]
         return _with_rearm_variants(
             _with_same_day_sell_variants(variants, inputs, value_selection),
             buy_strategy,
