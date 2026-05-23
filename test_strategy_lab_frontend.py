@@ -332,6 +332,7 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn(".leaps-detail-table th:first-child {\n            background: #ffffff;\n        }", html)
         self.assertIn("leaps-reason-chip", html)
         self.assertIn("/api/strategy-lab/parameter-lab/leaps-option-outcomes", html)
+        self.assertIn("/api/strategy-lab/parameter-lab/leaps-option-provider", html)
         self.assertIn("计算 200-300D 月期权收益", html)
         self.assertIn("function buildLeapsOptionQueue(signals)", html)
         self.assertIn("const queueByKey = new Map();", html)

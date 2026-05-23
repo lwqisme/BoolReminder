@@ -1831,8 +1831,10 @@
             if (!summary || !Number(summary.total || 0)) return '';
             const success = Number(summary.success_count || 0);
             const total = Number(summary.total || 0);
-            const roi = Number.isFinite(Number(summary.roi_mean_pct)) ? `均 ${pct(summary.roi_mean_pct)}` : '均 --';
-            const med = Number.isFinite(Number(summary.roi_median_pct)) ? `中 ${pct(summary.roi_median_pct)}` : '中 --';
+            const hasRoi = success > 0 && summary.roi_mean_pct !== null && summary.roi_mean_pct !== undefined && summary.roi_mean_pct !== '' && Number.isFinite(Number(summary.roi_mean_pct));
+            const hasMedian = success > 0 && summary.roi_median_pct !== null && summary.roi_median_pct !== undefined && summary.roi_median_pct !== '' && Number.isFinite(Number(summary.roi_median_pct));
+            const roi = hasRoi ? `均 ${pct(summary.roi_mean_pct)}` : '均 --';
+            const med = hasMedian ? `中 ${pct(summary.roi_median_pct)}` : '中 --';
             const reason = success >= total ? '' : ` · ${summary.top_failure_reason || '有跳过'}`;
             return `<span class="leaps-option-summary ${success ? '' : 'warn'}">月期权 ROI ${roi} / ${med} · ${number(success, 0)}/${number(total, 0)}${escapeHtml(reason)}</span>`;
         }
@@ -2017,6 +2019,10 @@
                 const reason = error.message || String(error);
                 return { outcomes: queueItems.map((item) => skippedLeapsOptionOutcome(item.signal, reason)), cache_stats: {}, summary: {} };
             }
+        }
+        async function fetchLeapsOptionProviderStatus() {
+            const response = await fetch('/api/strategy-lab/parameter-lab/leaps-option-provider');
+            return response.json().catch(() => ({}));
         }
         function formatElapsedTime(ms) {
             const seconds = Math.max(0, Math.floor(Number(ms || 0) / 1000));

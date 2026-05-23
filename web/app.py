@@ -636,6 +636,27 @@ def _leaps_option_provider_request_context(provider: object | None, polygon_api_
     return provider_name, credential_key, permission_reason
 
 
+def _leaps_option_provider_status_payload() -> dict[str, object]:
+    alpaca_config = _get_alpaca_config()
+    polygon_api_key = _get_polygon_api_key()
+    alpaca_api_key_configured = bool((alpaca_config.get("api_key") or "").strip())
+    alpaca_secret_key_configured = bool((alpaca_config.get("secret_key") or "").strip())
+    polygon_configured = bool(polygon_api_key)
+    alpaca_configured = alpaca_api_key_configured and alpaca_secret_key_configured
+    provider = "alpaca" if alpaca_configured else ("polygon" if polygon_configured else "")
+    return {
+        "success": True,
+        "provider": provider,
+        "provider_label": "Alpaca" if provider == "alpaca" else ("Polygon" if provider == "polygon" else "Market Data API"),
+        "alpaca_configured": alpaca_configured,
+        "alpaca_api_key_configured": alpaca_api_key_configured,
+        "alpaca_secret_key_configured": alpaca_secret_key_configured,
+        "alpaca_option_data_feed": alpaca_config.get("option_data_feed") or "indicative",
+        "polygon_configured": polygon_configured,
+        "fallback_reason": "" if alpaca_configured else "Alpaca API key/secret 未配置，当前将使用 Polygon fallback",
+    }
+
+
 def _check_trade_sync_auth() -> tuple[bool, str]:
     trade_sync_config = _get_trade_sync_config()
     if not trade_sync_config.get("enabled", True):
@@ -9700,6 +9721,11 @@ def api_strategy_lab_parameter_lab_client_diagnostics():
             message=str(exc),
         )
         return _json_error(f"记录 Parameter Lab 诊断失败: {exc}", 500)
+
+
+@app.route('/api/strategy-lab/parameter-lab/leaps-option-provider', methods=['GET'])
+def api_strategy_lab_parameter_lab_leaps_option_provider():
+    return jsonify(_leaps_option_provider_status_payload())
 
 
 @app.route('/api/strategy-lab/parameter-lab/leaps-option-outcomes', methods=['POST'])

@@ -335,6 +335,31 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         self.assertIs(provider, polygon_cls.return_value)
         polygon_cls.assert_called_once_with("polygon-key")
 
+    def test_provider_status_endpoint_reports_selected_provider_without_secrets(self):
+        with patch("web.app._get_alpaca_config", return_value={"api_key": "ak", "secret_key": "sk", "option_data_feed": "opra"}):
+            with patch("web.app._get_polygon_api_key", return_value="polygon-key"):
+                with app.test_client() as client:
+                    response = client.get("/api/strategy-lab/parameter-lab/leaps-option-provider")
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["provider"], "alpaca")
+        self.assertTrue(payload["alpaca_configured"])
+        self.assertEqual(payload["alpaca_option_data_feed"], "opra")
+        self.assertNotIn("ak", json.dumps(payload))
+        self.assertNotIn("sk", json.dumps(payload))
+
+    def test_provider_status_endpoint_reports_polygon_fallback_when_alpaca_missing(self):
+        with patch("web.app._get_alpaca_config", return_value={"api_key": "", "secret_key": "", "option_data_feed": "indicative"}):
+            with patch("web.app._get_polygon_api_key", return_value="polygon-key"):
+                with app.test_client() as client:
+                    response = client.get("/api/strategy-lab/parameter-lab/leaps-option-provider")
+
+        payload = response.get_json()
+        self.assertEqual(payload["provider"], "polygon")
+        self.assertFalse(payload["alpaca_configured"])
+        self.assertIn("Alpaca API key/secret 未配置", payload["fallback_reason"])
+
     def test_endpoint_rejects_batch_signals(self):
         with app.test_client() as client:
             response = client.post(
