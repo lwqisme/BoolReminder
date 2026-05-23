@@ -998,9 +998,19 @@ const missingInputs = {
   strike: null,
   contract: 'TSLA250117C00110000'
 };
+const signalOnly = {
+  date: '2025-01-10',
+  stock_buy_price: 100,
+  stock_mark_date: '2025-06-10',
+  stock_mark_price: 120,
+  stock_return_pct: 20,
+  realized_volatility_pct: 60
+};
 const rendered = context.renderLeapsOptionOutcome(holding);
+const estimatedBeforeCalculation = context.renderLeapsOptionOutcome(null, signalOnly);
 const table = context.renderLeapsOptionOutcomeTable([holding, missingInputs]);
 if (!rendered.includes('持有中')) throw new Error(rendered);
+if (!estimatedBeforeCalculation.includes('预估 +')) throw new Error(estimatedBeforeCalculation);
 if (!table.includes('持有中')) throw new Error(table);
 if (!table.includes('正股/预估')) throw new Error(table);
 if (!table.includes('正股 +20%')) throw new Error(table);
