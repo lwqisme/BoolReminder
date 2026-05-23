@@ -359,6 +359,8 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("当前题目 LEAPS 明细：", html)
         self.assertIn("参数行全部题目 LEAPS 明细", html)
         self.assertIn("期权卖出日", html)
+        self.assertIn("正股/预估", html)
+        self.assertIn("function estimatedLeapsOptionRoiPct(outcome)", html)
         self.assertIn("row.leaps_option_summary = entry.summary", html)
         self.assertIn("/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch", html)
         self.assertNotIn("LEAPS_OPTION_QUEUE_CONCURRENCY = 2", html)

@@ -704,6 +704,7 @@ function recordSell(state, point, shares, inputs, tradeLog, sellStrategy, trigge
     action: 'sell',
     date: point.date,
     symbol: state.symbol,
+    price: point.close,
     sell_strategy: sellStrategy,
     trigger_value: trigger,
     drawdown_pct: drawdownPct(point, inputs),
@@ -891,6 +892,67 @@ function naturalDayDiff(startDate, endDate) {
   return Math.round((end - start) / 86400000);
 }
 
+function stockPriceFromTrade(trade) {
+  const direct = num(trade?.price, NaN);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const gross = num(trade?.gross_amount, NaN);
+  const shares = num(trade?.shares, NaN);
+  return Number.isFinite(gross) && Number.isFinite(shares) && shares > 0 ? gross / shares : null;
+}
+
+function stockPointsForSignal(task, signalOrTrade) {
+  const symbol = signalOrTrade?.symbol;
+  const points = symbol ? task?.price_points?.[symbol] : null;
+  return Array.isArray(points) ? points.filter((point) => point && point.date && num(point.close) > 0) : [];
+}
+
+function latestStockPoint(points) {
+  for (let index = (points || []).length - 1; index >= 0; index -= 1) {
+    const point = points[index];
+    const close = num(point?.close, NaN);
+    if (point?.date && Number.isFinite(close) && close > 0) return { date: point.date, close };
+  }
+  return null;
+}
+
+function realizedVolatilityPct(points, entryDate) {
+  const entryMs = parseTradeDateMs(entryDate);
+  if (!Number.isFinite(entryMs)) return 60;
+  const history = (points || [])
+    .filter((point) => {
+      const pointMs = parseTradeDateMs(point?.date);
+      return Number.isFinite(pointMs) && pointMs < entryMs && num(point?.close) > 0;
+    })
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
+    .slice(-61);
+  const returns = [];
+  for (let index = 1; index < history.length; index += 1) {
+    const previous = num(history[index - 1]?.close);
+    const current = num(history[index]?.close);
+    if (previous > 0 && current > 0) returns.push(Math.log(current / previous));
+  }
+  if (returns.length < 20) return 60;
+  const mean = avg(returns);
+  const variance = returns.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / Math.max(1, returns.length - 1);
+  const annualized = Math.sqrt(variance) * Math.sqrt(252) * 100;
+  return clamp(annualized, 15, 120);
+}
+
+function stockSignalMark(trade, nextStockSell, task) {
+  const buyPrice = stockPriceFromTrade(trade);
+  const points = stockPointsForSignal(task, trade);
+  const sellPrice = nextStockSell ? stockPriceFromTrade(nextStockSell) : null;
+  const latestPoint = latestStockPoint(points);
+  const markDate = nextStockSell?.date || latestPoint?.date || '';
+  const markPrice = nextStockSell ? sellPrice : (latestPoint ? latestPoint.close : null);
+  return {
+    stock_mark_date: markDate,
+    stock_mark_price: markPrice,
+    stock_return_pct: buyPrice && markPrice ? pct(markPrice / buyPrice - 1) : null,
+    realized_volatility_pct: realizedVolatilityPct(points, trade?.date)
+  };
+}
+
 function findNextStockSell(tradeLog, buyTrade) {
   const buyDate = parseTradeDateMs(buyTrade?.date);
   if (!Number.isFinite(buyDate)) return null;
@@ -906,7 +968,7 @@ function findNextStockSell(tradeLog, buyTrade) {
   return next;
 }
 
-function scoreLeapsBuySignal(trade, settings, nextStockSell = null) {
+function scoreLeapsBuySignal(trade, settings, nextStockSell = null, task = null) {
   if (!trade || trade.action !== 'buy') return null;
   const drawdown = Math.max(0, num(trade.drawdown_pct));
   const cashPct = clamp(num(trade.cash_pct_after, 100), 0, 100);
@@ -934,22 +996,24 @@ function scoreLeapsBuySignal(trade, settings, nextStockSell = null) {
     drawdown_pct: drawdown,
     cash_pct_after: cashPct,
     buy_amount: gross,
-    stock_buy_price: num(trade.price),
+    stock_buy_price: stockPriceFromTrade(trade),
     day_change_pct: dayChange,
     premium_budget_cap: Math.min(settings.premium_budget_cap, Math.max(0, gross * 0.35)),
     target_dte_label: settings.target_dte_label,
     next_stock_sell_date: nextStockSell?.date || '',
-    stock_sell_price: nextStockSell ? num(nextStockSell.price) : null,
+    stock_sell_date: nextStockSell?.date || '',
+    stock_sell_price: nextStockSell ? stockPriceFromTrade(nextStockSell) : null,
     stock_holding_days: nextStockSell ? naturalDayDiff(trade.date, nextStockSell.date) : null,
+    ...stockSignalMark(trade, nextStockSell, task),
     reasons
   };
 }
 
-function summarizeLeapsSignals(tradeLog, inputs, includeDetails = false) {
+function summarizeLeapsSignals(tradeLog, inputs, includeDetails = false, task = null) {
   const settings = leapsSignalSettings(inputs);
   const signals = (Array.isArray(tradeLog) ? tradeLog : [])
     .filter((trade) => trade.action === 'buy')
-    .map((trade) => scoreLeapsBuySignal(trade, settings, findNextStockSell(tradeLog, trade)))
+    .map((trade) => scoreLeapsBuySignal(trade, settings, findNextStockSell(tradeLog, trade), task))
     .filter((signal) => signal && signal.grade !== '无')
     .sort((a, b) => {
       const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
@@ -1066,7 +1130,7 @@ function simulate(task, baseInputs, candidate) {
     max_drawdown_pct: maxDrawdown(portfolioValues),
     trade_count: Object.values(states).reduce((sum, state) => sum + state.trades, 0),
     contribution_count: contributionCount,
-    leaps_signal: summarizeLeapsSignals(tradeLog, inputs, Boolean(workerState?.include_leaps_signal_details)),
+    leaps_signal: summarizeLeapsSignals(tradeLog, inputs, Boolean(workerState?.include_leaps_signal_details), task),
     ...metrics
   };
   if (workerState?.include_trades) result.trade_log = tradeLog;

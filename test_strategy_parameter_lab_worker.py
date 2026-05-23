@@ -36,7 +36,7 @@ class StrategyParameterLabWorkerTest(unittest.TestCase):
         self.assertIn("simulate_elapsed_ms_max: simulateElapsedMsMax", source)
         self.assertIn("slow_simulation_count: slowSimulationCount", source)
         self.assertIn("batch_total_simulations: batchTotal", source)
-        self.assertIn("leaps_signal: summarizeLeapsSignals(tradeLog, inputs, Boolean(workerState?.include_leaps_signal_details))", source)
+        self.assertIn("leaps_signal: summarizeLeapsSignals(tradeLog, inputs, Boolean(workerState?.include_leaps_signal_details), task)", source)
 
     def test_page_short_circuits_zero_candidate_packets(self):
         html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
@@ -400,6 +400,80 @@ process.stdout.write(JSON.stringify(context.summarizeLeapsSignals(tradeLog, inpu
         self.assertIn("stock_sell_price", signals["TSLA.US"])
         self.assertEqual(signals["GOOG.US"]["next_stock_sell_date"], "")
         self.assertIsNone(signals["GOOG.US"]["stock_holding_days"])
+
+    def test_leaps_signal_stock_mark_return_and_volatility_fields(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript LEAPS helper check")
+
+        script = """
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const context = {
+  console,
+  postMessage() {},
+  performance: { now: () => 0 }
+};
+context.self = context;
+vm.createContext(context);
+vm.runInContext(source, context);
+const inputs = {
+  leaps_low_cash_threshold_pct: 12,
+  leaps_min_drawdown_pct: 12,
+  leaps_premium_budget_cap: 1000,
+  leaps_target_dte_label: '18-24M'
+};
+const mkDate = (index) => {
+  const d = new Date(Date.UTC(2024, 0, 1 + index));
+  return d.toISOString().slice(0, 10);
+};
+const tslaPoints = Array.from({ length: 75 }, (_, index) => ({
+  date: mkDate(index),
+  close: 80 + index
+}));
+const task = {
+  price_points: {
+    'TSLA.US': tslaPoints,
+    'GOOG.US': [
+      { date: '2024-02-01', close: 100 },
+      { date: '2024-02-02', close: 112 },
+      { date: '2024-02-03', close: 118 }
+    ]
+  }
+};
+const baseBuy = {
+  action: 'buy',
+  drawdown_pct: 24,
+  cash_pct_after: 3,
+  gross_amount: 900,
+  day_change_pct: -1.2
+};
+const tradeLog = [
+  { ...baseBuy, date: '2024-03-05', symbol: 'TSLA.US', price: 120 },
+  { action: 'sell', date: '2024-03-10', symbol: 'TSLA.US', price: 150 },
+  { ...baseBuy, date: '2024-02-02', symbol: 'GOOG.US', price: 112 }
+];
+process.stdout.write(JSON.stringify(context.summarizeLeapsSignals(tradeLog, inputs, true, task)));
+"""
+        completed = subprocess.run(
+            ["node", "-e", script, str(WORKER_JS)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+        signals = {item["symbol"]: item for item in result["all_signals"]}
+
+        self.assertEqual(signals["TSLA.US"]["stock_mark_date"], "2024-03-10")
+        self.assertEqual(signals["TSLA.US"]["stock_mark_price"], 150)
+        self.assertEqual(signals["TSLA.US"]["stock_sell_date"], "2024-03-10")
+        self.assertAlmostEqual(signals["TSLA.US"]["stock_return_pct"], 25)
+        self.assertGreaterEqual(signals["TSLA.US"]["realized_volatility_pct"], 15)
+        self.assertLessEqual(signals["TSLA.US"]["realized_volatility_pct"], 120)
+        self.assertEqual(signals["GOOG.US"]["stock_mark_date"], "2024-02-03")
+        self.assertEqual(signals["GOOG.US"]["stock_mark_price"], 118)
+        self.assertAlmostEqual(signals["GOOG.US"]["stock_return_pct"], (118 / 112 - 1) * 100)
+        self.assertEqual(signals["GOOG.US"]["realized_volatility_pct"], 60)
 
     def test_leaps_signal_details_are_opt_in_and_match_trigger_count(self):
         if shutil.which("node") is None:
@@ -907,14 +981,31 @@ const holding = {
   status: 'success',
   roi_pct: 12.34,
   contract: 'TSLA250117C00100000',
+  expiration: '2026-01-17',
+  strike: 100,
+  stock_buy_price: 100,
+  stock_mark_price: 120,
+  stock_mark_date: '2025-06-10',
+  stock_return_pct: 20,
+  realized_volatility_pct: 60,
+  entry_date: '2025-01-10',
   exit_status: 'holding',
   exit_date: '2025-01-10',
   exit_price: 16
 };
+const missingInputs = {
+  ...holding,
+  strike: null,
+  contract: 'TSLA250117C00110000'
+};
 const rendered = context.renderLeapsOptionOutcome(holding);
-const table = context.renderLeapsOptionOutcomeTable([holding]);
+const table = context.renderLeapsOptionOutcomeTable([holding, missingInputs]);
 if (!rendered.includes('持有中')) throw new Error(rendered);
 if (!table.includes('持有中')) throw new Error(table);
+if (!table.includes('正股/预估')) throw new Error(table);
+if (!table.includes('正股 +20%')) throw new Error(table);
+if (!table.includes('预估 +')) throw new Error(table);
+if (!table.includes('TSLA250117C00110000')) throw new Error(table);
 if (context.formatLeapsOptionExitStatus({ status: 'success', exit_status: 'expired_without_stock_sell' }) !== '已到期') {
   throw new Error('expired status not translated');
 }

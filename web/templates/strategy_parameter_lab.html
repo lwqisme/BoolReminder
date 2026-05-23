@@ -1878,6 +1878,11 @@
                 symbol: signal.symbol || '',
                 entry_date: signal.date || '',
                 stock_sell_date: signal.next_stock_sell_date || '',
+                stock_buy_price: signal.stock_buy_price ?? null,
+                stock_mark_date: signal.stock_mark_date || '',
+                stock_mark_price: signal.stock_mark_price ?? null,
+                stock_return_pct: signal.stock_return_pct ?? null,
+                realized_volatility_pct: signal.realized_volatility_pct ?? null,
                 status: 'skipped',
                 skipped_reason: reason || '期权收益计算失败'
             };
@@ -1890,7 +1895,12 @@
                 date: signal.date || base.date || base.entry_date || '',
                 symbol: signal.symbol || base.symbol || '',
                 entry_date: base.entry_date || signal.date || '',
-                stock_sell_date: signal.next_stock_sell_date || base.stock_sell_date || ''
+                stock_sell_date: signal.next_stock_sell_date || base.stock_sell_date || '',
+                stock_buy_price: signal.stock_buy_price ?? base.stock_buy_price ?? null,
+                stock_mark_date: signal.stock_mark_date || base.stock_mark_date || '',
+                stock_mark_price: signal.stock_mark_price ?? base.stock_mark_price ?? null,
+                stock_return_pct: signal.stock_return_pct ?? base.stock_return_pct ?? null,
+                realized_volatility_pct: signal.realized_volatility_pct ?? base.realized_volatility_pct ?? null
             };
         }
         function waitForLeapsOptionOutcomeDelay(ms) {
@@ -4502,6 +4512,68 @@
             const exitSuffix = exitLabel && exitLabel !== '正股卖点' ? ` · ${escapeHtml(exitLabel)}` : '';
             return `<span class="leaps-option-summary">${pct(outcome.roi_pct)} · ${escapeHtml(outcome.contract || '')}${exitSuffix}</span>`;
         }
+        function parseIsoDateMs(value) {
+            const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ''));
+            if (!match) return NaN;
+            return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+        }
+        function yearsBetween(startDate, endDate) {
+            const start = parseIsoDateMs(startDate);
+            const end = parseIsoDateMs(endDate);
+            if (!Number.isFinite(start) || !Number.isFinite(end)) return NaN;
+            return (end - start) / 31536000000;
+        }
+        function normalCdf(x) {
+            const z = Math.abs(Number(x) || 0);
+            const t = 1 / (1 + 0.2316419 * z);
+            const d = 0.3989422804014327 * Math.exp(-z * z / 2);
+            const p = d * t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+            return x >= 0 ? 1 - p : p;
+        }
+        function blackScholesCallPrice(spot, strike, years, volatilityPct, r = 0.04, q = 0) {
+            const s = Number(spot);
+            const k = Number(strike);
+            const t = Number(years);
+            const sigma = Number(volatilityPct) / 100;
+            if (!Number.isFinite(s) || !Number.isFinite(k) || s <= 0 || k <= 0) return null;
+            if (!Number.isFinite(t) || t <= 0) return Math.max(s - k, 0);
+            if (!Number.isFinite(sigma) || sigma <= 0) return null;
+            const sqrtT = Math.sqrt(t);
+            const d1 = (Math.log(s / k) + (r - q + sigma * sigma / 2) * t) / (sigma * sqrtT);
+            const d2 = d1 - sigma * sqrtT;
+            return s * Math.exp(-q * t) * normalCdf(d1) - k * Math.exp(-r * t) * normalCdf(d2);
+        }
+        function estimatedLeapsOptionRoiPct(outcome) {
+            if (!outcome || outcome.status !== 'success') return null;
+            const strike = Number(outcome.strike);
+            const expiration = outcome.expiration || '';
+            const entryDate = outcome.entry_date || outcome.date || '';
+            const markDate = outcome.stock_mark_date || outcome.stock_sell_date || outcome.exit_date || '';
+            const stockBuyPrice = Number(outcome.stock_buy_price);
+            const stockMarkPrice = Number(outcome.stock_mark_price);
+            const volatility = Number(outcome.realized_volatility_pct);
+            if (!Number.isFinite(strike) || !expiration || !entryDate || !markDate) return null;
+            if (!Number.isFinite(stockBuyPrice) || stockBuyPrice <= 0 || !Number.isFinite(stockMarkPrice) || stockMarkPrice <= 0) return null;
+            if (!Number.isFinite(volatility) || volatility <= 0) return null;
+            const entryCall = blackScholesCallPrice(stockBuyPrice, strike, yearsBetween(entryDate, expiration), volatility);
+            const exitCall = blackScholesCallPrice(stockMarkPrice, strike, yearsBetween(markDate, expiration), volatility);
+            if (!Number.isFinite(entryCall) || entryCall <= 0 || !Number.isFinite(exitCall)) return null;
+            return (exitCall / entryCall - 1) * 100;
+        }
+        function signedPct(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return '--';
+            return `${n > 0 ? '+' : ''}${number(n)}%`;
+        }
+        function renderLeapsStockEstimateCell(outcome) {
+            const estimate = estimatedLeapsOptionRoiPct(outcome);
+            const stockReturn = Number(outcome?.stock_return_pct);
+            if (!Number.isFinite(estimate) || !Number.isFinite(stockReturn)) return '--';
+            return `
+                <div>正股 ${signedPct(stockReturn)}</div>
+                <div>预估 ${signedPct(estimate)}</div>
+            `;
+        }
         function formatLeapsOptionExitStatus(outcome) {
             if (!outcome || outcome.status !== 'success') return outcome?.skipped_reason || '跳过';
             const labels = {
@@ -4526,6 +4598,7 @@
                     <td>${escapeHtml(outcome.exit_date || '--')}</td>
                     <td>${number(outcome.exit_price)}</td>
                     <td>${outcome.status === 'success' ? pct(outcome.roi_pct) : '--'}</td>
+                    <td>${renderLeapsStockEstimateCell(outcome)}</td>
                     <td>${escapeHtml(formatLeapsOptionExitStatus(outcome))}</td>
                 </tr>
             `).join('');
@@ -4535,7 +4608,7 @@
                     <summary>合约详情 <span>${number(count, 0)} 条</span></summary>
                     <div class="matrix-wrap" data-leaps-scroll-key="option-outcomes" style="max-height:300px;">
                         <table class="mini-table leaps-detail-table">
-                            <thead><tr><th>日期</th><th>标的</th><th>合约</th><th>到期</th><th>行权价</th><th>DTE</th><th>入场日</th><th>入场价</th><th>期权卖出日</th><th>卖出价</th><th>ROI</th><th>状态</th></tr></thead>
+                            <thead><tr><th>日期</th><th>标的</th><th>合约</th><th>到期</th><th>行权价</th><th>DTE</th><th>入场日</th><th>入场价</th><th>期权卖出日</th><th>卖出价</th><th>ROI</th><th>正股/预估</th><th>状态</th></tr></thead>
                             <tbody>${rows}</tbody>
                         </table>
                     </div>
