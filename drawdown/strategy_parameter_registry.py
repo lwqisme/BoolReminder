@@ -604,7 +604,7 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
                 "dca_rearm_drawdown_pct": list(ROBUST_DCA_REARM_DRAWDOWN_VALUES),
                 "sell_stage_rearm_drawdown_pct": list(ROBUST_SELL_STAGE_REARM_DRAWDOWN_VALUES),
             },
-            compatible_buy_strategies=tuple(REARM_BUY_STRATEGIES),
+            compatible_buy_strategies=all_buys,
         ),
         "grid_rebound": StrategyDefinition(
             "grid_rebound",
@@ -741,8 +741,6 @@ def _sell_param_variants(
     if strategy_key == "none":
         return [{}]
     if strategy_key == "repair_step":
-        if buy_strategy not in REARM_BUY_STRATEGIES:
-            return []
         current = {
             "sell_min_profit_pct": float(inputs.sell_min_profit_pct),
             "repair_sell_cooldown_days": int(inputs.repair_sell_cooldown_days),

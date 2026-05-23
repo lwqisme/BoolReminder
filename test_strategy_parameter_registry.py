@@ -65,9 +65,14 @@ class StrategyParameterRegistryTest(unittest.TestCase):
         self.assertIn(candidate["buy_variant_key"], candidate["combination_key"])
         self.assertIn(candidate["sell_variant_key"], candidate["combination_key"])
 
-    def test_incompatible_repair_combinations_are_excluded(self):
+    def test_repair_combinations_expand_for_all_buy_strategies(self):
         equal_slice_candidates = expand_strategy_candidate_payloads(
             ["equal_slice"],
+            ["repair_step"],
+            StrategyInputs(),
+        )
+        linear_candidates = expand_strategy_candidate_payloads(
+            ["linear_weighted_slice"],
             ["repair_step"],
             StrategyInputs(),
         )
@@ -77,9 +82,13 @@ class StrategyParameterRegistryTest(unittest.TestCase):
             StrategyInputs(),
         )
 
-        self.assertEqual(equal_slice_candidates, [])
+        self.assertTrue(equal_slice_candidates)
+        self.assertTrue(linear_candidates)
         self.assertTrue(salary_candidates)
-        self.assertTrue(all(item["sell_strategy"] == "repair_step" for item in salary_candidates))
+        for candidates in (equal_slice_candidates, linear_candidates, salary_candidates):
+            self.assertTrue(all(item["sell_strategy"] == "repair_step" for item in candidates))
+        self.assertEqual({item["dca_rearm_drawdown_pct"] for item in equal_slice_candidates}, {None})
+        self.assertEqual({item["dca_rearm_drawdown_pct"] for item in linear_candidates}, {None})
 
     def test_position_repair_step_keeps_baseline_repair_params_outside_selected_values(self):
         inputs = StrategyInputs(
@@ -119,6 +128,42 @@ class StrategyParameterRegistryTest(unittest.TestCase):
             self.assertEqual({item["sell_min_profit_pct"] for item in candidates}, {12.5})
             self.assertEqual({item["repair_sell_cooldown_days"] for item in candidates}, {45})
             self.assertEqual({item["repair_stage_sell_pct"] for item in candidates}, {18.0})
+
+    def test_slice_repair_step_keeps_baseline_repair_params_outside_selected_values(self):
+        inputs = StrategyInputs(
+            sell_min_profit_pct=12.5,
+            repair_sell_cooldown_days=45,
+            repair_stage_sell_pct=18.0,
+        )
+        selected = {
+            "step_pct": [2.5, 5.0, 10.0],
+            "equal_slice_allocation_pct": [2.5, 5.0, 7.5, 10.0],
+            "sell_min_profit_pct": [5.0, 10.0, 20.0],
+            "repair_sell_cooldown_days": [0, 30, 60],
+            "repair_stage_sell_pct": [8.0, 15.0, 25.0],
+            "sell_allow_same_day_sell": [False, True],
+        }
+
+        equal_candidates = expand_strategy_candidate_payloads(
+            ["equal_slice"],
+            ["repair_step"],
+            inputs,
+            selected_parameter_values=selected,
+        )
+        linear_candidates = expand_strategy_candidate_payloads(
+            ["linear_weighted_slice"],
+            ["repair_step"],
+            inputs,
+            selected_parameter_values=selected,
+        )
+
+        self.assertTrue(equal_candidates)
+        self.assertTrue(linear_candidates)
+        for candidates in (equal_candidates, linear_candidates):
+            self.assertEqual({item["sell_min_profit_pct"] for item in candidates}, {12.5})
+            self.assertEqual({item["repair_sell_cooldown_days"] for item in candidates}, {45})
+            self.assertEqual({item["repair_stage_sell_pct"] for item in candidates}, {18.0})
+            self.assertEqual({item["dca_rearm_drawdown_pct"] for item in candidates}, {None})
 
     def test_lot_repair_step_still_filters_repair_scan_values(self):
         candidates = expand_strategy_candidate_payloads(
