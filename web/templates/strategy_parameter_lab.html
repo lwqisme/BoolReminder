@@ -1838,6 +1838,18 @@
             const reason = success >= total ? '' : ` · ${summary.top_failure_reason || '有跳过'}`;
             return `<span class="leaps-option-summary ${success ? '' : 'warn'}">月期权 ROI ${roi} / ${med} · ${number(success, 0)}/${number(total, 0)}${escapeHtml(reason)}</span>`;
         }
+        function firstLeapsSignalForEstimate(summary) {
+            if (Array.isArray(summary?.top_signals) && summary.top_signals.length) return summary.top_signals[0];
+            if (summary?.date && summary?.symbol) return summary;
+            return null;
+        }
+        function renderEstimatedLeapsSummary(summary) {
+            const signal = firstLeapsSignalForEstimate(summary);
+            return signal ? renderEstimatedLeapsOptionSummary(signal) : '';
+        }
+        function renderLeapsOptionOrEstimate(summary, optionSummary = null) {
+            return renderLeapsOptionSummary(optionSummary) || renderEstimatedLeapsSummary(summary);
+        }
         function signalOptionKey(signal, index = 0) {
             return [
                 signal.date || '',
@@ -3891,7 +3903,7 @@
                                 </div>
                                 <div class="group-metrics">
                                     ${showLeaps ? renderLeapsBadge(group.best_leaps_signal || {}, false) : ''}
-                                    ${showLeaps ? renderLeapsOptionSummary(group.leaps_option_summary) : ''}
+                                    ${showLeaps ? renderLeapsOptionOrEstimate(group.best_leaps_signal || {}, group.leaps_option_summary) : ''}
                                     <span>Best global #${number(group.best_global_rank, 0)}</span>
                                     <span>${escapeHtml(scoreLabel)} ${number(group.best_score)}</span>
                                     <button type="button" onclick="toggleParameterGroup('${escapeHtml(group.key)}')">${collapsed ? '展开' : '折叠'}</button>
@@ -3922,7 +3934,7 @@
                             <td class="score-cell" style="${heatStyle(cell.topic_score)};cursor:pointer" title="${escapeHtml(title)}&#10;点击查看买卖点演算" onclick="openCellInLab('${escapeHtml(row.key)}', '${escapeHtml(task.key)}')">
                                 <div class="score-rank"><strong>#${number(cell.topic_rank, 0)}</strong><span>${number(cell.topic_score)}</span></div>
                                 <div class="cell-metrics"><b>${pct(cell.return_pct)}</b><b>${pct(cell.max_drawdown_pct)}</b></div>
-                                ${showLeaps ? `<div class="leaps-strip">${renderLeapsBadge(cell.leaps_signal || {}, true)}</div>` : ''}
+                                ${showLeaps ? `<div class="leaps-strip">${renderLeapsBadge(cell.leaps_signal || {}, true)}${renderEstimatedLeapsSummary(cell.leaps_signal || {})}</div>` : ''}
                             </td>
                         `;
                     }).join('');
@@ -3934,7 +3946,7 @@
                                 <div class="strategy-meta">${rankMethod === 'raw' ? 'Raw' : 'Final'} ${number(rankMethod === 'raw' ? row.raw_score : row.final_score)} / Avg return ${pct(row.avg_return_pct)} / Avg DD ${pct(row.avg_drawdown_pct)}</div>
                                 <div class="strategy-meta">${escapeHtml(row.buy_strategy || candidate.buy_strategy || '')} + ${escapeHtml(row.sell_strategy || candidate.sell_strategy || '')}</div>
                                 ${showLeaps ? `<div class="leaps-strip">${renderLeapsBadge(row.leaps_signal || {}, false)}</div>` : ''}
-                                ${showLeaps && row.leaps_option_summary ? `<div class="leaps-strip">${renderLeapsOptionSummary(row.leaps_option_summary)}</div>` : ''}
+                                ${showLeaps ? `<div class="leaps-strip">${renderLeapsOptionOrEstimate(row.leaps_signal || {}, row.leaps_option_summary)}</div>` : ''}
                                 <div class="row-actions">
                                     <button type="button" onclick="openRowDetail('${escapeHtml(row.key)}')">参数</button>
                                     <button type="button" onclick="applyParameterRow('${escapeHtml(row.key)}')">应用到主实验室</button>
