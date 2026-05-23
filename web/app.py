@@ -606,6 +606,37 @@ def _leaps_option_permission_denied_result(signals: list[dict[str, object]], rea
     }
 
 
+def _leaps_option_permission_circuit_result(
+    signals: list[dict[str, object]],
+    reason: str,
+    provider_name: str,
+    provider_cache_id: str,
+) -> dict[str, object]:
+    outcomes: list[dict[str, object]] = []
+    cache_hits = 0
+    for signal in signals:
+        cached = _leaps_option_outcome_cache.read(signal, provider_id=provider_cache_id)
+        if cached is not None:
+            cached["provider"] = provider_name
+            outcomes.append(cached)
+            cache_hits += 1
+        else:
+            outcomes.append({**skipped_outcome(signal, reason), "provider": provider_name})
+    return {
+        "success": True,
+        "provider": provider_name,
+        "outcomes": outcomes,
+        "summary": summarize_outcomes(outcomes),
+        "cache_stats": {
+            "provider": provider_name,
+            "provider_requests": 0,
+            "polygon_requests": 0,
+            "outcome": {"memory_hit": 0, "disk_hit": cache_hits, "miss": len(signals) - cache_hits, "write": 0},
+        },
+        "permission_circuit_open": True,
+    }
+
+
 def _get_leaps_option_provider(api_key: str) -> object | None:
     global _leaps_option_provider, _leaps_option_provider_api_key
     alpaca_config = _get_alpaca_config()
@@ -9759,9 +9790,10 @@ def api_strategy_lab_parameter_lab_leaps_option_outcomes():
     api_key = _get_polygon_api_key()
     provider = _get_leaps_option_provider(api_key)
     provider_name, credential_key, permission_reason = _leaps_option_provider_request_context(provider, api_key)
+    provider_cache_id = str(getattr(provider, "cache_provider_id", "") or provider_name)
     replay_api_key = api_key if provider_name == "polygon" else ""
     if _leaps_option_permission_denied_active(provider_name, credential_key):
-        result = _leaps_option_permission_denied_result(signals, permission_reason, provider_name)
+        result = _leaps_option_permission_circuit_result(signals, permission_reason, provider_name, provider_cache_id)
     else:
         result = replay_leaps_option_outcomes(signals, replay_api_key, provider=provider, outcome_cache=_leaps_option_outcome_cache)
         if _leaps_option_result_has_permission_denied(result, permission_reason):
@@ -9813,9 +9845,10 @@ def api_strategy_lab_parameter_lab_leaps_option_outcomes_batch():
     api_key = _get_polygon_api_key()
     provider = _get_leaps_option_provider(api_key)
     provider_name, credential_key, permission_reason = _leaps_option_provider_request_context(provider, api_key)
+    provider_cache_id = str(getattr(provider, "cache_provider_id", "") or provider_name)
     replay_api_key = api_key if provider_name == "polygon" else ""
     if _leaps_option_permission_denied_active(provider_name, credential_key):
-        result = _leaps_option_permission_denied_result(signals, permission_reason, provider_name)
+        result = _leaps_option_permission_circuit_result(signals, permission_reason, provider_name, provider_cache_id)
     else:
         result = replay_leaps_option_outcomes_batch(signals, replay_api_key, provider=provider, outcome_cache=_leaps_option_outcome_cache)
         if _leaps_option_result_has_permission_denied(result, permission_reason):

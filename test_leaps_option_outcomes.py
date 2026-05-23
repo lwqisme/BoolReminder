@@ -476,6 +476,47 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         self.assertEqual(payload["cache_stats"]["polygon_requests"], 0)
         self.assertEqual(payload["summary"]["top_failure_reason"], POLYGON_PERMISSION_DENIED)
 
+    def test_permission_circuit_still_serves_cached_outcomes(self):
+        signal = {
+            "signal_key": "sig-1",
+            "date": "2026-02-17",
+            "symbol": "GOOGL.US",
+            "stock_buy_price": 286,
+            "next_stock_sell_date": "2026-03-25",
+        }
+        outcome = {
+            **signal,
+            "status": "success",
+            "contract": "O:GOOGL261120C00315000",
+            "entry_date": "2026-02-17",
+            "exit_date": "2026-03-25",
+            "entry_price": 35.28,
+            "exit_price": 26.6,
+            "roi_pct": -24.6,
+            "skipped_reason": "",
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = OutcomeCache(cache_dir=Path(tmpdir))
+            cache.write(signal, outcome, provider_id="polygon")
+            with patch("web.app._leaps_option_outcome_cache", cache):
+                with patch("web.app._leaps_option_polygon_permission_denied_until_by_key", {"polygon:test": time.monotonic() + 60}):
+                    with patch("web.app._leaps_option_permission_fingerprint", return_value="polygon:test"):
+                        with patch("web.app._get_polygon_api_key", return_value="test-key"):
+                            with patch("web.app.replay_leaps_option_outcomes_batch") as replay:
+                                with app.test_client() as client:
+                                    response = client.post(
+                                        "/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch",
+                                        json={"signals": [signal]},
+                                    )
+
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["permission_circuit_open"])
+        self.assertEqual(replay.call_count, 0)
+        self.assertEqual(payload["summary"]["success_count"], 1)
+        self.assertEqual(payload["outcomes"][0]["status"], "success")
+        self.assertEqual(payload["outcomes"][0]["contract"], "O:GOOGL261120C00315000")
+
     def test_batch_replay_dedupes_duplicate_signals(self):
         provider = CountingProvider()
         signals = [
