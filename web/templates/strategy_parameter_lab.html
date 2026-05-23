@@ -1422,6 +1422,12 @@
                         <input id="leapsSignalToggle" type="checkbox" onchange="renderParameterMatrix()">
                         LEAPS 信号
                     </label>
+                    <label>期权预估
+                        <select id="leapsEstimateScope" onchange="renderParameterMatrix()">
+                            <option value="all">全部 LEAPS</option>
+                            <option value="high" selected>仅高等级</option>
+                        </select>
+                    </label>
                     <label>排名
                         <select id="rankMethod" onchange="renderParameterMatrix()">
                             <option value="normalized" selected>题内归一化</option>
@@ -1843,9 +1849,41 @@
             if (summary?.date && summary?.symbol) return summary;
             return null;
         }
-        function renderEstimatedLeapsSummary(summary) {
+        function currentLeapsEstimateScope() {
+            if (typeof document === 'undefined') return 'high';
+            return document.getElementById('leapsEstimateScope')?.value === 'all' ? 'all' : 'high';
+        }
+        function leapsEstimateSignalPool(summary) {
+            if (Array.isArray(summary?.all_signals) && summary.all_signals.length) return summary.all_signals;
+            if (Array.isArray(summary?.top_signals) && summary.top_signals.length) return summary.top_signals;
             const signal = firstLeapsSignalForEstimate(summary);
-            return signal ? renderEstimatedLeapsOptionSummary(signal) : '';
+            return signal ? [signal] : [];
+        }
+        function estimatedLeapsOptionSummary(summary, scope = currentLeapsEstimateScope()) {
+            const allSignals = leapsEstimateSignalPool(summary);
+            if (!allSignals.length) return null;
+            const signals = scope === 'high' ? allSignals.filter((signal) => signal?.grade === '高') : allSignals;
+            if (!signals.length) {
+                return { total: 0, success_count: 0, skipped_count: 0, roi_mean_pct: null, roi_median_pct: null, scope };
+            }
+            const estimates = signals.map((signal) => estimatedLeapsOptionRoiPct(estimatedLeapsOutcomeFromSignal(signal))).filter(Number.isFinite);
+            return {
+                total: signals.length,
+                success_count: estimates.length,
+                skipped_count: signals.length - estimates.length,
+                roi_mean_pct: estimates.length ? estimates.reduce((sum, value) => sum + value, 0) / estimates.length : null,
+                roi_median_pct: median(estimates),
+                scope
+            };
+        }
+        function renderEstimatedLeapsSummary(summary, scope = currentLeapsEstimateScope()) {
+            const estimated = estimatedLeapsOptionSummary(summary, scope);
+            if (!estimated) return '';
+            const scopeLabel = estimated.scope === 'high' ? '高' : '全';
+            if (!estimated.total || !estimated.success_count || !Number.isFinite(Number(estimated.roi_mean_pct))) {
+                return `<span class="leaps-option-summary warn">预估 ${scopeLabel} --</span>`;
+            }
+            return `<span class="leaps-option-summary">预估 ${scopeLabel} 均 ${pct(estimated.roi_mean_pct)} / 中 ${pct(estimated.roi_median_pct)} · ${number(estimated.success_count, 0)}/${number(estimated.total, 0)}</span>`;
         }
         function renderLeapsOptionOrEstimate(summary, optionSummary = null) {
             return renderLeapsOptionSummary(optionSummary) || renderEstimatedLeapsSummary(summary);
@@ -3699,12 +3737,14 @@
                         best_global_rank: row.global_rank,
                         best_score: scoreForRankMethod(row, rankMethod),
                         best_leaps_signal: row.leaps_signal || null,
+                        leaps_estimate_signals: [],
                         leaps_option_summaries: [],
                         leaps_option_outcomes: []
                     });
                 }
                 const group = groups.get(row.group_key);
                 group.rows.push(row);
+                group.leaps_estimate_signals.push(...leapsEstimateSignalPool(row.leaps_signal || {}));
                 if (row.leaps_option_summary) group.leaps_option_summaries.push(row.leaps_option_summary);
                 if (Array.isArray(row.leaps_option_outcomes)) group.leaps_option_outcomes.push(...row.leaps_option_outcomes);
                 group.best_leaps_signal = group.best_leaps_signal
@@ -3903,7 +3943,7 @@
                                 </div>
                                 <div class="group-metrics">
                                     ${showLeaps ? renderLeapsBadge(group.best_leaps_signal || {}, false) : ''}
-                                    ${showLeaps ? renderLeapsOptionOrEstimate(group.best_leaps_signal || {}, group.leaps_option_summary) : ''}
+                                    ${showLeaps ? renderLeapsOptionOrEstimate({ top_signals: group.leaps_estimate_signals || [] }, group.leaps_option_summary) : ''}
                                     <span>Best global #${number(group.best_global_rank, 0)}</span>
                                     <span>${escapeHtml(scoreLabel)} ${number(group.best_score)}</span>
                                     <button type="button" onclick="toggleParameterGroup('${escapeHtml(group.key)}')">${collapsed ? '展开' : '折叠'}</button>
