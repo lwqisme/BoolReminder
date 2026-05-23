@@ -284,6 +284,19 @@ def _utc_today() -> date:
     return datetime.now(timezone.utc).date()
 
 
+def _is_completed_market_date(value: date) -> bool:
+    if value.weekday() >= 5:
+        return False
+    return value not in observed_us_market_holidays(value.year) and value not in observed_us_market_holidays(value.year + 1)
+
+
+def latest_completed_market_date(today: date | None = None) -> date:
+    current = today or _utc_today()
+    while not _is_completed_market_date(current):
+        current -= timedelta(days=1)
+    return current
+
+
 def _safe_cache_name(value: str) -> str:
     normalized = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
     normalized = normalized.strip("._")
@@ -473,9 +486,10 @@ def _outcome_cache_keys_for_read(signal: dict[str, object], provider_id: str = "
         if provider_id == "polygon":
             keys.append(_legacy_outcome_cache_key(signal))
         return keys
-    keys = [outcome_cache_key(signal, provider_id=provider_id), outcome_cache_key(signal, _utc_today(), provider_id=provider_id)]
+    mark_date = latest_completed_market_date()
+    keys = [outcome_cache_key(signal, provider_id=provider_id), outcome_cache_key(signal, mark_date, provider_id=provider_id)]
     if provider_id == "polygon":
-        keys.extend([_legacy_outcome_cache_key(signal), _legacy_outcome_cache_key(signal, _utc_today())])
+        keys.extend([_legacy_outcome_cache_key(signal), _legacy_outcome_cache_key(signal, mark_date)])
     return keys
 
 
@@ -491,7 +505,7 @@ def _outcome_cache_keys_for_write(signal: dict[str, object], outcome: dict[str, 
         return [outcome_cache_key(signal, provider_id=provider_id)]
     if outcome.get("status") != "success" and reason in OUTCOME_CACHEABLE_FAILURES:
         return [outcome_cache_key(signal, provider_id=provider_id)]
-    return [outcome_cache_key(signal, _utc_today(), provider_id=provider_id)]
+    return [outcome_cache_key(signal, latest_completed_market_date(), provider_id=provider_id)]
 
 
 def skipped_outcome(signal: dict[str, object], reason: str) -> dict[str, object]:
@@ -1399,8 +1413,8 @@ def replay_signal(provider: Any, signal: dict[str, object]) -> dict[str, object]
     if sell_date:
         history_end = max(entry_end, min(sell_date + timedelta(days=7), contract.expiration))
     else:
-        today = _utc_today()
-        history_end = max(entry_end, min(today, contract.expiration))
+        mark_date = latest_completed_market_date()
+        history_end = max(entry_end, min(mark_date, contract.expiration))
     bars = provider.fetch_bars(contract.ticker, signal_date, history_end)
     _log_option_event(
         "signal_bars_loaded",
@@ -1417,14 +1431,14 @@ def replay_signal(provider: Any, signal: dict[str, object]) -> dict[str, object]
         return _annotate_outcome_provider(outcome, provider)
 
     if not sell_date:
-        today = _utc_today()
-        exit_boundary = min(today, contract.expiration)
+        mark_date = latest_completed_market_date()
+        exit_boundary = min(mark_date, contract.expiration)
         exit_bar = last_bar_after_on_or_before(bars, entry_bar.date, exit_boundary)
         if not exit_bar:
             outcome = {**skipped_outcome(signal, NO_EXIT_PRICE), **contract_payload(contract), "entry_price": entry_bar.close}
             _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=NO_EXIT_PRICE, contract=contract.ticker, entry_date=entry_bar.date.isoformat(), elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
             return _annotate_outcome_provider(outcome, provider)
-        exit_status = "expired_without_stock_sell" if today >= contract.expiration else "holding"
+        exit_status = "expired_without_stock_sell" if mark_date >= contract.expiration else "holding"
     elif sell_date > contract.expiration:
         exit_bar = last_bar_on_or_before(bars, contract.expiration, 7)
         if not exit_bar:
@@ -1604,7 +1618,8 @@ def _replay_leaps_option_outcomes_batch(
     unique_by_key: dict[str, dict[str, object]] = {}
     key_by_index: list[str] = []
     for signal in signals:
-        key = outcome_cache_key(signal, _utc_today() if not parse_iso_date(signal.get("next_stock_sell_date")) else None, provider_id=provider_cache_id)
+        mark_date = latest_completed_market_date() if not parse_iso_date(signal.get("next_stock_sell_date")) else None
+        key = outcome_cache_key(signal, mark_date, provider_id=provider_cache_id)
         key_by_index.append(key)
         unique_by_key.setdefault(key, signal)
 

@@ -232,7 +232,7 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         self.assertEqual(outcome["exit_date"], "2025-01-10")
         self.assertAlmostEqual(outcome["roi_pct"], 60.0)
         self.assertEqual(result["summary"]["success_count"], 1)
-        self.assertEqual(provider.fetch_requests[0][1:], (date(2024, 12, 8), date(2025, 1, 11)))
+        self.assertEqual(provider.fetch_requests[0][1:], (date(2024, 12, 8), date(2025, 1, 10)))
 
     def test_expired_contract_without_stock_sell_uses_last_bar_before_expiration(self):
         provider = FakeProvider(
@@ -644,6 +644,28 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
 
         self.assertEqual(first_provider.select_count, 1)
         self.assertEqual(second_provider.select_count, 0)
+        self.assertEqual(second["outcomes"][0]["signal_key"], "sig-2")
+        self.assertEqual(first["outcomes"][0]["roi_pct"], second["outcomes"][0]["roi_pct"])
+
+    def test_no_sell_outcome_cache_uses_latest_completed_market_day(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = OutcomeCache(cache_dir=Path(tmpdir))
+            signal = {
+                "signal_key": "sig-1",
+                "date": "2024-12-08",
+                "symbol": "TSLA.US",
+                "stock_buy_price": 100,
+            }
+            first_provider = CountingProvider()
+            with patch("drawdown.leaps_option_outcomes._utc_today", return_value=date(2025, 1, 10)):
+                first = replay_leaps_option_outcomes_batch([signal], api_key="", provider=first_provider, outcome_cache=cache)
+            second_provider = CountingProvider()
+            with patch("drawdown.leaps_option_outcomes._utc_today", return_value=date(2025, 1, 11)):
+                second = replay_leaps_option_outcomes_batch([{**signal, "signal_key": "sig-2"}], api_key="", provider=second_provider, outcome_cache=cache)
+
+        self.assertEqual(first_provider.select_count, 1)
+        self.assertEqual(second_provider.select_count, 0)
+        self.assertEqual(first["outcomes"][0]["exit_status"], "holding")
         self.assertEqual(second["outcomes"][0]["signal_key"], "sig-2")
         self.assertEqual(first["outcomes"][0]["roi_pct"], second["outcomes"][0]["roi_pct"])
 
