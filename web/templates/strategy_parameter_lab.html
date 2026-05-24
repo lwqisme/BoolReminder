@@ -4615,6 +4615,12 @@
             const d2 = d1 - sigma * sqrtT;
             return s * Math.exp(-q * t) * normalCdf(d1) - k * Math.exp(-r * t) * normalCdf(d2);
         }
+        function estimatedOptionVolatilityPct(realizedVolatilityPct) {
+            const n = Number(realizedVolatilityPct);
+            if (!Number.isFinite(n) || n <= 0) return null;
+            // Local outcome cache shows raw 60D realized vol understates quiet mega-cap IV and overstates shocky names.
+            return Math.min(65, Math.max(32, n));
+        }
         function estimatedLeapsOptionRoiPct(outcome) {
             if (!outcome || outcome.status !== 'success') return null;
             const strike = Number(outcome.strike);
@@ -4623,7 +4629,7 @@
             const markDate = outcome.stock_mark_date || outcome.stock_sell_date || outcome.exit_date || '';
             const stockBuyPrice = Number(outcome.stock_buy_price);
             const stockMarkPrice = Number(outcome.stock_mark_price);
-            const volatility = Number(outcome.realized_volatility_pct);
+            const volatility = estimatedOptionVolatilityPct(outcome.estimated_volatility_pct ?? outcome.realized_volatility_pct);
             if (!Number.isFinite(strike) || !expiration || !entryDate || !markDate) return null;
             if (!Number.isFinite(stockBuyPrice) || stockBuyPrice <= 0 || !Number.isFinite(stockMarkPrice) || stockMarkPrice <= 0) return null;
             if (!Number.isFinite(volatility) || volatility <= 0) return null;
@@ -4653,6 +4659,7 @@
                 stock_mark_price: stockMarkPrice,
                 stock_mark_date: markDate,
                 stock_return_pct: signal.stock_return_pct,
+                estimated_volatility_pct: estimatedOptionVolatilityPct(volatility),
                 realized_volatility_pct: volatility
             };
         }

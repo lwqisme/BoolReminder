@@ -1018,6 +1018,8 @@ const estimatedBeforeCalculation = context.renderLeapsOptionOutcome(null, signal
 const table = context.renderLeapsOptionOutcomeTable([holding, missingInputs]);
 if (!rendered.includes('持有中')) throw new Error(rendered);
 if (!estimatedBeforeCalculation.includes('预估 +')) throw new Error(estimatedBeforeCalculation);
+if (context.estimatedOptionVolatilityPct(22) !== 32) throw new Error('vol floor failed');
+if (context.estimatedOptionVolatilityPct(80) !== 65) throw new Error('vol cap failed');
 if (!table.includes('持有中')) throw new Error(table);
 if (!table.includes('正股/预估')) throw new Error(table);
 if (!table.includes('正股 +20%')) throw new Error(table);

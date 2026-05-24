@@ -365,6 +365,8 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("renderLeapsOptionOutcome(groupOutcomes[0], group.best_signal)", html)
         self.assertIn("function estimatedLeapsOptionRoiPct(outcome)", html)
         self.assertIn("function estimatedLeapsOutcomeFromSignal(signal)", html)
+        self.assertIn("function estimatedOptionVolatilityPct(realizedVolatilityPct)", html)
+        self.assertIn("Math.min(65, Math.max(32, n))", html)
         self.assertIn("row.leaps_option_summary = entry.summary", html)
         self.assertIn("/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch", html)
         self.assertNotIn("LEAPS_OPTION_QUEUE_CONCURRENCY = 2", html)
