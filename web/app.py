@@ -2071,23 +2071,50 @@ STRATEGY_LAB_TEMPLATE = """
         }
         .universe-format-hint { color: var(--muted); font-size: 12px; line-height: 1.55; margin-bottom: 8px; }
         .universe-format-hint code { font-family: var(--mono); color: var(--charcoal); }
-        .universe-table-wrap { overflow-x: auto; }
-        .universe-table { width: 100%; border-collapse: collapse; min-width: 620px; }
-        .universe-table th,
-        .universe-table td {
-            padding: 6px;
+        .universe-list-wrap { overflow-x: auto; }
+        .universe-list { display: grid; min-width: 0; }
+        .universe-header,
+        .universe-row {
+            display: grid;
+            grid-template-columns: 28px minmax(140px, 1.25fr) minmax(110px, 1fr) 86px 34px;
+            gap: 8px;
+            align-items: start;
             border-bottom: 1px solid rgba(215, 226, 239, 0.92);
-            text-align: left;
-            vertical-align: top;
         }
-        .universe-table th { color: var(--muted); font-size: 11px; font-weight: 900; }
-        .universe-table input { min-height: 30px; padding: 5px 7px; font-size: 12px; }
-        .universe-table input[type="checkbox"] { width: 18px; min-height: 18px; margin-top: 6px; }
+        .universe-header {
+            padding: 0 0 5px;
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 900;
+        }
+        .universe-row { padding: 6px 0; }
+        .universe-enable-cell {
+            display: flex;
+            justify-content: center;
+            padding-top: 6px;
+        }
+        .universe-row input {
+            width: 100%;
+            min-width: 0;
+            min-height: 30px;
+            padding: 5px 7px;
+            font-size: 12px;
+        }
+        .universe-row input[type="checkbox"] {
+            width: 18px;
+            min-height: 18px;
+            padding: 0;
+            margin: 0;
+        }
         .universe-warning { display: block; min-height: 16px; color: var(--amber); font-size: 11px; margin-top: 3px; }
         .universe-remove { width: 30px; min-height: 30px; padding: 0; }
         @media (max-width: 720px) {
             .universe-add { grid-template-columns: 1fr 1fr; }
-            .universe-remove { width: auto; }
+            .universe-header,
+            .universe-row {
+                grid-template-columns: 28px minmax(110px, 1fr) minmax(100px, 0.9fr) 76px 34px;
+                gap: 6px;
+            }
         }
         /* kpi grid for results */
         .kpi-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
@@ -3677,13 +3704,17 @@ STRATEGY_LAB_TEMPLATE = """
                     <button class="btn btn-secondary btn-small" type="button" onclick="addUniverseSymbolFromForm()">添加</button>
                 </div>
                 <div class="universe-format-hint">Longbridge 股票代码格式：美股 <code>GOOGL.US</code>，港股 <code>0700.HK</code>，沪市 <code>600519.SH</code>，深市 <code>000001.SZ</code>，新加坡 <code>D05.SI</code>，日本 <code>7203.T</code>；未写后缀时按美股 <code>.US</code> 处理。</div>
-                <div class="universe-table-wrap">
-                    <table class="universe-table" aria-label="默认股票列表">
-                        <thead>
-                            <tr><th>启用</th><th>股票代码</th><th>显示名称</th><th>最大回撤 %</th><th>删除</th></tr>
-                        </thead>
-                        <tbody id="universeGrid"></tbody>
-                    </table>
+                <div class="universe-list-wrap">
+                    <div class="universe-list" role="table" aria-label="默认股票列表">
+                        <div class="universe-header" role="row">
+                            <span aria-hidden="true"></span>
+                            <span role="columnheader">标的</span>
+                            <span role="columnheader">名称</span>
+                            <span role="columnheader">回撤</span>
+                            <span role="columnheader">操作</span>
+                        </div>
+                        <div id="universeGrid" class="universe-rows" role="rowgroup"></div>
+                    </div>
                 </div>
             </div>
             <div id="holdingGrid" class="holding-grid"></div>
@@ -4360,16 +4391,16 @@ STRATEGY_LAB_TEMPLATE = """
                 const enabled = universeRowEnabledForSymbol(symbol, item);
                 const maxDrawdown = Number(item.max_drawdown_pct || readNumber('maxDrawdown') || 50);
                 return `
-                <tr data-universe="${index}">
-                    <td><input data-field="enabled" type="checkbox" ${enabled ? 'checked' : ''} aria-label="启用 ${escapeHtml(symbol)}" onchange="syncUniverseToScoreTopics()"></td>
-                    <td>
+                <div class="universe-row" data-universe="${index}" role="row">
+                    <div class="universe-enable-cell" role="cell"><input data-field="enabled" type="checkbox" ${enabled ? 'checked' : ''} aria-label="启用 ${escapeHtml(symbol)}" onchange="syncUniverseToScoreTopics()"></div>
+                    <div class="universe-symbol-field" role="cell">
                         <input data-field="symbol" value="${escapeHtml(symbol)}" aria-label="股票代码" onblur="normalizeUniverseRowSymbol(this); syncUniverseToScoreTopics()">
                         <span class="universe-warning" data-field="warning">${escapeHtml(normalized.warning || '')}</span>
-                    </td>
-                    <td><input data-field="name" value="${escapeHtml(item.name || symbol)}" aria-label="显示名称" oninput="syncUniverseToScoreTopics()"></td>
-                    <td><input data-field="max_drawdown_pct" type="number" min="1" max="100" step="0.5" value="${maxDrawdown}" aria-label="评分回撤" oninput="syncUniverseToScoreTopics()"></td>
-                    <td><button class="btn btn-secondary btn-small universe-remove" type="button" onclick="removeUniverseSymbol(${index})">×</button></td>
-                </tr>
+                    </div>
+                    <div class="universe-name-field" role="cell"><input data-field="name" value="${escapeHtml(item.name || symbol)}" aria-label="显示名称" oninput="syncUniverseToScoreTopics()"></div>
+                    <div class="universe-drawdown-field" role="cell"><input data-field="max_drawdown_pct" type="number" min="1" max="100" step="0.5" value="${maxDrawdown}" aria-label="评分回撤" oninput="syncUniverseToScoreTopics()"></div>
+                    <div class="universe-action-cell" role="cell"><button class="btn btn-secondary btn-small universe-remove" type="button" onclick="removeUniverseSymbol(${index})">×</button></div>
+                </div>
             `;}).join('');
             syncUniverseToScoreTopics();
         }
