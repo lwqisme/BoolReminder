@@ -8893,7 +8893,17 @@ ACCOUNT_SIGNAL_TEMPLATE = """
     }
     function renderCandidateAssign(symbol, target, candidates) {
       if (!target || !target.enabled) return '';
-      if (!candidates.length) return '<div class="candidate-note">候选库为空；先在策略实验室保存候选组合。</div>';
+      if (!candidates.length) {
+        return `
+          <div class="assign-row">
+            <select data-candidate-select="${escapeHtml(symbol)}" aria-label="选择 ${escapeHtml(symbol)} profile 候选" disabled>
+              <option value="">候选库为空，先在策略实验室保存候选组合</option>
+            </select>
+            <button type="button" data-assign-profile="${escapeHtml(symbol)}" disabled>绑定候选</button>
+          </div>
+          <div class="candidate-note">保存候选后刷新本页，即可把任意候选绑定到这只股票。</div>
+        `;
+      }
       return `
         <div class="assign-row">
           <select data-candidate-select="${escapeHtml(symbol)}" aria-label="选择 ${escapeHtml(symbol)} profile 候选">

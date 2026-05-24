@@ -252,6 +252,7 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("data-candidate-select", html)
         self.assertIn("data-assign-profile", html)
         self.assertIn("/api/account-signal/profiles/assign", html)
+        self.assertIn("候选库为空，先在策略实验室保存候选组合", html)
         self.assertIn("绑定后才会影响真实账户提醒", html)
         self.assertNotIn("GOOGL.US", html)
         self.assertNotIn("TSLA.US", html)
