@@ -10,8 +10,14 @@ from drawdown.generate_drawdown_report import build_price_points_from_series
 
 from account_signal.config import AccountSnapshot, SignalTarget, googl_inputs
 from account_signal.engine import account_signal_status, run_account_signal
+from account_signal.profiles import (
+    active_profiles_for_symbols,
+    built_in_default_profiles,
+    promote_candidate_to_profile,
+    strategy_inputs_for_profile,
+)
 from account_signal.store import load_run_history, save_latest_run
-from account_signal.state import AccountLot, AccountPosition, recover_position
+from account_signal.state import AccountLot, AccountPosition, derive_profile_state, recover_position
 from web.app import app
 
 
@@ -49,7 +55,8 @@ class AccountSignalTest(unittest.TestCase):
         self.assertEqual(len(position.lots), 1)
         self.assertAlmostEqual(position.lots[0].remaining_shares, 8)
         self.assertAlmostEqual(position.avg_cost, 120)
-        self.assertEqual(position.cost_deleverage_marks, {"cost_1"})
+        self.assertEqual(position.cost_deleverage_marks, set())
+        self.assertEqual(len(position.sell_events), 1)
 
     def test_googl_inputs_match_fixed_real_account_strategy(self):
         inputs = googl_inputs()
@@ -162,8 +169,11 @@ class AccountSignalTest(unittest.TestCase):
             ],
         )
 
-        self.assertEqual(position.cost_deleverage_marks, {"cost_1", "cost_2", "cost_3"})
-        self.assertEqual(position.last_cost_deleverage_sell_date, "2026-05-13")
+        profile = built_in_default_profiles()["GOOGL.US"]
+        derived = derive_profile_state(position, profile, strategy_inputs_for_profile(profile))
+
+        self.assertEqual(derived.cost_deleverage_marks, {"cost_1", "cost_2", "cost_3"})
+        self.assertEqual(derived.last_cost_deleverage_sell_date, "2026-05-13")
 
     def test_googl_same_day_buy_sell_disabled_by_default(self):
         position = recover_position(
@@ -349,6 +359,100 @@ class AccountSignalTest(unittest.TestCase):
             formal = run_account_signal(dry_run=False, send_email=False, symbols=["TSLA.US"], price_points_by_symbol=market)
             self.assertTrue(formal["ledger_written"])
             append.assert_called_once()
+
+    def test_profile_defaults_do_not_write_file(self):
+        with TemporaryDirectory() as tmp:
+            profile_path = __import__("pathlib").Path(tmp) / "profiles.json"
+            with patch("account_signal.profiles.PROFILES_PATH", profile_path):
+                profiles = active_profiles_for_symbols(["GOOGL.US"])
+
+            self.assertFalse(profile_path.exists())
+            self.assertEqual(profiles["GOOGL.US"].source, "built_in_default")
+            self.assertEqual(profiles["GOOGL.US"].buy_strategy, "core_dip_dca")
+
+    def test_profile_promote_dry_run_validates_without_writing(self):
+        candidate = {
+            "key": "candidate-1",
+            "buy_strategy": "equal_slice",
+            "sell_strategy": "grid_rebound",
+            "strategy_definition_version": "test-version",
+            "step_pct": 5,
+            "equal_slice_allocation_pct": 10,
+            "sell_min_profit_pct": 10,
+            "grid_rebound_step_pct": 5,
+            "grid_first_sell_pct": 20,
+            "grid_second_sell_pct": 30,
+            "grid_min_sell_amount": 0,
+        }
+        with TemporaryDirectory() as tmp:
+            profile_path = __import__("pathlib").Path(tmp) / "profiles.json"
+            result = promote_candidate_to_profile(
+                symbol="AAPL.US",
+                candidate=candidate,
+                note="dry",
+                dry_run=True,
+                path=profile_path,
+            )
+
+            self.assertFalse(profile_path.exists())
+            self.assertEqual(result["new"]["symbol"], "AAPL.US")
+            self.assertEqual(result["new"]["candidate_key"], "candidate-1")
+
+            bad = dict(candidate, sell_strategy="unsupported_sell")
+            with self.assertRaises(ValueError):
+                promote_candidate_to_profile(symbol="AAPL.US", candidate=bad, path=profile_path)
+            bad_snapshot = dict(candidate, parameter_snapshot={"buy": {"not_a_field": 2}})
+            with self.assertRaises(ValueError):
+                promote_candidate_to_profile(symbol="AAPL.US", candidate=bad_snapshot, path=profile_path)
+
+    def test_run_uses_promoted_profile_for_arbitrary_symbol(self):
+        candidate = {
+            "key": "aapl-equal-none",
+            "buy_strategy": "equal_slice",
+            "sell_strategy": "none",
+            "step_pct": 5,
+            "equal_slice_allocation_pct": 10,
+            "sell_allow_same_day_sell": None,
+        }
+        market = {"AAPL.US": points(("2026-05-18", 100), ("2026-05-19", 95), ("2026-05-20", 90))}
+        targets = {"AAPL.US": SignalTarget("AAPL.US", 10000, 0, 100, True)}
+        with TemporaryDirectory() as tmp:
+            profile_path = __import__("pathlib").Path(tmp) / "profiles.json"
+            promote_candidate_to_profile(symbol="AAPL.US", candidate=candidate, path=profile_path)
+            with patch("account_signal.profiles.PROFILES_PATH", profile_path), \
+                patch.multiple(
+                    "account_signal.engine",
+                    load_account_config=lambda: (self.account(), targets, [], {}),
+                    load_account_positions=lambda _symbols: {"AAPL.US": recover_position("AAPL.US", [])},
+                    load_run_history=lambda limit=10: [],
+                    load_sent_signal_ids=lambda: set(),
+                    save_latest_run=lambda _payload: None,
+                ):
+                result = run_account_signal(dry_run=True, symbols=["AAPL.US"], price_points_by_symbol=market)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["signals"][0]["symbol"], "AAPL.US")
+        self.assertEqual(result["signals"][0]["strategy"], "equal_slice")
+        self.assertEqual(result["signals"][0]["profile_source"], "parameter_lab")
+
+    def test_profile_promote_api_checks_password_and_dry_run(self):
+        candidate = {
+            "key": "candidate-api",
+            "buy_strategy": "weekly_dca",
+            "sell_strategy": "none",
+        }
+        fake_config = SimpleNamespace(get_web_config=lambda: {"update_password": "pw"})
+        with TemporaryDirectory() as tmp:
+            profile_path = __import__("pathlib").Path(tmp) / "profiles.json"
+            with patch("account_signal.profiles.PROFILES_PATH", profile_path), \
+                patch("web.app.config_manager", fake_config):
+                client = app.test_client()
+                denied = client.post("/api/account-signal/profiles/promote", json={"symbol": "MSFT.US", "candidate": candidate, "password": "bad", "dry_run": True})
+                accepted = client.post("/api/account-signal/profiles/promote", json={"symbol": "MSFT.US", "candidate": candidate, "password": "pw", "dry_run": True})
+
+        self.assertEqual(denied.status_code, 401)
+        self.assertEqual(accepted.status_code, 200)
+        self.assertFalse(profile_path.exists())
 
     def test_run_history_keeps_recent_runs_newest_first(self):
         with TemporaryDirectory() as tmp:

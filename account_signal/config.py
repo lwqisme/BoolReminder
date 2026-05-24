@@ -101,9 +101,11 @@ def googl_cost_deleverage_stages(
 
 
 def account_strategy_summaries() -> dict[str, dict[str, Any]]:
+    from account_signal.profiles import built_in_default_profiles, load_profiles, profile_summary
+
     googl = googl_inputs()
     googl_stages = googl_cost_deleverage_stages(googl)
-    return {
+    legacy = {
         "GOOGL.US": {
             "buy_strategy": "core_dip_dca",
             "sell_strategy": "cost_deleverage",
@@ -138,6 +140,38 @@ def account_strategy_summaries() -> dict[str, dict[str, Any]]:
             "params": {},
         },
     }
+    profiles = {**built_in_default_profiles(), **load_profiles()}
+    for symbol, profile in profiles.items():
+        summary = profile_summary(profile)
+        params = dict(summary["parameters"])
+        if profile.sell_strategy == "cost_deleverage":
+            params.setdefault(
+                "cost_profit_pcts",
+                [
+                    params.get("cost_first_profit_pct"),
+                    params.get("cost_second_profit_pct"),
+                    params.get("cost_third_profit_pct"),
+                ],
+            )
+            params.setdefault(
+                "cost_sell_pcts",
+                [
+                    params.get("cost_first_sell_pct"),
+                    params.get("cost_second_sell_pct"),
+                    params.get("cost_third_sell_pct"),
+                ],
+            )
+        legacy[symbol] = {
+            "buy_strategy": profile.buy_strategy,
+            "sell_strategy": profile.sell_strategy,
+            "buy_summary": summary["buy"],
+            "sell_summary": summary["sell"],
+            "params": params,
+            "profile_id": profile.profile_id,
+            "source": profile.source,
+            "candidate_key": profile.candidate_key,
+        }
+    return legacy
 
 
 def tsla_inputs() -> StrategyInputs:
@@ -162,15 +196,6 @@ def load_account_config() -> tuple[AccountSnapshot | None, dict[str, SignalTarge
     targets_raw = load_signal_targets_snapshot()
     account = _parse_account_snapshot(account_raw, errors)
     targets = _parse_signal_targets(targets_raw, errors)
-
-    for symbol in TARGET_SYMBOLS:
-        target = targets.get(symbol)
-        if target is None:
-            errors.append(f"signal_targets 缺少 {symbol.split('.')[0]} 行")
-        elif not target.enabled:
-            errors.append(f"signal_targets 中 {symbol.split('.')[0]} 未启用")
-        elif target.target_budget_usd <= 0:
-            errors.append(f"signal_targets 中 {symbol.split('.')[0]} initial_investment_usd 必须大于 0")
 
     meta = {
         "account_updated_at": (account_raw or {}).get("updated_at", ""),

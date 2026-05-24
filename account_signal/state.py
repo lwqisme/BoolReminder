@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from account_signal.config import googl_cost_deleverage_stages, googl_inputs
+from drawdown.strategy_rules import cost_deleverage_stages
+
 from trade_sync.normalize import canonical_symbol, infer_longbridge_symbol
 from trade_sync.store import load_symbol_snapshot
 
@@ -30,7 +31,9 @@ class AccountPosition:
     sell_events: list[dict[str, Any]] = field(default_factory=list)
     cost_deleverage_marks: set[str] = field(default_factory=set)
     grid_rebound_marks: set[str] = field(default_factory=set)
+    repair_step_marks: set[str] = field(default_factory=set)
     last_cost_deleverage_sell_date: str | None = None
+    last_repair_sell_date: str | None = None
     last_sell_date: str | None = None
 
     @property
@@ -55,6 +58,9 @@ class AccountPosition:
             "sell_count": len(self.sell_events),
             "cost_deleverage_marks": sorted(self.cost_deleverage_marks),
             "grid_rebound_marks": sorted(self.grid_rebound_marks),
+            "repair_step_marks": sorted(self.repair_step_marks),
+            "last_cost_deleverage_sell_date": self.last_cost_deleverage_sell_date,
+            "last_repair_sell_date": self.last_repair_sell_date,
             "last_sell_date": self.last_sell_date,
         }
 
@@ -124,21 +130,69 @@ def _apply_sell(position: AccountPosition, row: dict[str, Any]) -> None:
     event = {**row, "shares": shares_to_sell, "price": sell_price, "pre_avg_cost": pre_avg_cost, "profit_pct": profit_pct}
     position.sell_events.append(event)
     position.last_sell_date = str(row.get("trade_date", "") or "") or position.last_sell_date
-    if position.symbol == "GOOGL.US":
-        _mark_next_cost_stage(position, profit_pct)
-        if profit_pct + 1e-9 >= googl_inputs().cost_first_profit_pct:
-            position.last_cost_deleverage_sell_date = position.last_sell_date
-    if position.symbol == "TSLA.US" and profit_pct >= 10.0:
-        if "grid_1" not in position.grid_rebound_marks:
-            position.grid_rebound_marks.add("grid_1")
-        elif "grid_2" not in position.grid_rebound_marks:
-            position.grid_rebound_marks.add("grid_2")
+def derive_profile_state(position: AccountPosition, profile: Any, inputs: Any) -> AccountPosition:
+    """Recompute strategy marks for a position under the active live profile."""
+    derived = AccountPosition(
+        symbol=position.symbol,
+        shares=position.shares,
+        lots=[
+            AccountLot(
+                buy_date=lot.buy_date,
+                buy_price=lot.buy_price,
+                initial_shares=lot.initial_shares,
+                remaining_shares=lot.remaining_shares,
+                amount=lot.amount,
+                buy_drawdown_pct=lot.buy_drawdown_pct,
+            )
+            for lot in position.lots
+        ],
+        buy_events=[dict(event) for event in position.buy_events],
+        sell_events=[dict(event) for event in position.sell_events],
+        last_sell_date=position.last_sell_date,
+    )
+    for event in derived.sell_events:
+        event_strategy = str(event.get("strategy") or "").strip()
+        active_strategy = event_strategy or str(getattr(profile, "sell_strategy", "") or "")
+        if active_strategy != getattr(profile, "sell_strategy", ""):
+            continue
+        stage = str(event.get("stage") or "").strip()
+        profit_pct = _float(event.get("profit_pct"))
+        trade_date = str(event.get("trade_date", "") or "")
+        if active_strategy == "cost_deleverage":
+            if stage.startswith("cost_"):
+                derived.cost_deleverage_marks.add(stage)
+            else:
+                _mark_next_cost_stage_for_inputs(derived, inputs, profit_pct)
+            if profit_pct + 1e-9 >= float(getattr(inputs, "cost_first_profit_pct", 0.0)):
+                derived.last_cost_deleverage_sell_date = trade_date or derived.last_cost_deleverage_sell_date
+        elif active_strategy == "grid_rebound" and profit_pct + 1e-9 >= float(getattr(inputs, "sell_min_profit_pct", 0.0)):
+            if stage.startswith("grid_"):
+                derived.grid_rebound_marks.add(stage)
+            elif "grid_1" not in derived.grid_rebound_marks:
+                derived.grid_rebound_marks.add("grid_1")
+            elif "grid_2" not in derived.grid_rebound_marks:
+                derived.grid_rebound_marks.add("grid_2")
+        elif active_strategy == "repair_step" and profit_pct + 1e-9 >= float(getattr(inputs, "sell_min_profit_pct", 0.0)):
+            if stage.startswith("repair_"):
+                derived.repair_step_marks.add(stage)
+            else:
+                _mark_next_repair_stage(derived)
+            derived.last_repair_sell_date = trade_date or derived.last_repair_sell_date
+    derived.shares = sum(lot.remaining_shares for lot in derived.lots)
+    return derived
 
 
-def _mark_next_cost_stage(position: AccountPosition, profit_pct: float) -> None:
-    for mark, threshold, _sell_pct in googl_cost_deleverage_stages():
-        if mark not in position.cost_deleverage_marks and profit_pct + 1e-9 >= threshold:
-            position.cost_deleverage_marks.add(mark)
+def _mark_next_cost_stage_for_inputs(position: AccountPosition, inputs: Any, profit_pct: float) -> None:
+    for stage in cost_deleverage_stages(inputs):
+        if stage.mark not in position.cost_deleverage_marks and profit_pct + 1e-9 >= stage.profit_pct:
+            position.cost_deleverage_marks.add(stage.mark)
+            return
+
+
+def _mark_next_repair_stage(position: AccountPosition) -> None:
+    for mark in ("repair_50", "repair_20", "repair_ath"):
+        if mark not in position.repair_step_marks:
+            position.repair_step_marks.add(mark)
             return
 
 

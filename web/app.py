@@ -84,6 +84,8 @@ from trade_sync.store import (
     save_sync_payload,
 )
 from account_signal import account_signal_status, run_account_signal
+from account_signal.config import load_account_config
+from account_signal.profiles import profiles_status_payload, promote_candidate_to_profile
 import watchlist_boll_filter
 from watchlist_boll_filter import main, run_analysis_and_notify, WatchlistBollFilterResult
 from report.html_generator import generate_html_report
@@ -2045,8 +2047,8 @@ STRATEGY_LAB_TEMPLATE = """
         .weight-bar { height: 5px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
         .weight-bar span { display: block; height: 100%; background: var(--blue); box-shadow: 0 0 10px rgba(17, 103, 216, 0.22); transition: width 300ms ease; }
         .universe-panel {
-            margin-bottom: 12px;
-            padding: 12px;
+            margin-bottom: 10px;
+            padding: 10px;
             border: 1px solid var(--line);
             border-radius: var(--radius-sm);
             background: rgba(248, 250, 252, 0.72);
@@ -2055,65 +2057,72 @@ STRATEGY_LAB_TEMPLATE = """
             display: flex;
             justify-content: space-between;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
             flex-wrap: wrap;
-            margin-bottom: 10px;
+            margin-bottom: 7px;
         }
         .universe-title { display: grid; gap: 2px; }
         .universe-title strong { color: var(--charcoal); }
-        .universe-title span { color: var(--muted); font-size: 12px; }
+        .universe-title span { color: var(--muted); font-size: 11px; line-height: 1.35; }
         .universe-add {
             display: grid;
-            grid-template-columns: minmax(110px, 1fr) minmax(110px, 1fr) 92px auto;
-            gap: 8px;
+            grid-template-columns: minmax(112px, 1fr) minmax(104px, 0.82fr) 70px auto;
+            gap: 6px;
             align-items: end;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
-        .universe-format-hint { color: var(--muted); font-size: 12px; line-height: 1.55; margin-bottom: 8px; }
+        .universe-add label { gap: 3px; font-size: 11px; }
+        .universe-add input { min-height: 25px; padding: 3px 6px; font-size: 12px; }
+        .universe-add .btn-small { min-height: 25px; padding: 3px 9px; font-size: 12px; }
+        .universe-format-details { margin: 0 0 6px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+        .universe-format-details summary { cursor: pointer; font-weight: 800; }
+        .universe-format-hint { margin-top: 4px; }
         .universe-format-hint code { font-family: var(--mono); color: var(--charcoal); }
-        .universe-list-wrap { overflow-x: auto; }
+        .universe-list-wrap { overflow-x: hidden; }
         .universe-list { display: grid; min-width: 0; }
         .universe-header,
         .universe-row {
             display: grid;
-            grid-template-columns: 28px minmax(140px, 1.25fr) minmax(110px, 1fr) 86px 34px;
-            gap: 8px;
+            grid-template-columns: 24px minmax(118px, 1.3fr) minmax(96px, 0.9fr) 68px 28px;
+            gap: 6px;
             align-items: start;
             border-bottom: 1px solid rgba(215, 226, 239, 0.92);
         }
         .universe-header {
-            padding: 0 0 5px;
+            padding: 0 0 3px;
             color: var(--muted);
             font-size: 11px;
             font-weight: 900;
         }
-        .universe-row { padding: 6px 0; }
+        .universe-row { padding: 3px 0; }
         .universe-enable-cell {
             display: flex;
             justify-content: center;
-            padding-top: 6px;
+            padding-top: 4px;
         }
         .universe-row input {
             width: 100%;
             min-width: 0;
-            min-height: 30px;
-            padding: 5px 7px;
+            min-height: 25px;
+            padding: 3px 6px;
             font-size: 12px;
         }
         .universe-row input[type="checkbox"] {
-            width: 18px;
-            min-height: 18px;
+            width: 16px;
+            height: 16px;
+            min-height: 16px;
             padding: 0;
             margin: 0;
         }
-        .universe-warning { display: block; min-height: 16px; color: var(--amber); font-size: 11px; margin-top: 3px; }
-        .universe-remove { width: 30px; min-height: 30px; padding: 0; }
+        .universe-warning { display: block; color: var(--amber); font-size: 11px; line-height: 1.25; margin-top: 2px; }
+        .universe-warning:empty { display: none; }
+        .universe-remove { width: 26px; min-height: 25px; padding: 0; }
         @media (max-width: 720px) {
             .universe-add { grid-template-columns: 1fr 1fr; }
             .universe-header,
             .universe-row {
-                grid-template-columns: 28px minmax(110px, 1fr) minmax(100px, 0.9fr) 76px 34px;
-                gap: 6px;
+                grid-template-columns: 24px minmax(96px, 1fr) minmax(82px, 0.85fr) 64px 28px;
+                gap: 5px;
             }
         }
         /* kpi grid for results */
@@ -3703,7 +3712,10 @@ STRATEGY_LAB_TEMPLATE = """
                     </label>
                     <button class="btn btn-secondary btn-small" type="button" onclick="addUniverseSymbolFromForm()">添加</button>
                 </div>
-                <div class="universe-format-hint">Longbridge 股票代码格式：美股 <code>GOOGL.US</code>，港股 <code>0700.HK</code>，沪市 <code>600519.SH</code>，深市 <code>000001.SZ</code>，新加坡 <code>D05.SI</code>，日本 <code>7203.T</code>；未写后缀时按美股 <code>.US</code> 处理。</div>
+                <details class="universe-format-details">
+                    <summary>Longbridge 股票代码格式</summary>
+                    <div class="universe-format-hint">美股 <code>GOOGL.US</code>，港股 <code>0700.HK</code>，沪市 <code>600519.SH</code>，深市 <code>000001.SZ</code>，新加坡 <code>D05.SI</code>，日本 <code>7203.T</code>；未写后缀时按美股 <code>.US</code> 处理。</div>
+                </details>
                 <div class="universe-list-wrap">
                     <div class="universe-list" role="table" aria-label="默认股票列表">
                         <div class="universe-header" role="row">
@@ -4356,7 +4368,7 @@ STRATEGY_LAB_TEMPLATE = """
         }
 
         function normalizeUniverseSymbolInput(raw) {
-            const compact = String(raw || '').replace(/\s+/g, '').toUpperCase();
+            const compact = String(raw || '').replace(/\\s+/g, '').toUpperCase();
             if (!compact) {
                 return { symbol: '', warning: '' };
             }
@@ -6879,6 +6891,7 @@ STRATEGY_LAB_TEMPLATE = """
                             <div class="robust-task">${sellParams}</div>
                             <div style="margin-top:8px;">
                                 <button class="btn btn-secondary btn-small" type="button" onclick="applyRobustCandidate('${escapeHtml(candidate.key)}')">应用参数并看全量评分</button>
+                                <button class="btn btn-secondary btn-small" type="button" onclick="promoteRobustCandidateToAccountSignal('${escapeHtml(candidate.key)}')">晋升到真实账户提醒</button>
                             </div>
                         </td>
                         <td>${number(rankMethod === 'raw' ? (row.raw_score ?? row.score) : row.score)}</td>
@@ -6892,6 +6905,49 @@ STRATEGY_LAB_TEMPLATE = """
                 `;
             }).join('');
             document.getElementById('robustBody').innerHTML = rows || '<tr><td colspan="5">暂无收益 Top10 结果。</td></tr>';
+        }
+
+        async function promoteCandidateToAccountSignal(candidate) {
+            if (!candidate || typeof candidate !== 'object') {
+                setStatus('error', '缺少可晋升的候选参数。');
+                return;
+            }
+            const symbol = window.prompt('晋升到哪个 Longbridge symbol？例如 GOOGL.US');
+            if (symbol === null) return;
+            const note = window.prompt('备注（可留空）') || '';
+            const password = window.prompt('配置了更新密码时请输入密码；未配置可留空。');
+            if (password === null) return;
+            setStatus('info', '正在预检真实账户提醒 profile...');
+            const dryResponse = await fetch('/api/account-signal/profiles/promote', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol, candidate, note, password, dry_run: true })
+            });
+            const dryResult = await dryResponse.json();
+            if (!dryResponse.ok || !dryResult.success) {
+                setStatus('error', dryResult.message || 'profile 预检失败。');
+                return;
+            }
+            if (!window.confirm(`预检通过：${dryResult.symbol} 将使用 ${candidate.buy_strategy} + ${candidate.sell_strategy}。确认写入 live profile？`)) {
+                setStatus('info', '已取消晋升。');
+                return;
+            }
+            const response = await fetch('/api/account-signal/profiles/promote', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ symbol, candidate, note, password, dry_run: false })
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                setStatus('error', result.message || 'profile 晋升失败。');
+                return;
+            }
+            setStatus('success', `${result.symbol} live profile 已更新。`);
+        }
+
+        function promoteRobustCandidateToAccountSignal(candidateKey) {
+            const row = (lastRobustLeaderboard?.leaderboard || []).find((item) => item.candidate && item.candidate.key === candidateKey);
+            promoteCandidateToAccountSignal(row && row.candidate);
         }
 
         function applyRobustCandidate(candidateKey) {
@@ -8785,7 +8841,7 @@ ACCOUNT_SIGNAL_TEMPLATE = """
     <section class="top">
       <div>
         <h1>真实账户提醒</h1>
-        <div class="sub">GOOGL / TSLA · 账户快照、初始投入、持仓与最新信号</div>
+        <div class="sub">按 signal_targets 与 live profile 生成提醒 · 账户快照、初始投入、持仓与最新信号</div>
       </div>
       <div class="actions">
         <a class="nav" href="/">返回首页</a>
@@ -8824,6 +8880,19 @@ ACCOUNT_SIGNAL_TEMPLATE = """
     function metric(label, value) {
       return `<div class="metric"><div class="label">${label}</div><div class="value">${value}</div></div>`;
     }
+    function profileSummary(profile) {
+      const summary = profile?.summary || {};
+      return {
+        buy: summary.buy || profile?.buy_strategy || '—',
+        sell: summary.sell || profile?.sell_strategy || '—'
+      };
+    }
+    function renderProfilePill(profile, target) {
+      if (!target || target.enabled === undefined) return 'missing target';
+      if (!target.enabled) return 'disabled';
+      if (!profile) return 'missing profile';
+      return profile.source || 'live';
+    }
     function render(data) {
       const errors = data.errors || data.latest_run?.errors || [];
       const warnings = data.warnings || data.latest_run?.warnings || [];
@@ -8844,17 +8913,23 @@ ACCOUNT_SIGNAL_TEMPLATE = """
       ].join('');
 
       const market = data.latest_run?.market || {};
-      const strategies = data.strategies || data.latest_run?.strategies || {};
-      symbolsEl.innerHTML = ['GOOGL.US', 'TSLA.US'].map(symbol => {
+      const profiles = data.profiles || data.latest_run?.profiles || {};
+      const activeProfiles = profiles.active || {};
+      const targetSymbols = Object.keys(data.targets || {});
+      const profileSymbols = Object.keys(activeProfiles);
+      const displaySymbols = Array.from(new Set([...targetSymbols, ...profileSymbols])).sort();
+      symbolsEl.innerHTML = displaySymbols.map(symbol => {
         const pos = (data.positions || {})[symbol] || {};
         const target = (data.targets || {})[symbol] || {};
         const m = market[symbol] || {};
-        const strategy = strategies[symbol] || {};
+        const profile = activeProfiles[symbol] || null;
+        const summary = profileSummary(profile);
         return `<article class="symbol">
-          <div class="symbol-head"><div class="ticker">${symbol}</div><div class="pill">${target.enabled ? 'enabled' : 'missing'}</div></div>
+          <div class="symbol-head"><div class="ticker">${symbol}</div><div class="pill">${renderProfilePill(profile, target)}</div></div>
           <div class="strategy-summary">
-            <div><strong>买入</strong> ${text(strategy.buy_summary)}</div>
-            <div><strong>卖出</strong> ${text(strategy.sell_summary)}</div>
+            <div><strong>买入</strong> ${text(summary.buy)}</div>
+            <div><strong>卖出</strong> ${text(summary.sell)}</div>
+            <div><strong>PROFILE</strong> ${text(profile?.profile_id)}${profile?.candidate_key ? ` · ${text(profile.candidate_key)}` : ''}${profile?.promoted_at ? ` · ${text(profile.promoted_at)}` : ''}</div>
           </div>
           <div class="metrics">
             ${metric('持仓股数', number(pos.shares, 4))}
@@ -8883,7 +8958,8 @@ ACCOUNT_SIGNAL_TEMPLATE = """
           ? `<br><span class="pill">LEAPS ${Number(signal.leaps.trigger_count || 1)} 次</span>`
           : '';
         const mode = run.dry_run ? 'dry-run' : '正式';
-        return `<tr><td>${text(signal.trade_date)}<br><span class="pill">${mode}</span></td><td>${signal.symbol}</td><td class="${signal.action}">${signal.action}</td><td>${signal.stage}${signal.duplicate ? '<br><span class="pill">已提醒</span>' : ''}${leaps}</td><td>${money(signal.price)}<br>${number(signal.drawdown_pct)}%</td><td>${size}</td></tr>`;
+        const profile = signal.profile_source ? `<br><span class="pill">${text(signal.profile_source)}</span>` : '';
+        return `<tr><td>${text(signal.trade_date)}<br><span class="pill">${mode}</span></td><td>${signal.symbol}${profile}</td><td class="${signal.action}">${signal.action}</td><td>${signal.stage}${signal.duplicate ? '<br><span class="pill">已提醒</span>' : ''}${leaps}</td><td>${money(signal.price)}<br>${number(signal.drawdown_pct)}%</td><td>${size}</td></tr>`;
       }).join('')}</tbody></table>`;
     }
     async function loadStatus() {
@@ -8899,7 +8975,7 @@ ACCOUNT_SIGNAL_TEMPLATE = """
         const response = await fetch('/api/account-signal/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dry_run: !sendEmail, send_email: sendEmail, symbols: ['GOOGL.US', 'TSLA.US'], include_debug: true })
+          body: JSON.stringify({ dry_run: !sendEmail, send_email: sendEmail, include_debug: true })
         });
         const data = await response.json();
         render({ ...data, latest_run: data, run_history: [data, ...(data.run_history || [])] });
@@ -8929,6 +9005,45 @@ def api_account_signal_status():
     except Exception as exc:
         app.logger.exception("account signal status failed")
         return jsonify({"success": False, "message": str(exc)}), 500
+
+
+@app.route('/api/account-signal/profiles', methods=['GET'])
+def api_account_signal_profiles():
+    try:
+        _account, targets, _errors, _meta = load_account_config()
+        web_config = config_manager.get_web_config() if config_manager else {}
+        payload = profiles_status_payload(targets)
+        payload["success"] = True
+        payload["password_required"] = bool(web_config.get("update_password", ""))
+        return jsonify(payload)
+    except Exception as exc:
+        app.logger.exception("account signal profiles failed")
+        return jsonify({"success": False, "message": str(exc)}), 500
+
+
+@app.route('/api/account-signal/profiles/promote', methods=['POST'])
+def api_account_signal_profile_promote():
+    payload = request.get_json(silent=True) or {}
+    web_config = config_manager.get_web_config() if config_manager else {}
+    configured_password = web_config.get("update_password", "")
+    if configured_password and payload.get("password", "") != configured_password:
+        return _json_error("密码错误", 401)
+    try:
+        candidate = payload.get("candidate")
+        if not isinstance(candidate, dict):
+            return _json_error("缺少 candidate", 400)
+        result = promote_candidate_to_profile(
+            symbol=str(payload.get("symbol", "") or ""),
+            candidate=candidate,
+            note=str(payload.get("note", "") or ""),
+            dry_run=bool(payload.get("dry_run", False)),
+        )
+        return jsonify(result)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        app.logger.exception("account signal profile promote failed")
+        return _json_error(f"晋升 live profile 失败: {exc}", 500)
 
 
 @app.route('/api/account-signal/run', methods=['POST'])
