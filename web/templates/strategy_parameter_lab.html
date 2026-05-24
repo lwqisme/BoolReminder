@@ -1389,6 +1389,18 @@
                         <label>目标 DTE 标签
                             <input id="leapsTargetDteLabel" value="18-24M">
                         </label>
+                        <label>期权独立止盈
+                            <input id="leapsOptionExitEnabled" type="checkbox" checked>
+                        </label>
+                        <label>止盈 DTE 下限
+                            <input id="leapsOptionExitDteMin" type="number" min="0" step="1" value="50">
+                        </label>
+                        <label>止盈 DTE 上限
+                            <input id="leapsOptionExitDteMax" type="number" min="0" step="1" value="100">
+                        </label>
+                        <label>止盈 ROI %
+                            <input id="leapsOptionExitProfitRoi" type="number" min="0" step="1" value="100">
+                        </label>
                     </div>
                 </div>
             </div>
@@ -1642,6 +1654,7 @@
         const LEAPS_OPTION_BATCH_SIZE = 5;
         const LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000];
         const LEAPS_OPTION_STOPPED_REASON = '已停止，未计算';
+        const DEFAULT_LEAPS_OPTION_EXIT_POLICY = { enabled: true, dte_min: 50, dte_max: 100, profit_roi_pct: 100 };
         const TOP_GROUP_LEAPS_OPTION_ROW_LIMIT = 3;
         const TOP_GROUP_LEAPS_OPTION_SIGNAL_BUDGET = 300;
         const cellDetailCache = new Map();
@@ -1783,6 +1796,19 @@
             const n = Number(value);
             if (!Number.isFinite(n)) return '--';
             return `${number(n)}%`;
+        }
+        function currentLeapsOptionExitPolicy() {
+            if (typeof document === 'undefined') return { ...DEFAULT_LEAPS_OPTION_EXIT_POLICY };
+            const enabled = document.getElementById('leapsOptionExitEnabled')?.checked !== false;
+            const dteMin = Number(document.getElementById('leapsOptionExitDteMin')?.value);
+            const dteMax = Number(document.getElementById('leapsOptionExitDteMax')?.value);
+            const profitRoi = Number(document.getElementById('leapsOptionExitProfitRoi')?.value);
+            return {
+                enabled,
+                dte_min: Number.isFinite(dteMin) ? dteMin : DEFAULT_LEAPS_OPTION_EXIT_POLICY.dte_min,
+                dte_max: Number.isFinite(dteMax) ? dteMax : DEFAULT_LEAPS_OPTION_EXIT_POLICY.dte_max,
+                profit_roi_pct: Number.isFinite(profitRoi) ? profitRoi : DEFAULT_LEAPS_OPTION_EXIT_POLICY.profit_roi_pct
+            };
         }
         function money(value) {
             const n = Number(value);
@@ -1981,6 +2007,11 @@
             const successes = items.filter((item) => item.status === 'success' && Number.isFinite(Number(item.roi_pct)));
             const rois = successes.map((item) => Number(item.roi_pct));
             const reasonCounts = {};
+            const exitStatusCounts = {};
+            successes.forEach((item) => {
+                const status = item.exit_status || 'sold';
+                exitStatusCounts[status] = (exitStatusCounts[status] || 0) + 1;
+            });
             items.forEach((item) => {
                 if (item.status === 'success') return;
                 const reason = item.skipped_reason || '未知失败';
@@ -1993,6 +2024,8 @@
                 skipped_count: items.length - successes.length,
                 roi_mean_pct: rois.length ? rois.reduce((sum, value) => sum + value, 0) / rois.length : null,
                 roi_median_pct: median(rois),
+                option_take_profit_count: exitStatusCounts.option_take_profit || 0,
+                exit_status_counts: exitStatusCounts,
                 top_failure_reason: topFailure[0] || '',
                 failure_reasons: reasonCounts
             };
@@ -2002,7 +2035,10 @@
             (summaries || []).forEach((summary) => {
                 const total = Number(summary?.total || 0);
                 const success = Number(summary?.success_count || 0);
-                for (let index = 0; index < success; index += 1) expanded.push({ status: 'success', roi_pct: summary.roi_mean_pct });
+                const takeProfit = Number(summary?.option_take_profit_count || summary?.exit_status_counts?.option_take_profit || 0);
+                for (let index = 0; index < success; index += 1) {
+                    expanded.push({ status: 'success', roi_pct: summary.roi_mean_pct, exit_status: index < takeProfit ? 'option_take_profit' : 'sold' });
+                }
                 const skipped = Math.max(0, total - success);
                 for (let index = 0; index < skipped; index += 1) expanded.push({ status: 'skipped', skipped_reason: summary.top_failure_reason || '未计算' });
             });
@@ -2017,7 +2053,9 @@
             const roi = hasRoi ? `均 ${pct(summary.roi_mean_pct)}` : '均 --';
             const med = hasMedian ? `中 ${pct(summary.roi_median_pct)}` : '中 --';
             const reason = success >= total ? '' : ` · ${summary.top_failure_reason || '有跳过'}`;
-            return `<span class="leaps-option-summary ${success ? '' : 'warn'}">月期权 ROI ${roi} / ${med} · ${number(success, 0)}/${number(total, 0)}${escapeHtml(reason)}</span>`;
+            const takeProfitCount = Number(summary.option_take_profit_count || summary.exit_status_counts?.option_take_profit || 0);
+            const takeProfitText = takeProfitCount > 0 ? ` · 含止盈 ${number(takeProfitCount, 0)}` : '';
+            return `<span class="leaps-option-summary ${success ? '' : 'warn'}">月期权 ROI ${roi} / ${med} · ${number(success, 0)}/${number(total, 0)}${takeProfitText}${escapeHtml(reason)}</span>`;
         }
         function firstLeapsSignalForEstimate(summary) {
             if (Array.isArray(summary?.top_signals) && summary.top_signals.length) return summary.top_signals[0];
@@ -2042,13 +2080,21 @@
             if (!signals.length) {
                 return { total: 0, success_count: 0, skipped_count: 0, roi_mean_pct: null, roi_median_pct: null, scope };
             }
-            const estimates = signals.map((signal) => estimatedLeapsOptionRoiPct(estimatedLeapsOutcomeFromSignal(signal))).filter(Number.isFinite);
+            const estimatedOutcomes = signals.map((signal) => {
+                const outcome = estimatedLeapsOutcomeFromSignal(signal);
+                const roi = estimatedLeapsOptionRoiPct(outcome);
+                return Number.isFinite(roi) ? { ...outcome, roi_pct: roi } : null;
+            }).filter(Boolean);
+            const estimates = estimatedOutcomes.map((outcome) => Number(outcome.roi_pct));
+            const takeProfitCount = estimatedOutcomes.filter((outcome) => outcome.exit_status === 'option_take_profit').length;
             return {
                 total: signals.length,
                 success_count: estimates.length,
                 skipped_count: signals.length - estimates.length,
                 roi_mean_pct: estimates.length ? estimates.reduce((sum, value) => sum + value, 0) / estimates.length : null,
                 roi_median_pct: median(estimates),
+                option_take_profit_count: takeProfitCount,
+                exit_status_counts: takeProfitCount ? { option_take_profit: takeProfitCount } : {},
                 scope
             };
         }
@@ -2059,7 +2105,8 @@
             if (!estimated.total || !estimated.success_count || !Number.isFinite(Number(estimated.roi_mean_pct))) {
                 return `<span class="leaps-option-summary warn">预估 ${scopeLabel} --</span>`;
             }
-            return `<span class="leaps-option-summary">预估 ${scopeLabel} 均 ${pct(estimated.roi_mean_pct)} / 中 ${pct(estimated.roi_median_pct)} · ${number(estimated.success_count, 0)}/${number(estimated.total, 0)}</span>`;
+            const takeProfitText = Number(estimated.option_take_profit_count || 0) > 0 ? ` · 含止盈 ${number(estimated.option_take_profit_count, 0)}` : '';
+            return `<span class="leaps-option-summary">预估 ${scopeLabel} 均 ${pct(estimated.roi_mean_pct)} / 中 ${pct(estimated.roi_median_pct)} · ${number(estimated.success_count, 0)}/${number(estimated.total, 0)}${takeProfitText}</span>`;
         }
         function renderLeapsOptionOrEstimate(summary, optionSummary = null) {
             return renderLeapsOptionSummary(optionSummary) || renderEstimatedLeapsSummary(summary);
@@ -2203,6 +2250,13 @@
         }
         async function fetchLeapsOptionBatchWithRetry(payload, queueItems, options = {}) {
             let lastReason = '';
+            const exitPolicy = typeof currentLeapsOptionExitPolicy === 'function'
+                ? currentLeapsOptionExitPolicy()
+                : { enabled: true, dte_min: 50, dte_max: 100, profit_roi_pct: 100 };
+            const requestPayload = {
+                ...payload,
+                option_exit_policy: payload?.option_exit_policy || exitPolicy
+            };
             const maxAttempts = LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS.length + 1;
             for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
                 if (isLeapsOptionRequestCancelled(options)) {
@@ -2217,7 +2271,7 @@
                     response = await fetch('/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
+                        body: JSON.stringify(requestPayload)
                     });
                     result = await response.json().catch(() => ({}));
                     representativeOutcome = Array.isArray(result.outcomes) ? result.outcomes[0] : null;
@@ -4986,7 +5040,13 @@
             // Local outcome cache shows raw 60D realized vol understates quiet mega-cap IV and overstates shocky names.
             return Math.min(65, Math.max(32, n));
         }
-        function estimatedLeapsOptionRoiPct(outcome) {
+        function normalizedLeapsOptionExitPolicy(policy = null) {
+            if (policy) return policy;
+            if (typeof currentLeapsOptionExitPolicy === 'function') return currentLeapsOptionExitPolicy();
+            return { enabled: true, dte_min: 50, dte_max: 100, profit_roi_pct: 100 };
+        }
+        function estimatedLeapsOptionExit(outcome, policy = null) {
+            policy = normalizedLeapsOptionExitPolicy(policy);
             if (!outcome || outcome.status !== 'success') return null;
             const strike = Number(outcome.strike);
             const expiration = outcome.expiration || '';
@@ -4999,9 +5059,49 @@
             if (!Number.isFinite(stockBuyPrice) || stockBuyPrice <= 0 || !Number.isFinite(stockMarkPrice) || stockMarkPrice <= 0) return null;
             if (!Number.isFinite(volatility) || volatility <= 0) return null;
             const entryCall = blackScholesCallPrice(stockBuyPrice, strike, yearsBetween(entryDate, expiration), volatility);
+            if (!Number.isFinite(entryCall) || entryCall <= 0) return null;
+            const stockSellDate = outcome.stock_sell_date || '';
+            if (policy?.enabled && Array.isArray(outcome.stock_price_path)) {
+                const dteMin = Number(policy.dte_min);
+                const dteMax = Number(policy.dte_max);
+                const profitRoiPct = Number(policy.profit_roi_pct);
+                const minDte = Math.min(dteMin, dteMax);
+                const maxDte = Math.max(dteMin, dteMax);
+                const sortedPath = outcome.stock_price_path.slice().sort((a, b) => String(a?.date || '').localeCompare(String(b?.date || '')));
+                for (const point of sortedPath) {
+                    const pointDate = point?.date || '';
+                    const pointPrice = Number(point?.close);
+                    if (!pointDate || !Number.isFinite(pointPrice) || pointPrice <= 0) continue;
+                    if (stockSellDate && pointDate >= stockSellDate) continue;
+                    const dte = Math.round(yearsBetween(pointDate, expiration) * 365);
+                    if (!Number.isFinite(dte) || dte < minDte || dte > maxDte) continue;
+                    const pointCall = blackScholesCallPrice(pointPrice, strike, yearsBetween(pointDate, expiration), volatility);
+                    if (!Number.isFinite(pointCall)) continue;
+                    const roiPct = (pointCall / entryCall - 1) * 100;
+                    if (roiPct >= profitRoiPct) {
+                        return {
+                            roi_pct: roiPct,
+                            stock_mark_date: pointDate,
+                            stock_mark_price: pointPrice,
+                            exit_status: 'option_take_profit',
+                            used_option_exit_policy: true
+                        };
+                    }
+                }
+            }
             const exitCall = blackScholesCallPrice(stockMarkPrice, strike, yearsBetween(markDate, expiration), volatility);
-            if (!Number.isFinite(entryCall) || entryCall <= 0 || !Number.isFinite(exitCall)) return null;
-            return (exitCall / entryCall - 1) * 100;
+            if (!Number.isFinite(exitCall)) return null;
+            return {
+                roi_pct: (exitCall / entryCall - 1) * 100,
+                stock_mark_date: markDate,
+                stock_mark_price: stockMarkPrice,
+                exit_status: outcome.exit_status || (outcome.stock_sell_date ? 'sold' : 'holding'),
+                used_option_exit_policy: false
+            };
+        }
+        function estimatedLeapsOptionRoiPct(outcome) {
+            const estimatedExit = estimatedLeapsOptionExit(outcome);
+            return Number.isFinite(Number(estimatedExit?.roi_pct)) ? estimatedExit.roi_pct : null;
         }
         function estimatedLeapsOutcomeFromSignal(signal) {
             if (!signal) return null;
@@ -5014,7 +5114,7 @@
             const expiration = addDaysIsoDate(entryDate, 250);
             if (!Number.isFinite(stockBuyPrice) || stockBuyPrice <= 0 || !Number.isFinite(stockMarkPrice) || stockMarkPrice <= 0) return null;
             if (!entryDate || !markDate || !expiration || !Number.isFinite(volatility) || volatility <= 0 || !Number.isFinite(strike)) return null;
-            return {
+            const outcome = {
                 status: 'success',
                 date: entryDate,
                 entry_date: entryDate,
@@ -5023,16 +5123,28 @@
                 stock_buy_price: stockBuyPrice,
                 stock_mark_price: stockMarkPrice,
                 stock_mark_date: markDate,
+                stock_sell_date: signal.next_stock_sell_date || signal.stock_sell_date || '',
                 stock_return_pct: signal.stock_return_pct,
                 estimated_volatility_pct: estimatedOptionVolatilityPct(volatility),
-                realized_volatility_pct: volatility
+                realized_volatility_pct: volatility,
+                stock_price_path: Array.isArray(signal.stock_price_path) ? signal.stock_price_path : []
             };
+            const estimatedExit = estimatedLeapsOptionExit(outcome);
+            if (estimatedExit?.used_option_exit_policy) {
+                outcome.stock_mark_date = estimatedExit.stock_mark_date;
+                outcome.stock_mark_price = estimatedExit.stock_mark_price;
+                outcome.exit_status = estimatedExit.exit_status;
+                outcome.used_option_exit_policy = true;
+            }
+            return outcome;
         }
         function renderEstimatedLeapsOptionSummary(signal) {
             const estimated = estimatedLeapsOutcomeFromSignal(signal);
             const estimate = estimatedLeapsOptionRoiPct(estimated);
             if (!Number.isFinite(estimate)) return '<span class="leaps-option-summary warn">未计算</span>';
-            return `<span class="leaps-option-summary">预估 ${signedPct(estimate)}</span>`;
+            const exitLabel = formatLeapsOptionExitStatus(estimated);
+            const exitSuffix = exitLabel === '期权止盈' ? ` · ${exitLabel}` : '';
+            return `<span class="leaps-option-summary">预估 ${signedPct(estimate)}${exitSuffix}</span>`;
         }
         function signedPct(value) {
             const n = Number(value);
@@ -5053,6 +5165,8 @@
             const labels = {
                 holding: '持有中',
                 expired_without_stock_sell: '已到期',
+                expired_before_stock_sell: '到期先于正股卖点',
+                option_take_profit: '期权止盈',
                 sold: '正股卖点'
             };
             const status = outcome.exit_status || 'sold';

@@ -66,6 +66,7 @@ from drawdown.leaps_option_outcomes import (
     AlpacaMonthlyOptionProvider,
     OutcomeCache,
     PolygonMonthlyOptionProvider,
+    normalize_option_exit_policy,
     replay_leaps_option_outcomes,
     replay_leaps_option_outcomes_batch,
     skipped_outcome,
@@ -613,11 +614,13 @@ def _leaps_option_permission_circuit_result(
     reason: str,
     provider_name: str,
     provider_cache_id: str,
+    option_exit_policy: object | None = None,
 ) -> dict[str, object]:
     outcomes: list[dict[str, object]] = []
     cache_hits = 0
+    normalized_option_exit_policy = normalize_option_exit_policy(option_exit_policy)
     for signal in signals:
-        cached = _leaps_option_outcome_cache.read(signal, provider_id=provider_cache_id)
+        cached = _leaps_option_outcome_cache.read(signal, provider_id=provider_cache_id, option_exit_policy=normalized_option_exit_policy)
         if cached is not None:
             cached["provider"] = provider_name
             outcomes.append(cached)
@@ -10158,6 +10161,7 @@ def api_strategy_lab_parameter_lab_leaps_option_outcomes():
     payload = request.get_json(silent=True) or {}
     raw_signals = payload.get("signals")
     signals = [item for item in raw_signals if isinstance(item, dict)] if isinstance(raw_signals, list) else []
+    option_exit_policy = payload.get("option_exit_policy")
     run_id = str(payload.get("run_id") or "").strip()
     row_key = str(payload.get("row_key") or "").strip()
     started = time.perf_counter()
@@ -10183,9 +10187,9 @@ def api_strategy_lab_parameter_lab_leaps_option_outcomes():
     provider_cache_id = str(getattr(provider, "cache_provider_id", "") or provider_name)
     replay_api_key = api_key if provider_name == "polygon" else ""
     if _leaps_option_permission_denied_active(provider_name, credential_key):
-        result = _leaps_option_permission_circuit_result(signals, permission_reason, provider_name, provider_cache_id)
+        result = _leaps_option_permission_circuit_result(signals, permission_reason, provider_name, provider_cache_id, option_exit_policy=option_exit_policy)
     else:
-        result = replay_leaps_option_outcomes(signals, replay_api_key, provider=provider, outcome_cache=_leaps_option_outcome_cache)
+        result = replay_leaps_option_outcomes(signals, replay_api_key, provider=provider, outcome_cache=_leaps_option_outcome_cache, option_exit_policy=option_exit_policy)
         if _leaps_option_result_has_permission_denied(result, permission_reason):
             _mark_leaps_option_permission_denied(provider_name, credential_key)
     status_code = 200 if result.get("success") else 400
@@ -10219,6 +10223,7 @@ def api_strategy_lab_parameter_lab_leaps_option_outcomes_batch():
     payload = request.get_json(silent=True) or {}
     raw_signals = payload.get("signals")
     signals = [item for item in raw_signals if isinstance(item, dict)] if isinstance(raw_signals, list) else []
+    option_exit_policy = payload.get("option_exit_policy")
     run_id = str(payload.get("run_id") or "").strip()
     row_key = str(payload.get("row_key") or "").strip()
     started = time.perf_counter()
@@ -10238,9 +10243,9 @@ def api_strategy_lab_parameter_lab_leaps_option_outcomes_batch():
     provider_cache_id = str(getattr(provider, "cache_provider_id", "") or provider_name)
     replay_api_key = api_key if provider_name == "polygon" else ""
     if _leaps_option_permission_denied_active(provider_name, credential_key):
-        result = _leaps_option_permission_circuit_result(signals, permission_reason, provider_name, provider_cache_id)
+        result = _leaps_option_permission_circuit_result(signals, permission_reason, provider_name, provider_cache_id, option_exit_policy=option_exit_policy)
     else:
-        result = replay_leaps_option_outcomes_batch(signals, replay_api_key, provider=provider, outcome_cache=_leaps_option_outcome_cache)
+        result = replay_leaps_option_outcomes_batch(signals, replay_api_key, provider=provider, outcome_cache=_leaps_option_outcome_cache, option_exit_policy=option_exit_policy)
         if _leaps_option_result_has_permission_denied(result, permission_reason):
             _mark_leaps_option_permission_denied(provider_name, credential_key)
     status_code = 200 if result.get("success") else 400

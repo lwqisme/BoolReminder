@@ -800,6 +800,9 @@ process.stdout.write(JSON.stringify({
         self.assertIn("function formatLeapsOptionExitStatus(outcome)", html)
         self.assertIn("holding: '持有中'", html)
         self.assertIn("expired_without_stock_sell: '已到期'", html)
+        self.assertIn("option_take_profit: '期权止盈'", html)
+        self.assertIn("期权独立止盈", html)
+        self.assertIn("option_exit_policy", html)
         self.assertIn("currentRun = null;\n                    renderTopGroupLeapsOptionControls();", html)
 
     def test_aggregate_leaps_badge_and_estimate_pool_keep_period_coverage(self):
@@ -1153,6 +1156,11 @@ if (!table.includes('TSLA250117C00110000')) throw new Error(table);
 if (context.formatLeapsOptionExitStatus({ status: 'success', exit_status: 'expired_without_stock_sell' }) !== '已到期') {
   throw new Error('expired status not translated');
 }
+if (context.formatLeapsOptionExitStatus({ status: 'success', exit_status: 'option_take_profit' }) !== '期权止盈') {
+  throw new Error('take profit status not translated');
+}
+const takeProfit = context.renderLeapsOptionOutcome({ ...holding, exit_status: 'option_take_profit' });
+if (!takeProfit.includes('期权止盈')) throw new Error(takeProfit);
 """
         subprocess.run(["node", "-e", script, render_helpers], check=True, capture_output=True, text=True)
 
@@ -1570,13 +1578,15 @@ const vm = require('vm');
 const helpers = process.argv[1];
 let now = 100000;
 const urls = [];
+const bodies = [];
 const delays = [];
 const context = {
   Date: { now: () => now },
   Math, Number, String, Array, Map, Set, Promise, Error, RegExp,
   setTimeout: (callback, ms) => { delays.push(ms); now += ms; callback(); return 1; },
-  fetch: async (url) => {
+  fetch: async (url, options) => {
     urls.push(url);
+    bodies.push(JSON.parse(options.body));
     return {
       ok: true,
       status: 200,
@@ -1596,7 +1606,7 @@ vm.runInContext(helpers, context);
     { signals: [signalA, signalB] },
     [{ signal: signalA }, { signal: signalB }]
   );
-  process.stdout.write(JSON.stringify({ urls, delays, statuses: result.outcomes.map((item) => item.status), cacheStats: result.cache_stats }));
+  process.stdout.write(JSON.stringify({ urls, bodies, delays, statuses: result.outcomes.map((item) => item.status), cacheStats: result.cache_stats }));
 })().catch((error) => {
   console.error(error);
   process.exit(1);
@@ -1607,6 +1617,7 @@ vm.runInContext(helpers, context);
 
         self.assertEqual(result["statuses"], ["success", "success"])
         self.assertEqual(result["urls"], ["/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch"])
+        self.assertEqual(result["bodies"][0]["option_exit_policy"], {"enabled": True, "dte_min": 50, "dte_max": 100, "profit_roi_pct": 100})
         self.assertEqual(result["cacheStats"]["outcome"]["memory_hit"], 2)
 
     def test_leaps_option_request_helper_does_not_retry_polygon_403(self):

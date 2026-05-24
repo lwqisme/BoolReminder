@@ -915,6 +915,19 @@ function latestStockPoint(points) {
   return null;
 }
 
+function stockPricePathForEstimate(points, entryDate, markDate) {
+  const entryMs = parseTradeDateMs(entryDate);
+  const markMs = parseTradeDateMs(markDate);
+  if (!Number.isFinite(entryMs) || !Number.isFinite(markMs)) return [];
+  return (points || [])
+    .filter((point) => {
+      const pointMs = parseTradeDateMs(point?.date);
+      const close = num(point?.close, NaN);
+      return Number.isFinite(pointMs) && entryMs <= pointMs && pointMs <= markMs && Number.isFinite(close) && close > 0;
+    })
+    .map((point) => ({ date: point.date, close: num(point.close) }));
+}
+
 function realizedVolatilityPct(points, entryDate) {
   const entryMs = parseTradeDateMs(entryDate);
   if (!Number.isFinite(entryMs)) return 60;
@@ -949,7 +962,8 @@ function stockSignalMark(trade, nextStockSell, task) {
     stock_mark_date: markDate,
     stock_mark_price: markPrice,
     stock_return_pct: buyPrice && markPrice ? pct(markPrice / buyPrice - 1) : null,
-    realized_volatility_pct: realizedVolatilityPct(points, trade?.date)
+    realized_volatility_pct: realizedVolatilityPct(points, trade?.date),
+    stock_price_path: stockPricePathForEstimate(points, trade?.date, markDate)
   };
 }
 
