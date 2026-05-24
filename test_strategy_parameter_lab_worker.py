@@ -37,6 +37,9 @@ class StrategyParameterLabWorkerTest(unittest.TestCase):
         self.assertIn("slow_simulation_count: slowSimulationCount", source)
         self.assertIn("batch_total_simulations: batchTotal", source)
         self.assertIn("leaps_signal: summarizeLeapsSignals(tradeLog, inputs, Boolean(workerState?.include_leaps_signal_details), task)", source)
+        self.assertIn("cash_after: state.cash", source)
+        self.assertIn("cash_pct_after: pct(safeRatio(state.cash, state.cash + state.last_value))", source)
+        self.assertIn("cost_deleverage_cycle_anchor_price: null", source)
 
     def test_page_short_circuits_zero_candidate_packets(self):
         html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
@@ -269,6 +272,217 @@ const packet = {
         self.assertIn(("2025-09-08", "buy", None), actions)
         self.assertNotIn(("2025-09-04", "sell", 25), actions)
 
+    def test_cost_deleverage_restarts_three_stage_cycle_from_third_sell_price(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript cost deleverage cycle check")
+
+        script = r"""
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const messages = [];
+const context = {
+  console: { info() {}, warn() {}, error() {} },
+  postMessage(message) { messages.push(message); },
+  performance: { now: () => 0 },
+  setTimeout
+};
+context.self = context;
+vm.createContext(context);
+vm.runInContext(source, context);
+const buyFields = [
+  'step_pct', 'equal_slice_allocation_pct', 'core_dip_initial_core_pct',
+  'core_dip_weekly_core_pct', 'core_dip_cash_reserve_pct',
+  'core_dip_start_drawdown_pct', 'core_dip_full_drawdown_pct',
+  'core_dip_timing_enabled', 'core_dip_timing_max_delay_days',
+  'core_dip_timing_rise_threshold_pct', 'core_dip_timing_near_low_pct'
+];
+const sellFields = [
+  'sell_min_profit_pct', 'repair_sell_cooldown_days', 'repair_stage_sell_pct',
+  'grid_rebound_step_pct', 'grid_first_sell_pct', 'grid_second_sell_pct',
+  'grid_min_sell_amount', 'cost_first_profit_pct', 'cost_second_profit_pct',
+  'cost_third_profit_pct', 'cost_first_sell_pct', 'cost_second_sell_pct',
+  'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
+  'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct',
+  'sell_stage_rearm_drawdown_pct'
+];
+const packet = {
+  run_id: 'cost-cycle',
+  inputs: {
+    initial_cash: 1000,
+    monthly_contribution: 0,
+    max_drawdown_pct: 50,
+    drawdown_basis: 'ath',
+    trade_fee: 0,
+    hkd_to_usd: 0.128,
+    reserve_position_pct: 0,
+    sell_min_profit_pct: 0,
+    sell_allow_same_day_sell: false,
+    dca_rearm_drawdown_pct: 0,
+    sell_stage_rearm_drawdown_pct: null
+  },
+  tasks: [{
+    key: 'cost_cycle',
+    portfolio_key: 'single',
+    portfolio_label: 'Single',
+    period_key: 'cycle',
+    period_label: 'Cycle',
+    start: '2025-01-01',
+    end: '2025-01-10',
+    symbols: ['GOOG.US'],
+    targets: [{ symbol: 'GOOG.US', weight: 100, name: 'GOOG', max_drawdown_pct: 50 }]
+  }],
+  market_data: {
+    symbols: {
+      'GOOG.US': {
+        dates: ['2025-01-01', '2025-01-02', '2025-01-03', '2025-01-04', '2025-01-05', '2025-01-06', '2025-01-07', '2025-01-08', '2025-01-09', '2025-01-10'],
+        closes: [200, 100, 110, 120, 130, 140, 150, 156, 165, 170]
+      }
+    }
+  },
+  buy_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...buyFields],
+  sell_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...sellFields],
+  candidate_schema: ['candidate_id', 'buy_variant_id', 'sell_variant_id'],
+  buy_variants: [[0, 'buy:pyramid_3', 'pyramid_3', null, null, null, null, null, null, null, null, null, null, null]],
+  sell_variants: [[0, 'sell:cost', 'cost_deleverage', 0, null, null, null, null, null, null, 10, 20, 30, 10, 10, 10, 0, false, 0, 0, 15]],
+  candidate_rows: [[0, 0, 0]],
+  include_trades: true,
+  include_series: true
+};
+(async () => {
+  await context.initRun(packet, 0, packet.run_id, 1);
+  await context.processBatch({ run_id: packet.run_id, worker_index: 0, batch_id: 'b1', candidate_rows: packet.candidate_rows }, 0, packet.run_id);
+  const done = messages.find((message) => message.type === 'batch_done');
+  process.stdout.write(JSON.stringify(done.rows[0].observations[0].trade_log));
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+"""
+        completed = subprocess.run(
+            ["node", "-e", script, str(WORKER_JS)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        trades = json.loads(completed.stdout)
+        sells = [(trade["date"], trade.get("trigger_value")) for trade in trades if trade["action"] == "sell"]
+
+        self.assertEqual(
+            sells,
+            [
+                ("2025-01-03", 10),
+                ("2025-01-04", 20),
+                ("2025-01-05", 30),
+                ("2025-01-07", 10),
+                ("2025-01-08", 20),
+                ("2025-01-10", 30),
+            ],
+        )
+        self.assertNotIn(("2025-01-06", 10), sells)
+        self.assertNotIn(("2025-01-09", 30), sells)
+
+    def test_cost_deleverage_rearm_buy_resets_cycle_anchor_to_new_average_cost(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript cost deleverage rearm check")
+
+        script = r"""
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const messages = [];
+const context = {
+  console: { info() {}, warn() {}, error() {} },
+  postMessage(message) { messages.push(message); },
+  performance: { now: () => 0 },
+  setTimeout
+};
+context.self = context;
+vm.createContext(context);
+vm.runInContext(source, context);
+const buyFields = [
+  'step_pct', 'equal_slice_allocation_pct', 'core_dip_initial_core_pct',
+  'core_dip_weekly_core_pct', 'core_dip_cash_reserve_pct',
+  'core_dip_start_drawdown_pct', 'core_dip_full_drawdown_pct',
+  'core_dip_timing_enabled', 'core_dip_timing_max_delay_days',
+  'core_dip_timing_rise_threshold_pct', 'core_dip_timing_near_low_pct'
+];
+const sellFields = [
+  'sell_min_profit_pct', 'repair_sell_cooldown_days', 'repair_stage_sell_pct',
+  'grid_rebound_step_pct', 'grid_first_sell_pct', 'grid_second_sell_pct',
+  'grid_min_sell_amount', 'cost_first_profit_pct', 'cost_second_profit_pct',
+  'cost_third_profit_pct', 'cost_first_sell_pct', 'cost_second_sell_pct',
+  'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
+  'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct',
+  'sell_stage_rearm_drawdown_pct'
+];
+const packet = {
+  run_id: 'cost-rearm',
+  inputs: {
+    initial_cash: 1000,
+    monthly_contribution: 0,
+    max_drawdown_pct: 70,
+    drawdown_basis: 'ath',
+    trade_fee: 0,
+    hkd_to_usd: 0.128,
+    reserve_position_pct: 0,
+    sell_min_profit_pct: 0,
+    sell_allow_same_day_sell: false,
+    dca_rearm_drawdown_pct: 0,
+    sell_stage_rearm_drawdown_pct: 50
+  },
+  tasks: [{
+    key: 'cost_rearm',
+    portfolio_key: 'single',
+    portfolio_label: 'Single',
+    period_key: 'cycle',
+    period_label: 'Cycle',
+    start: '2025-01-01',
+    end: '2025-01-05',
+    symbols: ['GOOG.US'],
+    targets: [{ symbol: 'GOOG.US', weight: 100, name: 'GOOG', max_drawdown_pct: 70 }]
+  }],
+  market_data: {
+    symbols: {
+      'GOOG.US': {
+        dates: ['2025-01-01', '2025-01-02', '2025-01-03', '2025-01-04', '2025-01-05'],
+        closes: [200, 100, 110, 80, 106]
+      }
+    }
+  },
+  buy_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...buyFields],
+  sell_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...sellFields],
+  candidate_schema: ['candidate_id', 'buy_variant_id', 'sell_variant_id'],
+  buy_variants: [[0, 'buy:pyramid_3', 'pyramid_3', null, null, null, null, null, null, null, null, null, null, null]],
+  sell_variants: [[0, 'sell:cost', 'cost_deleverage', 0, null, null, null, null, null, null, 10, 20, 30, 10, 10, 10, 0, false, 0, 0, 50]],
+  candidate_rows: [[0, 0, 0]],
+  include_trades: true,
+  include_series: true
+};
+(async () => {
+  await context.initRun(packet, 0, packet.run_id, 1);
+  await context.processBatch({ run_id: packet.run_id, worker_index: 0, batch_id: 'b1', candidate_rows: packet.candidate_rows }, 0, packet.run_id);
+  const done = messages.find((message) => message.type === 'batch_done');
+  process.stdout.write(JSON.stringify(done.rows[0].observations[0].trade_log));
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+"""
+        completed = subprocess.run(
+            ["node", "-e", script, str(WORKER_JS)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        trades = json.loads(completed.stdout)
+        sells = [(trade["date"], trade.get("trigger_value")) for trade in trades if trade["action"] == "sell"]
+        rearm_buys = [trade for trade in trades if trade["action"] == "buy" and trade.get("sell_cycle_rearmed")]
+
+        self.assertIn(("2025-01-03", 10), sells)
+        self.assertIn(("2025-01-05", 10), sells)
+        self.assertTrue(rearm_buys)
+
     def test_leaps_signal_helper_scores_low_cash_deep_drawdown_above_chasing_buy(self):
         if shutil.which("node") is None:
             self.skipTest("node is required for JavaScript LEAPS helper check")
@@ -398,8 +612,11 @@ process.stdout.write(JSON.stringify(context.summarizeLeapsSignals(tradeLog, inpu
         self.assertEqual(signals["TSLA.US"]["stock_holding_days"], 5)
         self.assertIn("stock_buy_price", signals["TSLA.US"])
         self.assertIn("stock_sell_price", signals["TSLA.US"])
+        self.assertEqual(signals["TSLA.US"]["stock_sell_risk"], "")
         self.assertEqual(signals["GOOG.US"]["next_stock_sell_date"], "")
         self.assertIsNone(signals["GOOG.US"]["stock_holding_days"])
+        self.assertEqual(signals["GOOG.US"]["stock_sell_risk"], "no_stock_sell")
+        self.assertEqual(signals["GOOG.US"]["stock_sell_risk_label"], "无正股卖点")
 
     def test_leaps_signal_stock_mark_return_and_volatility_fields(self):
         if shutil.which("node") is None:
@@ -750,6 +967,12 @@ process.stdout.write(JSON.stringify({
         self.assertIn("renderDetailLeaps(row)", html)
         self.assertIn("正股卖出", html)
         self.assertIn("formatStockSell(signal)", html)
+        self.assertIn("function renderLeapsStockSell(signal)", html)
+        self.assertIn("function renderLeapsGroupedStockSell(group)", html)
+        self.assertIn("stock_sell_risk: !group.signals.some", html)
+        self.assertIn(".leaps-stock-sell-risk", html)
+        self.assertIn("! 无正股卖点", html)
+        self.assertIn("期权到期风险", html)
         self.assertIn("leaps-reason-chip", html)
         self.assertIn("/api/strategy-lab/parameter-lab/leaps-option-outcomes", html)
         self.assertIn("calculateLeapsOptionOutcomesForActiveRow", html)
@@ -800,9 +1023,13 @@ process.stdout.write(JSON.stringify({
         self.assertIn("function formatLeapsOptionExitStatus(outcome)", html)
         self.assertIn("holding: '持有中'", html)
         self.assertIn("expired_without_stock_sell: '已到期'", html)
-        self.assertIn("option_take_profit: '期权止盈'", html)
-        self.assertIn("期权独立止盈", html)
-        self.assertIn("option_exit_policy", html)
+        self.assertIn("! 正股替代", html)
+        self.assertIn("正股收益", html)
+        self.assertIn("期权实际", html)
+        self.assertNotIn("option_take_profit", html)
+        self.assertNotIn("期权独立止盈", html)
+        self.assertNotIn("期权止盈", html)
+        self.assertNotIn("option_exit_policy", html)
         self.assertIn("currentRun = null;\n                    renderTopGroupLeapsOptionControls();", html)
 
     def test_aggregate_leaps_badge_and_estimate_pool_keep_period_coverage(self):
@@ -1029,6 +1256,8 @@ const context = {
   renderLeapsReasons: () => '',
   signalSourceLabel: () => 'source',
   formatStockSell: (signal) => signal.next_stock_sell_date || '未卖出',
+  renderLeapsStockSell: (signal) => signal.next_stock_sell_date || '! 无正股卖点',
+  renderLeapsGroupedStockSell: (group) => group.stock_sell_label || '! 无正股卖点',
   highGradeLeapsOptionSignals: (signals) => (signals || []).filter((signal) => signal.grade === '高'),
   aggregateLeapsOptionOutcomes: (outcomes) => ({ total: outcomes.length, success_count: outcomes.filter((item) => item.status === 'success').length }),
   renderLeapsOptionSummary: (summary) => `<span class="leaps-option-summary">ROI summary ${summary.total}</span>`
@@ -1143,9 +1372,24 @@ const signalOnly = {
 };
 const rendered = context.renderLeapsOptionOutcome(holding);
 const estimatedBeforeCalculation = context.renderLeapsOptionOutcome(null, signalOnly);
+const expiredSignalOnly = {
+  date: '2022-01-07',
+  stock_buy_price: 100,
+  stock_mark_date: '2024-01-20',
+  stock_mark_price: 150,
+  stock_return_pct: 50,
+  realized_volatility_pct: 60
+};
+const expiredEstimate = context.renderLeapsOptionOutcome(null, expiredSignalOnly);
+const expiredEstimateCell = context.renderLeapsStockEstimateCell(context.estimatedLeapsOutcomeFromSignal(expiredSignalOnly));
 const table = context.renderLeapsOptionOutcomeTable([holding, missingInputs]);
 if (!rendered.includes('持有中')) throw new Error(rendered);
 if (!estimatedBeforeCalculation.includes('预估 +')) throw new Error(estimatedBeforeCalculation);
+if (!expiredEstimate.includes('预估 +50%')) throw new Error(expiredEstimate);
+if (!expiredEstimate.includes('! 正股替代')) throw new Error(expiredEstimate);
+if (!expiredEstimate.includes('已到期')) throw new Error(expiredEstimate);
+if (!expiredEstimateCell.includes('预估 +50%')) throw new Error(expiredEstimateCell);
+if (!expiredEstimateCell.includes('! 正股替代')) throw new Error(expiredEstimateCell);
 if (context.estimatedOptionVolatilityPct(22) !== 32) throw new Error('vol floor failed');
 if (context.estimatedOptionVolatilityPct(80) !== 65) throw new Error('vol cap failed');
 if (!table.includes('持有中')) throw new Error(table);
@@ -1156,11 +1400,12 @@ if (!table.includes('TSLA250117C00110000')) throw new Error(table);
 if (context.formatLeapsOptionExitStatus({ status: 'success', exit_status: 'expired_without_stock_sell' }) !== '已到期') {
   throw new Error('expired status not translated');
 }
-if (context.formatLeapsOptionExitStatus({ status: 'success', exit_status: 'option_take_profit' }) !== '期权止盈') {
-  throw new Error('take profit status not translated');
-}
-const takeProfit = context.renderLeapsOptionOutcome({ ...holding, exit_status: 'option_take_profit' });
-if (!takeProfit.includes('期权止盈')) throw new Error(takeProfit);
+const substitute = context.renderLeapsOptionOutcome({ ...holding, roi_source: 'stock_return_substitute', roi_pct: 20, option_roi_pct: -30 });
+if (!substitute.includes('! 正股替代')) throw new Error(substitute);
+const substituteTable = context.renderLeapsOptionOutcomeTable([{ ...holding, roi_source: 'stock_return_substitute', roi_pct: 20, stock_return_pct: 20, option_roi_pct: -30 }]);
+if (!substituteTable.includes('正股收益')) throw new Error(substituteTable);
+if (!substituteTable.includes('期权实际')) throw new Error(substituteTable);
+if (!substituteTable.includes('! 正股替代')) throw new Error(substituteTable);
 """
         subprocess.run(["node", "-e", script, render_helpers], check=True, capture_output=True, text=True)
 
@@ -1313,6 +1558,9 @@ process.stdout.write(JSON.stringify(context.groupLeapsSignalsByDateSymbol(signal
         self.assertEqual(result[0]["premium_budget_cap_total"], 105)
         self.assertCountEqual(result[0]["reasons"], ["低现金", "回撤达标", "股票策略买入"])
         self.assertEqual(result[0]["stock_sell_label"], "2024-01-22 / 10-12天")
+        nvda = next(group for group in result if group["symbol"] == "NVDA.US")
+        self.assertEqual(nvda["stock_sell_label"], "! 无正股卖点")
+        self.assertTrue(nvda["stock_sell_risk"])
 
     def test_parameter_lab_rank_helper_recomputes_global_and_group_ranks(self):
         if shutil.which("node") is None:
@@ -1617,7 +1865,7 @@ vm.runInContext(helpers, context);
 
         self.assertEqual(result["statuses"], ["success", "success"])
         self.assertEqual(result["urls"], ["/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch"])
-        self.assertEqual(result["bodies"][0]["option_exit_policy"], {"enabled": True, "dte_min": 50, "dte_max": 100, "profit_roi_pct": 100})
+        self.assertNotIn("option_exit_policy", result["bodies"][0])
         self.assertEqual(result["cacheStats"]["outcome"]["memory_hit"], 2)
 
     def test_leaps_option_request_helper_does_not_retry_polygon_403(self):

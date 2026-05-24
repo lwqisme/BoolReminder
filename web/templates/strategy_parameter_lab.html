@@ -812,6 +812,19 @@
             background: #fff8e8;
             color: var(--amber);
         }
+        .leaps-stock-sell-risk {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: #b42318;
+            font-weight: 900;
+            white-space: nowrap;
+        }
+        .leaps-stock-sell-risk-note {
+            color: #7a271a;
+            font-size: 10px;
+            font-weight: 800;
+        }
         .leaps-option-actions {
             display: flex;
             flex-wrap: wrap;
@@ -1389,18 +1402,6 @@
                         <label>目标 DTE 标签
                             <input id="leapsTargetDteLabel" value="18-24M">
                         </label>
-                        <label>期权独立止盈
-                            <input id="leapsOptionExitEnabled" type="checkbox" checked>
-                        </label>
-                        <label>止盈 DTE 下限
-                            <input id="leapsOptionExitDteMin" type="number" min="0" step="1" value="50">
-                        </label>
-                        <label>止盈 DTE 上限
-                            <input id="leapsOptionExitDteMax" type="number" min="0" step="1" value="100">
-                        </label>
-                        <label>止盈 ROI %
-                            <input id="leapsOptionExitProfitRoi" type="number" min="0" step="1" value="100">
-                        </label>
                     </div>
                 </div>
             </div>
@@ -1654,7 +1655,6 @@
         const LEAPS_OPTION_BATCH_SIZE = 5;
         const LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS = [5000, 15000];
         const LEAPS_OPTION_STOPPED_REASON = '已停止，未计算';
-        const DEFAULT_LEAPS_OPTION_EXIT_POLICY = { enabled: true, dte_min: 50, dte_max: 100, profit_roi_pct: 100 };
         const TOP_GROUP_LEAPS_OPTION_ROW_LIMIT = 3;
         const TOP_GROUP_LEAPS_OPTION_SIGNAL_BUDGET = 300;
         const cellDetailCache = new Map();
@@ -1796,19 +1796,6 @@
             const n = Number(value);
             if (!Number.isFinite(n)) return '--';
             return `${number(n)}%`;
-        }
-        function currentLeapsOptionExitPolicy() {
-            if (typeof document === 'undefined') return { ...DEFAULT_LEAPS_OPTION_EXIT_POLICY };
-            const enabled = document.getElementById('leapsOptionExitEnabled')?.checked !== false;
-            const dteMin = Number(document.getElementById('leapsOptionExitDteMin')?.value);
-            const dteMax = Number(document.getElementById('leapsOptionExitDteMax')?.value);
-            const profitRoi = Number(document.getElementById('leapsOptionExitProfitRoi')?.value);
-            return {
-                enabled,
-                dte_min: Number.isFinite(dteMin) ? dteMin : DEFAULT_LEAPS_OPTION_EXIT_POLICY.dte_min,
-                dte_max: Number.isFinite(dteMax) ? dteMax : DEFAULT_LEAPS_OPTION_EXIT_POLICY.dte_max,
-                profit_roi_pct: Number.isFinite(profitRoi) ? profitRoi : DEFAULT_LEAPS_OPTION_EXIT_POLICY.profit_roi_pct
-            };
         }
         function money(value) {
             const n = Number(value);
@@ -1987,9 +1974,20 @@
             return `<span class="leaps-badge ${leapsBadgeClass(grade)}"${title}>${escapeHtml(`LEAPS ${grade}${periodText}${countText}`)}</span>`;
         }
         function formatStockSell(signal) {
-            if (!signal?.next_stock_sell_date) return '未卖出';
+            if (!signal?.next_stock_sell_date) return '! 无正股卖点';
             const days = Number(signal.stock_holding_days);
             return `${signal.next_stock_sell_date} / ${Number.isFinite(days) ? `${number(days, 0)}天` : '--'}`;
+        }
+        function renderLeapsStockSell(signal) {
+            const text = formatStockSell(signal);
+            if (signal?.next_stock_sell_date) return escapeHtml(text);
+            const risk = signal?.stock_sell_risk_label || '无正股卖点';
+            return `<span class="leaps-stock-sell-risk" title="${escapeHtml(`期权到期风险：${risk}`)}">${escapeHtml(text)}<span class="leaps-stock-sell-risk-note">期权到期风险</span></span>`;
+        }
+        function renderLeapsGroupedStockSell(group) {
+            const text = group?.stock_sell_label || '! 无正股卖点';
+            if (!group?.stock_sell_risk) return escapeHtml(text);
+            return `<span class="leaps-stock-sell-risk" title="期权到期风险：无正股卖点">${escapeHtml(text)}<span class="leaps-stock-sell-risk-note">期权到期风险</span></span>`;
         }
         function renderLeapsReasons(reasons) {
             const items = Array.isArray(reasons) ? reasons : [];
@@ -2008,9 +2006,12 @@
             const rois = successes.map((item) => Number(item.roi_pct));
             const reasonCounts = {};
             const exitStatusCounts = {};
+            const roiSourceCounts = {};
             successes.forEach((item) => {
                 const status = item.exit_status || 'sold';
                 exitStatusCounts[status] = (exitStatusCounts[status] || 0) + 1;
+                const roiSource = item.roi_source || 'option';
+                roiSourceCounts[roiSource] = (roiSourceCounts[roiSource] || 0) + 1;
             });
             items.forEach((item) => {
                 if (item.status === 'success') return;
@@ -2024,7 +2025,8 @@
                 skipped_count: items.length - successes.length,
                 roi_mean_pct: rois.length ? rois.reduce((sum, value) => sum + value, 0) / rois.length : null,
                 roi_median_pct: median(rois),
-                option_take_profit_count: exitStatusCounts.option_take_profit || 0,
+                stock_return_substitute_count: roiSourceCounts.stock_return_substitute || 0,
+                roi_source_counts: roiSourceCounts,
                 exit_status_counts: exitStatusCounts,
                 top_failure_reason: topFailure[0] || '',
                 failure_reasons: reasonCounts
@@ -2035,9 +2037,14 @@
             (summaries || []).forEach((summary) => {
                 const total = Number(summary?.total || 0);
                 const success = Number(summary?.success_count || 0);
-                const takeProfit = Number(summary?.option_take_profit_count || summary?.exit_status_counts?.option_take_profit || 0);
+                const substitute = Number(summary?.stock_return_substitute_count || summary?.roi_source_counts?.stock_return_substitute || 0);
                 for (let index = 0; index < success; index += 1) {
-                    expanded.push({ status: 'success', roi_pct: summary.roi_mean_pct, exit_status: index < takeProfit ? 'option_take_profit' : 'sold' });
+                    expanded.push({
+                        status: 'success',
+                        roi_pct: summary.roi_mean_pct,
+                        exit_status: 'sold',
+                        roi_source: index < substitute ? 'stock_return_substitute' : 'option'
+                    });
                 }
                 const skipped = Math.max(0, total - success);
                 for (let index = 0; index < skipped; index += 1) expanded.push({ status: 'skipped', skipped_reason: summary.top_failure_reason || '未计算' });
@@ -2053,9 +2060,9 @@
             const roi = hasRoi ? `均 ${pct(summary.roi_mean_pct)}` : '均 --';
             const med = hasMedian ? `中 ${pct(summary.roi_median_pct)}` : '中 --';
             const reason = success >= total ? '' : ` · ${summary.top_failure_reason || '有跳过'}`;
-            const takeProfitCount = Number(summary.option_take_profit_count || summary.exit_status_counts?.option_take_profit || 0);
-            const takeProfitText = takeProfitCount > 0 ? ` · 含止盈 ${number(takeProfitCount, 0)}` : '';
-            return `<span class="leaps-option-summary ${success ? '' : 'warn'}">月期权 ROI ${roi} / ${med} · ${number(success, 0)}/${number(total, 0)}${takeProfitText}${escapeHtml(reason)}</span>`;
+            const substituteCount = Number(summary.stock_return_substitute_count || summary.roi_source_counts?.stock_return_substitute || 0);
+            const substituteText = substituteCount > 0 ? ` · ! 正股替代 ${number(substituteCount, 0)}` : '';
+            return `<span class="leaps-option-summary ${success ? '' : 'warn'}">月期权 ROI ${roi} / ${med} · ${number(success, 0)}/${number(total, 0)}${substituteText}${escapeHtml(reason)}</span>`;
         }
         function firstLeapsSignalForEstimate(summary) {
             if (Array.isArray(summary?.top_signals) && summary.top_signals.length) return summary.top_signals[0];
@@ -2082,19 +2089,20 @@
             }
             const estimatedOutcomes = signals.map((signal) => {
                 const outcome = estimatedLeapsOutcomeFromSignal(signal);
-                const roi = estimatedLeapsOptionRoiPct(outcome);
-                return Number.isFinite(roi) ? { ...outcome, roi_pct: roi } : null;
+                const estimatedExit = typeof estimatedLeapsOptionExit === 'function' ? estimatedLeapsOptionExit(outcome) : null;
+                const roi = Number(estimatedExit?.roi_pct ?? estimatedLeapsOptionRoiPct(outcome));
+                return Number.isFinite(roi) ? { ...outcome, ...estimatedExit, roi_pct: roi } : null;
             }).filter(Boolean);
             const estimates = estimatedOutcomes.map((outcome) => Number(outcome.roi_pct));
-            const takeProfitCount = estimatedOutcomes.filter((outcome) => outcome.exit_status === 'option_take_profit').length;
+            const substituteCount = estimatedOutcomes.filter((outcome) => outcome.roi_source === 'stock_return_substitute').length;
             return {
                 total: signals.length,
                 success_count: estimates.length,
                 skipped_count: signals.length - estimates.length,
                 roi_mean_pct: estimates.length ? estimates.reduce((sum, value) => sum + value, 0) / estimates.length : null,
                 roi_median_pct: median(estimates),
-                option_take_profit_count: takeProfitCount,
-                exit_status_counts: takeProfitCount ? { option_take_profit: takeProfitCount } : {},
+                stock_return_substitute_count: substituteCount,
+                roi_source_counts: substituteCount ? { stock_return_substitute: substituteCount } : {},
                 scope
             };
         }
@@ -2105,8 +2113,9 @@
             if (!estimated.total || !estimated.success_count || !Number.isFinite(Number(estimated.roi_mean_pct))) {
                 return `<span class="leaps-option-summary warn">预估 ${scopeLabel} --</span>`;
             }
-            const takeProfitText = Number(estimated.option_take_profit_count || 0) > 0 ? ` · 含止盈 ${number(estimated.option_take_profit_count, 0)}` : '';
-            return `<span class="leaps-option-summary">预估 ${scopeLabel} 均 ${pct(estimated.roi_mean_pct)} / 中 ${pct(estimated.roi_median_pct)} · ${number(estimated.success_count, 0)}/${number(estimated.total, 0)}${takeProfitText}</span>`;
+            const substituteCount = Number(estimated.stock_return_substitute_count || estimated.roi_source_counts?.stock_return_substitute || 0);
+            const substituteText = substituteCount > 0 ? ` · ! 正股替代 ${number(substituteCount, 0)}` : '';
+            return `<span class="leaps-option-summary">预估 ${scopeLabel} 均 ${pct(estimated.roi_mean_pct)} / 中 ${pct(estimated.roi_median_pct)} · ${number(estimated.success_count, 0)}/${number(estimated.total, 0)}${substituteText}</span>`;
         }
         function renderLeapsOptionOrEstimate(summary, optionSummary = null) {
             return renderLeapsOptionSummary(optionSummary) || renderEstimatedLeapsSummary(summary);
@@ -2250,13 +2259,6 @@
         }
         async function fetchLeapsOptionBatchWithRetry(payload, queueItems, options = {}) {
             let lastReason = '';
-            const exitPolicy = typeof currentLeapsOptionExitPolicy === 'function'
-                ? currentLeapsOptionExitPolicy()
-                : { enabled: true, dte_min: 50, dte_max: 100, profit_roi_pct: 100 };
-            const requestPayload = {
-                ...payload,
-                option_exit_policy: payload?.option_exit_policy || exitPolicy
-            };
             const maxAttempts = LEAPS_OPTION_OUTCOME_RETRY_DELAYS_MS.length + 1;
             for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
                 if (isLeapsOptionRequestCancelled(options)) {
@@ -2271,7 +2273,7 @@
                     response = await fetch('/api/strategy-lab/parameter-lab/leaps-option-outcomes/batch', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(requestPayload)
+                        body: JSON.stringify(payload)
                     });
                     result = await response.json().catch(() => ({}));
                     representativeOutcome = Array.isArray(result.outcomes) ? result.outcomes[0] : null;
@@ -2473,7 +2475,7 @@
         }
         function formatGroupedStockSell(signals) {
             const sold = (signals || []).filter((signal) => signal.next_stock_sell_date);
-            if (!sold.length) return '未卖出';
+            if (!sold.length) return '! 无正股卖点';
             const dates = uniqueValues(sold.map((signal) => signal.next_stock_sell_date)).sort();
             const days = uniqueValues(sold.map((signal) => signal.stock_holding_days).filter((value) => Number.isFinite(Number(value))));
             if (dates.length === 1 && days.length <= 1) {
@@ -2522,7 +2524,8 @@
                 reasons: Array.from(group.reasons),
                 drawdown_range: formatPctRange(group.drawdowns),
                 cash_range: formatPctRange(group.cash_pcts),
-                stock_sell_label: formatGroupedStockSell(group.signals)
+                stock_sell_label: formatGroupedStockSell(group.signals),
+                stock_sell_risk: !group.signals.some((signal) => signal.next_stock_sell_date)
             })).sort((a, b) => {
                 const gradeDiff = (leapsGradeRank[b.best_signal?.grade || '无'] || 0) - (leapsGradeRank[a.best_signal?.grade || '无'] || 0);
                 if (gradeDiff) return gradeDiff;
@@ -4435,6 +4438,64 @@
         function findSourceCell(row, topicKey) {
             return (row?.cells || []).find((cell) => String(cell.topic_key) === String(topicKey)) || null;
         }
+        function activeDetailTask(topicKey = activeDetailTopicKey) {
+            return (lastParameterPacket?.tasks || []).find((item) => String(item.key) === String(topicKey)) || null;
+        }
+        function pushUniqueSymbol(symbols, symbol) {
+            const value = String(symbol || '').trim();
+            if (value && !symbols.includes(value)) symbols.push(value);
+        }
+        function marketSeriesForSymbol(symbol) {
+            const marketSymbols = lastParameterPacket?.market_data?.symbols || {};
+            const key = String(symbol || '').trim();
+            if (!key) return null;
+            if (marketSymbols[key]) return { symbol: key, series: marketSymbols[key] };
+            const upperKey = key.toUpperCase();
+            const matchedKey = Object.keys(marketSymbols).find((item) => item.toUpperCase() === upperKey);
+            if (matchedKey) return { symbol: matchedKey, series: marketSymbols[matchedKey] };
+            const shortKey = upperKey.replace(/\.US$/, '');
+            const shortMatchedKey = Object.keys(marketSymbols).find((item) => item.toUpperCase().replace(/\.US$/, '') === shortKey);
+            return shortMatchedKey ? { symbol: shortMatchedKey, series: marketSymbols[shortMatchedKey] } : null;
+        }
+        function cellChartSymbols(cell) {
+            const symbols = [];
+            (Array.isArray(cell?.trade_log) ? cell.trade_log : []).forEach((trade) => pushUniqueSymbol(symbols, trade.symbol));
+            const task = activeDetailTask();
+            (task?.targets || []).forEach((target) => pushUniqueSymbol(symbols, target?.symbol));
+            (task?.symbols || []).forEach((symbol) => pushUniqueSymbol(symbols, symbol));
+            return symbols;
+        }
+        function buildCellPriceTraces(cell, chartDates) {
+            const dateStart = chartDates[0] || '';
+            const dateEnd = chartDates[chartDates.length - 1] || '';
+            const seen = new Set();
+            return cellChartSymbols(cell).map((symbol) => marketSeriesForSymbol(symbol)).filter((entry) => {
+                if (!entry || seen.has(entry.symbol)) return false;
+                seen.add(entry.symbol);
+                return true;
+            }).map((entry) => {
+                const rawDates = Array.isArray(entry.series?.dates) ? entry.series.dates : [];
+                const rawCloses = Array.isArray(entry.series?.closes) ? entry.series.closes : [];
+                const dates = [];
+                const closes = [];
+                rawDates.forEach((date, index) => {
+                    if ((dateStart && date < dateStart) || (dateEnd && date > dateEnd)) return;
+                    const close = Number(rawCloses[index]);
+                    if (!Number.isFinite(close)) return;
+                    dates.push(date);
+                    closes.push(close);
+                });
+                return {
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: `${entry.symbol} 股价`,
+                    x: dates,
+                    y: closes,
+                    yaxis: 'y2',
+                    line: { color: '#d14b2f', width: 2, dash: 'solid' }
+                };
+            }).filter((trace) => trace.x.length && trace.y.length);
+        }
         function cellDetailCacheKey(row, topicKey) {
             const packet = lastParameterPacket || {};
             return JSON.stringify({
@@ -4514,23 +4575,51 @@
             const dates = cell.series.dates || [];
             const portfolioValues = cell.series.portfolio_values || [];
             const cashValues = cell.series.cash_values || [];
+            const priceTraces = buildCellPriceTraces(cell, dates);
+            const usePriceAxisForTrades = priceTraces.length > 0;
             const yByDate = new Map(dates.map((date, index) => [date, portfolioValues[index]]));
+            const cashByDate = new Map(dates.map((date, index) => [date, cashValues[index]]));
             const trades = Array.isArray(cell.trade_log) ? cell.trade_log : [];
             const tradeTrace = (action, name, color, symbol, lineColor = '#fafafa') => {
                 const items = trades.filter((trade) => trade.action === action);
+                const tradeTooltip = (trade) => {
+                    const cashAfter = Number.isFinite(Number(trade.cash_after)) ? Number(trade.cash_after) : Number(cashByDate.get(trade.date));
+                    const cashPctAfter = Number(trade.cash_pct_after);
+                    const lines = [
+                        `${trade.date} ${trade.symbol || ''}`,
+                        `股票价格: ${number(trade.price)}`,
+                        `交易金额: ${money(trade.gross_amount)}`,
+                        `交易后现金: ${Number.isFinite(cashAfter) ? money(cashAfter) : '--'}`,
+                        `交易后现金占比: ${Number.isFinite(cashPctAfter) ? pct(cashPctAfter) : '--'}`
+                    ];
+                    if (action === 'buy') {
+                        lines.push(`买入股数: ${number(trade.shares, 4)}`);
+                    } else {
+                        lines.push(`卖出股数: ${number(trade.shares, 4)}`);
+                        if (Number.isFinite(Number(trade.estimated_profit_pct))) lines.push(`估算盈利: ${pct(trade.estimated_profit_pct)}`);
+                    }
+                    return lines.join('<br>');
+                };
                 return {
                     type: 'scatter',
                     mode: 'markers',
                     name,
                     x: items.map((trade) => trade.date),
-                    y: items.map((trade) => yByDate.get(trade.date) || portfolioValues[portfolioValues.length - 1] || 0),
-                    text: items.map((trade) => `${trade.date} ${trade.symbol || ''} ${money(trade.gross_amount)}`),
+                    y: items.map((trade) => {
+                        const tradePrice = Number(trade.price);
+                        if (usePriceAxisForTrades && Number.isFinite(tradePrice)) return tradePrice;
+                        return yByDate.get(trade.date) || portfolioValues[portfolioValues.length - 1] || 0;
+                    }),
+                    ...(usePriceAxisForTrades ? { yaxis: 'y2' } : {}),
+                    text: items.map(tradeTooltip),
+                    hovertemplate: '%{text}<extra></extra>',
                     marker: { color, size: 11, symbol, line: { color: lineColor, width: 1 } }
                 };
             };
             const traces = [
                 { type: 'scatter', mode: 'lines', name: '组合价值', x: dates, y: portfolioValues, line: { color: '#07689f', width: 2.2 } },
                 { type: 'scatter', mode: 'lines', name: '现金', x: dates, y: cashValues, line: { color: '#00856f', width: 1.9, dash: 'dot' } },
+                ...priceTraces,
                 tradeTrace('buy', '买入', '#ff7e67', 'circle'),
                 tradeTrace('sell', '卖出', '#054d76', 'diamond')
             ];
@@ -4539,21 +4628,22 @@
                 traces,
                 layout: {
                     title: {
-                        text: '买卖点 / 现金余额（交易后）',
+                        text: '买卖点 / 股价 / 现金余额（交易后）',
                         x: 0,
                         y: 0.98,
                         xanchor: 'left',
                         yanchor: 'top',
                         font: { size: fullscreen ? 16 : 14, color: '#06324c' }
                     },
-                    margin: fullscreen ? { l: 58, r: 24, t: 62, b: 82 } : { l: 46, r: 12, t: 54, b: 68 },
+                    margin: fullscreen ? { l: 58, r: 58, t: 62, b: 82 } : { l: 46, r: 48, t: 54, b: 68 },
                     paper_bgcolor: '#fafafa',
                     plot_bgcolor: '#fafafa',
                     font: { color: '#06324c', family: 'Aptos, IBM Plex Sans, Noto Sans SC, sans-serif' },
                     hovermode: 'x unified',
                     legend: { orientation: 'h', y: fullscreen ? -0.14 : -0.18, x: 0, yanchor: 'top', font: { color: '#315d78' } },
                     xaxis: { type: 'date', gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2' },
-                    yaxis: { gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2', tickprefix: '$' }
+                    yaxis: { title: '组合 / 现金', gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2', tickprefix: '$' },
+                    yaxis2: { title: '股价', overlaying: 'y', side: 'right', tickprefix: '$', showgrid: false, zeroline: false }
                 },
                 config: { displayModeBar: fullscreen, displaylogo: false, responsive: true }
             };
@@ -4930,7 +5020,7 @@
                     <td>${pct(signal.cash_pct_after)}</td>
                     <td>${money(signal.buy_amount)}</td>
                     <td>${money(signal.premium_budget_cap)}</td>
-                    <td>${escapeHtml(formatStockSell(signal))}</td>
+                    <td>${renderLeapsStockSell(signal)}</td>
                     <td>${renderLeapsStockEstimateCell(estimatedLeapsOutcomeFromSignal(signal))}</td>
                     <td><div class="leaps-reasons">${renderLeapsReasons(signal.reasons)}</div></td>
                 </tr>
@@ -4956,7 +5046,7 @@
                     <td>${pct(signal.cash_pct_after)}</td>
                     <td>${money(signal.buy_amount)}</td>
                     <td>${money(signal.premium_budget_cap)}</td>
-                    <td>${escapeHtml(formatStockSell(signal))}</td>
+                    <td>${renderLeapsStockSell(signal)}</td>
                     <td>${renderLeapsOptionOutcome(outcome, signal)}</td>
                     <td><div class="leaps-reasons">${renderLeapsReasons(signal.reasons)}</div></td>
                     <td><button type="button" data-leaps-signal-key="${escapeHtml(signal.signal_key || '')}" onclick="calculateLeapsOptionOutcomeForActiveSignal(this.dataset.leapsSignalKey)" ${busy ? 'disabled' : ''}>${isCurrent ? '计算中' : (outcome ? '重算该信号' : '计算该信号')}</button></td>
@@ -4982,7 +5072,8 @@
             }
             const exitLabel = formatLeapsOptionExitStatus(outcome);
             const exitSuffix = exitLabel && exitLabel !== '正股卖点' ? ` · ${escapeHtml(exitLabel)}` : '';
-            return `<span class="leaps-option-summary">${pct(outcome.roi_pct)} · ${escapeHtml(outcome.contract || '')}${exitSuffix}</span>`;
+            const sourceSuffix = leapsOptionRoiSourceBadge(outcome);
+            return `<span class="leaps-option-summary">${pct(outcome.roi_pct)}${sourceSuffix} · ${escapeHtml(outcome.contract || '')}${exitSuffix}</span>`;
         }
         function parseIsoDateMs(value) {
             const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value || ''));
@@ -5040,13 +5131,7 @@
             // Local outcome cache shows raw 60D realized vol understates quiet mega-cap IV and overstates shocky names.
             return Math.min(65, Math.max(32, n));
         }
-        function normalizedLeapsOptionExitPolicy(policy = null) {
-            if (policy) return policy;
-            if (typeof currentLeapsOptionExitPolicy === 'function') return currentLeapsOptionExitPolicy();
-            return { enabled: true, dte_min: 50, dte_max: 100, profit_roi_pct: 100 };
-        }
-        function estimatedLeapsOptionExit(outcome, policy = null) {
-            policy = normalizedLeapsOptionExitPolicy(policy);
+        function estimatedLeapsOptionExit(outcome) {
             if (!outcome || outcome.status !== 'success') return null;
             const strike = Number(outcome.strike);
             const expiration = outcome.expiration || '';
@@ -5060,43 +5145,31 @@
             if (!Number.isFinite(volatility) || volatility <= 0) return null;
             const entryCall = blackScholesCallPrice(stockBuyPrice, strike, yearsBetween(entryDate, expiration), volatility);
             if (!Number.isFinite(entryCall) || entryCall <= 0) return null;
-            const stockSellDate = outcome.stock_sell_date || '';
-            if (policy?.enabled && Array.isArray(outcome.stock_price_path)) {
-                const dteMin = Number(policy.dte_min);
-                const dteMax = Number(policy.dte_max);
-                const profitRoiPct = Number(policy.profit_roi_pct);
-                const minDte = Math.min(dteMin, dteMax);
-                const maxDte = Math.max(dteMin, dteMax);
-                const sortedPath = outcome.stock_price_path.slice().sort((a, b) => String(a?.date || '').localeCompare(String(b?.date || '')));
-                for (const point of sortedPath) {
-                    const pointDate = point?.date || '';
-                    const pointPrice = Number(point?.close);
-                    if (!pointDate || !Number.isFinite(pointPrice) || pointPrice <= 0) continue;
-                    if (stockSellDate && pointDate >= stockSellDate) continue;
-                    const dte = Math.round(yearsBetween(pointDate, expiration) * 365);
-                    if (!Number.isFinite(dte) || dte < minDte || dte > maxDte) continue;
-                    const pointCall = blackScholesCallPrice(pointPrice, strike, yearsBetween(pointDate, expiration), volatility);
-                    if (!Number.isFinite(pointCall)) continue;
-                    const roiPct = (pointCall / entryCall - 1) * 100;
-                    if (roiPct >= profitRoiPct) {
-                        return {
-                            roi_pct: roiPct,
-                            stock_mark_date: pointDate,
-                            stock_mark_price: pointPrice,
-                            exit_status: 'option_take_profit',
-                            used_option_exit_policy: true
-                        };
-                    }
-                }
-            }
             const exitCall = blackScholesCallPrice(stockMarkPrice, strike, yearsBetween(markDate, expiration), volatility);
             if (!Number.isFinite(exitCall)) return null;
+            const optionRoiPct = (exitCall / entryCall - 1) * 100;
+            const expirationMs = parseIsoDateMs(expiration);
+            const markMs = parseIsoDateMs(markDate);
+            const stockSellMs = parseIsoDateMs(outcome.stock_sell_date || '');
+            const stockReturnPct = Number(outcome.stock_return_pct);
+            const expiredBeforeStockSell = Number.isFinite(stockSellMs) && Number.isFinite(expirationMs) && stockSellMs > expirationMs;
+            const expiredWithoutStockSell = !Number.isFinite(stockSellMs) && Number.isFinite(markMs) && Number.isFinite(expirationMs) && markMs >= expirationMs;
+            if ((expiredBeforeStockSell || expiredWithoutStockSell) && Number.isFinite(stockReturnPct)) {
+                return {
+                    roi_pct: stockReturnPct,
+                    roi_source: 'stock_return_substitute',
+                    option_roi_pct: optionRoiPct,
+                    stock_mark_date: markDate,
+                    stock_mark_price: stockMarkPrice,
+                    exit_status: expiredBeforeStockSell ? 'expired_before_stock_sell' : 'expired_without_stock_sell'
+                };
+            }
             return {
-                roi_pct: (exitCall / entryCall - 1) * 100,
+                roi_pct: optionRoiPct,
+                roi_source: 'option',
                 stock_mark_date: markDate,
                 stock_mark_price: stockMarkPrice,
-                exit_status: outcome.exit_status || (outcome.stock_sell_date ? 'sold' : 'holding'),
-                used_option_exit_policy: false
+                exit_status: outcome.exit_status || (outcome.stock_sell_date ? 'sold' : 'holding')
             };
         }
         function estimatedLeapsOptionRoiPct(outcome) {
@@ -5126,25 +5199,19 @@
                 stock_sell_date: signal.next_stock_sell_date || signal.stock_sell_date || '',
                 stock_return_pct: signal.stock_return_pct,
                 estimated_volatility_pct: estimatedOptionVolatilityPct(volatility),
-                realized_volatility_pct: volatility,
-                stock_price_path: Array.isArray(signal.stock_price_path) ? signal.stock_price_path : []
+                realized_volatility_pct: volatility
             };
-            const estimatedExit = estimatedLeapsOptionExit(outcome);
-            if (estimatedExit?.used_option_exit_policy) {
-                outcome.stock_mark_date = estimatedExit.stock_mark_date;
-                outcome.stock_mark_price = estimatedExit.stock_mark_price;
-                outcome.exit_status = estimatedExit.exit_status;
-                outcome.used_option_exit_policy = true;
-            }
             return outcome;
         }
         function renderEstimatedLeapsOptionSummary(signal) {
             const estimated = estimatedLeapsOutcomeFromSignal(signal);
-            const estimate = estimatedLeapsOptionRoiPct(estimated);
+            const estimatedExit = estimatedLeapsOptionExit(estimated);
+            const estimate = Number(estimatedExit?.roi_pct);
             if (!Number.isFinite(estimate)) return '<span class="leaps-option-summary warn">未计算</span>';
-            const exitLabel = formatLeapsOptionExitStatus(estimated);
-            const exitSuffix = exitLabel === '期权止盈' ? ` · ${exitLabel}` : '';
-            return `<span class="leaps-option-summary">预估 ${signedPct(estimate)}${exitSuffix}</span>`;
+            const displayOutcome = { ...estimated, ...estimatedExit, roi_pct: estimate };
+            const exitLabel = formatLeapsOptionExitStatus(displayOutcome);
+            const exitSuffix = exitLabel && exitLabel !== '正股卖点' ? ` · ${escapeHtml(exitLabel)}` : '';
+            return `<span class="leaps-option-summary">预估 ${signedPct(estimate)}${leapsOptionRoiSourceBadge(displayOutcome)}${exitSuffix}</span>`;
         }
         function signedPct(value) {
             const n = Number(value);
@@ -5152,13 +5219,33 @@
             return `${n > 0 ? '+' : ''}${number(n)}%`;
         }
         function renderLeapsStockEstimateCell(outcome) {
-            const estimate = estimatedLeapsOptionRoiPct(outcome);
+            const estimatedExit = estimatedLeapsOptionExit(outcome);
+            const estimate = Number(estimatedExit?.roi_pct);
             const stockReturn = Number(outcome?.stock_return_pct);
             if (!Number.isFinite(estimate) || !Number.isFinite(stockReturn)) return '--';
+            const displayOutcome = { ...outcome, ...estimatedExit, roi_pct: estimate };
             return `
                 <div>正股 ${signedPct(stockReturn)}</div>
-                <div>预估 ${signedPct(estimate)}</div>
+                <div>预估 ${signedPct(estimate)}${leapsOptionRoiSourceBadge(displayOutcome)}</div>
             `;
+        }
+        function isStockReturnSubstituteOutcome(outcome) {
+            return outcome?.roi_source === 'stock_return_substitute';
+        }
+        function leapsOptionRoiSourceBadge(outcome) {
+            return isStockReturnSubstituteOutcome(outcome) ? ' · ! 正股替代' : '';
+        }
+        function renderLeapsOptionActualCell(outcome) {
+            if (!outcome || outcome.status !== 'success') return '--';
+            const optionRoi = Number(outcome.option_roi_pct);
+            if (Number.isFinite(optionRoi)) return signedPct(optionRoi);
+            return Number.isFinite(Number(outcome.roi_pct)) ? signedPct(outcome.roi_pct) : '--';
+        }
+        function renderLeapsStockReturnCell(outcome) {
+            const stockReturn = Number(outcome?.stock_return_pct);
+            if (!Number.isFinite(stockReturn)) return '--';
+            const marker = isStockReturnSubstituteOutcome(outcome) ? '<div>! 正股替代</div>' : '';
+            return `<div>${signedPct(stockReturn)}</div>${marker}`;
         }
         function formatLeapsOptionExitStatus(outcome) {
             if (!outcome || outcome.status !== 'success') return outcome?.skipped_reason || '跳过';
@@ -5166,7 +5253,6 @@
                 holding: '持有中',
                 expired_without_stock_sell: '已到期',
                 expired_before_stock_sell: '到期先于正股卖点',
-                option_take_profit: '期权止盈',
                 sold: '正股卖点'
             };
             const status = outcome.exit_status || 'sold';
@@ -5185,7 +5271,9 @@
                     <td>${number(outcome.entry_price)}</td>
                     <td>${escapeHtml(outcome.exit_date || '--')}</td>
                     <td>${number(outcome.exit_price)}</td>
-                    <td>${outcome.status === 'success' ? pct(outcome.roi_pct) : '--'}</td>
+                    <td>${outcome.status === 'success' ? `${pct(outcome.roi_pct)}${leapsOptionRoiSourceBadge(outcome)}` : '--'}</td>
+                    <td>${renderLeapsStockReturnCell(outcome)}</td>
+                    <td>${renderLeapsOptionActualCell(outcome)}</td>
                     <td>${renderLeapsStockEstimateCell(outcome)}</td>
                     <td>${escapeHtml(formatLeapsOptionExitStatus(outcome))}</td>
                 </tr>
@@ -5196,7 +5284,7 @@
                     <summary>合约详情 <span>${number(count, 0)} 条</span></summary>
                     <div class="matrix-wrap" data-leaps-scroll-key="option-outcomes" style="max-height:300px;">
                         <table class="mini-table leaps-detail-table">
-                            <thead><tr><th>日期</th><th>标的</th><th>合约</th><th>到期</th><th>行权价</th><th>DTE</th><th>入场日</th><th>入场价</th><th>期权卖出日</th><th>卖出价</th><th>ROI</th><th>正股/预估</th><th>状态</th></tr></thead>
+                            <thead><tr><th>日期</th><th>标的</th><th>合约</th><th>到期</th><th>行权价</th><th>DTE</th><th>入场日</th><th>入场价</th><th>期权卖出日</th><th>卖出价</th><th>ROI</th><th>正股收益</th><th>期权实际</th><th>正股/预估</th><th>状态</th></tr></thead>
                             <tbody>${rows}</tbody>
                         </table>
                     </div>
@@ -5385,7 +5473,7 @@
                     <td>${escapeHtml(group.cash_range)}</td>
                     <td>${money(group.buy_amount_total)}</td>
                     <td>${money(group.premium_budget_cap_total)}</td>
-                    <td>${escapeHtml(group.stock_sell_label)}</td>
+                    <td>${renderLeapsGroupedStockSell(group)}</td>
                     <td>
                         <div class="leaps-option-actions" style="margin:0;">
                             ${groupOutcomeSummary ? renderLeapsOptionSummary(groupOutcomeSummary) : renderLeapsOptionOutcome(groupOutcomes[0], group.best_signal)}

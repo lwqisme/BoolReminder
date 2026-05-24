@@ -543,6 +543,7 @@ function recordBuy(state, point, inputs, tradeLog, buyStrategy, sellStrategy, gr
     fee,
     net_amount: net,
     shares,
+    cash_after: state.cash,
     cash_pct_after: pct(safeRatio(state.cash, stateValue)),
     position_value_after: positionValue,
     day_change_pct: dayChangePct,
@@ -558,6 +559,7 @@ function rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy) {
   const rawThreshold = inputs.sell_stage_rearm_drawdown_pct ?? inputs.dca_rearm_drawdown_pct;
   if (drawdown + 1e-9 < Math.min(Math.max(0, num(rawThreshold)), num(inputs.max_drawdown_pct))) return false;
   state.sell_marks = {};
+  if (sellStrategy === 'cost_deleverage') state.cost_deleverage_cycle_anchor_price = null;
   return true;
 }
 
@@ -712,6 +714,9 @@ function recordSell(state, point, shares, inputs, tradeLog, sellStrategy, trigge
     fee,
     net_amount: gross - fee,
     shares,
+    cash_after: state.cash,
+    cash_pct_after: pct(safeRatio(state.cash, state.cash + state.last_value)),
+    position_value_after: state.last_value,
     estimated_profit: basis > 0 ? gross - basis : 0,
     estimated_profit_pct: basis > 0 ? pct(gross / basis - 1) : 0
   });
@@ -732,6 +737,14 @@ function sellShares(state, point, requested, inputs, tradeLog, sellStrategy, tri
   const sold = recordSell(state, point, shares, inputs, tradeLog, sellStrategy, trigger, basis);
   if (sold) markBuyRearmAfterPositionSell(state, point, inputs);
   return sold;
+}
+
+function costDeleverageCycleAnchor(state) {
+  const anchor = num(state.cost_deleverage_cycle_anchor_price, 0);
+  if (anchor > 0) return anchor;
+  const cost = avgCost(state);
+  if (cost > 0) state.cost_deleverage_cycle_anchor_price = cost;
+  return cost;
 }
 
 function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog, tradeIndex) {
@@ -768,9 +781,9 @@ function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog,
     }
   } else if (sellStrategy === 'cost_deleverage') {
     if (num(inputs.cost_deleverage_cooldown_days) > 0 && state.last_cost_deleverage_sell_trade_index !== null && tradeIndex - state.last_cost_deleverage_sell_trade_index < num(inputs.cost_deleverage_cooldown_days)) return;
-    const cost = avgCost(state);
-    if (cost <= 0) return;
-    const profit = current / cost * 100 - 100;
+    const anchor = costDeleverageCycleAnchor(state);
+    if (anchor <= 0) return;
+    const profit = current / anchor * 100 - 100;
     for (const [mark, threshold, sellPct] of [
       ['cost_1', num(inputs.cost_first_profit_pct), num(inputs.cost_first_sell_pct)],
       ['cost_2', num(inputs.cost_second_profit_pct), num(inputs.cost_second_sell_pct)],
@@ -779,6 +792,10 @@ function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog,
       if (state.sell_marks[mark] || profit < Math.max(threshold, num(inputs.sell_min_profit_pct))) continue;
       if (sellShares(state, point, state.shares * sellPct / 100, inputs, tradeLog, sellStrategy, threshold, num(inputs.cost_min_sell_amount))) {
         state.sell_marks[mark] = true;
+        if (mark === 'cost_3') {
+          state.sell_marks = {};
+          state.cost_deleverage_cycle_anchor_price = state.shares > 0 ? current : null;
+        }
         state.last_cost_deleverage_sell_trade_index = tradeIndex;
         return;
       }
@@ -903,45 +920,41 @@ function stockPriceFromTrade(trade) {
 function stockPointsForSignal(task, signalOrTrade) {
   const symbol = signalOrTrade?.symbol;
   const points = symbol ? task?.price_points?.[symbol] : null;
-  return Array.isArray(points) ? points.filter((point) => point && point.date && num(point.close) > 0) : [];
+  return Array.isArray(points) ? points : [];
 }
 
 function latestStockPoint(points) {
-  for (let index = (points || []).length - 1; index >= 0; index -= 1) {
-    const point = points[index];
-    const close = num(point?.close, NaN);
-    if (point?.date && Number.isFinite(close) && close > 0) return { date: point.date, close };
+  const point = Array.isArray(points) && points.length ? points[points.length - 1] : null;
+  return point ? { date: point.date, close: num(point.close) } : null;
+}
+
+function pointIndexBeforeDate(points, entryDate) {
+  if (!Array.isArray(points) || !points.length || !entryDate) return -1;
+  let low = 0;
+  let high = points.length - 1;
+  let result = -1;
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    if (String(points[mid]?.date || '') < entryDate) {
+      result = mid;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
   }
-  return null;
+  return result;
 }
 
-function stockPricePathForEstimate(points, entryDate, markDate) {
-  const entryMs = parseTradeDateMs(entryDate);
-  const markMs = parseTradeDateMs(markDate);
-  if (!Number.isFinite(entryMs) || !Number.isFinite(markMs)) return [];
-  return (points || [])
-    .filter((point) => {
-      const pointMs = parseTradeDateMs(point?.date);
-      const close = num(point?.close, NaN);
-      return Number.isFinite(pointMs) && entryMs <= pointMs && pointMs <= markMs && Number.isFinite(close) && close > 0;
-    })
-    .map((point) => ({ date: point.date, close: num(point.close) }));
-}
-
-function realizedVolatilityPct(points, entryDate) {
-  const entryMs = parseTradeDateMs(entryDate);
-  if (!Number.isFinite(entryMs)) return 60;
-  const history = (points || [])
-    .filter((point) => {
-      const pointMs = parseTradeDateMs(point?.date);
-      return Number.isFinite(pointMs) && pointMs < entryMs && num(point?.close) > 0;
-    })
-    .sort((a, b) => String(a.date).localeCompare(String(b.date)))
-    .slice(-61);
+function realizedVolatilityPct(points, entryDate, entryIndex = null) {
+  const lastHistoryIndex = Number.isFinite(Number(entryIndex))
+    ? Number(entryIndex) - 1
+    : pointIndexBeforeDate(points, String(entryDate || ''));
+  if (!Array.isArray(points) || lastHistoryIndex < 1) return 60;
+  const start = Math.max(0, lastHistoryIndex - 60);
   const returns = [];
-  for (let index = 1; index < history.length; index += 1) {
-    const previous = num(history[index - 1]?.close);
-    const current = num(history[index]?.close);
+  for (let index = start + 1; index <= lastHistoryIndex; index += 1) {
+    const previous = num(points[index - 1]?.close);
+    const current = num(points[index]?.close);
     if (previous > 0 && current > 0) returns.push(Math.log(current / previous));
   }
   if (returns.length < 20) return 60;
@@ -954,6 +967,8 @@ function realizedVolatilityPct(points, entryDate) {
 function stockSignalMark(trade, nextStockSell, task) {
   const buyPrice = stockPriceFromTrade(trade);
   const points = stockPointsForSignal(task, trade);
+  const symbol = trade?.symbol;
+  const entryIndex = task?.tradingIndex?.[symbol]?.[trade?.date];
   const sellPrice = nextStockSell ? stockPriceFromTrade(nextStockSell) : null;
   const latestPoint = latestStockPoint(points);
   const markDate = nextStockSell?.date || latestPoint?.date || '';
@@ -962,24 +977,38 @@ function stockSignalMark(trade, nextStockSell, task) {
     stock_mark_date: markDate,
     stock_mark_price: markPrice,
     stock_return_pct: buyPrice && markPrice ? pct(markPrice / buyPrice - 1) : null,
-    realized_volatility_pct: realizedVolatilityPct(points, trade?.date),
-    stock_price_path: stockPricePathForEstimate(points, trade?.date, markDate)
+    realized_volatility_pct: realizedVolatilityPct(points, trade?.date, entryIndex)
   };
 }
 
-function findNextStockSell(tradeLog, buyTrade) {
+function buildSellQueuesBySymbol(tradeLog) {
+  const queues = {};
+  for (const trade of Array.isArray(tradeLog) ? tradeLog : []) {
+    if (!trade || trade.action !== 'sell' || !trade.symbol) continue;
+    if (!queues[trade.symbol]) queues[trade.symbol] = [];
+    queues[trade.symbol].push(trade);
+  }
+  Object.values(queues).forEach((items) => items.sort((a, b) => String(a.date || '').localeCompare(String(b.date || ''))));
+  return queues;
+}
+
+function findNextStockSellFromQueues(sellQueues, sellIndexes, buyTrade) {
   const buyDate = parseTradeDateMs(buyTrade?.date);
   if (!Number.isFinite(buyDate)) return null;
-  let next = null;
-  let nextDate = Infinity;
-  for (const trade of Array.isArray(tradeLog) ? tradeLog : []) {
-    if (!trade || trade.action !== 'sell' || trade.symbol !== buyTrade.symbol) continue;
-    const sellDate = parseTradeDateMs(trade.date);
-    if (!Number.isFinite(sellDate) || sellDate <= buyDate || sellDate >= nextDate) continue;
-    next = trade;
-    nextDate = sellDate;
+  const symbol = buyTrade?.symbol;
+  const queue = sellQueues?.[symbol] || [];
+  let index = sellIndexes[symbol] || 0;
+  while (index < queue.length) {
+    const sellDate = parseTradeDateMs(queue[index]?.date);
+    if (Number.isFinite(sellDate) && sellDate > buyDate) break;
+    index += 1;
   }
-  return next;
+  sellIndexes[symbol] = index;
+  return queue[index] || null;
+}
+
+function findNextStockSell(tradeLog, buyTrade) {
+  return findNextStockSellFromQueues(buildSellQueuesBySymbol(tradeLog), {}, buyTrade);
 }
 
 function scoreLeapsBuySignal(trade, settings, nextStockSell = null, task = null) {
@@ -1016,6 +1045,8 @@ function scoreLeapsBuySignal(trade, settings, nextStockSell = null, task = null)
     target_dte_label: settings.target_dte_label,
     next_stock_sell_date: nextStockSell?.date || '',
     stock_sell_date: nextStockSell?.date || '',
+    stock_sell_risk: nextStockSell?.date ? '' : 'no_stock_sell',
+    stock_sell_risk_label: nextStockSell?.date ? '' : '无正股卖点',
     stock_sell_price: nextStockSell ? stockPriceFromTrade(nextStockSell) : null,
     stock_holding_days: nextStockSell ? naturalDayDiff(trade.date, nextStockSell.date) : null,
     ...stockSignalMark(trade, nextStockSell, task),
@@ -1025,9 +1056,11 @@ function scoreLeapsBuySignal(trade, settings, nextStockSell = null, task = null)
 
 function summarizeLeapsSignals(tradeLog, inputs, includeDetails = false, task = null) {
   const settings = leapsSignalSettings(inputs);
+  const sellQueues = buildSellQueuesBySymbol(tradeLog);
+  const sellIndexes = {};
   const signals = (Array.isArray(tradeLog) ? tradeLog : [])
     .filter((trade) => trade.action === 'buy')
-    .map((trade) => scoreLeapsBuySignal(trade, settings, findNextStockSell(tradeLog, trade), task))
+    .map((trade) => scoreLeapsBuySignal(trade, settings, findNextStockSellFromQueues(sellQueues, sellIndexes, trade), task))
     .filter((signal) => signal && signal.grade !== '无')
     .sort((a, b) => {
       const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
@@ -1084,6 +1117,7 @@ function simulate(task, baseInputs, candidate) {
       last_value: 0,
       lots: [],
       sell_marks: {},
+      cost_deleverage_cycle_anchor_price: null,
       last_repair_sell_trade_index: null,
       last_cost_deleverage_sell_trade_index: null,
       dca_pending_cash: strategy === 'weekly_dca' ? budget : 0,
@@ -1094,6 +1128,12 @@ function simulate(task, baseInputs, candidate) {
     };
   }
   const executed = Object.fromEntries(task.targets.map((target) => [target.symbol, {}]));
+  const tranchesBySymbol = Object.fromEntries(
+    task.targets.map((target) => [
+      target.symbol,
+      buildTranches({ ...inputs, max_drawdown_pct: targetMaxDrawdown(task.targets, target.symbol, inputs) }, strategy)
+    ])
+  );
   let contributionCount = 0;
   let totalMonthlyContributions = 0;
   const portfolioValues = [];
@@ -1132,7 +1172,7 @@ function simulate(task, baseInputs, candidate) {
           executed[symbol] = {};
           state.buy_rearm_drawdown_pct = null;
         }
-        const tranches = buildTranches({ ...inputs, max_drawdown_pct: targetMaxDrawdown(task.targets, symbol, inputs) }, strategy);
+        const tranches = tranchesBySymbol[symbol] || [];
         bought = executeTranches(state, point, tranches, executed[symbol], inputs, tradeLog, strategy, sellStrategy);
       }
       if (!bought || (bought && sellStrategy !== 'none' && Boolean(inputs.sell_allow_same_day_sell))) {

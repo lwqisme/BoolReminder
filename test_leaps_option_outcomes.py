@@ -26,7 +26,6 @@ from drawdown.leaps_option_outcomes import (
     PolygonRequestRateLimiter,
     _polygon_retry_get,
     is_standard_monthly_expiration,
-    normalize_option_exit_policy,
     outcome_cache_key,
     replay_leaps_option_outcomes,
     replay_leaps_option_outcomes_batch,
@@ -145,7 +144,7 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         self.assertAlmostEqual(result["summary"]["roi_mean_pct"], 40.0)
         self.assertEqual(result["summary"]["success_count"], 1)
 
-    def test_option_take_profit_exits_on_first_matching_dte_roi_bar(self):
+    def test_option_take_profit_policy_is_not_used_for_early_exit(self):
         provider = FakeProvider(
             bars=[
                 OptionBar(date(2024, 12, 9), 10.0),
@@ -167,19 +166,17 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
             [signal],
             api_key="",
             provider=provider,
-            option_exit_policy={"enabled": True, "dte_min": 50, "dte_max": 100, "profit_roi_pct": 100},
         )
         outcome = result["outcomes"][0]
 
         self.assertEqual(outcome["status"], "success")
-        self.assertEqual(outcome["exit_status"], "option_take_profit")
-        self.assertTrue(outcome["used_option_exit_policy"])
-        self.assertEqual(outcome["exit_date"], "2025-05-15")
-        self.assertAlmostEqual(outcome["roi_pct"], 110.0)
-        self.assertEqual(result["summary"]["option_take_profit_count"], 1)
-        self.assertEqual(result["summary"]["exit_status_counts"]["option_take_profit"], 1)
+        self.assertEqual(outcome["exit_status"], "sold")
+        self.assertNotIn("used_option_exit_policy", outcome)
+        self.assertEqual(outcome["exit_date"], "2025-06-30")
+        self.assertAlmostEqual(outcome["roi_pct"], 20.0)
+        self.assertEqual(result["summary"]["exit_status_counts"]["sold"], 1)
 
-    def test_stock_sell_before_option_take_profit_keeps_sold_status(self):
+    def test_stock_sell_uses_option_roi(self):
         provider = FakeProvider(
             bars=[
                 OptionBar(date(2024, 12, 9), 10.0),
@@ -199,13 +196,13 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
             [signal],
             api_key="",
             provider=provider,
-            option_exit_policy={"enabled": True, "dte_min": 50, "dte_max": 100, "profit_roi_pct": 100},
         )
         outcome = result["outcomes"][0]
 
         self.assertEqual(outcome["status"], "success")
         self.assertEqual(outcome["exit_status"], "sold")
-        self.assertFalse(outcome["used_option_exit_policy"])
+        self.assertEqual(outcome["roi_source"], "option")
+        self.assertNotIn("used_option_exit_policy", outcome)
         self.assertEqual(outcome["exit_date"], "2025-03-03")
 
     def test_alpaca_pre_2024_02_signal_skips_without_external_api(self):
@@ -285,7 +282,7 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
 
         with patch("drawdown.leaps_option_outcomes._utc_today", return_value=date(2025, 1, 11)):
             result = replay_leaps_option_outcomes(
-                [{"date": "2024-12-08", "symbol": "TSLA.US", "stock_buy_price": 100}],
+                [{"date": "2024-12-08", "symbol": "TSLA.US", "stock_buy_price": 100, "stock_return_pct": 25}],
                 api_key="",
                 provider=provider,
             )
@@ -311,7 +308,7 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
 
         with patch("drawdown.leaps_option_outcomes._utc_today", return_value=date(2025, 5, 22)):
             result = replay_leaps_option_outcomes(
-                [{"date": "2024-12-08", "symbol": "TSLA.US", "stock_buy_price": 100}],
+                [{"date": "2024-12-08", "symbol": "TSLA.US", "stock_buy_price": 100, "stock_return_pct": 25}],
                 api_key="",
                 provider=provider,
             )
@@ -321,8 +318,46 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         self.assertEqual(outcome["exit_status"], "expired_without_stock_sell")
         self.assertEqual(outcome["stock_sell_date"], "")
         self.assertEqual(outcome["exit_date"], "2025-01-16")
-        self.assertAlmostEqual(outcome["roi_pct"], -30.0)
+        self.assertAlmostEqual(outcome["roi_pct"], 25.0)
+        self.assertEqual(outcome["roi_source"], "stock_return_substitute")
+        self.assertAlmostEqual(outcome["stock_return_pct"], 25.0)
+        self.assertAlmostEqual(outcome["option_roi_pct"], -30.0)
+        self.assertEqual(outcome["option_exit_date"], "2025-01-16")
+        self.assertEqual(outcome["option_exit_price"], 7.0)
+        self.assertEqual(result["summary"]["stock_return_substitute_count"], 1)
         self.assertEqual(provider.fetch_requests[0][1:], (date(2024, 12, 8), date(2025, 1, 17)))
+
+    def test_expired_before_stock_sell_uses_stock_return_in_summary(self):
+        provider = FakeProvider(
+            contract=OptionContract("O:TSLA250117C110000000", "TSLA", date(2025, 1, 17), 110.0),
+            bars=[
+                OptionBar(date(2024, 12, 9), 10.0),
+                OptionBar(date(2025, 1, 16), 7.0),
+            ],
+        )
+
+        result = replay_leaps_option_outcomes(
+            [
+                {
+                    "date": "2024-12-08",
+                    "symbol": "TSLA.US",
+                    "stock_buy_price": 100,
+                    "next_stock_sell_date": "2025-03-01",
+                    "stock_return_pct": 18,
+                }
+            ],
+            api_key="",
+            provider=provider,
+        )
+
+        outcome = result["outcomes"][0]
+        self.assertEqual(outcome["status"], "success")
+        self.assertEqual(outcome["exit_status"], "expired_before_stock_sell")
+        self.assertEqual(outcome["roi_source"], "stock_return_substitute")
+        self.assertAlmostEqual(outcome["roi_pct"], 18.0)
+        self.assertAlmostEqual(outcome["option_roi_pct"], -30.0)
+        self.assertAlmostEqual(result["summary"]["roi_mean_pct"], 18.0)
+        self.assertAlmostEqual(result["summary"]["roi_median_pct"], 18.0)
 
     def test_no_stock_sell_without_exit_bar_is_skipped(self):
         provider = FakeProvider(bars=[OptionBar(date(2024, 12, 9), 10.0)])
@@ -353,7 +388,7 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         summary = summarize_outcomes(
             [
                 {"status": "success", "roi_pct": 20},
-                {"status": "success", "roi_pct": -10, "exit_status": "option_take_profit"},
+                {"status": "success", "roi_pct": -10, "exit_status": "expired_before_stock_sell", "roi_source": "stock_return_substitute"},
                 {"status": "skipped", "skipped_reason": "无可用入场价"},
                 {"status": "skipped", "skipped_reason": "无可用入场价"},
             ]
@@ -363,12 +398,13 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         self.assertEqual(summary["success_count"], 2)
         self.assertEqual(summary["roi_mean_pct"], 5)
         self.assertEqual(summary["roi_median_pct"], 5)
-        self.assertEqual(summary["option_take_profit_count"], 1)
+        self.assertEqual(summary["stock_return_substitute_count"], 1)
         self.assertEqual(summary["exit_status_counts"]["sold"], 1)
-        self.assertEqual(summary["exit_status_counts"]["option_take_profit"], 1)
+        self.assertEqual(summary["exit_status_counts"]["expired_before_stock_sell"], 1)
+        self.assertEqual(summary["roi_source_counts"]["stock_return_substitute"], 1)
         self.assertEqual(summary["top_failure_reason"], "无可用入场价")
 
-    def test_outcome_cache_key_includes_option_exit_policy(self):
+    def test_outcome_cache_key_uses_new_outcome_policy_version(self):
         signal = {
             "signal_key": "sig-1",
             "date": "2024-12-08",
@@ -376,18 +412,10 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
             "stock_buy_price": 100,
             "next_stock_sell_date": "2025-06-30",
         }
-        default_key = outcome_cache_key(signal)
-        policy_key = outcome_cache_key(
-            signal,
-            option_exit_policy=normalize_option_exit_policy({"enabled": True, "dte_min": 50, "dte_max": 100, "profit_roi_pct": 100}),
-        )
-        changed_policy_key = outcome_cache_key(
-            signal,
-            option_exit_policy=normalize_option_exit_policy({"enabled": True, "dte_min": 40, "dte_max": 100, "profit_roi_pct": 100}),
-        )
+        key = outcome_cache_key(signal)
 
-        self.assertNotEqual(default_key, policy_key)
-        self.assertNotEqual(policy_key, changed_policy_key)
+        self.assertIn("selection_policy_version_monthly-call-200-300d-otm10-v2", key)
+        self.assertNotIn("option_exit_policy", key)
 
     def test_endpoint_reports_missing_polygon_key(self):
         with patch("web.app._get_polygon_api_key", return_value=""):
@@ -490,7 +518,7 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         self.assertEqual(len(payload["outcomes"]), 1)
         self.assertEqual(payload["summary"]["success_count"], 1)
 
-    def test_endpoint_passes_option_exit_policy_to_replay(self):
+    def test_endpoint_ignores_legacy_option_exit_policy(self):
         signal = {
             "signal_key": "sig-1",
             "date": "2024-12-08",
@@ -515,7 +543,7 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
                         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(replay.call_args.kwargs["option_exit_policy"], policy)
+        self.assertNotIn("option_exit_policy", replay.call_args.kwargs)
 
     def test_batch_endpoint_returns_ordered_cloned_outcomes(self):
         signals = [
@@ -550,7 +578,7 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
         self.assertEqual(payload["summary"]["success_count"], 2)
         self.assertIn("cache_stats", payload)
 
-    def test_batch_endpoint_passes_option_exit_policy_to_replay(self):
+    def test_batch_endpoint_ignores_legacy_option_exit_policy(self):
         signals = [
             {
                 "signal_key": "sig-1",
@@ -577,7 +605,7 @@ class LeapsOptionOutcomesTest(unittest.TestCase):
                         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(replay.call_args.kwargs["option_exit_policy"], policy)
+        self.assertNotIn("option_exit_policy", replay.call_args.kwargs)
 
     def test_batch_endpoint_short_circuits_after_polygon_403(self):
         signal = {

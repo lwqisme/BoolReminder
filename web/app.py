@@ -66,7 +66,6 @@ from drawdown.leaps_option_outcomes import (
     AlpacaMonthlyOptionProvider,
     OutcomeCache,
     PolygonMonthlyOptionProvider,
-    normalize_option_exit_policy,
     replay_leaps_option_outcomes,
     replay_leaps_option_outcomes_batch,
     skipped_outcome,
@@ -614,13 +613,11 @@ def _leaps_option_permission_circuit_result(
     reason: str,
     provider_name: str,
     provider_cache_id: str,
-    option_exit_policy: object | None = None,
 ) -> dict[str, object]:
     outcomes: list[dict[str, object]] = []
     cache_hits = 0
-    normalized_option_exit_policy = normalize_option_exit_policy(option_exit_policy)
     for signal in signals:
-        cached = _leaps_option_outcome_cache.read(signal, provider_id=provider_cache_id, option_exit_policy=normalized_option_exit_policy)
+        cached = _leaps_option_outcome_cache.read(signal, provider_id=provider_cache_id)
         if cached is not None:
             cached["provider"] = provider_name
             outcomes.append(cached)
@@ -7757,6 +7754,7 @@ function rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy) {
   const rawThreshold = inputs.sell_stage_rearm_drawdown_pct ?? inputs.dca_rearm_drawdown_pct;
   if (drawdown + 1e-9 < Math.min(Math.max(0, num(rawThreshold)), num(inputs.max_drawdown_pct))) return false;
   state.sell_marks = {};
+  if (sellStrategy === 'cost_deleverage') state.cost_deleverage_cycle_anchor_price = null;
   return true;
 }
 function salaryMultiplier(drawdown) { return drawdown >= 30 ? 4 : drawdown >= 20 ? 3 : drawdown >= 10 ? 2 : drawdown >= 5 ? 1.4 : 1; }
@@ -7886,6 +7884,13 @@ function sellShares(state, point, requested, inputs, tradeLog, sellStrategy, tri
   if (sold) markBuyRearmAfterPositionSell(state, point, inputs);
   return sold;
 }
+function costDeleverageCycleAnchor(state) {
+  const anchor = num(state.cost_deleverage_cycle_anchor_price, 0);
+  if (anchor > 0) return anchor;
+  const cost = avgCost(state);
+  if (cost > 0) state.cost_deleverage_cycle_anchor_price = cost;
+  return cost;
+}
 function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog, tradeIndex) {
   if (sellStrategy === 'none' || state.shares <= 0) return;
   const current = priceUsd(state.symbol, point.close, inputs);
@@ -7910,12 +7915,12 @@ function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog,
     }
   } else if (sellStrategy === 'cost_deleverage') {
     if (num(inputs.cost_deleverage_cooldown_days) > 0 && state.last_cost_deleverage_sell_trade_index !== null && tradeIndex - state.last_cost_deleverage_sell_trade_index < num(inputs.cost_deleverage_cooldown_days)) return;
-    const cost = avgCost(state);
-    if (cost <= 0) return;
-    const profit = current / cost * 100 - 100;
+    const anchor = costDeleverageCycleAnchor(state);
+    if (anchor <= 0) return;
+    const profit = current / anchor * 100 - 100;
     for (const [mark, threshold, sellPct] of [['cost_1', num(inputs.cost_first_profit_pct), num(inputs.cost_first_sell_pct)], ['cost_2', num(inputs.cost_second_profit_pct), num(inputs.cost_second_sell_pct)], ['cost_3', num(inputs.cost_third_profit_pct), num(inputs.cost_third_sell_pct)]]) {
       if (state.sell_marks[mark] || profit < Math.max(threshold, num(inputs.sell_min_profit_pct))) continue;
-      if (sellShares(state, point, state.shares * sellPct / 100, inputs, tradeLog, sellStrategy, threshold, num(inputs.cost_min_sell_amount))) { state.sell_marks[mark] = true; state.last_cost_deleverage_sell_trade_index = tradeIndex; return; }
+      if (sellShares(state, point, state.shares * sellPct / 100, inputs, tradeLog, sellStrategy, threshold, num(inputs.cost_min_sell_amount))) { state.sell_marks[mark] = true; if (mark === 'cost_3') { state.sell_marks = {}; state.cost_deleverage_cycle_anchor_price = state.shares > 0 ? current : null; } state.last_cost_deleverage_sell_trade_index = tradeIndex; return; }
     }
   }
 }
@@ -7967,7 +7972,7 @@ function simulate(task, baseInputs, candidate) {
   const states = {};
   for (const target of task.targets) {
     const budget = num(inputs.initial_cash) * num(target.weight) / 100;
-    states[target.symbol] = { symbol: target.symbol, weight: num(target.weight), budget, cash: budget, shares: 0, invested: 0, fees: 0, trades: 0, buy_trades: 0, sell_trades: 0, sold_gross: 0, max_shares: 0, last_value: 0, lots: [], sell_marks: {}, last_repair_sell_trade_index: null, last_cost_deleverage_sell_trade_index: null, dca_pending_cash: strategy === 'weekly_dca' ? budget : 0, core_dip_pending_cash: 0, core_dip_pending_days: 0, recent_points: [], buy_rearm_drawdown_pct: null };
+    states[target.symbol] = { symbol: target.symbol, weight: num(target.weight), budget, cash: budget, shares: 0, invested: 0, fees: 0, trades: 0, buy_trades: 0, sell_trades: 0, sold_gross: 0, max_shares: 0, last_value: 0, lots: [], sell_marks: {}, cost_deleverage_cycle_anchor_price: null, last_repair_sell_trade_index: null, last_cost_deleverage_sell_trade_index: null, dca_pending_cash: strategy === 'weekly_dca' ? budget : 0, core_dip_pending_cash: 0, core_dip_pending_days: 0, recent_points: [], buy_rearm_drawdown_pct: null };
   }
   const executed = Object.fromEntries(task.targets.map((target) => [target.symbol, {}]));
   let contributionCount = 0, totalMonthlyContributions = 0;
@@ -10161,7 +10166,6 @@ def api_strategy_lab_parameter_lab_leaps_option_outcomes():
     payload = request.get_json(silent=True) or {}
     raw_signals = payload.get("signals")
     signals = [item for item in raw_signals if isinstance(item, dict)] if isinstance(raw_signals, list) else []
-    option_exit_policy = payload.get("option_exit_policy")
     run_id = str(payload.get("run_id") or "").strip()
     row_key = str(payload.get("row_key") or "").strip()
     started = time.perf_counter()
@@ -10187,9 +10191,9 @@ def api_strategy_lab_parameter_lab_leaps_option_outcomes():
     provider_cache_id = str(getattr(provider, "cache_provider_id", "") or provider_name)
     replay_api_key = api_key if provider_name == "polygon" else ""
     if _leaps_option_permission_denied_active(provider_name, credential_key):
-        result = _leaps_option_permission_circuit_result(signals, permission_reason, provider_name, provider_cache_id, option_exit_policy=option_exit_policy)
+        result = _leaps_option_permission_circuit_result(signals, permission_reason, provider_name, provider_cache_id)
     else:
-        result = replay_leaps_option_outcomes(signals, replay_api_key, provider=provider, outcome_cache=_leaps_option_outcome_cache, option_exit_policy=option_exit_policy)
+        result = replay_leaps_option_outcomes(signals, replay_api_key, provider=provider, outcome_cache=_leaps_option_outcome_cache)
         if _leaps_option_result_has_permission_denied(result, permission_reason):
             _mark_leaps_option_permission_denied(provider_name, credential_key)
     status_code = 200 if result.get("success") else 400
@@ -10223,7 +10227,6 @@ def api_strategy_lab_parameter_lab_leaps_option_outcomes_batch():
     payload = request.get_json(silent=True) or {}
     raw_signals = payload.get("signals")
     signals = [item for item in raw_signals if isinstance(item, dict)] if isinstance(raw_signals, list) else []
-    option_exit_policy = payload.get("option_exit_policy")
     run_id = str(payload.get("run_id") or "").strip()
     row_key = str(payload.get("row_key") or "").strip()
     started = time.perf_counter()
@@ -10243,9 +10246,9 @@ def api_strategy_lab_parameter_lab_leaps_option_outcomes_batch():
     provider_cache_id = str(getattr(provider, "cache_provider_id", "") or provider_name)
     replay_api_key = api_key if provider_name == "polygon" else ""
     if _leaps_option_permission_denied_active(provider_name, credential_key):
-        result = _leaps_option_permission_circuit_result(signals, permission_reason, provider_name, provider_cache_id, option_exit_policy=option_exit_policy)
+        result = _leaps_option_permission_circuit_result(signals, permission_reason, provider_name, provider_cache_id)
     else:
-        result = replay_leaps_option_outcomes_batch(signals, replay_api_key, provider=provider, outcome_cache=_leaps_option_outcome_cache, option_exit_policy=option_exit_policy)
+        result = replay_leaps_option_outcomes_batch(signals, replay_api_key, provider=provider, outcome_cache=_leaps_option_outcome_cache)
         if _leaps_option_result_has_permission_denied(result, permission_reason):
             _mark_leaps_option_permission_denied(provider_name, credential_key)
     status_code = 200 if result.get("success") else 400

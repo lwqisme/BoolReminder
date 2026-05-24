@@ -32,14 +32,7 @@ ALPACA_PERMISSION_DENIED = "Alpaca API 无权限/套餐不支持期权历史K线
 ALPACA_OPTION_DATA_START = date(2024, 2, 1)
 POLYGON_REQUEST_INTERVAL_SECONDS = 1.0
 OPTION_CACHE_SCHEMA_VERSION = 1
-LEAPS_OPTION_SELECTION_POLICY_VERSION = "monthly-call-200-300d-otm10-v1"
-LEAPS_OPTION_EXIT_POLICY_VERSION = "option-take-profit-dte-roi-v1"
-DEFAULT_OPTION_EXIT_POLICY = {
-    "enabled": True,
-    "dte_min": 50,
-    "dte_max": 100,
-    "profit_roi_pct": 100,
-}
+LEAPS_OPTION_SELECTION_POLICY_VERSION = "monthly-call-200-300d-otm10-v2"
 POLYGON_BATCH_429_CIRCUIT_BREAKER = 6
 POLYGON_BATCH_403_CIRCUIT_BREAKER = 1
 OUTCOME_CACHEABLE_FAILURES = {
@@ -287,38 +280,12 @@ def _float_or_none(value: object) -> float | None:
     return number if number > 0 else None
 
 
-def _number_or_default(value: object, default: float) -> float:
+def _finite_float_or_none(value: object) -> float | None:
     try:
         number = float(value)
     except (TypeError, ValueError):
-        return default
-    return number if number == number else default
-
-
-def normalize_option_exit_policy(policy: object | None) -> dict[str, object] | None:
-    if policy is None:
         return None
-    if not isinstance(policy, dict):
-        policy = {}
-    enabled = bool(policy.get("enabled"))
-    if not enabled:
-        return {"enabled": False, "version": LEAPS_OPTION_EXIT_POLICY_VERSION}
-    dte_min = int(round(_number_or_default(policy.get("dte_min"), DEFAULT_OPTION_EXIT_POLICY["dte_min"])))
-    dte_max = int(round(_number_or_default(policy.get("dte_max"), DEFAULT_OPTION_EXIT_POLICY["dte_max"])))
-    if dte_min > dte_max:
-        dte_min, dte_max = dte_max, dte_min
-    profit_roi_pct = _number_or_default(policy.get("profit_roi_pct"), DEFAULT_OPTION_EXIT_POLICY["profit_roi_pct"])
-    return {
-        "enabled": True,
-        "dte_min": dte_min,
-        "dte_max": dte_max,
-        "profit_roi_pct": profit_roi_pct,
-        "version": LEAPS_OPTION_EXIT_POLICY_VERSION,
-    }
-
-
-def option_exit_policy_cache_value(policy: dict[str, object] | None) -> str:
-    return json.dumps(policy, ensure_ascii=False, sort_keys=True, separators=(",", ":")) if policy is not None else ""
+    return number if number == number else None
 
 
 def _utc_today() -> date:
@@ -467,7 +434,6 @@ def _fresh_covered_ranges(ranges: list[tuple[date, date]], cache_date: object, t
 def _normalized_outcome_signal_fields(
     signal: dict[str, object],
     provider_id: str = "polygon",
-    option_exit_policy: dict[str, object] | None = None,
 ) -> dict[str, str]:
     stock_buy_price = _float_or_none(signal.get("stock_buy_price"))
     fields = {
@@ -478,8 +444,6 @@ def _normalized_outcome_signal_fields(
         "next_stock_sell_date": str(signal.get("next_stock_sell_date") or "").strip()[:10],
         "selection_policy_version": LEAPS_OPTION_SELECTION_POLICY_VERSION,
     }
-    if option_exit_policy is not None:
-        fields["option_exit_policy"] = option_exit_policy_cache_value(option_exit_policy)
     return fields
 
 
@@ -487,9 +451,8 @@ def outcome_cache_key(
     signal: dict[str, object],
     mark_date: date | None = None,
     provider_id: str = "polygon",
-    option_exit_policy: dict[str, object] | None = None,
 ) -> str:
-    fields = _normalized_outcome_signal_fields(signal, provider_id=provider_id, option_exit_policy=option_exit_policy)
+    fields = _normalized_outcome_signal_fields(signal, provider_id=provider_id)
     fields["mark_date"] = mark_date.isoformat() if mark_date else ""
     return "__".join(f"{key}_{_safe_cache_name(value)}" for key, value in sorted(fields.items()))
 
@@ -535,20 +498,19 @@ def _safe_polygon_error_message(exc: Exception) -> str:
 def _outcome_cache_keys_for_read(
     signal: dict[str, object],
     provider_id: str = "polygon",
-    option_exit_policy: dict[str, object] | None = None,
 ) -> list[str]:
     sell_date = parse_iso_date(signal.get("next_stock_sell_date"))
     if sell_date:
-        keys = [outcome_cache_key(signal, provider_id=provider_id, option_exit_policy=option_exit_policy)]
-        if option_exit_policy is None and provider_id == "polygon":
+        keys = [outcome_cache_key(signal, provider_id=provider_id)]
+        if provider_id == "polygon":
             keys.append(_legacy_outcome_cache_key(signal))
         return keys
     mark_date = latest_completed_market_date()
     keys = [
-        outcome_cache_key(signal, provider_id=provider_id, option_exit_policy=option_exit_policy),
-        outcome_cache_key(signal, mark_date, provider_id=provider_id, option_exit_policy=option_exit_policy),
+        outcome_cache_key(signal, provider_id=provider_id),
+        outcome_cache_key(signal, mark_date, provider_id=provider_id),
     ]
-    if option_exit_policy is None and provider_id == "polygon":
+    if provider_id == "polygon":
         keys.extend([_legacy_outcome_cache_key(signal), _legacy_outcome_cache_key(signal, mark_date)])
     return keys
 
@@ -557,7 +519,6 @@ def _outcome_cache_keys_for_write(
     signal: dict[str, object],
     outcome: dict[str, object],
     provider_id: str = "polygon",
-    option_exit_policy: dict[str, object] | None = None,
 ) -> list[str]:
     if _outcome_is_api_limited_or_transient(outcome):
         return []
@@ -566,11 +527,11 @@ def _outcome_cache_keys_for_write(
         return []
     sell_date = parse_iso_date(signal.get("next_stock_sell_date"))
     exit_status = str(outcome.get("exit_status") or "")
-    if sell_date or exit_status in {"sold", "option_take_profit", "expired_before_stock_sell", "expired_without_stock_sell"}:
-        return [outcome_cache_key(signal, provider_id=provider_id, option_exit_policy=option_exit_policy)]
+    if sell_date or exit_status in {"sold", "expired_before_stock_sell", "expired_without_stock_sell"}:
+        return [outcome_cache_key(signal, provider_id=provider_id)]
     if outcome.get("status") != "success" and reason in OUTCOME_CACHEABLE_FAILURES:
-        return [outcome_cache_key(signal, provider_id=provider_id, option_exit_policy=option_exit_policy)]
-    return [outcome_cache_key(signal, latest_completed_market_date(), provider_id=provider_id, option_exit_policy=option_exit_policy)]
+        return [outcome_cache_key(signal, provider_id=provider_id)]
+    return [outcome_cache_key(signal, latest_completed_market_date(), provider_id=provider_id)]
 
 
 def skipped_outcome(signal: dict[str, object], reason: str) -> dict[str, object]:
@@ -676,11 +637,10 @@ class OutcomeCache:
         signal: dict[str, object],
         count_miss: bool = True,
         provider_id: str = "polygon",
-        option_exit_policy: dict[str, object] | None = None,
     ) -> dict[str, object] | None:
         if not self.cache_enabled:
             return None
-        for key in _outcome_cache_keys_for_read(signal, provider_id=provider_id, option_exit_policy=option_exit_policy):
+        for key in _outcome_cache_keys_for_read(signal, provider_id=provider_id):
             lock = _lock_for("outcome", key)
             with lock:
                 cached = self._memory.get(key)
@@ -728,11 +688,10 @@ class OutcomeCache:
         signal: dict[str, object],
         outcome: dict[str, object],
         provider_id: str = "polygon",
-        option_exit_policy: dict[str, object] | None = None,
     ) -> None:
         if not self.cache_enabled:
             return
-        keys = _outcome_cache_keys_for_write(signal, outcome, provider_id=provider_id, option_exit_policy=option_exit_policy)
+        keys = _outcome_cache_keys_for_write(signal, outcome, provider_id=provider_id)
         if not keys:
             _log_option_event(
                 "outcome_cache_skip_write",
@@ -752,7 +711,7 @@ class OutcomeCache:
                 payload: dict[str, object] = {
                     "schema_version": OPTION_CACHE_SCHEMA_VERSION,
                     "cache_date": _utc_today().isoformat(),
-                    "query": _normalized_outcome_signal_fields(signal, provider_id=provider_id, option_exit_policy=option_exit_policy),
+                    "query": _normalized_outcome_signal_fields(signal, provider_id=provider_id),
                     "outcome": stored,
                 }
                 _write_json_file(self._path(key), payload)
@@ -1438,30 +1397,18 @@ def last_bar_after_on_or_before(bars: list[OptionBar], after: date, target: date
     return candidates[-1] if candidates else None
 
 
-def first_option_take_profit_bar(
-    bars: list[OptionBar],
-    entry_bar: OptionBar,
-    contract: OptionContract,
-    option_exit_policy: dict[str, object] | None,
-) -> OptionBar | None:
-    if not option_exit_policy or not option_exit_policy.get("enabled") or entry_bar.close <= 0:
+def stock_return_pct_for_signal(signal: dict[str, object]) -> float | None:
+    stock_return_pct = _finite_float_or_none(signal.get("stock_return_pct"))
+    if stock_return_pct is not None:
+        return stock_return_pct
+    stock_buy_price = _float_or_none(signal.get("stock_buy_price"))
+    stock_exit_price = _float_or_none(signal.get("stock_sell_price")) or _float_or_none(signal.get("stock_mark_price"))
+    if stock_buy_price is None or stock_exit_price is None:
         return None
-    dte_min = int(option_exit_policy.get("dte_min") or 0)
-    dte_max = int(option_exit_policy.get("dte_max") or 0)
-    profit_roi_pct = float(option_exit_policy.get("profit_roi_pct") or 0)
-    for bar in sorted(bars, key=lambda item: item.date):
-        if bar.date < entry_bar.date:
-            continue
-        dte = (contract.expiration - bar.date).days
-        if not (dte_min <= dte <= dte_max):
-            continue
-        roi_pct = (bar.close / entry_bar.close - 1) * 100
-        if roi_pct >= profit_roi_pct:
-            return bar
-    return None
+    return (stock_exit_price / stock_buy_price - 1) * 100
 
 
-def replay_signal(provider: Any, signal: dict[str, object], option_exit_policy: dict[str, object] | None = None) -> dict[str, object]:
+def replay_signal(provider: Any, signal: dict[str, object]) -> dict[str, object]:
     started = time.perf_counter()
     signal_date = parse_iso_date(signal.get("date"))
     sell_date = parse_iso_date(signal.get("next_stock_sell_date"))
@@ -1530,11 +1477,7 @@ def replay_signal(provider: Any, signal: dict[str, object], option_exit_policy: 
         _log_option_event("signal_replay_done", signal_key=str(signal.get("signal_key") or ""), status=outcome["status"], skipped_reason=NO_ENTRY_PRICE, contract=contract.ticker, elapsed_ms=round((time.perf_counter() - started) * 1000, 3))
         return _annotate_outcome_provider(outcome, provider)
 
-    option_take_profit_bar = first_option_take_profit_bar(bars, entry_bar, contract, option_exit_policy)
-    if option_take_profit_bar and (not sell_date or option_take_profit_bar.date < sell_date):
-        exit_bar = option_take_profit_bar
-        exit_status = "option_take_profit"
-    elif not sell_date:
+    if not sell_date:
         mark_date = latest_completed_market_date()
         exit_boundary = min(mark_date, contract.expiration)
         exit_bar = last_bar_after_on_or_before(bars, entry_bar.date, exit_boundary)
@@ -1558,7 +1501,13 @@ def replay_signal(provider: Any, signal: dict[str, object], option_exit_policy: 
             return _annotate_outcome_provider(outcome, provider)
         exit_status = "sold"
 
-    roi_pct = (exit_bar.close / entry_bar.close - 1) * 100
+    option_roi_pct = (exit_bar.close / entry_bar.close - 1) * 100
+    roi_pct = option_roi_pct
+    roi_source = "option"
+    stock_return_pct = stock_return_pct_for_signal(signal)
+    if exit_status in {"expired_without_stock_sell", "expired_before_stock_sell"} and stock_return_pct is not None:
+        roi_pct = stock_return_pct
+        roi_source = "stock_return_substitute"
     dte = (contract.expiration - signal_date).days
     outcome = {
         "signal_key": str(signal.get("signal_key") or ""),
@@ -1575,13 +1524,20 @@ def replay_signal(provider: Any, signal: dict[str, object], option_exit_policy: 
         "entry_price": entry_bar.close,
         "exit_price": exit_bar.close,
         "roi_pct": roi_pct,
+        "roi_source": roi_source,
+        "stock_return_pct": stock_return_pct,
         "status": "success",
         "exit_status": exit_status,
-        "used_option_exit_policy": exit_status == "option_take_profit",
         "skipped_reason": "",
     }
-    if option_exit_policy is not None:
-        outcome["option_exit_policy"] = option_exit_policy
+    if roi_source == "stock_return_substitute":
+        outcome.update(
+            {
+                "option_roi_pct": option_roi_pct,
+                "option_exit_price": exit_bar.close,
+                "option_exit_date": exit_bar.date.isoformat(),
+            }
+        )
     _log_option_event(
         "signal_replay_done",
         signal_key=str(signal.get("signal_key") or ""),
@@ -1618,10 +1574,13 @@ def summarize_outcomes(outcomes: list[dict[str, object]]) -> dict[str, object]:
         median = None
     reason_counts: dict[str, int] = {}
     exit_status_counts: dict[str, int] = {}
+    roi_source_counts: dict[str, int] = {}
     for item in outcomes:
         if item.get("status") == "success":
             exit_status = str(item.get("exit_status") or "sold")
             exit_status_counts[exit_status] = exit_status_counts.get(exit_status, 0) + 1
+            roi_source = str(item.get("roi_source") or "option")
+            roi_source_counts[roi_source] = roi_source_counts.get(roi_source, 0) + 1
             continue
         reason = str(item.get("skipped_reason") or "未知失败")
         reason_counts[reason] = reason_counts.get(reason, 0) + 1
@@ -1634,7 +1593,8 @@ def summarize_outcomes(outcomes: list[dict[str, object]]) -> dict[str, object]:
         "skipped_count": total - success_count,
         "roi_mean_pct": mean,
         "roi_median_pct": median,
-        "option_take_profit_count": exit_status_counts.get("option_take_profit", 0),
+        "stock_return_substitute_count": roi_source_counts.get("stock_return_substitute", 0),
+        "roi_source_counts": roi_source_counts,
         "exit_status_counts": exit_status_counts,
         "top_failure_reason": top_reason,
         "failure_reasons": reason_counts,
@@ -1646,7 +1606,6 @@ def replay_leaps_option_outcomes(
     api_key: str,
     provider: Any | None = None,
     outcome_cache: OutcomeCache | None = None,
-    option_exit_policy: object | None = None,
 ) -> dict[str, object]:
     stats = new_cache_stats()
     token = _with_cache_stats(stats)
@@ -1657,7 +1616,6 @@ def replay_leaps_option_outcomes(
             provider=provider,
             outcome_cache=outcome_cache,
             use_cache=True,
-            option_exit_policy=option_exit_policy,
         )
         return {**result, "cache_stats": stats}
     finally:
@@ -1670,9 +1628,7 @@ def _replay_leaps_option_outcomes(
     provider: Any | None = None,
     outcome_cache: OutcomeCache | None = None,
     use_cache: bool = True,
-    option_exit_policy: object | None = None,
 ) -> dict[str, object]:
-    normalized_option_exit_policy = normalize_option_exit_policy(option_exit_policy)
     if not api_key and provider is None:
         outcomes = [skipped_outcome(signal, NO_POLYGON_KEY) for signal in signals]
         return {"success": False, "message": "Polygon API key 未配置", "outcomes": outcomes, "summary": summarize_outcomes(outcomes)}
@@ -1683,19 +1639,15 @@ def _replay_leaps_option_outcomes(
     outcomes: list[dict[str, object]] = []
     for signal in signals:
         if use_cache and active_outcome_cache is not None:
-            cached = active_outcome_cache.read(signal, provider_id=provider_cache_id, option_exit_policy=normalized_option_exit_policy)
+            cached = active_outcome_cache.read(signal, provider_id=provider_cache_id)
             if cached is not None:
                 _annotate_outcome_provider(cached, active_provider)
                 outcomes.append(cached)
                 continue
         try:
-            outcome = (
-                replay_signal(active_provider, signal)
-                if normalized_option_exit_policy is None
-                else replay_signal(active_provider, signal, option_exit_policy=normalized_option_exit_policy)
-            )
+            outcome = replay_signal(active_provider, signal)
             if use_cache and active_outcome_cache is not None:
-                active_outcome_cache.write(signal, outcome, provider_id=provider_cache_id, option_exit_policy=normalized_option_exit_policy)
+                active_outcome_cache.write(signal, outcome, provider_id=provider_cache_id)
             outcomes.append(outcome)
         except OptionProviderPermissionError:
             outcomes.append(_annotate_outcome_provider(skipped_outcome(signal, _provider_permission_denied_reason(active_provider)), active_provider))
@@ -1717,12 +1669,11 @@ def replay_leaps_option_outcomes_batch(
     api_key: str,
     provider: Any | None = None,
     outcome_cache: OutcomeCache | None = None,
-    option_exit_policy: object | None = None,
 ) -> dict[str, object]:
     stats = new_cache_stats()
     token = _with_cache_stats(stats)
     try:
-        result = _replay_leaps_option_outcomes_batch(signals, api_key, provider=provider, outcome_cache=outcome_cache, option_exit_policy=option_exit_policy)
+        result = _replay_leaps_option_outcomes_batch(signals, api_key, provider=provider, outcome_cache=outcome_cache)
         return {**result, "cache_stats": stats}
     finally:
         _reset_cache_stats(token)
@@ -1733,9 +1684,7 @@ def _replay_leaps_option_outcomes_batch(
     api_key: str,
     provider: Any | None = None,
     outcome_cache: OutcomeCache | None = None,
-    option_exit_policy: object | None = None,
 ) -> dict[str, object]:
-    normalized_option_exit_policy = normalize_option_exit_policy(option_exit_policy)
     if not api_key and provider is None:
         outcomes = [skipped_outcome(signal, NO_POLYGON_KEY) for signal in signals]
         return {"success": False, "message": "Polygon API key 未配置", "outcomes": outcomes, "summary": summarize_outcomes(outcomes)}
@@ -1748,7 +1697,7 @@ def _replay_leaps_option_outcomes_batch(
     key_by_index: list[str] = []
     for signal in signals:
         mark_date = latest_completed_market_date() if not parse_iso_date(signal.get("next_stock_sell_date")) else None
-        key = outcome_cache_key(signal, mark_date, provider_id=provider_cache_id, option_exit_policy=normalized_option_exit_policy)
+        key = outcome_cache_key(signal, mark_date, provider_id=provider_cache_id)
         key_by_index.append(key)
         unique_by_key.setdefault(key, signal)
 
@@ -1790,7 +1739,7 @@ def _replay_leaps_option_outcomes_batch(
             )
             continue
         if active_outcome_cache is not None:
-            cached = active_outcome_cache.read(signal, provider_id=provider_cache_id, option_exit_policy=normalized_option_exit_policy)
+            cached = active_outcome_cache.read(signal, provider_id=provider_cache_id)
             if cached is not None:
                 _annotate_outcome_provider(cached, active_provider)
                 outcome_by_key[key] = cached
@@ -1800,7 +1749,7 @@ def _replay_leaps_option_outcomes_batch(
             signal_stats_before = _cache_stats_snapshot()
             signal_started = time.perf_counter()
             if active_outcome_cache is not None:
-                cached = active_outcome_cache.read(signal, count_miss=False, provider_id=provider_cache_id, option_exit_policy=normalized_option_exit_policy)
+                cached = active_outcome_cache.read(signal, count_miss=False, provider_id=provider_cache_id)
                 if cached is not None:
                     _annotate_outcome_provider(cached, active_provider)
                     outcome_by_key[key] = cached
@@ -1820,13 +1769,9 @@ def _replay_leaps_option_outcomes_batch(
                     )
                     continue
             try:
-                outcome = (
-                    replay_signal(active_provider, signal)
-                    if normalized_option_exit_policy is None
-                    else replay_signal(active_provider, signal, option_exit_policy=normalized_option_exit_policy)
-                )
+                outcome = replay_signal(active_provider, signal)
                 if active_outcome_cache is not None:
-                    active_outcome_cache.write(signal, outcome, provider_id=provider_cache_id, option_exit_policy=normalized_option_exit_policy)
+                    active_outcome_cache.write(signal, outcome, provider_id=provider_cache_id)
                 outcome_by_key[key] = outcome
                 signal_delta = _cache_stats_delta(signal_stats_before)
                 batch_429s += _delta_429_count(signal_delta)
