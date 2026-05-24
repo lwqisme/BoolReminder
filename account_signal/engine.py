@@ -57,7 +57,7 @@ def account_signal_status(config_manager: ConfigManager | None = None) -> dict[s
         "positions": {symbol: position.to_dict() for symbol, position in positions.items()},
         "strategies": account_strategy_summaries(),
         "profiles": profile_payload,
-        "password_required": bool((config_manager or ConfigManager()).get_web_config().get("update_password", "")),
+        "password_required": False,
         "sync": meta,
         "latest_run": latest,
         "run_history": load_run_history(limit=10),

@@ -85,7 +85,7 @@ from trade_sync.store import (
 )
 from account_signal import account_signal_status, run_account_signal
 from account_signal.config import load_account_config
-from account_signal.profiles import profiles_status_payload, promote_candidate_to_profile
+from account_signal.profiles import assign_candidate_to_profile, profiles_status_payload, save_candidate_to_library
 import watchlist_boll_filter
 from watchlist_boll_filter import main, run_analysis_and_notify, WatchlistBollFilterResult
 from report.html_generator import generate_html_report
@@ -6912,37 +6912,19 @@ STRATEGY_LAB_TEMPLATE = """
                 setStatus('error', '缺少可晋升的候选参数。');
                 return;
             }
-            const symbol = window.prompt('晋升到哪个 Longbridge symbol？例如 GOOGL.US');
-            if (symbol === null) return;
             const note = window.prompt('备注（可留空）') || '';
-            const password = window.prompt('配置了更新密码时请输入密码；未配置可留空。');
-            if (password === null) return;
-            setStatus('info', '正在预检真实账户提醒 profile...');
-            const dryResponse = await fetch('/api/account-signal/profiles/promote', {
+            setStatus('info', '正在保存真实账户 profile 候选...');
+            const response = await fetch('/api/account-signal/profile-candidates', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbol, candidate, note, password, dry_run: true })
-            });
-            const dryResult = await dryResponse.json();
-            if (!dryResponse.ok || !dryResult.success) {
-                setStatus('error', dryResult.message || 'profile 预检失败。');
-                return;
-            }
-            if (!window.confirm(`预检通过：${dryResult.symbol} 将使用 ${candidate.buy_strategy} + ${candidate.sell_strategy}。确认写入 live profile？`)) {
-                setStatus('info', '已取消晋升。');
-                return;
-            }
-            const response = await fetch('/api/account-signal/profiles/promote', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbol, candidate, note, password, dry_run: false })
+                body: JSON.stringify({ candidate, note, dry_run: false })
             });
             const result = await response.json();
             if (!response.ok || !result.success) {
-                setStatus('error', result.message || 'profile 晋升失败。');
+                setStatus('error', result.message || 'profile 候选保存失败。');
                 return;
             }
-            setStatus('success', `${result.symbol} live profile 已更新。`);
+            setStatus('success', `已加入真实账户候选库：${result.candidate_key}。可到真实账户页面选择股票并启用。`);
         }
 
         function promoteRobustCandidateToAccountSignal(candidateKey) {
@@ -8817,6 +8799,9 @@ ACCOUNT_SIGNAL_TEMPLATE = """
     .ticker { font-size: 23px; font-weight: 800; }
     .strategy-summary { display: grid; gap: 5px; margin: 10px 0 12px; color: var(--muted); font-size: 13px; line-height: 1.45; }
     .strategy-summary strong { color: var(--ink); font-size: 12px; text-transform: uppercase; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .assign-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin: 12px 0; align-items: center; }
+    .assign-row select { width: 100%; min-width: 0; }
+    .candidate-note { margin: -2px 0 10px; color: var(--muted); font-size: 12px; line-height: 1.4; }
     .pill { display: inline-flex; align-items: center; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.25; padding: 3px 7px; border: 1px solid var(--line); background: var(--panel); white-space: nowrap; }
     #signals table { line-height: 1.45; }
     #signals td { padding: 10px 8px; }
@@ -8873,6 +8858,9 @@ ACCOUNT_SIGNAL_TEMPLATE = """
     function money(value) { return Number(value || 0).toLocaleString(undefined, { style: 'currency', currency: 'USD' }); }
     function number(value, digits = 2) { return Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits }); }
     function text(value) { return value === null || value === undefined || value === '' ? '—' : String(value); }
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    }
     function setStatus(kind, message) {
       statusEl.className = `status ${kind}`;
       statusEl.textContent = message;
@@ -8892,6 +8880,30 @@ ACCOUNT_SIGNAL_TEMPLATE = """
       if (!target.enabled) return 'disabled';
       if (!profile) return 'missing profile';
       return profile.source || 'live';
+    }
+    function candidateList(profiles) {
+      const library = profiles.candidate_library || {};
+      return Object.values(library).sort((a, b) => String(b.saved_at || '').localeCompare(String(a.saved_at || '')));
+    }
+    function candidateLabel(candidate) {
+      const summary = candidate.summary || {};
+      const saved = candidate.saved_at ? ` · ${candidate.saved_at}` : '';
+      const note = candidate.note ? ` · ${candidate.note}` : '';
+      return `${candidate.candidate_key} · ${summary.buy || candidate.buy_strategy} / ${summary.sell || candidate.sell_strategy}${saved}${note}`;
+    }
+    function renderCandidateAssign(symbol, target, candidates) {
+      if (!target || !target.enabled) return '';
+      if (!candidates.length) return '<div class="candidate-note">候选库为空；先在策略实验室保存候选组合。</div>';
+      return `
+        <div class="assign-row">
+          <select data-candidate-select="${escapeHtml(symbol)}" aria-label="选择 ${escapeHtml(symbol)} profile 候选">
+            <option value="">选择候选组合...</option>
+            ${candidates.map(candidate => `<option value="${escapeHtml(candidate.candidate_key)}">${escapeHtml(candidateLabel(candidate))}</option>`).join('')}
+          </select>
+          <button type="button" data-assign-profile="${escapeHtml(symbol)}">绑定候选</button>
+        </div>
+        <div class="candidate-note">绑定后才会影响真实账户提醒；同一个候选可复用于多只股票。</div>
+      `;
     }
     function render(data) {
       const errors = data.errors || data.latest_run?.errors || [];
@@ -8915,6 +8927,7 @@ ACCOUNT_SIGNAL_TEMPLATE = """
       const market = data.latest_run?.market || {};
       const profiles = data.profiles || data.latest_run?.profiles || {};
       const activeProfiles = profiles.active || {};
+      const candidates = candidateList(profiles);
       const targetSymbols = Object.keys(data.targets || {});
       const profileSymbols = Object.keys(activeProfiles);
       const displaySymbols = Array.from(new Set([...targetSymbols, ...profileSymbols])).sort();
@@ -8931,6 +8944,7 @@ ACCOUNT_SIGNAL_TEMPLATE = """
             <div><strong>卖出</strong> ${text(summary.sell)}</div>
             <div><strong>PROFILE</strong> ${text(profile?.profile_id)}${profile?.candidate_key ? ` · ${text(profile.candidate_key)}` : ''}${profile?.promoted_at ? ` · ${text(profile.promoted_at)}` : ''}</div>
           </div>
+          ${renderCandidateAssign(symbol, target, candidates)}
           <div class="metrics">
             ${metric('持仓股数', number(pos.shares, 4))}
             ${metric('真实均价', money(pos.avg_cost))}
@@ -8962,6 +8976,46 @@ ACCOUNT_SIGNAL_TEMPLATE = """
         return `<tr><td>${text(signal.trade_date)}<br><span class="pill">${mode}</span></td><td>${signal.symbol}${profile}</td><td class="${signal.action}">${signal.action}</td><td>${signal.stage}${signal.duplicate ? '<br><span class="pill">已提醒</span>' : ''}${leaps}</td><td>${money(signal.price)}<br>${number(signal.drawdown_pct)}%</td><td>${size}</td></tr>`;
       }).join('')}</tbody></table>`;
     }
+    function formatDiff(diff) {
+      const keys = Object.keys(diff || {});
+      if (!keys.length) return '没有配置变化';
+      return keys.slice(0, 8).map(key => `${key}: ${JSON.stringify(diff[key].previous)} -> ${JSON.stringify(diff[key].new)}`).join('\\n');
+    }
+    async function assignCandidate(symbol) {
+      const select = Array.from(symbolsEl.querySelectorAll('select[data-candidate-select]')).find((item) => item.dataset.candidateSelect === symbol);
+      const candidateKey = select ? select.value : '';
+      if (!candidateKey) {
+        setStatus('warn', '请选择一个候选组合。');
+        return;
+      }
+      setStatus('warn', `正在预检 ${symbol} profile 绑定...`);
+      const dryResponse = await fetch('/api/account-signal/profiles/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, candidate_key: candidateKey, dry_run: true })
+      });
+      const dryResult = await dryResponse.json();
+      if (!dryResponse.ok || !dryResult.success) {
+        setStatus('bad', dryResult.message || 'profile 绑定预检失败');
+        return;
+      }
+      if (!window.confirm(`${symbol} 将绑定候选 ${candidateKey}\\n\\n${formatDiff(dryResult.diff)}\\n\\n确认写入 active profile？`)) {
+        setStatus('warn', '已取消绑定。');
+        return;
+      }
+      const response = await fetch('/api/account-signal/profiles/assign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, candidate_key: candidateKey, dry_run: false })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        setStatus('bad', result.message || 'profile 绑定失败');
+        return;
+      }
+      setStatus('ok', `${result.symbol} active profile 已绑定 ${result.candidate_key}`);
+      await loadStatus();
+    }
     async function loadStatus() {
       const response = await fetch('/api/account-signal/status');
       const data = await response.json();
@@ -8986,6 +9040,10 @@ ACCOUNT_SIGNAL_TEMPLATE = """
     }
     dryRunBtn.addEventListener('click', () => runSignal(false));
     sendBtn.addEventListener('click', () => runSignal(true));
+    symbolsEl.addEventListener('click', (event) => {
+      const button = event.target.closest('[data-assign-profile]');
+      if (button) assignCandidate(button.dataset.assignProfile);
+    });
     loadStatus();
   </script>
 </body>
@@ -9011,29 +9069,61 @@ def api_account_signal_status():
 def api_account_signal_profiles():
     try:
         _account, targets, _errors, _meta = load_account_config()
-        web_config = config_manager.get_web_config() if config_manager else {}
         payload = profiles_status_payload(targets)
         payload["success"] = True
-        payload["password_required"] = bool(web_config.get("update_password", ""))
+        payload["password_required"] = False
         return jsonify(payload)
     except Exception as exc:
         app.logger.exception("account signal profiles failed")
         return jsonify({"success": False, "message": str(exc)}), 500
 
 
-@app.route('/api/account-signal/profiles/promote', methods=['POST'])
-def api_account_signal_profile_promote():
+@app.route('/api/account-signal/profile-candidates', methods=['POST'])
+def api_account_signal_profile_candidates():
     payload = request.get_json(silent=True) or {}
-    web_config = config_manager.get_web_config() if config_manager else {}
-    configured_password = web_config.get("update_password", "")
-    if configured_password and payload.get("password", "") != configured_password:
-        return _json_error("密码错误", 401)
     try:
         candidate = payload.get("candidate")
         if not isinstance(candidate, dict):
             return _json_error("缺少 candidate", 400)
-        result = promote_candidate_to_profile(
+        result = save_candidate_to_library(
+            candidate=candidate,
+            note=str(payload.get("note", "") or ""),
+            dry_run=bool(payload.get("dry_run", False)),
+        )
+        return jsonify(result)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        app.logger.exception("account signal profile candidate save failed")
+        return _json_error(f"保存 profile 候选失败: {exc}", 500)
+
+
+@app.route('/api/account-signal/profiles/assign', methods=['POST'])
+def api_account_signal_profile_assign():
+    payload = request.get_json(silent=True) or {}
+    try:
+        result = assign_candidate_to_profile(
             symbol=str(payload.get("symbol", "") or ""),
+            candidate_key=str(payload.get("candidate_key", "") or ""),
+            note=str(payload.get("note", "") or ""),
+            dry_run=bool(payload.get("dry_run", False)),
+        )
+        return jsonify(result)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        app.logger.exception("account signal profile assign failed")
+        return _json_error(f"绑定 live profile 失败: {exc}", 500)
+
+
+@app.route('/api/account-signal/profiles/promote', methods=['POST'])
+def api_account_signal_profile_promote():
+    payload = request.get_json(silent=True) or {}
+    try:
+        candidate = payload.get("candidate")
+        if not isinstance(candidate, dict):
+            return _json_error("缺少 candidate", 400)
+        result = save_candidate_to_library(
             candidate=candidate,
             note=str(payload.get("note", "") or ""),
             dry_run=bool(payload.get("dry_run", False)),
@@ -9043,7 +9133,7 @@ def api_account_signal_profile_promote():
         return _json_error(str(exc), 400)
     except Exception as exc:
         app.logger.exception("account signal profile promote failed")
-        return _json_error(f"晋升 live profile 失败: {exc}", 500)
+        return _json_error(f"保存 profile 候选失败: {exc}", 500)
 
 
 @app.route('/api/account-signal/run', methods=['POST'])

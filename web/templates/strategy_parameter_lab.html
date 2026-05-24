@@ -6008,37 +6008,19 @@
                 setStatus('Invalid candidate', '缺少可晋升的候选参数。', 2);
                 return;
             }
-            const symbol = window.prompt('晋升到哪个 Longbridge symbol？例如 GOOGL.US');
-            if (symbol === null) return;
             const note = window.prompt('备注（可留空）') || '';
-            const password = window.prompt('配置了更新密码时请输入密码；未配置可留空。');
-            if (password === null) return;
-            setStatus('Checking', '正在预检真实账户提醒 profile。', 2);
-            const dryResponse = await fetch('/api/account-signal/profiles/promote', {
+            setStatus('Saving candidate', '正在保存真实账户 profile 候选。', 2);
+            const response = await fetch('/api/account-signal/profile-candidates', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbol, candidate, note, password, dry_run: true })
-            });
-            const dryResult = await dryResponse.json();
-            if (!dryResponse.ok || !dryResult.success) {
-                setStatus('Promote failed', dryResult.message || 'profile 预检失败。', 2);
-                return;
-            }
-            if (!window.confirm(`预检通过：${dryResult.symbol} 将使用 ${candidate.buy_strategy} + ${candidate.sell_strategy}。确认写入 live profile？`)) {
-                setStatus('Cancelled', '已取消晋升。', 2);
-                return;
-            }
-            const response = await fetch('/api/account-signal/profiles/promote', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ symbol, candidate, note, password, dry_run: false })
+                body: JSON.stringify({ candidate, note, dry_run: false })
             });
             const result = await response.json();
             if (!response.ok || !result.success) {
-                setStatus('Promote failed', result.message || 'profile 晋升失败。', 2);
+                setStatus('Save failed', result.message || 'profile 候选保存失败。', 2);
                 return;
             }
-            setStatus('Promoted', `${result.symbol} live profile 已更新。`, 100);
+            setStatus('Candidate saved', `已加入真实账户候选库：${result.candidate_key}。可到真实账户页面选择股票并启用。`, 100);
         }
         function promoteParameterRowToAccountSignal(key) {
             const row = findRow(key);

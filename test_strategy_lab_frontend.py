@@ -40,7 +40,7 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("应用参数并看全量评分", html)
         self.assertIn("晋升到真实账户提醒", html)
         self.assertIn("function promoteRobustCandidateToAccountSignal(candidateKey)", html)
-        self.assertIn("/api/account-signal/profiles/promote", html)
+        self.assertIn("/api/account-signal/profile-candidates", html)
         self.assertIn("收益榜口径：收益 90% / 回撤 10%", html)
         self.assertIn("ranking_formula: 'return_90_drawdown_10'", html)
         self.assertNotIn("robust_score_mode", html)
@@ -239,8 +239,22 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("default_investment_universe: readInvestmentUniverse()", html)
         self.assertIn("晋升到真实账户提醒", html)
         self.assertIn("function promoteParameterRowToAccountSignal(key)", html)
-        self.assertIn("/api/account-signal/profiles/promote", html)
+        self.assertIn("/api/account-signal/profile-candidates", html)
+        self.assertNotIn("晋升到哪个 Longbridge symbol", html)
+        self.assertNotIn("配置了更新密码", html)
         self.assertNotIn('id="universeText"', html)
+
+    def test_account_signal_page_assigns_candidates_without_hardcoded_symbols(self):
+        with app.test_client() as client:
+            html = client.get("/account-signal").get_data(as_text=True)
+
+        self.assertIn("candidate_library", html)
+        self.assertIn("data-candidate-select", html)
+        self.assertIn("data-assign-profile", html)
+        self.assertIn("/api/account-signal/profiles/assign", html)
+        self.assertIn("绑定后才会影响真实账户提醒", html)
+        self.assertNotIn("GOOGL.US", html)
+        self.assertNotIn("TSLA.US", html)
 
     def test_page_context_overrides_builtin_single_stock_from_default_universe(self):
         config = StrategyLabConfig.from_defaults_payload(

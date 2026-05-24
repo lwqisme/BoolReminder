@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from dataclasses import asdict, dataclass, fields, replace
 from datetime import datetime, timezone
@@ -21,6 +22,7 @@ from trade_sync.normalize import canonical_symbol, infer_longbridge_symbol
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT_DIR / "data" / "account_signal"
 PROFILES_PATH = DATA_DIR / "profiles.json"
+PROFILE_CANDIDATES_PATH = DATA_DIR / "profile_candidates.json"
 
 PROFILE_PARAMETER_FIELDS = tuple(field.name for field in fields(StrategyInputs))
 LAB_PARAMETER_FIELDS = tuple(dict.fromkeys((*BUY_PARAMETER_FIELDS, *SELL_PARAMETER_FIELDS)))
@@ -49,6 +51,25 @@ class AccountSignalProfile:
         payload = asdict(self)
         payload["profile_id"] = self.profile_id
         payload["summary"] = profile_summary(self)
+        return payload
+
+
+@dataclass(frozen=True)
+class AccountSignalProfileCandidate:
+    candidate_key: str
+    buy_strategy: str
+    sell_strategy: str
+    parameters: dict[str, Any]
+    parameter_hash: str
+    strategy_definition_version: str = STRATEGY_DEFINITION_VERSION
+    source: str = "parameter_lab"
+    saved_at: str = ""
+    note: str = ""
+    candidate_snapshot: dict[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = asdict(self)
+        payload["summary"] = candidate_summary(self)
         return payload
 
 
@@ -102,6 +123,41 @@ def save_profiles(profiles: dict[str, AccountSignalProfile], path: Path | None =
     os.replace(tmp_path, profile_path)
 
 
+def load_profile_candidates(path: Path | None = None) -> dict[str, AccountSignalProfileCandidate]:
+    candidate_path = path or PROFILE_CANDIDATES_PATH
+    if not candidate_path.exists():
+        return {}
+    raw = json.loads(candidate_path.read_text(encoding="utf-8"))
+    items = raw.get("candidates", raw) if isinstance(raw, dict) else {}
+    if not isinstance(items, dict):
+        return {}
+    candidates: dict[str, AccountSignalProfileCandidate] = {}
+    for key, payload in items.items():
+        if not isinstance(payload, dict):
+            continue
+        candidate = validate_candidate_payload({**payload, "candidate_key": payload.get("candidate_key") or key})
+        candidates[candidate.candidate_key] = candidate
+    return candidates
+
+
+def save_profile_candidates(
+    candidates: dict[str, AccountSignalProfileCandidate],
+    path: Path | None = None,
+) -> None:
+    candidate_path = path or PROFILE_CANDIDATES_PATH
+    candidate_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "strategy_definition_version": STRATEGY_DEFINITION_VERSION,
+        "candidates": {
+            key: _persisted_candidate_payload(candidate)
+            for key, candidate in sorted(candidates.items())
+        },
+    }
+    tmp_path = candidate_path.with_suffix(candidate_path.suffix + ".tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp_path, candidate_path)
+
+
 def active_profiles_for_symbols(symbols: list[str] | tuple[str, ...]) -> dict[str, AccountSignalProfile]:
     saved = load_profiles()
     defaults = built_in_default_profiles()
@@ -146,6 +202,7 @@ def built_in_default_profiles() -> dict[str, AccountSignalProfile]:
 def profiles_status_payload(targets: dict[str, Any] | None = None) -> dict[str, Any]:
     saved = load_profiles()
     defaults = built_in_default_profiles()
+    candidate_library = load_profile_candidates()
     enabled_targets = sorted(
         symbol
         for symbol, target in (targets or {}).items()
@@ -164,15 +221,15 @@ def profiles_status_payload(targets: dict[str, Any] | None = None) -> dict[str, 
         "active": active,
         "saved": {symbol: profile.to_dict() for symbol, profile in saved.items()},
         "built_in_defaults": {symbol: profile.to_dict() for symbol, profile in defaults.items()},
+        "candidate_library": {key: candidate.to_dict() for key, candidate in candidate_library.items()},
         "enabled_targets": enabled_targets,
         "missing_profile_symbols": missing,
         "strategy_definition_version": STRATEGY_DEFINITION_VERSION,
     }
 
 
-def promote_candidate_to_profile(
+def save_candidate_to_library(
     *,
-    symbol: str,
     candidate: dict[str, Any],
     note: str = "",
     dry_run: bool = False,
@@ -180,18 +237,71 @@ def promote_candidate_to_profile(
 ) -> dict[str, Any]:
     if not isinstance(candidate, dict):
         raise ValueError("candidate 必须是对象")
-    profiles = load_profiles(path)
+    library = load_profile_candidates(path)
+    new_candidate = candidate_from_lab_payload(candidate, note=note)
+    previous_key = new_candidate.candidate_key if new_candidate.candidate_key in library else ""
+    if not previous_key:
+        for key, existing in library.items():
+            if existing.parameter_hash == new_candidate.parameter_hash:
+                previous_key = key
+                break
+    if previous_key:
+        previous = library[previous_key]
+        new_candidate = replace(
+            new_candidate,
+            candidate_key=previous.candidate_key,
+            note=note,
+            saved_at=new_candidate.saved_at,
+        )
+    else:
+        previous = None
+    diff = _candidate_diff(previous, new_candidate)
+    if not dry_run:
+        library[new_candidate.candidate_key] = new_candidate
+        save_profile_candidates(library, path)
+    return {
+        "success": True,
+        "dry_run": dry_run,
+        "candidate_key": new_candidate.candidate_key,
+        "previous": previous.to_dict() if previous else None,
+        "candidate": new_candidate.to_dict(),
+        "new": new_candidate.to_dict(),
+        "diff": diff,
+        "written": not dry_run,
+        "created": previous is None,
+    }
+
+
+def assign_candidate_to_profile(
+    *,
+    symbol: str,
+    candidate_key: str,
+    note: str = "",
+    dry_run: bool = False,
+    profiles_path: Path | None = None,
+    candidates_path: Path | None = None,
+) -> dict[str, Any]:
     normalized_symbol = normalize_profile_symbol(symbol)
+    key = str(candidate_key or "").strip()
+    if not key:
+        raise ValueError("缺少 candidate_key")
+    library = load_profile_candidates(candidates_path)
+    candidate = library.get(key)
+    if candidate is None:
+        raise ValueError(f"候选不存在: {key}")
+    profiles = load_profiles(profiles_path)
     previous = profiles.get(normalized_symbol) or built_in_default_profiles().get(normalized_symbol)
-    new_profile = profile_from_candidate(normalized_symbol, candidate, note=note)
+    new_profile = profile_from_library_candidate(normalized_symbol, candidate, note=note)
     diff = _profile_diff(previous, new_profile)
     if not dry_run:
         profiles[normalized_symbol] = new_profile
-        save_profiles(profiles, path)
+        save_profiles(profiles, profiles_path)
     return {
         "success": True,
         "dry_run": dry_run,
         "symbol": normalized_symbol,
+        "candidate_key": key,
+        "candidate": candidate.to_dict(),
         "previous": previous.to_dict() if previous else None,
         "new": new_profile.to_dict(),
         "diff": diff,
@@ -199,7 +309,92 @@ def promote_candidate_to_profile(
     }
 
 
+def promote_candidate_to_profile(
+    *,
+    symbol: str = "",
+    candidate: dict[str, Any],
+    note: str = "",
+    dry_run: bool = False,
+    path: Path | None = None,
+) -> dict[str, Any]:
+    """Compatibility alias: old promote calls now only save a reusable candidate."""
+    return save_candidate_to_library(candidate=candidate, note=note, dry_run=dry_run, path=path)
+
+
 def profile_from_candidate(symbol: str, candidate: dict[str, Any], *, note: str = "") -> AccountSignalProfile:
+    parameters = _candidate_parameters_from_payload(candidate)
+    payload = {
+        "symbol": symbol,
+        "enabled": True,
+        "buy_strategy": candidate.get("buy_strategy"),
+        "sell_strategy": candidate.get("sell_strategy"),
+        "parameters": parameters,
+        "candidate_key": candidate.get("key") or candidate.get("candidate_key") or _candidate_parameter_hash(
+            candidate.get("buy_strategy"),
+            candidate.get("sell_strategy"),
+            parameters,
+            candidate.get("strategy_definition_version") or STRATEGY_DEFINITION_VERSION,
+        )[:16],
+        "strategy_definition_version": candidate.get("strategy_definition_version") or STRATEGY_DEFINITION_VERSION,
+        "source": "parameter_lab",
+        "promoted_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "note": note,
+    }
+    return validate_profile_payload(payload)
+
+
+def profile_from_library_candidate(
+    symbol: str,
+    candidate: AccountSignalProfileCandidate,
+    *,
+    note: str = "",
+) -> AccountSignalProfile:
+    payload = {
+        "symbol": symbol,
+        "enabled": True,
+        "buy_strategy": candidate.buy_strategy,
+        "sell_strategy": candidate.sell_strategy,
+        "parameters": dict(candidate.parameters),
+        "candidate_key": candidate.candidate_key,
+        "strategy_definition_version": candidate.strategy_definition_version,
+        "source": candidate.source,
+        "promoted_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "note": note or candidate.note,
+    }
+    return validate_profile_payload(payload)
+
+
+def candidate_from_lab_payload(candidate: dict[str, Any], *, note: str = "") -> AccountSignalProfileCandidate:
+    if not isinstance(candidate, dict):
+        raise ValueError("candidate 必须是对象")
+    parameters = _candidate_parameters_from_payload(candidate)
+    buy_strategy = str(candidate.get("buy_strategy", "") or "")
+    sell_strategy = str(candidate.get("sell_strategy", "") or "")
+    if buy_strategy not in STRATEGY_LABELS:
+        raise ValueError(f"不支持的买入策略: {buy_strategy}")
+    if sell_strategy not in SELL_STRATEGY_LABELS:
+        raise ValueError(f"不支持的卖出策略: {sell_strategy}")
+    validated_parameters = _validate_parameters(parameters)
+    version = str(candidate.get("strategy_definition_version") or STRATEGY_DEFINITION_VERSION)
+    parameter_hash = _candidate_parameter_hash(buy_strategy, sell_strategy, validated_parameters, version)
+    candidate_key = str(candidate.get("key") or candidate.get("candidate_key") or f"candidate-{parameter_hash[:16]}")
+    return validate_candidate_payload(
+        {
+            "candidate_key": candidate_key,
+            "buy_strategy": buy_strategy,
+            "sell_strategy": sell_strategy,
+            "parameters": validated_parameters,
+            "parameter_hash": parameter_hash,
+            "strategy_definition_version": version,
+            "source": str(candidate.get("source") or "parameter_lab"),
+            "saved_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "note": note,
+            "candidate_snapshot": _jsonable(candidate),
+        }
+    )
+
+
+def _candidate_parameters_from_payload(candidate: dict[str, Any]) -> dict[str, Any]:
     parameters: dict[str, Any] = {}
     for key in LAB_PARAMETER_FIELDS:
         if key in candidate and candidate[key] is not None:
@@ -216,19 +411,7 @@ def profile_from_candidate(symbol: str, candidate: dict[str, Any], *, note: str 
                     raise ValueError(f"不支持的候选参数: {nested_key}")
                 if nested_value is not None:
                     parameters[nested_key] = nested_value
-    payload = {
-        "symbol": symbol,
-        "enabled": True,
-        "buy_strategy": candidate.get("buy_strategy"),
-        "sell_strategy": candidate.get("sell_strategy"),
-        "parameters": parameters,
-        "candidate_key": candidate.get("key") or candidate.get("candidate_key") or "",
-        "strategy_definition_version": candidate.get("strategy_definition_version") or STRATEGY_DEFINITION_VERSION,
-        "source": "parameter_lab",
-        "promoted_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        "note": note,
-    }
-    return validate_profile_payload(payload)
+    return parameters
 
 
 def validate_profile_payload(payload: dict[str, Any]) -> AccountSignalProfile:
@@ -254,12 +437,48 @@ def validate_profile_payload(payload: dict[str, Any]) -> AccountSignalProfile:
     )
 
 
+def validate_candidate_payload(payload: dict[str, Any]) -> AccountSignalProfileCandidate:
+    candidate_key = str(payload.get("candidate_key", "") or "").strip()
+    if not candidate_key:
+        raise ValueError("缺少 candidate_key")
+    buy_strategy = str(payload.get("buy_strategy", "") or "")
+    sell_strategy = str(payload.get("sell_strategy", "") or "")
+    if buy_strategy not in STRATEGY_LABELS:
+        raise ValueError(f"不支持的买入策略: {buy_strategy}")
+    if sell_strategy not in SELL_STRATEGY_LABELS:
+        raise ValueError(f"不支持的卖出策略: {sell_strategy}")
+    parameters = _validate_parameters(payload.get("parameters") or {})
+    version = str(payload.get("strategy_definition_version") or STRATEGY_DEFINITION_VERSION)
+    parameter_hash = str(payload.get("parameter_hash") or _candidate_parameter_hash(buy_strategy, sell_strategy, parameters, version))
+    snapshot = payload.get("candidate_snapshot")
+    return AccountSignalProfileCandidate(
+        candidate_key=candidate_key,
+        buy_strategy=buy_strategy,
+        sell_strategy=sell_strategy,
+        parameters=parameters,
+        parameter_hash=parameter_hash,
+        strategy_definition_version=version,
+        source=str(payload.get("source") or "parameter_lab"),
+        saved_at=str(payload.get("saved_at", "") or ""),
+        note=str(payload.get("note", "") or ""),
+        candidate_snapshot=snapshot if isinstance(snapshot, dict) else None,
+    )
+
+
 def profile_summary(profile: AccountSignalProfile) -> dict[str, Any]:
     params = profile.parameters
     return {
         "buy": _buy_summary(profile.buy_strategy, params),
         "sell": _sell_summary(profile.sell_strategy, params),
         "parameters": dict(params),
+    }
+
+
+def candidate_summary(candidate: AccountSignalProfileCandidate) -> dict[str, Any]:
+    return {
+        "buy": _buy_summary(candidate.buy_strategy, candidate.parameters),
+        "sell": _sell_summary(candidate.sell_strategy, candidate.parameters),
+        "parameters": dict(candidate.parameters),
     }
 
 
@@ -272,6 +491,12 @@ def _input_parameters(inputs: StrategyInputs, *, exclude_same_day: bool) -> dict
 
 def _persisted_profile_payload(profile: AccountSignalProfile) -> dict[str, Any]:
     payload = asdict(profile)
+    return payload
+
+
+def _persisted_candidate_payload(candidate: AccountSignalProfileCandidate) -> dict[str, Any]:
+    payload = asdict(candidate)
+    payload["summary"] = candidate_summary(candidate)
     return payload
 
 
@@ -310,6 +535,49 @@ def _profile_diff(previous: AccountSignalProfile | None, new_profile: AccountSig
         if prev.get(key) != new.get(key):
             diff[key] = {"previous": prev.get(key), "new": new.get(key)}
     return diff
+
+
+def _candidate_diff(
+    previous: AccountSignalProfileCandidate | None,
+    new_candidate: AccountSignalProfileCandidate,
+) -> dict[str, Any]:
+    if previous is None:
+        return {"created": True}
+    prev = _persisted_candidate_payload(previous)
+    new = _persisted_candidate_payload(new_candidate)
+    diff: dict[str, Any] = {}
+    for key in sorted(set(prev) | set(new)):
+        if prev.get(key) != new.get(key):
+            diff[key] = {"previous": prev.get(key), "new": new.get(key)}
+    return diff
+
+
+def _candidate_parameter_hash(
+    buy_strategy: Any,
+    sell_strategy: Any,
+    parameters: dict[str, Any],
+    strategy_definition_version: Any,
+) -> str:
+    payload = {
+        "buy_strategy": str(buy_strategy or ""),
+        "sell_strategy": str(sell_strategy or ""),
+        "parameters": parameters,
+        "strategy_definition_version": str(strategy_definition_version or STRATEGY_DEFINITION_VERSION),
+    }
+    body = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def _jsonable(value: Any) -> Any:
+    try:
+        json.dumps(value, ensure_ascii=False)
+        return value
+    except (TypeError, ValueError):
+        if isinstance(value, dict):
+            return {str(key): _jsonable(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [_jsonable(item) for item in value]
+        return str(value)
 
 
 def _buy_summary(strategy: str, params: dict[str, Any]) -> str:

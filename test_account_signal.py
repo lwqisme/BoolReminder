@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -12,8 +13,10 @@ from account_signal.config import AccountSnapshot, SignalTarget, googl_inputs
 from account_signal.engine import account_signal_status, run_account_signal
 from account_signal.profiles import (
     active_profiles_for_symbols,
+    assign_candidate_to_profile,
     built_in_default_profiles,
-    promote_candidate_to_profile,
+    load_profile_candidates,
+    save_candidate_to_library,
     strategy_inputs_for_profile,
 )
 from account_signal.store import load_run_history, save_latest_run
@@ -370,7 +373,7 @@ class AccountSignalTest(unittest.TestCase):
             self.assertEqual(profiles["GOOGL.US"].source, "built_in_default")
             self.assertEqual(profiles["GOOGL.US"].buy_strategy, "core_dip_dca")
 
-    def test_profile_promote_dry_run_validates_without_writing(self):
+    def test_profile_candidate_dry_run_validates_without_writing(self):
         candidate = {
             "key": "candidate-1",
             "buy_strategy": "equal_slice",
@@ -385,25 +388,43 @@ class AccountSignalTest(unittest.TestCase):
             "grid_min_sell_amount": 0,
         }
         with TemporaryDirectory() as tmp:
-            profile_path = __import__("pathlib").Path(tmp) / "profiles.json"
-            result = promote_candidate_to_profile(
-                symbol="AAPL.US",
+            candidate_path = Path(tmp) / "profile_candidates.json"
+            result = save_candidate_to_library(
                 candidate=candidate,
                 note="dry",
                 dry_run=True,
-                path=profile_path,
+                path=candidate_path,
             )
 
-            self.assertFalse(profile_path.exists())
-            self.assertEqual(result["new"]["symbol"], "AAPL.US")
-            self.assertEqual(result["new"]["candidate_key"], "candidate-1")
+            self.assertFalse(candidate_path.exists())
+            self.assertEqual(result["candidate"]["candidate_key"], "candidate-1")
 
             bad = dict(candidate, sell_strategy="unsupported_sell")
             with self.assertRaises(ValueError):
-                promote_candidate_to_profile(symbol="AAPL.US", candidate=bad, path=profile_path)
+                save_candidate_to_library(candidate=bad, path=candidate_path)
             bad_snapshot = dict(candidate, parameter_snapshot={"buy": {"not_a_field": 2}})
             with self.assertRaises(ValueError):
-                promote_candidate_to_profile(symbol="AAPL.US", candidate=bad_snapshot, path=profile_path)
+                save_candidate_to_library(candidate=bad_snapshot, path=candidate_path)
+
+    def test_profile_candidate_save_dedupes_and_does_not_write_profiles(self):
+        candidate = {
+            "key": "candidate-dedupe",
+            "buy_strategy": "weekly_dca",
+            "sell_strategy": "none",
+        }
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            candidate_path = base / "profile_candidates.json"
+            profile_path = base / "profiles.json"
+            first = save_candidate_to_library(candidate=candidate, note="first", path=candidate_path)
+            second = save_candidate_to_library(candidate=dict(candidate), note="second", path=candidate_path)
+            library = load_profile_candidates(candidate_path)
+
+        self.assertFalse(profile_path.exists())
+        self.assertEqual(first["candidate_key"], "candidate-dedupe")
+        self.assertEqual(second["candidate_key"], "candidate-dedupe")
+        self.assertEqual(list(library), ["candidate-dedupe"])
+        self.assertEqual(library["candidate-dedupe"].note, "second")
 
     def test_run_uses_promoted_profile_for_arbitrary_symbol(self):
         candidate = {
@@ -417,8 +438,25 @@ class AccountSignalTest(unittest.TestCase):
         market = {"AAPL.US": points(("2026-05-18", 100), ("2026-05-19", 95), ("2026-05-20", 90))}
         targets = {"AAPL.US": SignalTarget("AAPL.US", 10000, 0, 100, True)}
         with TemporaryDirectory() as tmp:
-            profile_path = __import__("pathlib").Path(tmp) / "profiles.json"
-            promote_candidate_to_profile(symbol="AAPL.US", candidate=candidate, path=profile_path)
+            base = Path(tmp)
+            profile_path = base / "profiles.json"
+            candidate_path = base / "profile_candidates.json"
+            save_candidate_to_library(candidate=candidate, path=candidate_path)
+            dry = assign_candidate_to_profile(
+                symbol="AAPL.US",
+                candidate_key="aapl-equal-none",
+                dry_run=True,
+                profiles_path=profile_path,
+                candidates_path=candidate_path,
+            )
+            self.assertFalse(profile_path.exists())
+            self.assertEqual(dry["new"]["symbol"], "AAPL.US")
+            assign_candidate_to_profile(
+                symbol="AAPL.US",
+                candidate_key="aapl-equal-none",
+                profiles_path=profile_path,
+                candidates_path=candidate_path,
+            )
             with patch("account_signal.profiles.PROFILES_PATH", profile_path), \
                 patch.multiple(
                     "account_signal.engine",
@@ -435,7 +473,7 @@ class AccountSignalTest(unittest.TestCase):
         self.assertEqual(result["signals"][0]["strategy"], "equal_slice")
         self.assertEqual(result["signals"][0]["profile_source"], "parameter_lab")
 
-    def test_profile_promote_api_checks_password_and_dry_run(self):
+    def test_profile_candidate_and_assign_api_need_no_password(self):
         candidate = {
             "key": "candidate-api",
             "buy_strategy": "weekly_dca",
@@ -443,16 +481,52 @@ class AccountSignalTest(unittest.TestCase):
         }
         fake_config = SimpleNamespace(get_web_config=lambda: {"update_password": "pw"})
         with TemporaryDirectory() as tmp:
-            profile_path = __import__("pathlib").Path(tmp) / "profiles.json"
+            base = Path(tmp)
+            profile_path = base / "profiles.json"
+            candidate_path = base / "profile_candidates.json"
             with patch("account_signal.profiles.PROFILES_PATH", profile_path), \
+                patch("account_signal.profiles.PROFILE_CANDIDATES_PATH", candidate_path), \
                 patch("web.app.config_manager", fake_config):
                 client = app.test_client()
-                denied = client.post("/api/account-signal/profiles/promote", json={"symbol": "MSFT.US", "candidate": candidate, "password": "bad", "dry_run": True})
-                accepted = client.post("/api/account-signal/profiles/promote", json={"symbol": "MSFT.US", "candidate": candidate, "password": "pw", "dry_run": True})
+                saved = client.post("/api/account-signal/profile-candidates", json={"candidate": candidate, "password": "bad"})
+                listed = client.get("/api/account-signal/profiles")
+                dry_assign = client.post("/api/account-signal/profiles/assign", json={"symbol": "MSFT.US", "candidate_key": "candidate-api", "dry_run": True, "password": "bad"})
+                dry_written = profile_path.exists()
+                assigned = client.post("/api/account-signal/profiles/assign", json={"symbol": "MSFT.US", "candidate_key": "candidate-api", "password": "bad"})
+                assigned_written = profile_path.exists()
 
-        self.assertEqual(denied.status_code, 401)
-        self.assertEqual(accepted.status_code, 200)
-        self.assertFalse(profile_path.exists())
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(listed.status_code, 200)
+        self.assertIn("candidate-api", listed.get_json()["candidate_library"])
+        self.assertEqual(dry_assign.status_code, 200)
+        self.assertFalse(dry_written)
+        self.assertEqual(assigned.status_code, 200)
+        self.assertTrue(assigned_written)
+
+    def test_promote_api_is_candidate_only_compatibility_alias(self):
+        candidate = {
+            "key": "candidate-compat",
+            "buy_strategy": "equal_slice",
+            "sell_strategy": "none",
+            "step_pct": 5,
+            "equal_slice_allocation_pct": 10,
+        }
+        with TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            profile_path = base / "profiles.json"
+            candidate_path = base / "profile_candidates.json"
+            with patch("account_signal.profiles.PROFILES_PATH", profile_path), \
+                patch("account_signal.profiles.PROFILE_CANDIDATES_PATH", candidate_path):
+                response = app.test_client().post(
+                    "/api/account-signal/profiles/promote",
+                    json={"symbol": "AAPL.US", "candidate": candidate},
+                )
+                profile_written = profile_path.exists()
+                candidate_written = candidate_path.exists()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(profile_written)
+        self.assertTrue(candidate_written)
 
     def test_run_history_keeps_recent_runs_newest_first(self):
         with TemporaryDirectory() as tmp:
