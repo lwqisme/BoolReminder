@@ -595,8 +595,12 @@ process.stdout.write(JSON.stringify(results));
         self.assertIn("function strategyGroupKey(candidate)", html)
         self.assertIn("const buyKey = candidate?.buy_strategy || candidate?.candidate?.buy_strategy || ''", html)
         self.assertIn("function strategyGroupLabel(candidate)", html)
+        self.assertIn('<option value="option_estimate_roi_mean">预估期权ROI</option>', html)
         self.assertIn("function rankParameterRows(rows, rankMethod = 'normalized')", html)
         self.assertIn("function rankedRowsFor(data, rankMethod = 'normalized')", html)
+        self.assertIn("function parameterRankCacheKey(rankMethod, scope = null)", html)
+        self.assertIn("${method}:${parameterRankScope(scope)}", html)
+        self.assertIn("function optionEstimateRoiMeanForRank(row, scope = null)", html)
         self.assertIn("Object.defineProperty(data, '_ranked_rows_cache'", html)
         self.assertIn("row.global_rank = index + 1", html)
         self.assertIn("row.final_rank = row.global_rank", html)
@@ -727,6 +731,9 @@ process.stdout.write(JSON.stringify({
         self.assertIn("include_leaps_signal_details", html)
         self.assertIn('id="leapsEstimateScope"', html)
         self.assertIn('<option value="high" selected>仅高等级</option>', html)
+        self.assertIn('<option value="option_estimate_roi_mean">预估期权ROI</option>', html)
+        self.assertIn("parameterRankLabel(rankMethod)", html)
+        self.assertIn("formatParameterRankScore(scoreForRankMethod(row, rankMethod, rankScope), rankMethod)", html)
         self.assertIn("groupLeapsSignalsByDateSymbol", html)
         self.assertIn("共 ${number(summary.trigger_count, 0)} 次，按日期+标的聚合为", html)
         self.assertIn("LEAPS_DETAIL_PAGE_SIZE = 25", html)
@@ -1317,7 +1324,12 @@ const helpers = process.argv[1];
 const rows = JSON.parse(process.argv[2]);
 const context = {
   buyStrategyLabels: { buy_a: '买A', buy_b: '买B' },
-  sellStrategyLabels: { sell_x: '卖X', sell_y: '卖Y' }
+  sellStrategyLabels: { sell_x: '卖X', sell_y: '卖Y' },
+  currentLeapsEstimateScope: () => context.__scope || 'high',
+  estimatedLeapsOptionSummary: (summary, scope) => {
+    const value = summary?.roi_by_scope?.[scope];
+    return Number.isFinite(Number(value)) ? { roi_mean_pct: Number(value) } : { roi_mean_pct: null };
+  }
 };
 vm.createContext(context);
 vm.runInContext(helpers, context);
@@ -1335,13 +1347,39 @@ const raw = context.rankParameterRows(rows, 'raw').map((row) => ({
   group_key: row.group_key,
   group_label: row.group_label
 }));
-process.stdout.write(JSON.stringify({ normalized, raw }));
+const optionHigh = context.rankParameterRows(rows, 'option_estimate_roi_mean', 'high').map((row) => ({
+  key: row.key,
+  global_rank: row.global_rank,
+  group_rank: row.group_rank,
+  score: context.scoreForRankMethod(row, 'option_estimate_roi_mean', 'high')
+}));
+const optionAll = context.rankParameterRows(rows, 'option_estimate_roi_mean', 'all').map((row) => ({
+  key: row.key,
+  global_rank: row.global_rank,
+  group_rank: row.group_rank,
+  score: context.scoreForRankMethod(row, 'option_estimate_roi_mean', 'all')
+}));
+const cacheData = { rows: JSON.parse(process.argv[2]) };
+context.__scope = 'high';
+const cachedHigh = context.rankedRowsFor(cacheData, 'option_estimate_roi_mean').map((row) => row.key);
+context.__scope = 'all';
+const cachedAll = context.rankedRowsFor(cacheData, 'option_estimate_roi_mean').map((row) => row.key);
+process.stdout.write(JSON.stringify({
+  normalized,
+  raw,
+  optionHigh,
+  optionAll,
+  cachedHigh,
+  cachedAll,
+  cacheKeys: Array.from(cacheData._ranked_rows_cache.keys())
+}));
 """
         rows = [
-            {"key": "a1", "final_score": 80, "raw_score": 1, "candidate": {"buy_strategy": "buy_a", "sell_strategy": "sell_x"}},
-            {"key": "a2", "final_score": 70, "raw_score": 4, "candidate": {"buy_strategy": "buy_a", "sell_strategy": "sell_x"}},
-            {"key": "b1", "final_score": 90, "raw_score": 2, "candidate": {"buy_strategy": "buy_b", "sell_strategy": "sell_y"}},
-            {"key": "c1", "final_score": 60, "raw_score": 3, "candidate": {"buy_strategy": "buy_a", "sell_strategy": "sell_y"}},
+            {"key": "a1", "final_score": 80, "raw_score": 1, "candidate": {"buy_strategy": "buy_a", "sell_strategy": "sell_x"}, "leaps_signal": {"roi_by_scope": {"high": 10, "all": 10}}},
+            {"key": "a2", "final_score": 70, "raw_score": 4, "candidate": {"buy_strategy": "buy_a", "sell_strategy": "sell_x"}, "leaps_signal": {"roi_by_scope": {"all": 20}}},
+            {"key": "b1", "final_score": 90, "raw_score": 2, "candidate": {"buy_strategy": "buy_b", "sell_strategy": "sell_y"}, "leaps_signal": {"roi_by_scope": {"high": 12, "all": 15}}},
+            {"key": "c1", "final_score": 60, "raw_score": 3, "candidate": {"buy_strategy": "buy_a", "sell_strategy": "sell_y"}, "leaps_signal": {}},
+            {"key": "d1", "final_score": 80, "raw_score": 5, "candidate": {"buy_strategy": "buy_b", "sell_strategy": "sell_y"}, "leaps_signal": {"roi_by_scope": {"high": 10, "all": 5}}},
         ]
         completed = subprocess.run(
             ["node", "-e", script, helpers, json.dumps(rows)],
@@ -1351,18 +1389,24 @@ process.stdout.write(JSON.stringify({ normalized, raw }));
         )
         result = json.loads(completed.stdout)
 
-        self.assertEqual([row["key"] for row in result["normalized"]], ["b1", "a1", "a2", "c1"])
-        self.assertEqual([row["global_rank"] for row in result["normalized"]], [1, 2, 3, 4])
+        self.assertEqual([row["key"] for row in result["normalized"]], ["b1", "a1", "d1", "a2", "c1"])
+        self.assertEqual([row["global_rank"] for row in result["normalized"]], [1, 2, 3, 4, 5])
         self.assertEqual(
             [(row["key"], row["group_key"], row["group_rank"]) for row in result["normalized"]],
-            [("b1", "buy_b__sell_y", 1), ("a1", "buy_a__sell_x", 1), ("a2", "buy_a__sell_x", 2), ("c1", "buy_a__sell_y", 1)],
+            [("b1", "buy_b__sell_y", 1), ("a1", "buy_a__sell_x", 1), ("d1", "buy_b__sell_y", 2), ("a2", "buy_a__sell_x", 2), ("c1", "buy_a__sell_y", 1)],
         )
-        self.assertEqual([row["key"] for row in result["raw"]], ["a2", "c1", "b1", "a1"])
-        self.assertEqual([row["global_rank"] for row in result["raw"]], [1, 2, 3, 4])
+        self.assertEqual([row["key"] for row in result["raw"]], ["d1", "a2", "c1", "b1", "a1"])
+        self.assertEqual([row["global_rank"] for row in result["raw"]], [1, 2, 3, 4, 5])
         self.assertEqual(
             [(row["key"], row["group_key"], row["group_rank"]) for row in result["raw"]],
-            [("a2", "buy_a__sell_x", 1), ("c1", "buy_a__sell_y", 1), ("b1", "buy_b__sell_y", 1), ("a1", "buy_a__sell_x", 2)],
+            [("d1", "buy_b__sell_y", 1), ("a2", "buy_a__sell_x", 1), ("c1", "buy_a__sell_y", 1), ("b1", "buy_b__sell_y", 2), ("a1", "buy_a__sell_x", 2)],
         )
+        self.assertEqual([row["key"] for row in result["optionHigh"]], ["b1", "a1", "d1", "a2", "c1"])
+        self.assertEqual([row["score"] for row in result["optionHigh"]], [12, 10, 10, None, None])
+        self.assertEqual([row["key"] for row in result["optionAll"]], ["a2", "b1", "a1", "d1", "c1"])
+        self.assertEqual(result["cachedHigh"], ["b1", "a1", "d1", "a2", "c1"])
+        self.assertEqual(result["cachedAll"], ["a2", "b1", "a1", "d1", "c1"])
+        self.assertEqual(result["cacheKeys"], ["option_estimate_roi_mean:high", "option_estimate_roi_mean:all"])
         self.assertEqual(result["normalized"][1]["group_label"], "买A / 卖X")
 
     def test_top_group_leaps_option_helpers_select_dedupe_and_cap_signals(self):

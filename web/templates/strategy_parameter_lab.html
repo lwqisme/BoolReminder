@@ -1475,6 +1475,7 @@
                         <select id="rankMethod" onchange="renderParameterMatrix()">
                             <option value="normalized" selected>题内归一化</option>
                             <option value="raw">原始加权分</option>
+                            <option value="option_estimate_roi_mean">预估期权ROI</option>
                         </select>
                     </label>
                     <label>显示
@@ -1491,7 +1492,7 @@
             <div class="top-group-leaps-option-strip" id="topGroupLeapsOptionBar">
                 <div class="left">
                     <button type="button" onclick="calculateTopGroupLeapsOptionOutcomes()" disabled>计算 Top3 参数行高等级期权收益</button>
-                    <span class="status-text">运行 Parameter Lab 后可用；只展示 ROI，不参与排名。</span>
+                    <span class="status-text">运行 Parameter Lab 后可用。</span>
                 </div>
             </div>
 
@@ -2258,7 +2259,8 @@
             return normalizeLeapsOptionSignals(signals || []).filter((signal) => signal.grade === '高');
         }
         function currentParameterRankMethod() {
-            return document.getElementById('rankMethod')?.value === 'raw' ? 'raw' : 'normalized';
+            if (typeof document === 'undefined') return 'normalized';
+            return normalizeParameterRankMethod(document.getElementById('rankMethod')?.value);
         }
         function topGroupLeapsOptionRows(data, rankMethod = currentParameterRankMethod()) {
             if (!data) return [];
@@ -2297,7 +2299,7 @@
             const rankMethod = currentParameterRankMethod();
             const selectedRows = lastParameterResult ? topGroupLeapsOptionRows(lastParameterResult, rankMethod) : [];
             const canRun = Boolean(lastParameterResult && selectedRows.length && !currentRun && !isTopGroupLeapsOptionRunActive());
-            const rankLabel = rankMethod === 'raw' ? '原始加权分' : '题内归一化';
+            const rankLabel = parameterRankLabel(rankMethod);
             if (isTopGroupLeapsOptionRunActive()) {
                 const elapsed = run.startedAt ? Date.now() - run.startedAt : Number(run.elapsedMs || 0);
                 const requestTotal = Number(run.requestTotal || 0);
@@ -2333,7 +2335,7 @@
             el.innerHTML = `
                 <div class="left">
                     <button type="button" onclick="calculateTopGroupLeapsOptionOutcomes()" ${canRun ? '' : 'disabled'}>计算 Top3 参数行高等级期权收益</button>
-                    <span class="status-text">${lastParameterResult ? `${escapeHtml(rankLabel)} Top${number(TOP_GROUP_LEAPS_OPTION_ROW_LIMIT, 0)} 参数行 ${number(selectedRows.length, 0)} 条；计算这些行里的全部高等级 LEAPS 信号，去重后上限 ${number(TOP_GROUP_LEAPS_OPTION_SIGNAL_BUDGET, 0)} 个；后端每批 ${number(LEAPS_OPTION_BATCH_SIZE, 0)} 个。` : '运行 Parameter Lab 后可用；只展示 ROI，不参与排名。'}</span>
+                    <span class="status-text">${lastParameterResult ? `${escapeHtml(rankLabel)} Top${number(TOP_GROUP_LEAPS_OPTION_ROW_LIMIT, 0)} 参数行 ${number(selectedRows.length, 0)} 条；计算这些行里的全部高等级 LEAPS 信号，去重后上限 ${number(TOP_GROUP_LEAPS_OPTION_SIGNAL_BUDGET, 0)} 个；后端每批 ${number(LEAPS_OPTION_BATCH_SIZE, 0)} 个。` : '运行 Parameter Lab 后可用。'}</span>
                 </div>
             `;
         }
@@ -3945,8 +3947,60 @@
             const sellKey = candidate?.sell_strategy || candidate?.candidate?.sell_strategy || '';
             return `${buyStrategyLabels[buyKey] || buyKey || '未知买入策略'} / ${sellStrategyLabels[sellKey] || sellKey || '未知卖出策略'}`;
         }
-        function scoreForRankMethod(row, rankMethod) {
-            return Number(rankMethod === 'raw' ? row.raw_score : row.final_score) || 0;
+        function normalizeParameterRankMethod(rankMethod) {
+            if (rankMethod === 'raw') return 'raw';
+            if (rankMethod === 'option_estimate_roi_mean') return 'option_estimate_roi_mean';
+            return 'normalized';
+        }
+        function parameterRankLabel(rankMethod) {
+            const method = normalizeParameterRankMethod(rankMethod);
+            if (method === 'raw') return '原始加权分';
+            if (method === 'option_estimate_roi_mean') return '预估期权ROI';
+            return '题内归一化';
+        }
+        function parameterRankScope(scope = null) {
+            if (scope === 'all' || scope === 'high') return scope;
+            if (typeof currentLeapsEstimateScope === 'function') return currentLeapsEstimateScope();
+            return 'high';
+        }
+        function optionEstimateRoiMeanForRank(row, scope = null) {
+            const estimateScope = parameterRankScope(scope);
+            const estimated = estimatedLeapsOptionSummary(row?.leaps_signal || {}, estimateScope);
+            if (estimated?.roi_mean_pct === null || estimated?.roi_mean_pct === undefined) return null;
+            const value = Number(estimated.roi_mean_pct);
+            return Number.isFinite(value) ? value : null;
+        }
+        function scoreForRankMethod(row, rankMethod, scope = null) {
+            const method = normalizeParameterRankMethod(rankMethod);
+            if (method === 'option_estimate_roi_mean') return optionEstimateRoiMeanForRank(row, scope);
+            return Number(method === 'raw' ? row.raw_score : row.final_score) || 0;
+        }
+        function formatParameterRankScore(score, rankMethod) {
+            if (normalizeParameterRankMethod(rankMethod) === 'option_estimate_roi_mean') {
+                return Number.isFinite(Number(score)) ? pct(Number(score)) : '--';
+            }
+            return number(score);
+        }
+        function compareParameterRowsForRank(a, b, rankMethod, scope = null) {
+            const method = normalizeParameterRankMethod(rankMethod);
+            const estimateScope = parameterRankScope(scope);
+            if (method === 'option_estimate_roi_mean') {
+                const aScore = scoreForRankMethod(a, method, estimateScope);
+                const bScore = scoreForRankMethod(b, method, estimateScope);
+                const aHasScore = Number.isFinite(Number(aScore));
+                const bHasScore = Number.isFinite(Number(bScore));
+                if (aHasScore !== bHasScore) return bHasScore ? 1 : -1;
+                if (aHasScore && bHasScore) {
+                    const optionDiff = Number(bScore) - Number(aScore);
+                    if (Math.abs(optionDiff) > 1e-12) return optionDiff;
+                }
+                const normalizedDiff = scoreForRankMethod(b, 'normalized', estimateScope) - scoreForRankMethod(a, 'normalized', estimateScope);
+                if (Math.abs(normalizedDiff) > 1e-12) return normalizedDiff;
+                return String(a.key || '').localeCompare(String(b.key || ''));
+            }
+            const scoreDiff = scoreForRankMethod(b, method, estimateScope) - scoreForRankMethod(a, method, estimateScope);
+            if (Math.abs(scoreDiff) > 1e-12) return scoreDiff;
+            return String(a.key || '').localeCompare(String(b.key || ''));
         }
         function assignParameterRanks(sortedRows) {
             const byGroup = new Map();
@@ -3964,12 +4018,16 @@
             return sortedRows;
         }
         function rankParameterRows(rows, rankMethod = 'normalized') {
+            const scope = arguments.length >= 3 ? arguments[2] : null;
+            const estimateScope = parameterRankScope(scope);
             const sorted = [...(rows || [])].sort((a, b) => {
-                const scoreDiff = scoreForRankMethod(b, rankMethod) - scoreForRankMethod(a, rankMethod);
-                if (Math.abs(scoreDiff) > 1e-12) return scoreDiff;
-                return String(a.key || '').localeCompare(String(b.key || ''));
+                return compareParameterRowsForRank(a, b, rankMethod, estimateScope);
             });
             return assignParameterRanks(sorted);
+        }
+        function parameterRankCacheKey(rankMethod, scope = null) {
+            const method = normalizeParameterRankMethod(rankMethod);
+            return method === 'option_estimate_roi_mean' ? `${method}:${parameterRankScope(scope)}` : method;
         }
         function rankedRowsFor(data, rankMethod = 'normalized') {
             if (!data) return [];
@@ -3980,17 +4038,19 @@
                     configurable: true
                 });
             }
-            const method = rankMethod === 'raw' ? 'raw' : 'normalized';
-            if (!data._ranked_rows_cache.has(method)) {
-                data._ranked_rows_cache.set(method, [...(data.rows || [])].sort((a, b) => {
-                    const scoreDiff = scoreForRankMethod(b, method) - scoreForRankMethod(a, method);
-                    if (Math.abs(scoreDiff) > 1e-12) return scoreDiff;
-                    return String(a.key || '').localeCompare(String(b.key || ''));
+            const method = normalizeParameterRankMethod(rankMethod);
+            const scope = parameterRankScope();
+            const cacheKey = parameterRankCacheKey(method, scope);
+            if (!data._ranked_rows_cache.has(cacheKey)) {
+                data._ranked_rows_cache.set(cacheKey, [...(data.rows || [])].sort((a, b) => {
+                    return compareParameterRowsForRank(a, b, method, scope);
                 }));
             }
-            return assignParameterRanks(data._ranked_rows_cache.get(method));
+            return assignParameterRanks(data._ranked_rows_cache.get(cacheKey));
         }
         function groupVisibleParameterRows(visibleRows, allRows, rankMethod) {
+            const scope = arguments.length >= 4 ? arguments[3] : null;
+            const estimateScope = parameterRankScope(scope);
             const totalByGroup = new Map();
             (allRows || []).forEach((row) => {
                 totalByGroup.set(row.group_key, (totalByGroup.get(row.group_key) || 0) + 1);
@@ -4004,7 +4064,7 @@
                         rows: [],
                         total_count: totalByGroup.get(row.group_key) || 0,
                         best_global_rank: row.global_rank,
-                        best_score: scoreForRankMethod(row, rankMethod),
+                        best_score: scoreForRankMethod(row, rankMethod, estimateScope),
                         leaps_estimate_signals: [],
                         leaps_option_summaries: [],
                         leaps_option_outcomes: []
@@ -4017,7 +4077,7 @@
                 if (Array.isArray(row.leaps_option_outcomes)) group.leaps_option_outcomes.push(...row.leaps_option_outcomes);
                 if (row.global_rank < group.best_global_rank) {
                     group.best_global_rank = row.global_rank;
-                    group.best_score = scoreForRankMethod(row, rankMethod);
+                    group.best_score = scoreForRankMethod(row, rankMethod, estimateScope);
                 }
             });
             return Array.from(groups.values()).map((group) => ({
@@ -4176,12 +4236,13 @@
             const tasks = data.tasks || [];
             const limitValue = document.getElementById('rowLimit').value;
             const limit = limitValue === 'all' ? data.rows.length : Number(limitValue || 300);
-            const rankMethod = document.getElementById('rankMethod').value;
+            const rankMethod = currentParameterRankMethod();
+            const rankScope = currentLeapsEstimateScope();
             const showLeaps = Boolean(document.getElementById('leapsSignalToggle')?.checked);
             const sorted = rankedRowsFor(data, rankMethod);
             const rows = sorted.slice(0, limit);
-            const groups = groupVisibleParameterRows(rows, sorted, rankMethod);
-            const scoreLabel = rankMethod === 'raw' ? '原始加权分' : '归一化分';
+            const groups = groupVisibleParameterRows(rows, sorted, rankMethod, rankScope);
+            const scoreLabel = parameterRankLabel(rankMethod);
             document.getElementById('resultTitle').textContent = `${number(data.rows.length, 0)} rows / ${scoreLabel}`;
             const metrics = data.worker_metrics || {};
             document.getElementById('resultMeta').textContent = `worker ${number(metrics.worker_count, 0)} / CPU ${number(metrics.cpu_work_estimate_ms, 0)}ms / wall ${number(metrics.wall_ms, 0)}ms`;
@@ -4211,7 +4272,7 @@
                                     ${showLeaps ? renderAggregateLeapsBadge(group.leaps_signal || {}) : ''}
                                     ${showLeaps ? renderLeapsOptionOrEstimate({ estimate_signals: group.leaps_estimate_signals || [] }, group.leaps_option_summary) : ''}
                                     <span>Best global #${number(group.best_global_rank, 0)}</span>
-                                    <span>${escapeHtml(scoreLabel)} ${number(group.best_score)}</span>
+                                    <span>${escapeHtml(scoreLabel)} ${formatParameterRankScore(group.best_score, rankMethod)}</span>
                                     <button type="button" onclick="toggleParameterGroup('${escapeHtml(group.key)}')">${collapsed ? '展开' : '折叠'}</button>
                                 </div>
                             </div>
@@ -4249,7 +4310,7 @@
                             <td>
                                 <div class="rank-pair"><span>全局 #${number(row.global_rank, 0)}</span><span>组内 #${number(row.group_rank, 0)}</span></div>
                                 <div class="strategy-name">${escapeHtml(candidate.label || row.group_label || row.key)}</div>
-                                <div class="strategy-meta">${rankMethod === 'raw' ? 'Raw' : 'Final'} ${number(rankMethod === 'raw' ? row.raw_score : row.final_score)} / Avg return ${pct(row.avg_return_pct)} / Avg DD ${pct(row.avg_drawdown_pct)}</div>
+                                <div class="strategy-meta">${escapeHtml(scoreLabel)} ${formatParameterRankScore(scoreForRankMethod(row, rankMethod, rankScope), rankMethod)} / Avg return ${pct(row.avg_return_pct)} / Avg DD ${pct(row.avg_drawdown_pct)}</div>
                                 <div class="strategy-meta">${escapeHtml(row.buy_strategy || candidate.buy_strategy || '')} + ${escapeHtml(row.sell_strategy || candidate.sell_strategy || '')}</div>
                                 ${showLeaps ? `<div class="leaps-strip">${renderAggregateLeapsBadge(row.leaps_signal || {})}</div>` : ''}
                                 ${showLeaps ? `<div class="leaps-strip">${renderLeapsOptionOrEstimate(row.leaps_signal || {}, row.leaps_option_summary)}</div>` : ''}
@@ -5611,7 +5672,7 @@
         async function calculateTopGroupLeapsOptionOutcomes() {
             if (!lastParameterResult || isTopGroupLeapsOptionRunActive()) return;
             const rankMethod = currentParameterRankMethod();
-            const rankLabel = rankMethod === 'raw' ? '原始加权分' : '题内归一化';
+            const rankLabel = parameterRankLabel(rankMethod);
             const rows = topGroupLeapsOptionRows(lastParameterResult, rankMethod);
             if (!rows.length) {
                 topGroupLeapsOptionRun = {
