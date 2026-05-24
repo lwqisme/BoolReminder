@@ -16,6 +16,7 @@ from drawdown.position_strategy import (
     SELL_STRATEGY_LABELS,
     STRATEGY_LABELS,
     StrategyInputs,
+    normalize_longbridge_symbol,
 )
 
 
@@ -726,8 +727,14 @@ def _read_investment_universe(
     for item in raw:
         if not isinstance(item, Mapping):
             continue
-        symbol = str(item.get("symbol", "")).strip().upper()
-        if not symbol or symbol in seen:
+        raw_symbol = str(item.get("symbol", "")).strip()
+        if not raw_symbol:
+            continue
+        try:
+            symbol = normalize_longbridge_symbol(raw_symbol)
+        except ValueError:
+            continue
+        if symbol in seen:
             continue
         seen.add(symbol)
         row: dict[str, object] = {

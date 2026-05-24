@@ -215,6 +215,34 @@ class StrategyLabScorePayloadTest(unittest.TestCase):
         self.assertNotIn("candidate_pool", packet)
         self.assertNotIn("price_points", packet["tasks"][0])
 
+    def test_parameter_lab_packet_uses_edited_and_added_universe_topics(self):
+        captured_portfolios = []
+
+        def fake_build_robust_tasks(portfolios, _periods, _points):
+            captured_portfolios.extend(portfolios)
+            return [synthetic_parameter_lab_task("GOOGL.US"), synthetic_parameter_lab_task("MSFT.US")]
+
+        with patch("web.app._fetch_scorecard_points", return_value=({"GOOGL.US": [], "MSFT.US": []}, [])):
+            with patch("web.app._build_robust_tasks", side_effect=fake_build_robust_tasks):
+                _prepare_strategy_parameter_lab_payload({
+                    "end": "2026-05-14",
+                    "buy_strategies": ["salary_flow_dca"],
+                    "sell_strategies": ["cost_deleverage"],
+                    "scorecard_portfolio_keys": ["googl_100", "symbol_msft_us"],
+                    "scorecard_periods": [{"key": "1y", "enabled": True}],
+                    "targets": [{"symbol": "GOOGL.US", "weight": 100}],
+                    "investment_universe": [
+                        {"symbol": "GOOGL.US", "name": "Alphabet", "max_drawdown_pct": 33},
+                        {"symbol": "MSFT.US", "name": "Microsoft", "max_drawdown_pct": 35},
+                    ],
+                })
+
+        by_key = {item["key"]: item for item in captured_portfolios}
+        self.assertEqual(by_key["googl_100"]["label"], "全仓 Alphabet")
+        self.assertEqual(by_key["googl_100"]["targets"][0]["max_drawdown_pct"], 33.0)
+        self.assertEqual(by_key["symbol_msft_us"]["label"], "全仓 Microsoft")
+        self.assertEqual(by_key["symbol_msft_us"]["targets"][0]["symbol"], "MSFT.US")
+
     def test_parameter_lab_packet_endpoint_gzips_large_packet_response(self):
         large_warning = "x" * 2048
         with patch("web.app._fetch_scorecard_points", return_value=({"TSLA.US": []}, [large_warning] * 8)):

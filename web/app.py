@@ -2062,21 +2062,31 @@ STRATEGY_LAB_TEMPLATE = """
         .universe-title { display: grid; gap: 2px; }
         .universe-title strong { color: var(--charcoal); }
         .universe-title span { color: var(--muted); font-size: 12px; }
-        .universe-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
-        .universe-item {
+        .universe-add {
             display: grid;
-            grid-template-columns: minmax(72px, 0.9fr) minmax(72px, 1fr) 72px auto;
-            gap: 6px;
-            align-items: center;
-            padding: 8px;
-            border: 1px solid rgba(215, 226, 239, 0.92);
-            border-radius: var(--radius-sm);
-            background: rgba(255, 255, 255, 0.72);
+            grid-template-columns: minmax(110px, 1fr) minmax(110px, 1fr) 92px auto;
+            gap: 8px;
+            align-items: end;
+            margin-bottom: 8px;
         }
-        .universe-item input { min-height: 30px; padding: 5px 7px; font-size: 12px; }
+        .universe-format-hint { color: var(--muted); font-size: 12px; line-height: 1.55; margin-bottom: 8px; }
+        .universe-format-hint code { font-family: var(--mono); color: var(--charcoal); }
+        .universe-table-wrap { overflow-x: auto; }
+        .universe-table { width: 100%; border-collapse: collapse; min-width: 620px; }
+        .universe-table th,
+        .universe-table td {
+            padding: 6px;
+            border-bottom: 1px solid rgba(215, 226, 239, 0.92);
+            text-align: left;
+            vertical-align: top;
+        }
+        .universe-table th { color: var(--muted); font-size: 11px; font-weight: 900; }
+        .universe-table input { min-height: 30px; padding: 5px 7px; font-size: 12px; }
+        .universe-table input[type="checkbox"] { width: 18px; min-height: 18px; margin-top: 6px; }
+        .universe-warning { display: block; min-height: 16px; color: var(--amber); font-size: 11px; margin-top: 3px; }
         .universe-remove { width: 30px; min-height: 30px; padding: 0; }
         @media (max-width: 720px) {
-            .universe-item { grid-template-columns: 1fr 1fr; }
+            .universe-add { grid-template-columns: 1fr 1fr; }
             .universe-remove { width: auto; }
         }
         /* kpi grid for results */
@@ -3648,14 +3658,33 @@ STRATEGY_LAB_TEMPLATE = """
                 <div class="universe-head">
                     <div class="universe-title">
                         <strong>全局投资标的库</strong>
-                        <span>这里的股票可复用于组合持仓、评分题目和收益 Top10。</span>
+                        <span>这里的股票可复用于组合持仓、评分题目和收益 Top10；启用状态决定是否进入评分题目。</span>
                     </div>
                     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-                        <button class="btn btn-secondary btn-small" type="button" onclick="addUniverseSymbol()">添加股票</button>
                         <button class="btn btn-secondary btn-small" type="button" onclick="saveUniverseSymbols()">保存标的库</button>
                     </div>
                 </div>
-                <div id="universeGrid" class="universe-grid"></div>
+                <div class="universe-add">
+                    <label>股票代码
+                        <input id="universeAddSymbol" placeholder="GOOGL.US" onkeydown="if(event.key === 'Enter') addUniverseSymbolFromForm()">
+                    </label>
+                    <label>名称可选
+                        <input id="universeAddName" placeholder="Alphabet" onkeydown="if(event.key === 'Enter') addUniverseSymbolFromForm()">
+                    </label>
+                    <label>最大回撤可选
+                        <input id="universeAddMaxDrawdown" type="number" min="1" max="100" step="0.5" placeholder="50" onkeydown="if(event.key === 'Enter') addUniverseSymbolFromForm()">
+                    </label>
+                    <button class="btn btn-secondary btn-small" type="button" onclick="addUniverseSymbolFromForm()">添加</button>
+                </div>
+                <div class="universe-format-hint">Longbridge 股票代码格式：美股 <code>GOOGL.US</code>，港股 <code>0700.HK</code>，沪市 <code>600519.SH</code>，深市 <code>000001.SZ</code>，新加坡 <code>D05.SI</code>，日本 <code>7203.T</code>；未写后缀时按美股 <code>.US</code> 处理。</div>
+                <div class="universe-table-wrap">
+                    <table class="universe-table" aria-label="默认股票列表">
+                        <thead>
+                            <tr><th>启用</th><th>股票代码</th><th>显示名称</th><th>最大回撤 %</th><th>删除</th></tr>
+                        </thead>
+                        <tbody id="universeGrid"></tbody>
+                    </table>
+                </div>
             </div>
             <div id="holdingGrid" class="holding-grid"></div>
             <div class="hint" style="margin-top: 12px;">点击标的、名称、权重和评分回撤上限可直接编辑；权重在运行时自动归一化到 100%，评分会按 symbol 把单股回撤上限应用到对应题目。</div>
@@ -3744,10 +3773,12 @@ STRATEGY_LAB_TEMPLATE = """
                 <div>
                     <div class="score-topic-options">
                         {% for item in scorecard_portfolios %}
+                            {% if not item.single_symbol %}
                             <label class="score-topic-option">
                                 <input type="checkbox" name="scoreTopic" value="{{ item.key }}" onchange="syncScorecardTopic(this)" {% if item.key in default_scorecard_portfolio_keys %}checked{% endif %}>
                                 {{ item.short_label }}
                             </label>
+                            {% endif %}
                         {% endfor %}
                     </div>
                     <div class="score-period-grid">
@@ -3963,10 +3994,12 @@ STRATEGY_LAB_TEMPLATE = """
                 <div>
                     <div class="score-topic-options">
                         {% for item in scorecard_portfolios %}
+                            {% if not item.single_symbol %}
                             <label class="score-topic-option">
                                 <input type="checkbox" name="scoreTopic" value="{{ item.key }}" onchange="syncScorecardTopic(this)" {% if item.key in default_scorecard_portfolio_keys %}checked{% endif %}>
                                 {{ item.short_label }}
                             </label>
+                            {% endif %}
                         {% endfor %}
                     </div>
                     <div class="score-period-grid">
@@ -4105,6 +4138,7 @@ STRATEGY_LAB_TEMPLATE = """
     <script>
         const defaultPortfolio = {{ default_portfolio|tojson }};
         const defaultInvestmentUniverse = {{ investment_universe|tojson }};
+        const defaultScorecardPortfolioKeys = {{ default_scorecard_portfolio_keys|tojson }};
         const buyStrategyLabels = {{ buy_strategy_labels|tojson }};
         const sellStrategyLabels = {{ sell_strategy_labels|tojson }};
         const scorecardPortfolioLabels = {{ scorecard_portfolio_labels|tojson }};
@@ -4290,45 +4324,193 @@ STRATEGY_LAB_TEMPLATE = """
             }
         }
 
-        function initUniverseRows(universe = defaultInvestmentUniverse) {
+        function normalizeUniverseSymbolInput(raw) {
+            const compact = String(raw || '').replace(/\s+/g, '').toUpperCase();
+            if (!compact) {
+                return { symbol: '', warning: '' };
+            }
+            if (!compact.includes('.')) {
+                return { symbol: `${compact}.US`, warning: '未写后缀，已按美股 .US 处理。' };
+            }
+            const parts = compact.split('.');
+            const suffix = parts[1] || '';
+            const validSuffixes = new Set(['US', 'HK', 'SH', 'SZ', 'SI', 'T']);
+            if (parts.length !== 2 || !parts[0] || !validSuffixes.has(suffix)) {
+                return { symbol: '', warning: '请使用 Longbridge 格式，如 GOOGL.US、0700.HK、600519.SH、000001.SZ、D05.SI、7203.T。' };
+            }
+            return { symbol: compact, warning: '' };
+        }
+
+        function universeRowEnabledForSymbol(symbol, item = {}) {
+            if (Object.prototype.hasOwnProperty.call(item, 'enabled')) {
+                return item.enabled !== false;
+            }
+            return defaultScorecardPortfolioKeys.includes(scorecardKeyForSymbol(symbol));
+        }
+
+        function renderUniverseRows(universe = defaultInvestmentUniverse) {
             const grid = document.getElementById('universeGrid');
             if (!grid) {
                 return;
             }
             const rows = Array.isArray(universe) && universe.length ? universe : defaultInvestmentUniverse;
-            grid.innerHTML = rows.map((item, index) => `
-                <div class="universe-item" data-universe="${index}">
-                    <input data-field="symbol" value="${escapeHtml(item.symbol || '')}" aria-label="股票代码" onblur="syncUniverseToScoreTopics()">
-                    <input data-field="name" value="${escapeHtml(item.name || item.symbol || '')}" aria-label="显示名称" onblur="syncUniverseToScoreTopics()">
-                    <input data-field="max_drawdown_pct" type="number" min="1" max="100" step="0.5" value="${Number(item.max_drawdown_pct || readNumber('maxDrawdown') || 50)}" aria-label="评分回撤">
-                    <button class="btn btn-secondary btn-small universe-remove" type="button" onclick="removeUniverseSymbol(${index})">×</button>
-                </div>
-            `).join('');
+            grid.innerHTML = rows.map((item, index) => {
+                const normalized = normalizeUniverseSymbolInput(item.symbol || '');
+                const symbol = normalized.symbol || String(item.symbol || '').trim().toUpperCase();
+                const enabled = universeRowEnabledForSymbol(symbol, item);
+                const maxDrawdown = Number(item.max_drawdown_pct || readNumber('maxDrawdown') || 50);
+                return `
+                <tr data-universe="${index}">
+                    <td><input data-field="enabled" type="checkbox" ${enabled ? 'checked' : ''} aria-label="启用 ${escapeHtml(symbol)}" onchange="syncUniverseToScoreTopics()"></td>
+                    <td>
+                        <input data-field="symbol" value="${escapeHtml(symbol)}" aria-label="股票代码" onblur="normalizeUniverseRowSymbol(this); syncUniverseToScoreTopics()">
+                        <span class="universe-warning" data-field="warning">${escapeHtml(normalized.warning || '')}</span>
+                    </td>
+                    <td><input data-field="name" value="${escapeHtml(item.name || symbol)}" aria-label="显示名称" oninput="syncUniverseToScoreTopics()"></td>
+                    <td><input data-field="max_drawdown_pct" type="number" min="1" max="100" step="0.5" value="${maxDrawdown}" aria-label="评分回撤" oninput="syncUniverseToScoreTopics()"></td>
+                    <td><button class="btn btn-secondary btn-small universe-remove" type="button" onclick="removeUniverseSymbol(${index})">×</button></td>
+                </tr>
+            `;}).join('');
             syncUniverseToScoreTopics();
         }
 
-        function readInvestmentUniverse() {
+        function initUniverseRows(universe = defaultInvestmentUniverse) {
+            renderUniverseRows(universe);
+        }
+
+        function normalizeUniverseRowSymbol(input) {
+            const normalized = normalizeUniverseSymbolInput(input.value);
+            const row = input.closest('[data-universe]');
+            const warning = row ? row.querySelector('[data-field="warning"]') : null;
+            if (normalized.symbol) {
+                input.value = normalized.symbol;
+            }
+            if (warning) {
+                warning.textContent = normalized.warning || '';
+            }
+            return normalized;
+        }
+
+        function universeRowsWithState() {
             const grid = document.getElementById('universeGrid');
             const rows = [];
-            const seen = new Set();
             if (!grid) {
                 return rows;
             }
             grid.querySelectorAll('[data-universe]').forEach((row) => {
-                const symbol = (row.querySelector('[data-field="symbol"]').value || '').trim().toUpperCase();
-                if (!symbol || seen.has(symbol)) {
+                const symbolInput = row.querySelector('[data-field="symbol"]');
+                const normalized = normalizeUniverseSymbolInput(symbolInput?.value || '');
+                const warning = row.querySelector('[data-field="warning"]');
+                if (warning) {
+                    warning.textContent = normalized.warning || '';
+                }
+                if (!normalized.symbol) {
                     return;
                 }
-                seen.add(symbol);
-                const name = (row.querySelector('[data-field="name"]').value || symbol).trim();
-                const maxDrawdown = Number(row.querySelector('[data-field="max_drawdown_pct"]').value || 0);
-                const item = { symbol, name };
+                if (symbolInput) {
+                    symbolInput.value = normalized.symbol;
+                }
+                const name = (row.querySelector('[data-field="name"]')?.value || normalized.symbol).trim();
+                const maxDrawdown = Number(row.querySelector('[data-field="max_drawdown_pct"]')?.value || 0);
+                const enabled = Boolean(row.querySelector('[data-field="enabled"]')?.checked);
+                const item = { symbol: normalized.symbol, name, enabled };
                 if (maxDrawdown > 0) {
                     item.max_drawdown_pct = maxDrawdown;
                 }
                 rows.push(item);
             });
             return rows;
+        }
+
+        function readInvestmentUniverse() {
+            const rows = [];
+            const seen = new Set();
+            universeRowsWithState().forEach((item) => {
+                if (seen.has(item.symbol)) {
+                    return;
+                }
+                seen.add(item.symbol);
+                const row = { symbol: item.symbol, name: item.name || item.symbol };
+                if (item.max_drawdown_pct > 0) {
+                    row.max_drawdown_pct = item.max_drawdown_pct;
+                }
+                rows.push(row);
+            });
+            return rows;
+        }
+
+        function enabledUniverseScorecardKeys() {
+            return universeRowsWithState()
+                .filter((item) => item.enabled)
+                .map((item) => scorecardKeyForSymbol(item.symbol));
+        }
+
+        function selectedScorecardPortfolioKeys() {
+            return Array.from(new Set([
+                ...Array.from(document.querySelectorAll('input[name="scoreTopic"]:checked')).map((input) => input.value),
+                ...enabledUniverseScorecardKeys()
+            ]));
+        }
+
+        function addUniverseSymbolFromForm() {
+            const symbolInput = document.getElementById('universeAddSymbol');
+            const nameInput = document.getElementById('universeAddName');
+            const maxDrawdownInput = document.getElementById('universeAddMaxDrawdown');
+            const normalized = normalizeUniverseSymbolInput(symbolInput?.value || '');
+            if (!normalized.symbol) {
+                setStatus('error', normalized.warning || '请输入股票代码。');
+                return;
+            }
+            const name = (nameInput?.value || normalized.symbol).trim();
+            const maxDrawdown = Number(maxDrawdownInput?.value || readNumber('maxDrawdown') || 50);
+            const universe = universeRowsWithState();
+            const existing = universe.find((item) => item.symbol === normalized.symbol);
+            if (existing) {
+                existing.name = name || existing.name || normalized.symbol;
+                existing.max_drawdown_pct = maxDrawdown;
+                existing.enabled = true;
+                setStatus('info', `${normalized.symbol} 已存在，已更新这一行。${normalized.warning ? ` ${normalized.warning}` : ''}`);
+            } else {
+                universe.push({ symbol: normalized.symbol, name, max_drawdown_pct: maxDrawdown, enabled: true });
+                setStatus('info', `${normalized.symbol} 已添加。${normalized.warning ? ` ${normalized.warning}` : ''}`);
+            }
+            if (symbolInput) symbolInput.value = '';
+            if (nameInput) nameInput.value = '';
+            if (maxDrawdownInput) maxDrawdownInput.value = '';
+            renderUniverseRows(universe);
+        }
+
+        function addUniverseSymbol(symbol = '', name = '', maxDrawdown = null) {
+            if (!symbol) {
+                document.getElementById('universeAddSymbol')?.focus();
+                return;
+            }
+            const universe = universeRowsWithState();
+            const normalized = normalizeUniverseSymbolInput(symbol);
+            if (!normalized.symbol) {
+                setStatus('error', normalized.warning);
+                return;
+            }
+            const existing = universe.find((item) => item.symbol === normalized.symbol);
+            if (existing) {
+                existing.name = name || existing.name || normalized.symbol;
+                existing.max_drawdown_pct = maxDrawdown || existing.max_drawdown_pct || readNumber('maxDrawdown') || 50;
+                existing.enabled = true;
+            } else {
+                universe.push({
+                    symbol: normalized.symbol,
+                    name: name || normalized.symbol,
+                    max_drawdown_pct: maxDrawdown || readNumber('maxDrawdown') || 50,
+                    enabled: true
+                });
+            }
+            renderUniverseRows(universe);
+        }
+
+        function removeUniverseSymbol(index) {
+            const universe = universeRowsWithState();
+            universe.splice(index, 1);
+            renderUniverseRows(universe);
         }
 
         function scorecardKeyForSymbol(symbol) {
@@ -4338,59 +4520,11 @@ STRATEGY_LAB_TEMPLATE = """
 
         function syncUniverseToScoreTopics() {
             const universe = readInvestmentUniverse();
-            const topicContainers = document.querySelectorAll('.score-topic-options');
-            const labelByKey = new Map();
-            Object.keys(scorecardPortfolioLabels).forEach((key) => {
-                labelByKey.set(key, scorecardPortfolioLabels[key]);
-            });
             universe.forEach((item) => {
-                labelByKey.set(scorecardKeyForSymbol(item.symbol), item.name || item.symbol);
-            });
-            topicContainers.forEach((container) => {
-                universe.forEach((item) => {
-                    const key = scorecardKeyForSymbol(item.symbol);
-                    let input = container.querySelector(`input[name="scoreTopic"][value="${key}"]`);
-                    if (!input) {
-                        const label = document.createElement('label');
-                        label.className = 'score-topic-option';
-                        label.innerHTML = `<input type="checkbox" name="scoreTopic" value="${escapeHtml(key)}" onchange="syncScorecardTopic(this)" checked> <span></span>`;
-                        input = label.querySelector('input');
-                        container.appendChild(label);
-                    }
-                    const label = input.closest('label');
-                    if (label) {
-                        const span = label.querySelector('span');
-                        if (span) {
-                            span.textContent = item.name || item.symbol;
-                        }
-                    }
-                });
-                Array.from(container.querySelectorAll('input[name="scoreTopic"]')).forEach((input) => {
-                    if (String(input.value).startsWith('symbol_') && !labelByKey.has(input.value)) {
-                        input.closest('label')?.remove();
-                    }
-                });
-            });
-            universe.forEach((item) => {
-                scorecardPortfolioLabels[scorecardKeyForSymbol(item.symbol)] = item.name || item.symbol;
+                const key = scorecardKeyForSymbol(item.symbol);
+                scorecardPortfolioLabels[key] = item.name || item.symbol;
             });
             updateScorecardQuestionHint();
-        }
-
-        function addUniverseSymbol(symbol = '', name = '', maxDrawdown = null) {
-            const universe = readInvestmentUniverse();
-            universe.push({
-                symbol,
-                name,
-                max_drawdown_pct: maxDrawdown || readNumber('maxDrawdown') || 50
-            });
-            initUniverseRows(universe);
-        }
-
-        function removeUniverseSymbol(index) {
-            const universe = readInvestmentUniverse();
-            universe.splice(index, 1);
-            initUniverseRows(universe);
         }
 
         function addUniverseSymbolToPortfolio(symbol) {
@@ -4728,10 +4862,7 @@ STRATEGY_LAB_TEMPLATE = """
         }
 
         function selectedScorecardPortfolios() {
-            return Array.from(new Set(
-                Array.from(document.querySelectorAll('input[name="scoreTopic"]:checked'))
-                    .map((input) => input.value)
-            ));
+            return selectedScorecardPortfolioKeys();
         }
 
         function syncScorecardTopic(changedInput) {
@@ -5259,6 +5390,13 @@ STRATEGY_LAB_TEMPLATE = """
             document.querySelectorAll('input[name="scoreTopic"]').forEach((input) => {
                 input.checked = selected.has(input.value);
             });
+            document.querySelectorAll('#universeGrid [data-universe]').forEach((row) => {
+                const symbol = normalizeUniverseSymbolInput(row.querySelector('[data-field="symbol"]')?.value || '').symbol;
+                const enabled = row.querySelector('[data-field="enabled"]');
+                if (symbol && enabled) {
+                    enabled.checked = selected.has(scorecardKeyForSymbol(symbol));
+                }
+            });
         }
 
         function applyScanValues(id, values) {
@@ -5321,6 +5459,9 @@ STRATEGY_LAB_TEMPLATE = """
                 updateHoldingBar();
             }
 
+            if (Array.isArray(payload.investment_universe) && payload.investment_universe.length) {
+                initUniverseRows(payload.investment_universe);
+            }
             if (Array.isArray(payload.scorecard_portfolio_keys)) {
                 applyScorecardPortfolioKeys(payload.scorecard_portfolio_keys);
             }
@@ -9001,22 +9142,23 @@ def _apply_score_target_max_drawdowns(targets: list[dict[str, object]], max_draw
 
 def _strategy_lab_scorecard_portfolios(lab_config: StrategyLabConfig) -> list[dict[str, object]]:
     short_labels = {
-        "tsm_100": "TSM",
-        "googl_100": "GOOGL",
-        "tsla_100": "TSLA",
-        "tencent_100": "腾讯",
-        "qqq_100": "QQQ",
         "core_50_30_20": "当前组合",
     }
-    portfolios = [
-        {
+    portfolios = []
+    for item in _resolve_scorecard_portfolios(None, None, lab_config.investment_universe_or_default()):
+        targets = [dict(target) for target in item.get("targets", [])]
+        single_symbol = len(targets) == 1
+        short_label = short_labels.get(str(item["key"]))
+        if not short_label and single_symbol:
+            short_label = str(targets[0].get("name") or targets[0].get("symbol") or item["label"])
+        portfolios.append({
             "key": item["key"],
             "label": item["label"],
-            "short_label": short_labels.get(str(item["key"]), str(item["label"]).replace("全仓 ", "")),
-            "targets": [dict(target) for target in item.get("targets", [])],
-        }
-        for item in SCORECARD_PORTFOLIOS
-    ]
+            "short_label": short_label or str(item["label"]).replace("全仓 ", ""),
+            "targets": targets,
+            "single_symbol": single_symbol,
+            "symbol": str(targets[0].get("symbol", "")) if single_symbol else "",
+        })
     known_keys = {str(item["key"]) for item in portfolios}
     single_symbol_keys = _scorecard_symbol_keys(portfolios)
     for item in lab_config.investment_universe_or_default():
@@ -9034,6 +9176,8 @@ def _strategy_lab_scorecard_portfolios(lab_config: StrategyLabConfig) -> list[di
             "label": f"全仓 {name}",
             "short_label": name,
             "targets": [{"symbol": symbol, "weight": 100.0, "name": name}],
+            "single_symbol": True,
+            "symbol": symbol,
         })
         known_keys.add(key)
         single_symbol_keys[symbol] = key

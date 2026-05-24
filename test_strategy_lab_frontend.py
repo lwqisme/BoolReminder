@@ -1,7 +1,8 @@
 import re
 import unittest
 
-from web.app import app
+from drawdown.strategy_lab_config import StrategyLabConfig, strategy_lab_default_dict
+from web.app import _strategy_lab_scorecard_portfolios, app
 
 
 class StrategyLabFrontendTest(unittest.TestCase):
@@ -195,6 +196,43 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("现在包含网格回弹卖出", html)
         self.assertIn("核心定投+回撤加仓", html)
         self.assertNotIn("平方递增加权细切", html)
+
+    def test_parameter_lab_has_editable_stock_universe_instead_of_universe_json(self):
+        with app.test_client() as client:
+            html = client.get("/strategy-lab/parameter-lab").get_data(as_text=True)
+
+        self.assertIn('id="universeGrid"', html)
+        self.assertIn('id="universeAddSymbol"', html)
+        self.assertIn("Longbridge 股票代码格式", html)
+        self.assertIn("GOOGL.US", html)
+        self.assertIn("0700.HK", html)
+        self.assertIn("600519.SH", html)
+        self.assertIn("000001.SZ", html)
+        self.assertIn("D05.SI", html)
+        self.assertIn("7203.T", html)
+        self.assertIn("function normalizeUniverseSymbolInput(raw)", html)
+        self.assertIn("function renderUniverseRows(universe = defaultInvestmentUniverse)", html)
+        self.assertIn("function addUniverseSymbolFromForm()", html)
+        self.assertIn("function selectedScorecardPortfolioKeys()", html)
+        self.assertIn("default_investment_universe: readInvestmentUniverse()", html)
+        self.assertNotIn('id="universeText"', html)
+
+    def test_page_context_overrides_builtin_single_stock_from_default_universe(self):
+        config = StrategyLabConfig.from_defaults_payload(
+            {
+                "default_investment_universe": [
+                    {"symbol": "GOOGL.US", "name": "Alphabet", "max_drawdown_pct": 33},
+                ],
+            },
+            strategy_lab_default_dict(),
+        )
+
+        portfolios = _strategy_lab_scorecard_portfolios(config)
+        googl = next(item for item in portfolios if item["key"] == "googl_100")
+
+        self.assertEqual(googl["label"], "全仓 Alphabet")
+        self.assertEqual(googl["short_label"], "Alphabet")
+        self.assertEqual(googl["targets"][0]["max_drawdown_pct"], 33.0)
 
     def test_robust_top10_is_independent_and_shares_score_topics(self):
         with app.test_client() as client:

@@ -231,6 +231,29 @@
             color: var(--ink);
         }
         .check-grid input { width: 18px; min-height: 18px; }
+        .universe-add {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin: 10px 0 8px;
+        }
+        .universe-add .wide { grid-column: 1 / -1; }
+        .universe-format-hint { color: var(--muted); font-size: 12px; line-height: 1.55; margin-bottom: 8px; }
+        .universe-format-hint code { font-family: var(--mono); color: var(--ink); }
+        .universe-table-wrap { overflow-x: auto; }
+        .universe-table { width: 100%; min-width: 520px; border-collapse: collapse; }
+        .universe-table th,
+        .universe-table td {
+            padding: 6px;
+            border-bottom: 1px solid rgba(217, 224, 234, 0.72);
+            text-align: left;
+            vertical-align: top;
+        }
+        .universe-table th { color: var(--muted); font-size: 11px; font-weight: 900; }
+        .universe-table input { min-height: 30px; padding: 5px 7px; font-size: 12px; }
+        .universe-table input[type="checkbox"] { width: 18px; min-height: 18px; margin-top: 6px; }
+        .universe-warning { display: block; min-height: 16px; color: var(--amber); font-size: 11px; margin-top: 3px; }
+        .universe-remove { width: 30px; min-height: 30px; padding: 0; }
         .candidate-grid-summary {
             display: grid;
             gap: 8px;
@@ -1242,15 +1265,38 @@
             </div>
 
             <div class="panel">
-                <div class="panel-head"><h2>评分题目</h2><button type="button" class="ghost" onclick="refreshUniverseTopics()">刷新题目</button></div>
+                <div class="panel-head"><h2>评分题目</h2><button type="button" class="ghost" onclick="saveUniverseSymbols()">保存标的库</button></div>
                 <div class="panel-body">
                     <div id="scoreTopics" class="check-grid">
                         {% for item in scorecard_portfolios %}
+                            {% if not item.single_symbol %}
                             <label class="base-topic">
                                 <input type="checkbox" name="scoreTopic" value="{{ item.key }}" {% if item.key in default_scorecard_portfolio_keys %}checked{% endif %}>
                                 {{ item.short_label }}
                             </label>
+                            {% endif %}
                         {% endfor %}
+                    </div>
+                    <div class="universe-add">
+                        <label>股票代码
+                            <input id="universeAddSymbol" placeholder="GOOGL.US" onkeydown="if(event.key === 'Enter') addUniverseSymbolFromForm()">
+                        </label>
+                        <label>名称可选
+                            <input id="universeAddName" placeholder="Alphabet" onkeydown="if(event.key === 'Enter') addUniverseSymbolFromForm()">
+                        </label>
+                        <label>最大回撤可选
+                            <input id="universeAddMaxDrawdown" type="number" min="1" max="100" step="0.5" placeholder="50" onkeydown="if(event.key === 'Enter') addUniverseSymbolFromForm()">
+                        </label>
+                        <button type="button" class="ghost" onclick="addUniverseSymbolFromForm()">添加股票</button>
+                    </div>
+                    <div class="universe-format-hint">Longbridge 股票代码格式：美股 <code>GOOGL.US</code>，港股 <code>0700.HK</code>，沪市 <code>600519.SH</code>，深市 <code>000001.SZ</code>，新加坡 <code>D05.SI</code>，日本 <code>7203.T</code>；未写后缀时按美股 <code>.US</code> 处理。</div>
+                    <div class="universe-table-wrap">
+                        <table class="universe-table" aria-label="默认股票列表">
+                            <thead>
+                                <tr><th>启用</th><th>股票代码</th><th>显示名称</th><th>最大回撤 %</th><th>删除</th></tr>
+                            </thead>
+                            <tbody id="universeGrid"></tbody>
+                        </table>
                     </div>
                     <div class="period-grid" style="margin-top:10px;">
                         {% for period in scorecard_periods %}
@@ -1311,13 +1357,10 @@
             </div>
 
             <div class="panel">
-                <div class="panel-head"><h2>组合与标的库</h2></div>
+                <div class="panel-head"><h2>当前组合</h2></div>
                 <div class="panel-body">
                     <label>当前组合
                         <textarea id="portfolioText">{{ default_portfolio|tojson }}</textarea>
-                    </label>
-                    <label style="margin-top:10px;">投资标的库
-                        <textarea id="universeText">{{ investment_universe|tojson }}</textarea>
                     </label>
                 </div>
             </div>
@@ -1546,6 +1589,8 @@
         const sellStrategyLabels = {{ sell_strategy_labels|tojson }};
         const scorecardPortfolioLabels = {{ scorecard_portfolio_labels|tojson }};
         const scorecardSymbolKeys = {{ scorecard_symbol_keys|tojson }};
+        const defaultInvestmentUniverse = {{ investment_universe|tojson }};
+        const defaultScorecardPortfolioKeys = {{ default_scorecard_portfolio_keys|tojson }};
         const strategyRegistry = {{ strategy_registry|tojson }};
         const parameterLabWorkerUrl = {{ parameter_lab_worker_url|tojson }};
         let currentRun = null;
@@ -2452,27 +2497,158 @@
         function readPortfolio() {
             return parseJsonTextarea('portfolioText', []);
         }
-        function readInvestmentUniverse() {
-            return parseJsonTextarea('universeText', []);
-        }
         function scorecardKeyForSymbol(symbol) {
             const normalized = String(symbol || '').trim().toUpperCase();
             return scorecardSymbolKeys[normalized] || `symbol_${normalized.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')}`;
         }
+        function normalizeUniverseSymbolInput(raw) {
+            const compact = String(raw || '').replace(/\s+/g, '').toUpperCase();
+            if (!compact) return { symbol: '', warning: '' };
+            if (!compact.includes('.')) {
+                return { symbol: `${compact}.US`, warning: '未写后缀，已按美股 .US 处理。' };
+            }
+            const parts = compact.split('.');
+            const suffix = parts[1] || '';
+            const validSuffixes = new Set(['US', 'HK', 'SH', 'SZ', 'SI', 'T']);
+            if (parts.length !== 2 || !parts[0] || !validSuffixes.has(suffix)) {
+                return { symbol: '', warning: '请使用 Longbridge 格式，如 GOOGL.US、0700.HK、600519.SH、000001.SZ、D05.SI、7203.T。' };
+            }
+            return { symbol: compact, warning: '' };
+        }
+        function universeRowEnabledForSymbol(symbol, item = {}) {
+            if (Object.prototype.hasOwnProperty.call(item, 'enabled')) {
+                return item.enabled !== false;
+            }
+            return defaultScorecardPortfolioKeys.includes(scorecardKeyForSymbol(symbol));
+        }
+        function renderUniverseRows(universe = defaultInvestmentUniverse) {
+            const body = document.getElementById('universeGrid');
+            if (!body) return;
+            const rows = Array.isArray(universe) && universe.length ? universe : defaultInvestmentUniverse;
+            body.innerHTML = rows.map((item, index) => {
+                const normalized = normalizeUniverseSymbolInput(item.symbol || '');
+                const symbol = normalized.symbol || String(item.symbol || '').trim().toUpperCase();
+                const enabled = universeRowEnabledForSymbol(symbol, item);
+                const maxDrawdown = Number(item.max_drawdown_pct || readNumber('maxDrawdown') || 50);
+                return `
+                    <tr data-universe="${index}">
+                        <td><input data-field="enabled" type="checkbox" ${enabled ? 'checked' : ''} aria-label="启用 ${escapeHtml(symbol)}" onchange="refreshUniverseTopics()"></td>
+                        <td>
+                            <input data-field="symbol" value="${escapeHtml(symbol)}" aria-label="股票代码" onblur="normalizeUniverseRowSymbol(this); refreshUniverseTopics()">
+                            <span class="universe-warning" data-field="warning">${escapeHtml(normalized.warning || '')}</span>
+                        </td>
+                        <td><input data-field="name" value="${escapeHtml(item.name || symbol)}" aria-label="显示名称" oninput="refreshUniverseTopics()"></td>
+                        <td><input data-field="max_drawdown_pct" type="number" min="1" max="100" step="0.5" value="${maxDrawdown}" aria-label="最大回撤" oninput="refreshUniverseTopics()"></td>
+                        <td><button type="button" class="ghost universe-remove" onclick="removeUniverseSymbol(${index})">×</button></td>
+                    </tr>
+                `;
+            }).join('');
+            refreshUniverseTopics();
+        }
+        function normalizeUniverseRowSymbol(input) {
+            const normalized = normalizeUniverseSymbolInput(input.value);
+            const row = input.closest('[data-universe]');
+            const warning = row ? row.querySelector('[data-field="warning"]') : null;
+            if (normalized.symbol) input.value = normalized.symbol;
+            if (warning) warning.textContent = normalized.warning || '';
+            return normalized;
+        }
+        function universeRowsWithState() {
+            const rows = [];
+            document.querySelectorAll('#universeGrid [data-universe]').forEach((row) => {
+                const symbolInput = row.querySelector('[data-field="symbol"]');
+                const normalized = normalizeUniverseSymbolInput(symbolInput?.value || '');
+                const warning = row.querySelector('[data-field="warning"]');
+                if (warning) warning.textContent = normalized.warning || '';
+                if (!normalized.symbol) return;
+                if (symbolInput) symbolInput.value = normalized.symbol;
+                const name = (row.querySelector('[data-field="name"]')?.value || normalized.symbol).trim();
+                const maxDrawdown = Number(row.querySelector('[data-field="max_drawdown_pct"]')?.value || 0);
+                const enabled = Boolean(row.querySelector('[data-field="enabled"]')?.checked);
+                const item = { symbol: normalized.symbol, name, enabled };
+                if (maxDrawdown > 0) item.max_drawdown_pct = maxDrawdown;
+                rows.push(item);
+            });
+            return rows;
+        }
+        function readInvestmentUniverse() {
+            const rows = [];
+            const seen = new Set();
+            universeRowsWithState().forEach((item) => {
+                if (seen.has(item.symbol)) return;
+                seen.add(item.symbol);
+                const row = { symbol: item.symbol, name: item.name || item.symbol };
+                if (item.max_drawdown_pct > 0) row.max_drawdown_pct = item.max_drawdown_pct;
+                rows.push(row);
+            });
+            return rows;
+        }
+        function enabledUniverseScorecardKeys() {
+            return universeRowsWithState()
+                .filter((item) => item.enabled)
+                .map((item) => scorecardKeyForSymbol(item.symbol));
+        }
+        function selectedScorecardPortfolioKeys() {
+            return Array.from(new Set([
+                ...selectedValues('scoreTopic'),
+                ...enabledUniverseScorecardKeys()
+            ]));
+        }
+        function addUniverseSymbolFromForm() {
+            const symbolInput = document.getElementById('universeAddSymbol');
+            const nameInput = document.getElementById('universeAddName');
+            const maxDrawdownInput = document.getElementById('universeAddMaxDrawdown');
+            const normalized = normalizeUniverseSymbolInput(symbolInput?.value || '');
+            if (!normalized.symbol) {
+                setStatus('Invalid symbol', normalized.warning || '请输入股票代码。', 2);
+                return;
+            }
+            const name = (nameInput?.value || normalized.symbol).trim();
+            const maxDrawdown = Number(maxDrawdownInput?.value || readNumber('maxDrawdown') || 50);
+            const universe = universeRowsWithState();
+            const existing = universe.find((item) => item.symbol === normalized.symbol);
+            if (existing) {
+                existing.name = name || existing.name || normalized.symbol;
+                existing.max_drawdown_pct = maxDrawdown;
+                existing.enabled = true;
+                setStatus('Updated', `${normalized.symbol} 已存在，已更新这一行。${normalized.warning ? ` ${normalized.warning}` : ''}`, 2);
+            } else {
+                universe.push({ symbol: normalized.symbol, name, max_drawdown_pct: maxDrawdown, enabled: true });
+                setStatus('Added', `${normalized.symbol} 已添加。${normalized.warning ? ` ${normalized.warning}` : ''}`, 2);
+            }
+            if (symbolInput) symbolInput.value = '';
+            if (nameInput) nameInput.value = '';
+            if (maxDrawdownInput) maxDrawdownInput.value = '';
+            renderUniverseRows(universe);
+        }
+        function removeUniverseSymbol(index) {
+            const universe = universeRowsWithState();
+            universe.splice(index, 1);
+            renderUniverseRows(universe);
+        }
+        async function saveUniverseSymbols() {
+            const password = window.prompt('请输入配置密码，保存后刷新页面会保留这些默认股票。');
+            if (password === null) return;
+            const defaults = {
+                default_investment_universe: readInvestmentUniverse(),
+                default_scorecard_portfolio_keys: selectedScorecardPortfolioKeys(),
+                default_scorecard_periods: scorecardPeriodPayload()
+            };
+            setStatus('Saving', '正在保存默认股票列表。', 2);
+            const response = await fetch('/api/strategy-lab/defaults', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password, defaults })
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+                throw new Error(result.message || '保存失败');
+            }
+            setStatus('Saved', '默认股票列表已保存。', 2);
+        }
         function refreshUniverseTopics() {
-            const container = document.getElementById('scoreTopics');
-            const existingChecked = new Set(selectedValues('scoreTopic'));
-            const existing = new Set(Array.from(container.querySelectorAll('input[name="scoreTopic"]')).map((input) => input.value));
             readInvestmentUniverse().forEach((item) => {
-                const symbol = String(item.symbol || '').trim().toUpperCase();
-                if (!symbol) return;
-                const key = scorecardKeyForSymbol(symbol);
-                if (existing.has(key)) return;
-                const label = document.createElement('label');
-                label.innerHTML = `<input type="checkbox" name="scoreTopic" value="${escapeHtml(key)}" ${existingChecked.has(key) ? 'checked' : ''}> ${escapeHtml(item.name || symbol)}`;
-                container.appendChild(label);
-                existing.add(key);
-                scorecardPortfolioLabels[key] = item.name || symbol;
+                scorecardPortfolioLabels[scorecardKeyForSymbol(item.symbol)] = item.name || item.symbol;
             });
         }
         function scorecardPeriodPayload() {
@@ -2537,7 +2713,7 @@
                 score_sell_strategies: selectedValues('sellStrategy'),
                 return_weight: 0.9,
                 drawdown_weight: 0.1,
-                scorecard_portfolio_keys: selectedValues('scoreTopic'),
+                scorecard_portfolio_keys: selectedScorecardPortfolioKeys(),
                 scorecard_periods: scorecardPeriodPayload(),
                 targets: readPortfolio(),
                 investment_universe: readInvestmentUniverse(),
@@ -5744,7 +5920,7 @@
             if (element) element.addEventListener('change', renderCandidateGridSummary);
         });
         document.addEventListener('keydown', handleCellChartFullscreenKeydown);
-        refreshUniverseTopics();
+        renderUniverseRows();
         renderCandidateGridSummary();
         renderParameterDiagnostics(null);
         renderTopGroupLeapsOptionControls();
