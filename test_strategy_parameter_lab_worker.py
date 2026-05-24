@@ -730,12 +730,16 @@ process.stdout.write(JSON.stringify({
         self.assertIn("groupLeapsSignalsByDateSymbol", html)
         self.assertIn("共 ${number(summary.trigger_count, 0)} 次，按日期+标的聚合为", html)
         self.assertIn("LEAPS_DETAIL_PAGE_SIZE = 25", html)
-        self.assertIn("renderLeapsBadge(group.best_leaps_signal || {}, false)", html)
-        self.assertIn("renderLeapsOptionOrEstimate({ top_signals: group.leaps_estimate_signals || [] }, group.leaps_option_summary)", html)
+        self.assertIn("function renderAggregateLeapsBadge(summary)", html)
+        self.assertIn("renderAggregateLeapsBadge(group.leaps_signal || {})", html)
+        self.assertIn("renderLeapsOptionOrEstimate({ estimate_signals: group.leaps_estimate_signals || [] }, group.leaps_option_summary)", html)
         self.assertIn("function estimatedLeapsOptionSummary(summary, scope = currentLeapsEstimateScope())", html)
         self.assertIn("signal?.grade === '高'", html)
         self.assertIn("renderEstimatedLeapsSummary(cell.leaps_signal || {})", html)
+        self.assertIn("renderAggregateLeapsBadge(row.leaps_signal || {})", html)
         self.assertIn("renderLeapsOptionOrEstimate(row.leaps_signal || {}, row.leaps_option_summary)", html)
+        self.assertIn("estimate_signals: sortedLeapsSignals(estimateSignals)", html)
+        self.assertIn("grade_counts: gradeCounts", WORKER_JS.read_text(encoding="utf-8"))
         self.assertIn("renderDetailLeaps(row)", html)
         self.assertIn("正股卖出", html)
         self.assertIn("formatStockSell(signal)", html)
@@ -790,6 +794,120 @@ process.stdout.write(JSON.stringify({
         self.assertIn("holding: '持有中'", html)
         self.assertIn("expired_without_stock_sell: '已到期'", html)
         self.assertIn("currentRun = null;\n                    renderTopGroupLeapsOptionControls();", html)
+
+    def test_aggregate_leaps_badge_and_estimate_pool_keep_period_coverage(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript LEAPS aggregate helper check")
+
+        html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
+        match = re.search(
+            r"function betterLeapsSignal\(a, b\) \{.*?\n        function signalOptionKey",
+            html,
+            re.S,
+        )
+        self.assertIsNotNone(match)
+        helpers = match.group(0).rsplit("\n        function signalOptionKey", 1)[0]
+        script = r"""
+const vm = require('vm');
+const helpers = process.argv[1];
+const context = {
+  leapsGradeRank: { '高': 3, '中': 2, '低': 1, '无': 0 },
+  leapsBadgeClass: (grade) => grade === '高' ? 'high' : grade === '中' ? 'medium' : grade === '低' ? 'low' : '',
+  number: (value) => String(Math.round(Number(value || 0))),
+  pct: (value) => `${Number(value || 0).toFixed(1)}%`,
+  escapeHtml: (value) => String(value).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])),
+  estimatedLeapsOutcomeFromSignal: (signal) => signal,
+  estimatedLeapsOptionRoiPct: (signal) => Number(signal.roi_pct),
+  document: { getElementById: () => ({ value: 'high' }) }
+};
+vm.createContext(context);
+vm.runInContext(helpers, context);
+
+const fiveYearSignals = Array.from({ length: 5 }, (_, index) => ({
+  grade: '高',
+  score: 100,
+  date: `2020-01-0${index + 1}`,
+  symbol: 'GOOGL.US',
+  stock_buy_price: 100,
+  stock_sell_price: 140,
+  roi_pct: 40
+}));
+const cells = [
+  {
+    topic_key: 'googl_1y',
+    portfolio_label: 'GOOGL',
+    period_label: '1Y',
+    leaps_signal: {
+      grade: '高',
+      score: 92,
+      best_date: '2024-01-10',
+      trigger_count: 2,
+      grade_counts: { '高': 1, '中': 1, '低': 0 },
+      top_signals: [
+        { grade: '高', score: 92, date: '2024-01-10', symbol: 'GOOGL.US', stock_buy_price: 100, stock_sell_price: 130, roi_pct: 30 },
+        { grade: '中', score: 70, date: '2024-02-10', symbol: 'GOOGL.US', stock_buy_price: 100, stock_sell_price: 115, roi_pct: 15 }
+      ]
+    }
+  },
+  {
+    topic_key: 'googl_3y',
+    portfolio_label: 'GOOGL',
+    period_label: '3Y',
+    leaps_signal: {
+      grade: '高',
+      score: 91,
+      best_date: '2022-01-10',
+      trigger_count: 1,
+      grade_counts: { '高': 1, '中': 0, '低': 0 },
+      top_signals: [
+        { grade: '高', score: 91, date: '2022-01-10', symbol: 'GOOGL.US', stock_buy_price: 100, stock_sell_price: 150, roi_pct: 50 }
+      ]
+    }
+  },
+  {
+    topic_key: 'googl_5y',
+    portfolio_label: 'GOOGL',
+    period_label: '5Y',
+    leaps_signal: {
+      grade: '高',
+      score: 100,
+      best_date: '2020-01-01',
+      trigger_count: 5,
+      grade_counts: { '高': 5, '中': 0, '低': 0 },
+      top_signals: fiveYearSignals
+    }
+  }
+];
+const aggregate = context.aggregateLeapsSignals(cells);
+const badge = context.renderAggregateLeapsBadge(aggregate);
+const highSummary = context.estimatedLeapsOptionSummary(aggregate, 'high');
+const allSummary = context.estimatedLeapsOptionSummary(aggregate, 'all');
+process.stdout.write(JSON.stringify({
+  badge,
+  topPeriods: aggregate.top_signals.map((signal) => signal.period_label),
+  estimatePeriods: aggregate.estimate_signals.map((signal) => signal.period_label),
+  highTotal: highSummary.total,
+  allTotal: allSummary.total,
+  highSuccess: highSummary.success_count,
+  allSuccess: allSummary.success_count
+}));
+"""
+        completed = subprocess.run(
+            ["node", "-e", script, helpers],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = json.loads(completed.stdout)
+
+        self.assertIn("LEAPS 高 · 3周期 · 7条", result["badge"])
+        self.assertNotIn("2020-01-01", result["badge"])
+        self.assertEqual(result["topPeriods"], ["5Y", "5Y", "5Y", "5Y", "5Y"])
+        self.assertIn("3Y", result["estimatePeriods"])
+        self.assertEqual(result["highTotal"], 7)
+        self.assertEqual(result["allTotal"], 8)
+        self.assertEqual(result["highSuccess"], 7)
+        self.assertEqual(result["allSuccess"], 8)
 
     def test_page_scopes_leaps_detail_worker_tasks_to_active_cell(self):
         if shutil.which("node") is None:

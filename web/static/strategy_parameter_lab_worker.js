@@ -1021,11 +1021,17 @@ function summarizeLeapsSignals(tradeLog, inputs, includeDetails = false, task = 
       return String(a.date || '').localeCompare(String(b.date || ''));
     });
   const best = signals[0] || null;
+  const gradeCounts = signals.reduce((counts, signal) => {
+    const grade = signal.grade || '无';
+    if (grade !== '无') counts[grade] = (counts[grade] || 0) + 1;
+    return counts;
+  }, { 高: 0, 中: 0, 低: 0 });
   const summary = {
     grade: best ? best.grade : '无',
     score: best ? best.score : 0,
     best_date: best ? best.date : '',
     trigger_count: signals.length,
+    grade_counts: gradeCounts,
     low_cash_threshold_pct: settings.low_cash_threshold_pct,
     min_drawdown_pct: settings.min_drawdown_pct,
     premium_budget_cap: settings.premium_budget_cap,

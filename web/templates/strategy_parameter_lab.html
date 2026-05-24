@@ -1722,20 +1722,78 @@
             const bd = String(b?.best_date || b?.date || '');
             return ad <= bd ? a : b;
         }
+        function emptyLeapsGradeCounts() {
+            return { 高: 0, 中: 0, 低: 0 };
+        }
+        function firstAvailableLeapsGrade(counts, fallbackGrade = '无') {
+            for (const grade of ['高', '中', '低']) {
+                if (Number(counts?.[grade] || 0) > 0) return grade;
+            }
+            return fallbackGrade && fallbackGrade !== '无' ? fallbackGrade : '无';
+        }
+        function topicPeriodLabel(source) {
+            const portfolio = source?.portfolio_label || '';
+            const period = source?.period_label || '';
+            if (portfolio && period) return `${portfolio}/${period}`;
+            return period || portfolio || source?.topic_key || '';
+        }
+        function addLeapsGradeCoverage(coverage, grade, label) {
+            if (!grade || grade === '无' || !label) return;
+            if (!coverage[grade]) coverage[grade] = new Set();
+            coverage[grade].add(label);
+        }
+        function sortedLeapsSignals(signals) {
+            return [...(signals || [])].sort((a, b) => {
+                const gradeDiff = (leapsGradeRank[b.grade] || 0) - (leapsGradeRank[a.grade] || 0);
+                if (gradeDiff) return gradeDiff;
+                const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
+                if (Math.abs(scoreDiff) > 1e-9) return scoreDiff;
+                return String(a.date || '').localeCompare(String(b.date || ''));
+            });
+        }
+        function finalizeAggregateLeapsSummary({ best = null, triggerCount = 0, gradeCounts = null, coverage = null, topSignals = [], estimateSignals = [], allSignals = [], hasFullSignals = false } = {}) {
+            const counts = { ...emptyLeapsGradeCounts(), ...(gradeCounts || {}) };
+            const periodLabelsByGrade = {};
+            ['高', '中', '低'].forEach((grade) => {
+                periodLabelsByGrade[grade] = Array.from(coverage?.[grade] || []).sort();
+            });
+            const grade = firstAvailableLeapsGrade(counts, best?.grade || '无');
+            const sortedTopSignals = sortedLeapsSignals(topSignals);
+            const result = {
+                aggregate: true,
+                grade,
+                score: Number(best?.score || 0),
+                best_date: '',
+                trigger_count: triggerCount,
+                grade_counts: counts,
+                period_labels_by_grade: periodLabelsByGrade,
+                target_dte_label: best?.target_dte_label || '',
+                top_signals: sortedTopSignals.slice(0, 5),
+                estimate_signals: sortedLeapsSignals(estimateSignals)
+            };
+            if (hasFullSignals) result.all_signals = allSignals;
+            return result;
+        }
         function aggregateLeapsSignals(cells) {
-            const signals = [];
+            const topSignals = [];
+            const estimateSignals = [];
             const allSignals = [];
+            const gradeCounts = emptyLeapsGradeCounts();
+            const coverage = { 高: new Set(), 中: new Set(), 低: new Set() };
             let hasFullSignals = false;
+            let best = null;
+            let triggerCount = 0;
             (cells || []).forEach((cell) => {
                 const summary = cell.leaps_signal || {};
-                (summary.top_signals || []).forEach((signal) => {
-                    signals.push({
+                const sourceLabel = topicPeriodLabel(cell);
+                const enrichedTopSignals = (summary.top_signals || []).map((signal) => ({
                         ...signal,
                         topic_key: cell.topic_key,
                         portfolio_label: cell.portfolio_label,
                         period_label: cell.period_label
-                    });
-                });
+                }));
+                topSignals.push(...enrichedTopSignals);
+                estimateSignals.push(...enrichedTopSignals);
                 if (Array.isArray(summary.all_signals)) {
                     hasFullSignals = true;
                     summary.all_signals.forEach((signal) => {
@@ -1747,32 +1805,54 @@
                         });
                     });
                 }
-            });
-            signals.sort((a, b) => {
-                const gradeDiff = (leapsGradeRank[b.grade] || 0) - (leapsGradeRank[a.grade] || 0);
-                if (gradeDiff) return gradeDiff;
-                const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
-                if (Math.abs(scoreDiff) > 1e-9) return scoreDiff;
-                return String(a.date || '').localeCompare(String(b.date || ''));
-            });
-            let best = null;
-            let triggerCount = 0;
-            (cells || []).forEach((cell) => {
-                const summary = cell.leaps_signal || null;
                 if (!summary) return;
                 triggerCount += Number(summary.trigger_count || 0);
                 best = best ? betterLeapsSignal(best, summary) : summary;
+                const summaryCounts = summary.grade_counts || {};
+                if (Object.keys(summaryCounts).length) {
+                    ['高', '中', '低'].forEach((grade) => {
+                        const count = Number(summaryCounts[grade] || 0);
+                        gradeCounts[grade] += count;
+                        if (count > 0) addLeapsGradeCoverage(coverage, grade, sourceLabel);
+                    });
+                } else {
+                    const fallbackGrade = summary.grade || '无';
+                    const fallbackCount = Number(summary.trigger_count || 0);
+                    if (fallbackGrade !== '无' && fallbackCount > 0) {
+                        gradeCounts[fallbackGrade] += fallbackCount;
+                        addLeapsGradeCoverage(coverage, fallbackGrade, sourceLabel);
+                    }
+                }
             });
-            const result = {
-                grade: best?.grade || '无',
-                score: Number(best?.score || 0),
-                best_date: best?.best_date || '',
-                trigger_count: triggerCount,
-                target_dte_label: best?.target_dte_label || '',
-                top_signals: signals.slice(0, 5)
-            };
-            if (hasFullSignals) result.all_signals = allSignals;
-            return result;
+            return finalizeAggregateLeapsSummary({ best, triggerCount, gradeCounts, coverage, topSignals, estimateSignals, allSignals, hasFullSignals });
+        }
+        function aggregateLeapsRowSummaries(rows) {
+            const topSignals = [];
+            const estimateSignals = [];
+            const allSignals = [];
+            const gradeCounts = emptyLeapsGradeCounts();
+            const coverage = { 高: new Set(), 中: new Set(), 低: new Set() };
+            let hasFullSignals = false;
+            let best = null;
+            let triggerCount = 0;
+            (rows || []).forEach((row) => {
+                const summary = row.leaps_signal || null;
+                if (!summary) return;
+                triggerCount += Number(summary.trigger_count || 0);
+                best = best ? betterLeapsSignal(best, summary) : summary;
+                (summary.top_signals || []).forEach((signal) => topSignals.push(signal));
+                leapsEstimateSignalPool(summary).forEach((signal) => estimateSignals.push(signal));
+                if (Array.isArray(summary.all_signals)) {
+                    hasFullSignals = true;
+                    summary.all_signals.forEach((signal) => allSignals.push(signal));
+                }
+                const summaryCounts = summary.grade_counts || {};
+                ['高', '中', '低'].forEach((grade) => {
+                    gradeCounts[grade] += Number(summaryCounts[grade] || 0);
+                    (summary.period_labels_by_grade?.[grade] || []).forEach((label) => addLeapsGradeCoverage(coverage, grade, label));
+                });
+            });
+            return finalizeAggregateLeapsSummary({ best, triggerCount, gradeCounts, coverage, topSignals, estimateSignals, allSignals, hasFullSignals });
         }
         function renderLeapsBadge(summary, compact = false) {
             const signal = summary || {};
@@ -1784,6 +1864,18 @@
                 ? `LEAPS ${grade}`
                 : `LEAPS ${grade}${date ? ` · ${date}` : ''}${count ? ` · ${number(count, 0)}次` : ''}`;
             return `<span class="leaps-badge ${leapsBadgeClass(grade)}">${escapeHtml(text)}</span>`;
+        }
+        function renderAggregateLeapsBadge(summary) {
+            const signal = summary || {};
+            const counts = { ...emptyLeapsGradeCounts(), ...(signal.grade_counts || {}) };
+            const grade = firstAvailableLeapsGrade(counts, signal.grade || '无');
+            if (grade === '无') return '<span class="leaps-badge">LEAPS 无</span>';
+            const count = Number(counts[grade] || signal.trigger_count || 0);
+            const periods = signal.period_labels_by_grade?.[grade] || [];
+            const periodText = periods.length ? ` · ${number(periods.length, 0)}周期` : '';
+            const countText = count ? ` · ${number(count, 0)}条` : '';
+            const title = periods.length ? ` title="${escapeHtml(`覆盖：${periods.join('、')}`)}"` : '';
+            return `<span class="leaps-badge ${leapsBadgeClass(grade)}"${title}>${escapeHtml(`LEAPS ${grade}${periodText}${countText}`)}</span>`;
         }
         function formatStockSell(signal) {
             if (!signal?.next_stock_sell_date) return '未卖出';
@@ -1854,6 +1946,7 @@
             return document.getElementById('leapsEstimateScope')?.value === 'all' ? 'all' : 'high';
         }
         function leapsEstimateSignalPool(summary) {
+            if (Array.isArray(summary?.estimate_signals) && summary.estimate_signals.length) return summary.estimate_signals;
             if (Array.isArray(summary?.all_signals) && summary.all_signals.length) return summary.all_signals;
             if (Array.isArray(summary?.top_signals) && summary.top_signals.length) return summary.top_signals;
             const signal = firstLeapsSignalForEstimate(summary);
@@ -3736,7 +3829,6 @@
                         total_count: totalByGroup.get(row.group_key) || 0,
                         best_global_rank: row.global_rank,
                         best_score: scoreForRankMethod(row, rankMethod),
-                        best_leaps_signal: row.leaps_signal || null,
                         leaps_estimate_signals: [],
                         leaps_option_summaries: [],
                         leaps_option_outcomes: []
@@ -3747,9 +3839,6 @@
                 group.leaps_estimate_signals.push(...leapsEstimateSignalPool(row.leaps_signal || {}));
                 if (row.leaps_option_summary) group.leaps_option_summaries.push(row.leaps_option_summary);
                 if (Array.isArray(row.leaps_option_outcomes)) group.leaps_option_outcomes.push(...row.leaps_option_outcomes);
-                group.best_leaps_signal = group.best_leaps_signal
-                    ? betterLeapsSignal(group.best_leaps_signal, row.leaps_signal || null)
-                    : (row.leaps_signal || null);
                 if (row.global_rank < group.best_global_rank) {
                     group.best_global_rank = row.global_rank;
                     group.best_score = scoreForRankMethod(row, rankMethod);
@@ -3757,6 +3846,7 @@
             });
             return Array.from(groups.values()).map((group) => ({
                 ...group,
+                leaps_signal: aggregateLeapsRowSummaries(group.rows),
                 leaps_option_summary: group.leaps_option_outcomes.length
                     ? aggregateLeapsOptionOutcomes(group.leaps_option_outcomes)
                     : mergeLeapsOptionSummaries(group.leaps_option_summaries)
@@ -3942,8 +4032,8 @@
                                     <span>${number(group.rows.length, 0)} visible / ${number(group.total_count, 0)} total</span>
                                 </div>
                                 <div class="group-metrics">
-                                    ${showLeaps ? renderLeapsBadge(group.best_leaps_signal || {}, false) : ''}
-                                    ${showLeaps ? renderLeapsOptionOrEstimate({ top_signals: group.leaps_estimate_signals || [] }, group.leaps_option_summary) : ''}
+                                    ${showLeaps ? renderAggregateLeapsBadge(group.leaps_signal || {}) : ''}
+                                    ${showLeaps ? renderLeapsOptionOrEstimate({ estimate_signals: group.leaps_estimate_signals || [] }, group.leaps_option_summary) : ''}
                                     <span>Best global #${number(group.best_global_rank, 0)}</span>
                                     <span>${escapeHtml(scoreLabel)} ${number(group.best_score)}</span>
                                     <button type="button" onclick="toggleParameterGroup('${escapeHtml(group.key)}')">${collapsed ? '展开' : '折叠'}</button>
@@ -3985,7 +4075,7 @@
                                 <div class="strategy-name">${escapeHtml(candidate.label || row.group_label || row.key)}</div>
                                 <div class="strategy-meta">${rankMethod === 'raw' ? 'Raw' : 'Final'} ${number(rankMethod === 'raw' ? row.raw_score : row.final_score)} / Avg return ${pct(row.avg_return_pct)} / Avg DD ${pct(row.avg_drawdown_pct)}</div>
                                 <div class="strategy-meta">${escapeHtml(row.buy_strategy || candidate.buy_strategy || '')} + ${escapeHtml(row.sell_strategy || candidate.sell_strategy || '')}</div>
-                                ${showLeaps ? `<div class="leaps-strip">${renderLeapsBadge(row.leaps_signal || {}, false)}</div>` : ''}
+                                ${showLeaps ? `<div class="leaps-strip">${renderAggregateLeapsBadge(row.leaps_signal || {})}</div>` : ''}
                                 ${showLeaps ? `<div class="leaps-strip">${renderLeapsOptionOrEstimate(row.leaps_signal || {}, row.leaps_option_summary)}</div>` : ''}
                                 <div class="row-actions">
                                     <button type="button" onclick="openRowDetail('${escapeHtml(row.key)}')">参数</button>
