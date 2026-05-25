@@ -2,6 +2,7 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -907,6 +908,10 @@ process.stdout.write(JSON.stringify(results));
         self.assertIn("卖档重启", html)
         self.assertIn("/api/strategy-lab/parameter-lab/estimate", html)
         self.assertIn("confirmLargeRunIfNeeded", html)
+        self.assertIn("const customParameterValues = {}", html)
+        self.assertIn("function addCustomParameterValue(field, input)", html)
+        self.assertIn("data-add-custom-parameter-field", html)
+        self.assertIn("data-remove-custom-parameter-field", html)
 
     def test_page_groups_parameter_rows_and_shows_dual_ranks(self):
         html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
@@ -951,8 +956,9 @@ process.stdout.write(JSON.stringify(results));
             + score_match.group(0).rsplit("\n        function heatStyle", 1)[0]
         )
         script = """
+const fs = require('fs');
 const vm = require('vm');
-const helpers = process.argv[1];
+const helpers = fs.readFileSync(process.argv[1], 'utf8');
 const packet = JSON.parse(process.argv[2]);
 const partialRows = JSON.parse(process.argv[3]);
 const context = {
@@ -1021,12 +1027,15 @@ process.stdout.write(JSON.stringify({
                 ],
             },
         ]
-        completed = subprocess.run(
-            ["node", "-e", script, helpers, json.dumps(packet), json.dumps(partial_rows)],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".js") as helper_file:
+            helper_file.write(helpers)
+            helper_file.flush()
+            completed = subprocess.run(
+                ["node", "-e", script, helper_file.name, json.dumps(packet), json.dumps(partial_rows)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
         result = json.loads(completed.stdout)
 
         self.assertEqual(result["row_count"], 2)

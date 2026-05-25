@@ -502,6 +502,33 @@ class StrategyParameterRegistryTest(unittest.TestCase):
         self.assertIn("rearmmode_restart", restart[0]["key"])
         self.assertIn("重启后从首档", restart[0]["label"])
 
+    def test_custom_selected_parameter_values_are_generated(self):
+        candidates = expand_strategy_candidate_payloads(
+            ["equal_slice"],
+            ["cost_deleverage"],
+            StrategyInputs(),
+            selected_parameter_values={
+                "step_pct": [2.5, 3.5],
+                "equal_slice_allocation_pct": [10.0],
+                "cost_first_profit_pct": [10.0, 12.0],
+                "cost_second_profit_pct": [20.0],
+                "cost_third_profit_pct": [30.0],
+                "cost_first_sell_pct": [20.0],
+                "cost_second_sell_pct": [20.0],
+                "cost_third_sell_pct": [20.0],
+                "cost_deleverage_cooldown_days": [30],
+                "sell_allow_same_day_sell": [True],
+                "dca_rearm_drawdown_pct": [20.0],
+                "buy_rearm_mode": ["restart_from_rearm"],
+                "sell_stage_rearm_drawdown_pct": [None],
+            },
+        )
+
+        self.assertIn(3.5, {item["step_pct"] for item in candidates})
+        self.assertIn(12.0, {item["cost_first_profit_pct"] for item in candidates})
+        self.assertTrue(any("step3.5" in item["key"] for item in candidates))
+        self.assertTrue(any("cp12-20-30" in item["key"] for item in candidates))
+
     def test_non_none_sell_candidates_include_same_day_sell_variants(self):
         candidates = expand_strategy_candidate_payloads(
             ["salary_flow_dca"],

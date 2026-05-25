@@ -478,6 +478,70 @@ def _canonical_parameter_value(value: object) -> tuple[str, object]:
     return ("string", str(value))
 
 
+def _uncanonical_parameter_value(value: tuple[str, object]) -> object:
+    kind, raw = value
+    if kind == "none":
+        return None
+    if kind == "bool":
+        return bool(raw)
+    if kind == "number":
+        return float(raw)
+    return raw
+
+
+def _selected_values_for_field(
+    value_selection: ParameterValueSelection | None,
+    field: str,
+) -> list[object]:
+    if value_selection is None or field not in value_selection or not value_selection[field]:
+        return []
+    return [_uncanonical_parameter_value(value) for value in sorted(value_selection[field], key=lambda item: str(item))]
+
+
+def _extended_parameter_values(
+    value_selection: ParameterValueSelection | None,
+    field: str,
+    defaults: Iterable[object],
+) -> list[object]:
+    values: list[object] = []
+    seen: set[tuple[str, object]] = set()
+    for value in defaults:
+        key = _canonical_parameter_value(value)
+        if key in seen:
+            continue
+        seen.add(key)
+        values.append(value)
+    for selected in _selected_values_for_field(value_selection, field):
+        key = _canonical_parameter_value(selected)
+        if key in seen:
+            continue
+        seen.add(key)
+        values.append(selected)
+    return values
+
+
+def _has_custom_parameter_value(
+    value_selection: ParameterValueSelection | None,
+    field: str,
+    defaults: Iterable[object],
+) -> bool:
+    default_keys = {_canonical_parameter_value(value) for value in defaults}
+    return any(
+        _canonical_parameter_value(value) not in default_keys
+        for value in _selected_values_for_field(value_selection, field)
+    )
+
+
+def _has_custom_parameter_values(
+    value_selection: ParameterValueSelection | None,
+    field_defaults: Mapping[str, Iterable[object]],
+) -> bool:
+    return any(
+        _has_custom_parameter_value(value_selection, field, defaults)
+        for field, defaults in field_defaults.items()
+    )
+
+
 def _field_applies_to_variant(variant: Mapping[str, object], field: str) -> bool:
     if field in CORE_DIP_TIMING_DETAIL_FIELDS and not bool(variant.get("core_dip_timing_enabled")):
         return False
@@ -674,8 +738,12 @@ def _buy_param_variants(
         return _filter_and_project_param_variants(
             [
                 {"step_pct": float(step), "equal_slice_allocation_pct": float(allocation)}
-                for step in ROBUST_BUY_STEP_VALUES
-                for allocation in ROBUST_EQUAL_SLICE_ALLOCATION_VALUES
+                for step in _extended_parameter_values(value_selection, "step_pct", ROBUST_BUY_STEP_VALUES)
+                for allocation in _extended_parameter_values(
+                    value_selection,
+                    "equal_slice_allocation_pct",
+                    ROBUST_EQUAL_SLICE_ALLOCATION_VALUES,
+                )
             ],
             ("step_pct", "equal_slice_allocation_pct"),
             inputs,
@@ -683,13 +751,54 @@ def _buy_param_variants(
         )
     if strategy_key == "linear_weighted_slice":
         return _filter_and_project_param_variants(
-            [{"step_pct": float(step)} for step in ROBUST_BUY_STEP_VALUES],
+            [
+                {"step_pct": float(step)}
+                for step in _extended_parameter_values(value_selection, "step_pct", ROBUST_BUY_STEP_VALUES)
+            ],
             ("step_pct",),
             inputs,
             value_selection,
         )
     if strategy_key == "core_dip_dca":
         variants = []
+        core_set_field_defaults = {
+            "core_dip_initial_core_pct": [item[0] for item in ROBUST_CORE_DIP_PARAM_SETS],
+            "core_dip_weekly_core_pct": [item[1] for item in ROBUST_CORE_DIP_PARAM_SETS],
+            "core_dip_cash_reserve_pct": [item[2] for item in ROBUST_CORE_DIP_PARAM_SETS],
+            "core_dip_start_drawdown_pct": [item[3] for item in ROBUST_CORE_DIP_PARAM_SETS],
+            "core_dip_full_drawdown_pct": [item[4] for item in ROBUST_CORE_DIP_PARAM_SETS],
+        }
+        core_param_sets = ROBUST_CORE_DIP_PARAM_SETS
+        if _has_custom_parameter_values(value_selection, core_set_field_defaults):
+            core_param_sets = [
+                (float(initial_core), float(weekly_core), float(cash_reserve), float(start_drawdown), float(full_drawdown))
+                for initial_core in _extended_parameter_values(
+                    value_selection,
+                    "core_dip_initial_core_pct",
+                    core_set_field_defaults["core_dip_initial_core_pct"],
+                )
+                for weekly_core in _extended_parameter_values(
+                    value_selection,
+                    "core_dip_weekly_core_pct",
+                    core_set_field_defaults["core_dip_weekly_core_pct"],
+                )
+                for cash_reserve in _extended_parameter_values(
+                    value_selection,
+                    "core_dip_cash_reserve_pct",
+                    core_set_field_defaults["core_dip_cash_reserve_pct"],
+                )
+                for start_drawdown in _extended_parameter_values(
+                    value_selection,
+                    "core_dip_start_drawdown_pct",
+                    core_set_field_defaults["core_dip_start_drawdown_pct"],
+                )
+                for full_drawdown in _extended_parameter_values(
+                    value_selection,
+                    "core_dip_full_drawdown_pct",
+                    core_set_field_defaults["core_dip_full_drawdown_pct"],
+                )
+                if float(start_drawdown) <= float(full_drawdown)
+            ]
         timing_values = [False, True]
         if _parameter_field_is_fixed(value_selection, "core_dip_timing_enabled"):
             timing_values = [bool(inputs.core_dip_timing_enabled)]
@@ -698,7 +807,7 @@ def _buy_param_variants(
                 timing_values = [True]
             elif core_dip_timing_filter == "disabled":
                 timing_values = [False]
-        for initial_core, weekly_core, cash_reserve, start_drawdown, full_drawdown in ROBUST_CORE_DIP_PARAM_SETS:
+        for initial_core, weekly_core, cash_reserve, start_drawdown, full_drawdown in core_param_sets:
             for timing_enabled in timing_values:
                 params = {
                     "core_dip_initial_core_pct": float(initial_core),
@@ -709,9 +818,21 @@ def _buy_param_variants(
                     "core_dip_timing_enabled": bool(timing_enabled),
                 }
                 if timing_enabled:
-                    for max_delay_days in ROBUST_CORE_DIP_TIMING_MAX_DELAY_DAYS:
-                        for rise_threshold in ROBUST_CORE_DIP_TIMING_RISE_THRESHOLDS:
-                            for near_low in ROBUST_CORE_DIP_TIMING_NEAR_LOW_VALUES:
+                    for max_delay_days in _extended_parameter_values(
+                        value_selection,
+                        "core_dip_timing_max_delay_days",
+                        ROBUST_CORE_DIP_TIMING_MAX_DELAY_DAYS,
+                    ):
+                        for rise_threshold in _extended_parameter_values(
+                            value_selection,
+                            "core_dip_timing_rise_threshold_pct",
+                            ROBUST_CORE_DIP_TIMING_RISE_THRESHOLDS,
+                        ):
+                            for near_low in _extended_parameter_values(
+                                value_selection,
+                                "core_dip_timing_near_low_pct",
+                                ROBUST_CORE_DIP_TIMING_NEAR_LOW_VALUES,
+                            ):
                                 timing_params = dict(params)
                                 timing_params.update(
                                     {
@@ -758,9 +879,17 @@ def _sell_param_variants(
         }
         variants = []
         if buy_strategy in LOT_SELL_BUY_STRATEGIES:
-            for profit in ROBUST_REPAIR_SELL_MIN_PROFITS:
-                for cooldown in ROBUST_REPAIR_COOLDOWNS:
-                    for stage in ROBUST_REPAIR_STAGE_SELLS:
+            for profit in _extended_parameter_values(value_selection, "sell_min_profit_pct", ROBUST_REPAIR_SELL_MIN_PROFITS):
+                for cooldown in _extended_parameter_values(
+                    value_selection,
+                    "repair_sell_cooldown_days",
+                    ROBUST_REPAIR_COOLDOWNS,
+                ):
+                    for stage in _extended_parameter_values(
+                        value_selection,
+                        "repair_stage_sell_pct",
+                        ROBUST_REPAIR_STAGE_SELLS,
+                    ):
                         variants.append(
                             {
                                 "sell_min_profit_pct": float(profit),
@@ -792,9 +921,9 @@ def _sell_param_variants(
                 "grid_second_sell_pct": float(second_sell),
                 "grid_min_sell_amount": float(inputs.grid_min_sell_amount),
             }
-            for step in ROBUST_GRID_REBOUND_STEPS
-            for first_sell in ROBUST_GRID_FIRST_SELLS
-            for second_sell in ROBUST_GRID_SECOND_SELLS
+            for step in _extended_parameter_values(value_selection, "grid_rebound_step_pct", ROBUST_GRID_REBOUND_STEPS)
+            for first_sell in _extended_parameter_values(value_selection, "grid_first_sell_pct", ROBUST_GRID_FIRST_SELLS)
+            for second_sell in _extended_parameter_values(value_selection, "grid_second_sell_pct", ROBUST_GRID_SECOND_SELLS)
         ]
         variants = _filter_and_project_param_variants(
             variants,
@@ -810,6 +939,57 @@ def _sell_param_variants(
             value_selection,
         )
     if strategy_key == "cost_deleverage":
+        profit_field_defaults = {
+            "cost_first_profit_pct": [item[0] for item in ROBUST_COST_PROFIT_SETS],
+            "cost_second_profit_pct": [item[1] for item in ROBUST_COST_PROFIT_SETS],
+            "cost_third_profit_pct": [item[2] for item in ROBUST_COST_PROFIT_SETS],
+        }
+        sell_field_defaults = {
+            "cost_first_sell_pct": [item[0] for item in ROBUST_COST_SELL_SETS],
+            "cost_second_sell_pct": [item[1] for item in ROBUST_COST_SELL_SETS],
+            "cost_third_sell_pct": [item[2] for item in ROBUST_COST_SELL_SETS],
+        }
+        profit_sets = ROBUST_COST_PROFIT_SETS
+        if _has_custom_parameter_values(value_selection, profit_field_defaults):
+            profit_sets = [
+                (float(first), float(second), float(third))
+                for first in _extended_parameter_values(
+                    value_selection,
+                    "cost_first_profit_pct",
+                    profit_field_defaults["cost_first_profit_pct"],
+                )
+                for second in _extended_parameter_values(
+                    value_selection,
+                    "cost_second_profit_pct",
+                    profit_field_defaults["cost_second_profit_pct"],
+                )
+                for third in _extended_parameter_values(
+                    value_selection,
+                    "cost_third_profit_pct",
+                    profit_field_defaults["cost_third_profit_pct"],
+                )
+                if float(first) <= float(second) <= float(third)
+            ]
+        sell_sets = ROBUST_COST_SELL_SETS
+        if _has_custom_parameter_values(value_selection, sell_field_defaults):
+            sell_sets = [
+                (float(first), float(second), float(third))
+                for first in _extended_parameter_values(
+                    value_selection,
+                    "cost_first_sell_pct",
+                    sell_field_defaults["cost_first_sell_pct"],
+                )
+                for second in _extended_parameter_values(
+                    value_selection,
+                    "cost_second_sell_pct",
+                    sell_field_defaults["cost_second_sell_pct"],
+                )
+                for third in _extended_parameter_values(
+                    value_selection,
+                    "cost_third_sell_pct",
+                    sell_field_defaults["cost_third_sell_pct"],
+                )
+            ]
         variants = [
             {
                 "cost_first_profit_pct": float(profit_set[0]),
@@ -821,9 +1001,13 @@ def _sell_param_variants(
                 "cost_deleverage_cooldown_days": int(cooldown),
                 "cost_min_sell_amount": float(inputs.cost_min_sell_amount),
             }
-            for profit_set in ROBUST_COST_PROFIT_SETS
-            for sell_set in ROBUST_COST_SELL_SETS
-            for cooldown in ROBUST_COST_COOLDOWNS
+            for profit_set in profit_sets
+            for sell_set in sell_sets
+            for cooldown in _extended_parameter_values(
+                value_selection,
+                "cost_deleverage_cooldown_days",
+                ROBUST_COST_COOLDOWNS,
+            )
         ]
         variants = _filter_and_project_param_variants(
             variants,
@@ -876,7 +1060,14 @@ def _with_rearm_variants(
     rearm_values: list[float | None]
     if buy_strategy in REARM_BUY_STRATEGIES and sell_strategy in POSITION_SELL_REARM_STRATEGIES:
         if not _parameter_field_is_fixed(value_selection, "dca_rearm_drawdown_pct"):
-            rearm_values = list(ROBUST_DCA_REARM_DRAWDOWN_VALUES)
+            rearm_values = [
+                float(value)
+                for value in _extended_parameter_values(
+                    value_selection,
+                    "dca_rearm_drawdown_pct",
+                    ROBUST_DCA_REARM_DRAWDOWN_VALUES,
+                )
+            ]
         else:
             rearm_values = [float(inputs.dca_rearm_drawdown_pct)]
     else:
@@ -908,9 +1099,13 @@ def _buy_rearm_mode_variants(
         return [None]
     if _parameter_field_is_fixed(value_selection, "buy_rearm_mode"):
         return [str(inputs.buy_rearm_mode)]
+    modes = [
+        str(mode)
+        for mode in _extended_parameter_values(value_selection, "buy_rearm_mode", BUY_REARM_MODES)
+    ]
     return [
         mode
-        for mode in BUY_REARM_MODES
+        for mode in modes
         if _parameter_value_is_selected(value_selection, "buy_rearm_mode", mode)
     ]
 
@@ -932,8 +1127,12 @@ def _sell_stage_rearm_variants(
         None,
         *[
             float(value)
-            for value in ROBUST_SELL_STAGE_REARM_DRAWDOWN_VALUES
-            if float(value) > float(dca_rearm_drawdown_pct)
+            for value in _extended_parameter_values(
+                value_selection,
+                "sell_stage_rearm_drawdown_pct",
+                ROBUST_SELL_STAGE_REARM_DRAWDOWN_VALUES,
+            )
+            if value is not None and float(value) > float(dca_rearm_drawdown_pct)
         ],
     ]
     return [

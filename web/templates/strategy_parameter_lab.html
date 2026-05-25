@@ -344,6 +344,38 @@
             color: var(--muted);
             border-color: rgba(99, 115, 134, 0.20);
         }
+        .candidate-chip.custom {
+            gap: 5px;
+        }
+        .candidate-chip-remove {
+            width: 16px;
+            min-width: 16px;
+            min-height: 16px;
+            padding: 0;
+            border-radius: 50%;
+            border: 0;
+            background: rgba(255, 255, 255, 0.34);
+            color: inherit;
+            font-size: 12px;
+            line-height: 1;
+        }
+        .candidate-custom-editor {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            min-height: 24px;
+        }
+        .candidate-custom-editor input {
+            width: 72px;
+            min-height: 24px;
+            padding: 3px 6px;
+            font-size: 11px;
+        }
+        .candidate-custom-editor button {
+            min-height: 24px;
+            padding: 3px 7px;
+            font-size: 11px;
+        }
         .period-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
         .period-row {
             display: grid;
@@ -1736,6 +1768,8 @@
             sell_stage_rearm_drawdown_pct: { label: '卖档重启', input: 'sellStageRearmDrawdown', formatter: (value) => value === null || value === undefined ? '关闭' : percentChip(value) }
         };
         const selectedParameterValues = {};
+        const customParameterValues = {};
+        const nonCustomParameterFields = new Set(['sell_allow_same_day_sell', 'buy_rearm_mode', 'core_dip_timing_enabled']);
         const leapsGradeRank = { '高': 3, '中': 2, '低': 1, '无': 0 };
 
         function escapeHtml(value) {
@@ -2839,16 +2873,25 @@
         }
         function ensureSelectedParameterValues(field, definitions = strategyRegistry.definitions || {}) {
             if (selectedParameterValues[field]) return selectedParameterValues[field];
-            selectedParameterValues[field] = new Set(parameterCandidateValues(field, definitions).map(parameterValueKey));
+            selectedParameterValues[field] = new Set(allParameterCandidateValues(field, definitions).map(parameterValueKey));
             return selectedParameterValues[field];
+        }
+        function customValuesForField(field) {
+            if (!customParameterValues[field]) customParameterValues[field] = [];
+            return customParameterValues[field];
         }
         function listCandidateValues(field, values, formatter = percentChip, options = {}) {
             const list = Array.isArray(values) ? values : [];
             if (!list.length) return '<span class="candidate-chip muted">沿用基线</span>';
             const selected = ensureSelectedParameterValues(field, options.definitions);
+            const customKeys = new Set(customValuesForField(field).map(parameterValueKey));
             const chips = list.map((value) => {
                 const key = parameterValueKey(value);
                 const isSelected = selected.has(key);
+                const isCustom = customKeys.has(key);
+                if (isCustom) {
+                    return `<span class="candidate-chip custom selected" data-parameter-field="${escapeHtml(field)}" data-parameter-value-key="${escapeHtml(key)}">${escapeHtml(formatter(value))}<button type="button" class="candidate-chip-remove" data-remove-custom-parameter-field="${escapeHtml(field)}" data-remove-custom-parameter-value-key="${escapeHtml(key)}" title="删除自定义值">x</button></span>`;
+                }
                 return `<button type="button" class="candidate-chip ${isSelected ? 'selected' : 'muted'}" data-parameter-field="${escapeHtml(field)}" data-parameter-value-key="${escapeHtml(key)}" aria-pressed="${isSelected ? 'true' : 'false'}">${escapeHtml(formatter(value))}</button>`;
             });
             if (!list.some((value) => selected.has(parameterValueKey(value)))) {
@@ -2861,10 +2904,28 @@
                 .filter((value) => value !== undefined && value !== null)
                 .filter((value, index, list) => list.findIndex((item) => Number(item) === Number(value)) === index);
         }
+        function uniqueParameterCandidateValues(values) {
+            const seen = new Set();
+            const result = [];
+            (Array.isArray(values) ? values : []).forEach((value) => {
+                if (value === undefined) return;
+                const key = parameterValueKey(value);
+                if (seen.has(key)) return;
+                seen.add(key);
+                result.push(value);
+            });
+            return result;
+        }
+        function allParameterCandidateValues(field, definitions) {
+            return uniqueParameterCandidateValues([
+                ...parameterCandidateValues(field, definitions),
+                ...customValuesForField(field)
+            ]);
+        }
         function selectedParameterValuesPayload() {
             const definitions = strategyRegistry.definitions || {};
             return Object.fromEntries(Object.keys(parameterLabScanFieldDefinitions).map((field) => {
-                const values = parameterCandidateValues(field, definitions);
+                const values = allParameterCandidateValues(field, definitions);
                 const selected = ensureSelectedParameterValues(field, definitions);
                 return [field, values.filter((value) => selected.has(parameterValueKey(value)))];
             }));
@@ -2874,6 +2935,43 @@
             const selected = ensureSelectedParameterValues(field);
             if (selected.has(valueKey)) selected.delete(valueKey);
             else selected.add(valueKey);
+            renderCandidateGridSummary();
+        }
+        function parameterFieldAllowsCustomValue(field) {
+            return parameterLabScanFieldDefinitions[field] && !nonCustomParameterFields.has(field);
+        }
+        function parseCustomParameterValue(field, rawValue) {
+            const raw = String(rawValue ?? '').trim();
+            if (!raw) return null;
+            const value = Number(raw);
+            if (!Number.isFinite(value) || value < 0) {
+                window.alert('自定义候选值必须是非负数字。');
+                return null;
+            }
+            if (field.endsWith('_days') || field === 'cost_deleverage_cooldown_days') {
+                return Math.round(value);
+            }
+            return Math.round(value * 10000000000) / 10000000000;
+        }
+        function addCustomParameterValue(field, input) {
+            if (!parameterFieldAllowsCustomValue(field)) return;
+            const value = parseCustomParameterValue(field, input?.value);
+            if (value === null) return;
+            const definitions = strategyRegistry.definitions || {};
+            const key = parameterValueKey(value);
+            const custom = customValuesForField(field);
+            if (!allParameterCandidateValues(field, definitions).some((item) => parameterValueKey(item) === key)) {
+                custom.push(value);
+            }
+            ensureSelectedParameterValues(field, definitions).add(key);
+            if (input) input.value = '';
+            renderCandidateGridSummary();
+        }
+        function removeCustomParameterValue(field, valueKey) {
+            if (!customParameterValues[field]) return;
+            customParameterValues[field] = customParameterValues[field].filter((value) => parameterValueKey(value) !== valueKey);
+            const selected = ensureSelectedParameterValues(field);
+            selected.delete(valueKey);
             renderCandidateGridSummary();
         }
         function parameterBaselineValue(field) {
@@ -2936,7 +3034,7 @@
             const rows = Object.entries(parameterLabScanFieldDefinitions).map(([field, definition]) => ({
                 field,
                 label: definition.label,
-                values: parameterCandidateValues(field, definitions),
+                values: allParameterCandidateValues(field, definitions),
                 formatter: definition.formatter || percentChip
             }));
             document.getElementById('candidateGridSummary').innerHTML = rows.map((row) => `
@@ -2945,7 +3043,14 @@
                     <div class="candidate-chip-list">${listCandidateValues(row.field, row.values, row.formatter, {
                         definitions,
                         fixedLabel: parameterBaselineLabel(row.field, row.formatter)
-                    })}</div>
+                    })}
+                    ${parameterFieldAllowsCustomValue(row.field) ? `
+                        <span class="candidate-custom-editor">
+                            <input type="number" min="0" step="0.5" placeholder="自定义" data-custom-parameter-input="${escapeHtml(row.field)}">
+                            <button type="button" data-add-custom-parameter-field="${escapeHtml(row.field)}">添加</button>
+                        </span>
+                    ` : ''}
+                    </div>
                 </div>
             `).join('');
         }
@@ -6253,8 +6358,30 @@
         document.getElementById('workerCount').value = Math.max(1, Math.min(4, Number(navigator.hardwareConcurrency || 4)));
         document.getElementById('workerCount').addEventListener('input', () => { workerCountTouched = true; });
         document.getElementById('candidateGridSummary').addEventListener('click', (event) => {
+            const removeButton = event.target.closest('[data-remove-custom-parameter-field]');
+            if (removeButton) {
+                event.preventDefault();
+                removeCustomParameterValue(removeButton.dataset.removeCustomParameterField, removeButton.dataset.removeCustomParameterValueKey);
+                return;
+            }
+            const addButton = event.target.closest('[data-add-custom-parameter-field]');
+            if (addButton) {
+                event.preventDefault();
+                const field = addButton.dataset.addCustomParameterField;
+                addCustomParameterValue(field, document.querySelector(`[data-custom-parameter-input="${field}"]`));
+                return;
+            }
             const chip = event.target.closest('[data-parameter-value-key]');
-            if (chip) toggleParameterValue(chip.dataset.parameterField, chip.dataset.parameterValueKey);
+            if (chip && !chip.classList.contains('custom')) {
+                toggleParameterValue(chip.dataset.parameterField, chip.dataset.parameterValueKey);
+            }
+        });
+        document.getElementById('candidateGridSummary').addEventListener('keydown', (event) => {
+            const input = event.target.closest('[data-custom-parameter-input]');
+            if (input && event.key === 'Enter') {
+                event.preventDefault();
+                addCustomParameterValue(input.dataset.customParameterInput, input);
+            }
         });
         Object.values(parameterLabScanFieldDefinitions).forEach((definition) => {
             const element = document.getElementById(definition.input);
