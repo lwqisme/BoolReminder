@@ -917,6 +917,8 @@ process.stdout.write(JSON.stringify(results));
         self.assertIn('<option value="option_estimate_roi_mean">预估期权ROI</option>', html)
         self.assertIn("function rankParameterRows(rows, rankMethod = 'normalized')", html)
         self.assertIn("function rankedRowsFor(data, rankMethod = 'normalized')", html)
+        self.assertIn('<option value="group10" selected>每组 Top 10</option>', html)
+        self.assertIn("function limitedParameterRows(sortedRows, limitValue)", html)
         self.assertIn("function parameterRankCacheKey(rankMethod, scope = null)", html)
         self.assertIn("${method}:${parameterRankScope(scope)}", html)
         self.assertIn("function optionEstimateRoiMeanForRank(row, scope = null)", html)
@@ -1722,6 +1724,11 @@ context.__scope = 'high';
 const cachedHigh = context.rankedRowsFor(cacheData, 'option_estimate_roi_mean').map((row) => row.key);
 context.__scope = 'all';
 const cachedAll = context.rankedRowsFor(cacheData, 'option_estimate_roi_mean').map((row) => row.key);
+const limitedRows = context.rankParameterRows(JSON.parse(process.argv[2]), 'normalized');
+const groupTop1 = context.limitedParameterRows(limitedRows, 'group1').map((row) => row.key);
+const groupTop2 = context.limitedParameterRows(limitedRows, 'group2').map((row) => row.key);
+const globalTop3 = context.limitedParameterRows(limitedRows, '3').map((row) => row.key);
+const allRows = context.limitedParameterRows(limitedRows, 'all').map((row) => row.key);
 process.stdout.write(JSON.stringify({
   normalized,
   raw,
@@ -1729,7 +1736,11 @@ process.stdout.write(JSON.stringify({
   optionAll,
   cachedHigh,
   cachedAll,
-  cacheKeys: Array.from(cacheData._ranked_rows_cache.keys())
+  cacheKeys: Array.from(cacheData._ranked_rows_cache.keys()),
+  groupTop1,
+  groupTop2,
+  globalTop3,
+  allRows
 }));
 """
         rows = [
@@ -1765,6 +1776,10 @@ process.stdout.write(JSON.stringify({
         self.assertEqual(result["cachedHigh"], ["b1", "a1", "d1", "a2", "c1"])
         self.assertEqual(result["cachedAll"], ["a2", "b1", "a1", "d1", "c1"])
         self.assertEqual(result["cacheKeys"], ["option_estimate_roi_mean:high", "option_estimate_roi_mean:all"])
+        self.assertEqual(result["groupTop1"], ["b1", "a1", "c1"])
+        self.assertEqual(result["groupTop2"], ["b1", "a1", "d1", "a2", "c1"])
+        self.assertEqual(result["globalTop3"], ["b1", "a1", "d1"])
+        self.assertEqual(result["allRows"], ["b1", "a1", "d1", "a2", "c1"])
         self.assertEqual(result["normalized"][1]["group_label"], "买A / 卖X")
 
     def test_top_group_leaps_option_helpers_select_dedupe_and_cap_signals(self):

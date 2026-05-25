@@ -1530,9 +1530,11 @@
                     </label>
                     <label>显示
                         <select id="rowLimit" onchange="renderParameterMatrix()">
-                            <option value="100">Top 100</option>
-                            <option value="300" selected>Top 300</option>
-                            <option value="1000">Top 1000</option>
+                            <option value="group10" selected>每组 Top 10</option>
+                            <option value="group20">每组 Top 20</option>
+                            <option value="100">全局 Top 100</option>
+                            <option value="300">全局 Top 300</option>
+                            <option value="1000">全局 Top 1000</option>
                             <option value="all">全部</option>
                         </select>
                     </label>
@@ -4187,6 +4189,18 @@
                     : mergeLeapsOptionSummaries(group.leaps_option_summaries)
             })).sort((a, b) => a.best_global_rank - b.best_global_rank);
         }
+        function limitedParameterRows(sortedRows, limitValue) {
+            const rows = sortedRows || [];
+            const value = String(limitValue || 'group10');
+            if (value === 'all') return rows;
+            const groupMatch = value.match(/^group(\d+)$/);
+            if (groupMatch) {
+                const perGroupLimit = Math.max(1, Number(groupMatch[1] || 10));
+                return rows.filter((row) => Number(row.group_rank || 0) <= perGroupLimit);
+            }
+            const limit = Math.max(1, Number(value || 300));
+            return rows.slice(0, limit);
+        }
         function toggleParameterGroup(groupKey) {
             if (collapsedParameterGroups.has(groupKey)) {
                 collapsedParameterGroups.delete(groupKey);
@@ -4334,15 +4348,14 @@
             if (!data) return;
             const tasks = data.tasks || [];
             const limitValue = document.getElementById('rowLimit').value;
-            const limit = limitValue === 'all' ? data.rows.length : Number(limitValue || 300);
             const rankMethod = currentParameterRankMethod();
             const rankScope = currentLeapsEstimateScope();
             const showLeaps = Boolean(document.getElementById('leapsSignalToggle')?.checked);
             const sorted = rankedRowsFor(data, rankMethod);
-            const rows = sorted.slice(0, limit);
+            const rows = limitedParameterRows(sorted, limitValue);
             const groups = groupVisibleParameterRows(rows, sorted, rankMethod, rankScope);
             const scoreLabel = parameterRankLabel(rankMethod);
-            document.getElementById('resultTitle').textContent = `${number(data.rows.length, 0)} rows / ${scoreLabel}`;
+            document.getElementById('resultTitle').textContent = `${number(rows.length, 0)} visible / ${number(data.rows.length, 0)} rows / ${scoreLabel}`;
             const metrics = data.worker_metrics || {};
             document.getElementById('resultMeta').textContent = `worker ${number(metrics.worker_count, 0)} / CPU ${number(metrics.cpu_work_estimate_ms, 0)}ms / wall ${number(metrics.wall_ms, 0)}ms`;
             renderParameterDiagnostics(data);
