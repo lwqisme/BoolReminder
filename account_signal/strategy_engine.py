@@ -282,11 +282,7 @@ def _grid_rebound_sell_signal(
     if avg_buy_drawdown <= 0:
         return None
     current_drawdown = _point_drawdown_pct(point, inputs)
-    stages = [
-        ("grid_1", max(0.0, avg_buy_drawdown - inputs.grid_rebound_step_pct), inputs.grid_first_sell_pct),
-        ("grid_2", max(0.0, avg_buy_drawdown - inputs.grid_rebound_step_pct * 2), inputs.grid_second_sell_pct),
-    ]
-    for stage, threshold, sell_pct in stages:
+    for stage, threshold, sell_pct in _grid_rebound_stages(avg_buy_drawdown, inputs):
         if stage in position.grid_rebound_marks or current_drawdown > threshold + 1e-9:
             continue
         shares = position.shares * sell_pct / 100.0
@@ -311,6 +307,25 @@ def _grid_rebound_sell_signal(
             ],
         )
     return None
+
+
+def _grid_rebound_stages(
+    anchor_drawdown_pct: float,
+    inputs: StrategyInputs,
+) -> list[tuple[str, float, float]]:
+    if anchor_drawdown_pct <= 0:
+        return []
+    step = max(float(inputs.grid_rebound_step_pct), 1e-9)
+    stages: list[tuple[str, float, float]] = []
+    stage_index = 1
+    while True:
+        threshold = max(0.0, anchor_drawdown_pct - step * stage_index)
+        sell_pct = inputs.grid_first_sell_pct if stage_index == 1 else inputs.grid_second_sell_pct
+        stages.append((f"grid_{stage_index}", threshold, sell_pct))
+        if threshold <= 0:
+            break
+        stage_index += 1
+    return stages
 
 
 def _repair_step_sell_signal(

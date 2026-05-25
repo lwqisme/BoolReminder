@@ -172,7 +172,7 @@ async function run(flags) {
         self.assertGreater(len(result["detailed"]["trade_log"]), 0)
         self.assertEqual(result["detailed"]["series"]["dates"][0], "2025-09-01")
 
-    def test_worker_grid_rebound_cycles_until_ath_grid_two(self):
+    def test_worker_grid_rebound_continues_above_grid_two(self):
         if shutil.which("node") is None:
             self.skipTest("node is required for JavaScript worker grid rebound check")
 
@@ -254,7 +254,7 @@ const packet = {
   await context.processBatch({ run_id: packet.run_id, worker_index: 0, batch_id: 'b1', candidate_rows: packet.candidate_rows }, 0, packet.run_id);
   const done = messages.find((message) => message.type === 'batch_done');
   const trades = done.rows[0].observations[0].trade_log;
-  const sells = trades.filter((trade) => trade.action === 'sell').map((trade) => [trade.date, trade.trigger_value]);
+  const sells = trades.filter((trade) => trade.action === 'sell').map((trade) => [trade.date, trade.stage, trade.trigger_value]);
   process.stdout.write(JSON.stringify(sells));
 })().catch((error) => {
   console.error(error);
@@ -270,7 +270,13 @@ const packet = {
 
         self.assertEqual(
             json.loads(completed.stdout),
-            [["2025-01-03", 45], ["2025-01-04", 40], ["2025-01-05", 35], ["2025-01-06", 30]],
+            [
+                ["2025-01-03", "grid_1", 45],
+                ["2025-01-04", "grid_2", 40],
+                ["2025-01-05", "grid_3", 35],
+                ["2025-01-06", "grid_4", 30],
+                ["2025-01-07", "grid_5", 25],
+            ],
         )
 
     def test_worker_googl_cost_detail_replay_skips_cooldown_day_sell(self):

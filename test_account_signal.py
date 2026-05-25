@@ -11,7 +11,9 @@ from drawdown.generate_drawdown_report import build_price_points_from_series
 
 from account_signal.config import AccountSnapshot, SignalTarget, googl_inputs
 from account_signal.engine import account_signal_status, run_account_signal
+from account_signal.strategy_engine import generate_profile_signals
 from account_signal.profiles import (
+    AccountSignalProfile,
     active_profiles_for_symbols,
     assign_candidate_to_profile,
     built_in_default_profiles,
@@ -325,6 +327,57 @@ class AccountSignalTest(unittest.TestCase):
         self.assertEqual([signal["action"] for signal in result["signals"]], ["buy", "sell"])
         self.assertEqual(result["signals"][1]["strategy"], "grid_rebound")
         self.assertTrue(any("基于同日买入后估算" in item for item in result["signals"][1]["rationale"]))
+
+    def test_grid_rebound_signal_continues_after_existing_grid_two_marks(self):
+        profile = AccountSignalProfile(
+            symbol="TSLA.US",
+            enabled=True,
+            buy_strategy="equal_slice",
+            sell_strategy="grid_rebound",
+            parameters={
+                "initial_cash": 10000,
+                "max_drawdown_pct": 60,
+                "drawdown_basis": "ath",
+                "step_pct": 10,
+                "equal_slice_allocation_pct": 100,
+                "reserve_position_pct": 0,
+                "sell_min_profit_pct": 0,
+                "grid_rebound_step_pct": 5,
+                "grid_first_sell_pct": 20,
+                "grid_second_sell_pct": 30,
+                "grid_min_sell_amount": 0,
+            },
+        )
+        position = AccountPosition(
+            symbol="TSLA.US",
+            shares=100,
+            lots=[
+                AccountLot(
+                    buy_date="2024-01-02",
+                    buy_price=100,
+                    initial_shares=100,
+                    remaining_shares=100,
+                    amount=10000,
+                    buy_drawdown_pct=50,
+                )
+            ],
+            sell_events=[
+                {"trade_date": "2024-01-03", "strategy": "grid_rebound", "stage": "grid_1", "profit_pct": 10},
+                {"trade_date": "2024-01-04", "strategy": "grid_rebound", "stage": "grid_2", "profit_pct": 20},
+            ],
+        )
+        signals = generate_profile_signals(
+            profile=profile,
+            position=position,
+            target=SignalTarget("TSLA.US", 10000, 0, 100000, True),
+            account=AccountSnapshot("2024-01-05 22:00:00", "USD", 0, 0, 10000),
+            points=points(("2024-01-01", 200), ("2024-01-02", 100), ("2024-01-05", 130)),
+            debug=[],
+        )
+
+        sells = [signal for signal in signals if signal["action"] == "sell"]
+        self.assertEqual(len(sells), 1)
+        self.assertEqual(sells[0]["stage"], "grid_3")
 
     def test_tsla_linear_buy_filters_after_aggregation(self):
         small_targets = {

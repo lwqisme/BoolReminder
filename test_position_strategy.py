@@ -780,7 +780,7 @@ class PositionStrategyTest(unittest.TestCase):
         self.assertEqual([trade["date"] for trade in sells], ["2024-01-03", "2024-01-04", "2024-01-05", "2024-01-06"])
         self.assertEqual([trade["trigger_value"] for trade in sells], [45, 40, 35, 30])
 
-    def test_position_grid_rebound_stops_opening_cycles_after_ath_grid_two(self):
+    def test_position_grid_rebound_keeps_selling_after_ath_grid_two(self):
         inputs = StrategyInputs(
             initial_cash=10000,
             max_drawdown_pct=60,
@@ -803,7 +803,59 @@ class PositionStrategyTest(unittest.TestCase):
         )
 
         sells = [trade for trade in result["strategies"][0]["trades"] if trade["action"] == "sell"]
-        self.assertEqual([trade["trigger_value"] for trade in sells], [45, 40, 35, 30])
+        self.assertEqual([trade["trigger_value"] for trade in sells], [45, 40, 35, 30, 25])
+
+    def test_position_grid_rebound_continues_to_ath_without_new_buy(self):
+        inputs = StrategyInputs(
+            initial_cash=10000,
+            max_drawdown_pct=60,
+            step_pct=10,
+            equal_slice_allocation_pct=100,
+            trade_fee=0,
+            reserve_position_pct=0,
+            sell_min_profit_pct=0,
+            grid_rebound_step_pct=10,
+            grid_first_sell_pct=5,
+            grid_second_sell_pct=5,
+            grid_min_sell_amount=0,
+        )
+        result = simulate_portfolio(
+            {"TSLA.US": points(200, 100, 120, 140, 160, 180, 200)},
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            inputs,
+            strategies=("equal_slice",),
+            sell_strategies=("grid_rebound",),
+        )
+
+        sells = [trade for trade in result["strategies"][0]["trades"] if trade["action"] == "sell"]
+        self.assertEqual([trade["trigger_value"] for trade in sells], [40, 30, 20, 10, 0])
+        self.assertEqual([trade["stage"] for trade in sells], ["grid_1", "grid_2", "grid_3", "grid_4", "grid_5"])
+
+    def test_position_grid_rebound_jump_to_ath_sells_one_grid_per_day(self):
+        inputs = StrategyInputs(
+            initial_cash=10000,
+            max_drawdown_pct=60,
+            step_pct=10,
+            equal_slice_allocation_pct=100,
+            trade_fee=0,
+            reserve_position_pct=0,
+            sell_min_profit_pct=0,
+            grid_rebound_step_pct=10,
+            grid_first_sell_pct=5,
+            grid_second_sell_pct=5,
+            grid_min_sell_amount=0,
+        )
+        result = simulate_portfolio(
+            {"TSLA.US": points(200, 100, 200, 200, 200)},
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            inputs,
+            strategies=("equal_slice",),
+            sell_strategies=("grid_rebound",),
+        )
+
+        sells = [trade for trade in result["strategies"][0]["trades"] if trade["action"] == "sell"]
+        self.assertEqual([trade["date"] for trade in sells], ["2024-01-03", "2024-01-04", "2024-01-05"])
+        self.assertEqual([trade["trigger_value"] for trade in sells], [40, 30, 20])
 
     def test_cost_deleverage_uses_configured_position_sized_stages(self):
         inputs = StrategyInputs(

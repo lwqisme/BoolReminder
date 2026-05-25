@@ -209,6 +209,7 @@ class PositionLot:
     first_grid_sell_done: bool = False
     second_grid_sell_done: bool = False
     repair_sell_marks: set[str] | None = None
+    grid_sell_marks: set[str] | None = None
 
 
 @dataclass
@@ -3119,7 +3120,7 @@ def _execute_repair_step_sells(
                 continue
             stage_sell_pct = inputs.repair_stage_sell_pct
             shares = min(lot.initial_shares * stage_sell_pct / 100.0, lot.remaining_shares)
-            if _sell_lot_shares(state, lot, point, shares, inputs, trade_log, "repair_step", threshold):
+            if _sell_lot_shares(state, lot, point, shares, inputs, trade_log, "repair_step", threshold, sell_stage=mark):
                 lot.repair_sell_marks.add(mark)
                 state.last_repair_sell_date = point.date.date()
                 state.last_repair_sell_trade_index = trade_index
@@ -3168,7 +3169,7 @@ def _execute_position_repair_step_sells(
         if mark in state.sell_marks or drawdown_pct > threshold + 1e-9:
             continue
         shares = state.shares * inputs.repair_stage_sell_pct / 100.0
-        if _sell_shares(state, point, shares, inputs, trade_log, "repair_step", threshold):
+        if _sell_shares(state, point, shares, inputs, trade_log, "repair_step", threshold, sell_stage=mark):
             state.sell_marks.add(mark)
             state.last_repair_sell_date = point.date.date()
             state.last_repair_sell_trade_index = trade_index
@@ -3192,16 +3193,26 @@ def _execute_grid_rebound_sells(
             continue
         if current_price_usd < lot.buy_price_usd * min_profit_multiplier:
             continue
-        first_threshold = max(0.0, lot.buy_drawdown_pct - inputs.grid_rebound_step_pct)
-        second_threshold = max(0.0, lot.buy_drawdown_pct - inputs.grid_rebound_step_pct * 2)
-        if not lot.first_grid_sell_done and drawdown_pct <= first_threshold:
-            shares = min(lot.initial_shares * 0.5, lot.remaining_shares)
-            if _sell_lot_shares(state, lot, point, shares, inputs, trade_log, "grid_rebound", first_threshold):
-                lot.first_grid_sell_done = True
-        if not lot.second_grid_sell_done and drawdown_pct <= second_threshold:
-            shares = lot.remaining_shares
-            if _sell_lot_shares(state, lot, point, shares, inputs, trade_log, "grid_rebound", second_threshold):
-                lot.second_grid_sell_done = True
+        if lot.grid_sell_marks is None:
+            lot.grid_sell_marks = set()
+        for mark, threshold, sell_pct in _grid_rebound_stages(lot.buy_drawdown_pct, inputs):
+            if mark in lot.grid_sell_marks or drawdown_pct > threshold + 1e-9:
+                continue
+            shares = lot.remaining_shares * sell_pct / 100.0
+            if _sell_lot_shares(
+                state,
+                lot,
+                point,
+                shares,
+                inputs,
+                trade_log,
+                "grid_rebound",
+                threshold,
+                min_gross_amount=inputs.grid_min_sell_amount,
+                sell_stage=mark,
+            ):
+                lot.grid_sell_marks.add(mark)
+                return
 
 
 def _execute_position_grid_rebound_sells(
@@ -3222,11 +3233,7 @@ def _execute_position_grid_rebound_sells(
         return
     drawdown_pct = _point_drawdown_pct(point, inputs)
     cycle_anchor_drawdown = _grid_rebound_cycle_anchor_drawdown_pct(state)
-    stages = [
-        ("grid_1", max(0.0, cycle_anchor_drawdown - inputs.grid_rebound_step_pct), inputs.grid_first_sell_pct),
-        ("grid_2", max(0.0, cycle_anchor_drawdown - inputs.grid_rebound_step_pct * 2), inputs.grid_second_sell_pct),
-    ]
-    for mark, threshold, sell_pct in stages:
+    for mark, threshold, sell_pct in _grid_rebound_stages(cycle_anchor_drawdown, inputs):
         if mark in state.sell_marks or drawdown_pct > threshold + 1e-9:
             continue
         shares = state.shares * sell_pct / 100.0
@@ -3239,12 +3246,28 @@ def _execute_position_grid_rebound_sells(
             "grid_rebound",
             threshold,
             min_gross_amount=inputs.grid_min_sell_amount,
+            sell_stage=mark,
         ):
             state.sell_marks.add(mark)
-            if mark == "grid_2" and drawdown_pct > 1e-9 and state.shares > 0:
-                state.sell_marks.clear()
-                state.grid_rebound_cycle_anchor_drawdown_pct = drawdown_pct
             return
+
+
+def _grid_rebound_stages(
+    anchor_drawdown_pct: float,
+    inputs: StrategyInputs,
+) -> list[tuple[str, float, float]]:
+    if anchor_drawdown_pct <= 0:
+        return []
+    step = max(float(inputs.grid_rebound_step_pct), 1e-9)
+    stages: list[tuple[str, float, float]] = []
+    stage_index = 1
+    while True:
+        threshold = max(0.0, anchor_drawdown_pct - step * stage_index)
+        sell_pct = inputs.grid_first_sell_pct if stage_index == 1 else inputs.grid_second_sell_pct
+        stages.append((f"grid_{stage_index}", threshold, sell_pct))
+        if threshold <= 0:
+            return stages
+        stage_index += 1
 
 
 def _grid_rebound_cycle_anchor_drawdown_pct(state: SymbolState) -> float:
@@ -3290,6 +3313,7 @@ def _execute_cost_deleverage_sells(
         "cost_deleverage",
         stage.profit_pct,
         min_gross_amount=inputs.cost_min_sell_amount,
+        sell_stage=stage.mark,
     ):
         state.sell_marks.add(stage.mark)
         state.last_cost_deleverage_sell_trade_index = trade_index
@@ -3304,13 +3328,15 @@ def _sell_lot_shares(
     trade_log: list[dict[str, object]],
     sell_strategy: str,
     trigger_value: float,
+    min_gross_amount: float = 0.0,
+    sell_stage: str | None = None,
 ) -> bool:
     shares = _sellable_shares(state, requested_shares, inputs)
     shares = min(shares, lot.remaining_shares)
-    if shares <= 0 or not _meets_min_sell_amount(state, point, shares, inputs, 0.0):
+    if shares <= 0 or not _meets_min_sell_amount(state, point, shares, inputs, min_gross_amount):
         return False
     lot.remaining_shares -= shares
-    sold = _record_sell(state, point, shares, inputs, trade_log, sell_strategy, trigger_value, lot)
+    sold = _record_sell(state, point, shares, inputs, trade_log, sell_strategy, trigger_value, lot, sell_stage=sell_stage)
     if sold and sell_strategy != "repair_step":
         _mark_buy_rearm_after_position_sell(state, point, inputs)
     return sold
@@ -3325,13 +3351,24 @@ def _sell_shares(
     sell_strategy: str,
     trigger_value: float,
     min_gross_amount: float = 0.0,
+    sell_stage: str | None = None,
 ) -> bool:
     shares = _sellable_shares(state, requested_shares, inputs)
     if shares <= 0 or not _meets_min_sell_amount(state, point, shares, inputs, min_gross_amount):
         return False
     cost_basis = _avg_cost_usd(state) * shares
     _reduce_lots_fifo(state, shares)
-    sold = _record_sell(state, point, shares, inputs, trade_log, sell_strategy, trigger_value, cost_basis=cost_basis)
+    sold = _record_sell(
+        state,
+        point,
+        shares,
+        inputs,
+        trade_log,
+        sell_strategy,
+        trigger_value,
+        cost_basis=cost_basis,
+        sell_stage=sell_stage,
+    )
     if sold:
         _mark_buy_rearm_after_position_sell(state, point, inputs)
     return sold
@@ -3365,6 +3402,7 @@ def _record_sell(
     trigger_value: float,
     lot: PositionLot | None = None,
     cost_basis: float | None = None,
+    sell_stage: str | None = None,
 ) -> bool:
     price_usd = _price_usd(state.symbol, point.close, inputs)
     gross_amount = shares * price_usd
@@ -3386,28 +3424,29 @@ def _record_sell(
     state.sell_trades += 1
     state.sold_gross += gross_amount
     state.last_value = _position_value_usd(state.symbol, state.shares, point.close, inputs)
-    trade_log.append(
-        {
-            "action": "sell",
-            "date": point.date.date().isoformat(),
-            "symbol": state.symbol,
-            "sell_strategy": sell_strategy,
-            "trigger_value": trigger_value,
-            "drawdown_pct": _point_drawdown_pct(point, inputs),
-            "price": point.close,
-            "price_usd": price_usd,
-            "gross_amount": gross_amount,
-            "fee": fee,
-            "net_amount": net_amount,
-            "shares": shares,
-            "allocation_pct": 0.0,
-            "estimated_profit": estimated_profit,
-            "estimated_profit_pct": estimated_profit_pct,
-            "lot_threshold_pct": lot.threshold_pct if lot else None,
-            "lot_buy_drawdown_pct": lot.buy_drawdown_pct if lot else None,
-            "lot_buy_price_usd": lot.buy_price_usd if lot else None,
-        }
-    )
+    event = {
+        "action": "sell",
+        "date": point.date.date().isoformat(),
+        "symbol": state.symbol,
+        "sell_strategy": sell_strategy,
+        "trigger_value": trigger_value,
+        "drawdown_pct": _point_drawdown_pct(point, inputs),
+        "price": point.close,
+        "price_usd": price_usd,
+        "gross_amount": gross_amount,
+        "fee": fee,
+        "net_amount": net_amount,
+        "shares": shares,
+        "allocation_pct": 0.0,
+        "estimated_profit": estimated_profit,
+        "estimated_profit_pct": estimated_profit_pct,
+        "lot_threshold_pct": lot.threshold_pct if lot else None,
+        "lot_buy_drawdown_pct": lot.buy_drawdown_pct if lot else None,
+        "lot_buy_price_usd": lot.buy_price_usd if lot else None,
+    }
+    if sell_stage:
+        event["stage"] = sell_stage
+    trade_log.append(event)
     return True
 
 
