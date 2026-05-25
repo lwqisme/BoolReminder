@@ -559,6 +559,7 @@ function rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy) {
   const rawThreshold = inputs.sell_stage_rearm_drawdown_pct ?? inputs.dca_rearm_drawdown_pct;
   if (drawdown + 1e-9 < Math.min(Math.max(0, num(rawThreshold)), num(inputs.max_drawdown_pct))) return false;
   state.sell_marks = {};
+  if (sellStrategy === 'grid_rebound') state.grid_rebound_cycle_anchor_drawdown_pct = null;
   if (sellStrategy === 'cost_deleverage') state.cost_deleverage_cycle_anchor_price = null;
   return true;
 }
@@ -747,6 +748,15 @@ function costDeleverageCycleAnchor(state) {
   return cost;
 }
 
+function gridReboundCycleAnchor(state) {
+  if (state.grid_rebound_cycle_anchor_drawdown_pct !== null && state.grid_rebound_cycle_anchor_drawdown_pct !== undefined) {
+    return num(state.grid_rebound_cycle_anchor_drawdown_pct);
+  }
+  const anchor = avgBuyDrawdown(state);
+  state.grid_rebound_cycle_anchor_drawdown_pct = anchor;
+  return anchor;
+}
+
 function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog, tradeIndex) {
   if (sellStrategy === 'none' || state.shares <= 0) return;
   const current = priceUsd(state.symbol, point.close, inputs);
@@ -768,14 +778,18 @@ function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog,
     const cost = avgCost(state);
     if (cost <= 0 || current < cost * (1 + num(inputs.sell_min_profit_pct) / 100)) return;
     const drawdown = drawdownPct(point, inputs);
-    const avgBuy = avgBuyDrawdown(state);
+    const anchor = gridReboundCycleAnchor(state);
     for (const [mark, threshold, sellPct] of [
-      ['grid_1', Math.max(0, avgBuy - num(inputs.grid_rebound_step_pct)), num(inputs.grid_first_sell_pct)],
-      ['grid_2', Math.max(0, avgBuy - num(inputs.grid_rebound_step_pct) * 2), num(inputs.grid_second_sell_pct)]
+      ['grid_1', Math.max(0, anchor - num(inputs.grid_rebound_step_pct)), num(inputs.grid_first_sell_pct)],
+      ['grid_2', Math.max(0, anchor - num(inputs.grid_rebound_step_pct) * 2), num(inputs.grid_second_sell_pct)]
     ]) {
       if (state.sell_marks[mark] || drawdown > threshold + 1e-9) continue;
       if (sellShares(state, point, state.shares * sellPct / 100, inputs, tradeLog, sellStrategy, threshold, num(inputs.grid_min_sell_amount))) {
         state.sell_marks[mark] = true;
+        if (mark === 'grid_2' && drawdown > 1e-9 && state.shares > 0) {
+          state.sell_marks = {};
+          state.grid_rebound_cycle_anchor_drawdown_pct = drawdown;
+        }
         return;
       }
     }
@@ -1117,6 +1131,7 @@ function simulate(task, baseInputs, candidate) {
       last_value: 0,
       lots: [],
       sell_marks: {},
+      grid_rebound_cycle_anchor_drawdown_pct: null,
       cost_deleverage_cycle_anchor_price: null,
       last_repair_sell_trade_index: null,
       last_cost_deleverage_sell_trade_index: null,

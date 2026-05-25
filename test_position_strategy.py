@@ -754,6 +754,57 @@ class PositionStrategyTest(unittest.TestCase):
         sells = [trade for trade in result["strategies"][0]["trades"] if trade["action"] == "sell"]
         self.assertEqual(sells, [])
 
+    def test_position_grid_rebound_starts_next_cycle_after_second_grid_sell(self):
+        inputs = StrategyInputs(
+            initial_cash=10000,
+            max_drawdown_pct=60,
+            step_pct=10,
+            equal_slice_allocation_pct=100,
+            trade_fee=0,
+            reserve_position_pct=0,
+            sell_min_profit_pct=0,
+            grid_rebound_step_pct=5,
+            grid_first_sell_pct=10,
+            grid_second_sell_pct=10,
+            grid_min_sell_amount=0,
+        )
+        result = simulate_portfolio(
+            {"TSLA.US": points(200, 100, 110, 120, 130, 140)},
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            inputs,
+            strategies=("equal_slice",),
+            sell_strategies=("grid_rebound",),
+        )
+
+        sells = [trade for trade in result["strategies"][0]["trades"] if trade["action"] == "sell"]
+        self.assertEqual([trade["date"] for trade in sells], ["2024-01-03", "2024-01-04", "2024-01-05", "2024-01-06"])
+        self.assertEqual([trade["trigger_value"] for trade in sells], [45, 40, 35, 30])
+
+    def test_position_grid_rebound_stops_opening_cycles_after_ath_grid_two(self):
+        inputs = StrategyInputs(
+            initial_cash=10000,
+            max_drawdown_pct=60,
+            step_pct=10,
+            equal_slice_allocation_pct=100,
+            trade_fee=0,
+            reserve_position_pct=0,
+            sell_min_profit_pct=0,
+            grid_rebound_step_pct=5,
+            grid_first_sell_pct=10,
+            grid_second_sell_pct=10,
+            grid_min_sell_amount=0,
+        )
+        result = simulate_portfolio(
+            {"TSLA.US": points(200, 100, 110, 120, 200, 210, 220)},
+            [PortfolioTarget("TSLA.US", 100, "TSLA")],
+            inputs,
+            strategies=("equal_slice",),
+            sell_strategies=("grid_rebound",),
+        )
+
+        sells = [trade for trade in result["strategies"][0]["trades"] if trade["action"] == "sell"]
+        self.assertEqual([trade["trigger_value"] for trade in sells], [45, 40, 35, 30])
+
     def test_cost_deleverage_uses_configured_position_sized_stages(self):
         inputs = StrategyInputs(
             initial_cash=10000,
@@ -983,6 +1034,24 @@ class PositionStrategyTest(unittest.TestCase):
 
         self.assertTrue(rearmed)
         self.assertEqual(state.sell_marks, set())
+
+    def test_grid_rebound_rearm_resets_cycle_anchor_after_dca_buy(self):
+        state = SymbolState(
+            symbol="TSLA.US",
+            name="TSLA",
+            weight=100,
+            budget=10000,
+            cash=0,
+            sell_marks={"grid_1"},
+            grid_rebound_cycle_anchor_drawdown_pct=25,
+        )
+        inputs = StrategyInputs(max_drawdown_pct=50, dca_rearm_drawdown_pct=10)
+
+        rearmed = _rearm_position_sell_cycle_after_dca_buy(state, 10, inputs, "grid_rebound")
+
+        self.assertTrue(rearmed)
+        self.assertEqual(state.sell_marks, set())
+        self.assertIsNone(state.grid_rebound_cycle_anchor_drawdown_pct)
 
     def test_sell_stage_rearm_can_delay_cost_mark_reset_after_dca_buy(self):
         state = SymbolState(symbol="TSLA.US", name="TSLA", weight=100, budget=10000, cash=0, sell_marks={"cost_1"})

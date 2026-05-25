@@ -226,6 +226,7 @@ class SymbolState:
     core_dip_pending_cash: float = 0.0
     core_dip_pending_days: int = 0
     buy_rearm_drawdown_pct: float | None = None
+    grid_rebound_cycle_anchor_drawdown_pct: float | None = None
 
 
 def parse_date_range(start_raw: str | None, end_raw: str | None) -> tuple[date, date]:
@@ -2830,6 +2831,8 @@ def _rearm_position_sell_cycle_after_dca_buy(
     if drawdown_pct + 1e-9 < _sell_stage_rearm_drawdown_pct(inputs):
         return False
     state.sell_marks.clear()
+    if sell_strategy == "grid_rebound":
+        state.grid_rebound_cycle_anchor_drawdown_pct = None
     return True
 
 
@@ -3182,10 +3185,10 @@ def _execute_position_grid_rebound_sells(
     if current_price_usd < avg_cost * (1 + inputs.sell_min_profit_pct / 100.0):
         return
     drawdown_pct = _point_drawdown_pct(point, inputs)
-    avg_buy_drawdown = _avg_buy_drawdown_pct(state)
+    cycle_anchor_drawdown = _grid_rebound_cycle_anchor_drawdown_pct(state)
     stages = [
-        ("grid_1", max(0.0, avg_buy_drawdown - inputs.grid_rebound_step_pct), inputs.grid_first_sell_pct),
-        ("grid_2", max(0.0, avg_buy_drawdown - inputs.grid_rebound_step_pct * 2), inputs.grid_second_sell_pct),
+        ("grid_1", max(0.0, cycle_anchor_drawdown - inputs.grid_rebound_step_pct), inputs.grid_first_sell_pct),
+        ("grid_2", max(0.0, cycle_anchor_drawdown - inputs.grid_rebound_step_pct * 2), inputs.grid_second_sell_pct),
     ]
     for mark, threshold, sell_pct in stages:
         if mark in state.sell_marks or drawdown_pct > threshold + 1e-9:
@@ -3202,7 +3205,18 @@ def _execute_position_grid_rebound_sells(
             min_gross_amount=inputs.grid_min_sell_amount,
         ):
             state.sell_marks.add(mark)
+            if mark == "grid_2" and drawdown_pct > 1e-9 and state.shares > 0:
+                state.sell_marks.clear()
+                state.grid_rebound_cycle_anchor_drawdown_pct = drawdown_pct
             return
+
+
+def _grid_rebound_cycle_anchor_drawdown_pct(state: SymbolState) -> float:
+    if state.grid_rebound_cycle_anchor_drawdown_pct is not None:
+        return state.grid_rebound_cycle_anchor_drawdown_pct
+    anchor = _avg_buy_drawdown_pct(state)
+    state.grid_rebound_cycle_anchor_drawdown_pct = anchor
+    return anchor
 
 
 def _execute_cost_deleverage_sells(
