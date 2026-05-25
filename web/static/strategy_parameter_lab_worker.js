@@ -149,6 +149,7 @@ const SELL_PARAMETER_FIELDS = [
   'sell_allow_same_day_sell',
   'cost_min_sell_amount',
   'dca_rearm_drawdown_pct',
+  'buy_rearm_mode',
   'sell_stage_rearm_drawdown_pct'
 ];
 
@@ -364,6 +365,7 @@ function buildCandidateKey(buyStrategy, sellStrategy, buyParams, sellParams) {
   if (sellParams.dca_rearm_drawdown_pct !== null && sellParams.dca_rearm_drawdown_pct !== undefined) {
     parts.push(`rearm${formatCompact(sellParams.dca_rearm_drawdown_pct)}`);
   }
+  if (sellParams.buy_rearm_mode === 'restart_from_rearm') parts.push('rearmmode_restart');
   if (sellParams.sell_stage_rearm_drawdown_pct !== null && sellParams.sell_stage_rearm_drawdown_pct !== undefined) {
     parts.push(`sellrearm${formatCompact(sellParams.sell_stage_rearm_drawdown_pct)}`);
   }
@@ -414,6 +416,7 @@ function buildSellLabel(strategyKey, params, labels = {}) {
   if (params.dca_rearm_drawdown_pct !== null && params.dca_rearm_drawdown_pct !== undefined) {
     label = `${label} / 卖后重启 ${formatCompact(params.dca_rearm_drawdown_pct)}%回撤`;
   }
+  if (params.buy_rearm_mode === 'restart_from_rearm') label = `${label} / 重启后从首档`;
   if (params.sell_stage_rearm_drawdown_pct !== null && params.sell_stage_rearm_drawdown_pct !== undefined) {
     label = `${label} / 卖档重启 ${formatCompact(params.sell_stage_rearm_drawdown_pct)}%回撤`;
   }
@@ -666,10 +669,12 @@ function executeDca(state, point, dcaDays, inputs, tradeLog, strategy, sellStrat
 
 function executeTranches(state, point, tranches, executed, inputs, tradeLog, buyStrategy, sellStrategy) {
   const drawdown = drawdownPct(point, inputs);
+  const anchor = Math.max(0, num(state.buy_rearm_anchor_drawdown_pct, 0));
   let bought = false;
   for (const tranche of tranches) {
     const key = String(Math.round(tranche.threshold_pct * 1e8) / 1e8);
-    if (drawdown + 1e-9 < tranche.threshold_pct) continue;
+    const effectiveThreshold = anchor + num(tranche.threshold_pct);
+    if (drawdown + 1e-9 < effectiveThreshold) continue;
     const target = state.budget * tranche.allocation_pct / 100;
     const already = executed[key] || 0;
     if (buyStrategy === 'pyramid_3' && already > 0) continue;
@@ -681,7 +686,9 @@ function executeTranches(state, point, tranches, executed, inputs, tradeLog, buy
       continue;
     }
     bought = recordBuy(state, point, inputs, tradeLog, buyStrategy, sellStrategy, gross, drawdown, {
-      threshold_pct: tranche.threshold_pct,
+      threshold_pct: effectiveThreshold,
+      base_threshold_pct: tranche.threshold_pct,
+      buy_rearm_anchor_drawdown_pct: anchor || null,
       allocation_pct: tranche.allocation_pct
     }) || bought;
     executed[key] = buyStrategy === 'pyramid_3' ? 1 : already + gross;
@@ -848,6 +855,7 @@ function candidateInputs(base, candidate) {
     cost_third_sell_pct: candidate.cost_third_sell_pct ?? base.cost_third_sell_pct,
     cost_deleverage_cooldown_days: candidate.cost_deleverage_cooldown_days ?? base.cost_deleverage_cooldown_days,
     sell_allow_same_day_sell: candidate.sell_allow_same_day_sell ?? base.sell_allow_same_day_sell,
+    buy_rearm_mode: candidate.buy_rearm_mode ?? base.buy_rearm_mode ?? 'cumulative',
     cost_min_sell_amount: candidate.cost_min_sell_amount ?? base.cost_min_sell_amount
   };
 }
@@ -1139,7 +1147,8 @@ function simulate(task, baseInputs, candidate) {
       core_dip_pending_cash: 0,
       core_dip_pending_days: 0,
       recent_points: [],
-      buy_rearm_drawdown_pct: null
+      buy_rearm_drawdown_pct: null,
+      buy_rearm_anchor_drawdown_pct: null
     };
   }
   const executed = Object.fromEntries(task.targets.map((target) => [target.symbol, {}]));
@@ -1177,7 +1186,10 @@ function simulate(task, baseInputs, candidate) {
       if (['weekly_dca', 'salary_flow_dca', 'core_dip_dca'].includes(strategy)) {
         bought = executeDca(state, point, dcaDays[symbol] || new Set(), inputs, tradeLog, strategy, sellStrategy);
       } else {
-        if (Object.keys(executed[symbol]).length && drawdownPct(point, inputs) <= 0.5) executed[symbol] = {};
+        if (drawdownPct(point, inputs) <= 0.5) {
+          executed[symbol] = {};
+          state.buy_rearm_anchor_drawdown_pct = null;
+        }
         if (
           Object.keys(executed[symbol]).length
           && state.buy_rearm_drawdown_pct !== null
@@ -1185,6 +1197,7 @@ function simulate(task, baseInputs, candidate) {
           && drawdownPct(point, inputs) + 1e-9 >= state.buy_rearm_drawdown_pct
         ) {
           executed[symbol] = {};
+          state.buy_rearm_anchor_drawdown_pct = inputs.buy_rearm_mode === 'restart_from_rearm' ? drawdownPct(point, inputs) : null;
           state.buy_rearm_drawdown_pct = null;
         }
         const tranches = tranchesBySymbol[symbol] || [];

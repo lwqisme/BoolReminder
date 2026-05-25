@@ -8,6 +8,9 @@ from dataclasses import dataclass
 from typing import Iterable, Mapping
 
 from drawdown.position_strategy import (
+    BUY_REARM_MODE_CUMULATIVE,
+    BUY_REARM_MODE_RESTART_FROM_REARM,
+    BUY_REARM_MODES,
     LOT_SELL_BUY_STRATEGIES,
     POSITION_SELL_REARM_STRATEGIES,
     REARM_BUY_STRATEGIES,
@@ -68,6 +71,7 @@ SELL_PARAMETER_FIELDS = (
     "sell_allow_same_day_sell",
     "cost_min_sell_amount",
     "dca_rearm_drawdown_pct",
+    "buy_rearm_mode",
     "sell_stage_rearm_drawdown_pct",
 )
 
@@ -595,6 +599,7 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
                 "repair_sell_cooldown_days": 30,
                 "repair_stage_sell_pct": 12.0,
                 "sell_allow_same_day_sell": False,
+                "buy_rearm_mode": BUY_REARM_MODE_CUMULATIVE,
             },
             {
                 "sell_min_profit_pct": list(ROBUST_REPAIR_SELL_MIN_PROFITS),
@@ -602,6 +607,7 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
                 "repair_stage_sell_pct": list(ROBUST_REPAIR_STAGE_SELLS),
                 "sell_allow_same_day_sell": [False, True],
                 "dca_rearm_drawdown_pct": list(ROBUST_DCA_REARM_DRAWDOWN_VALUES),
+                "buy_rearm_mode": list(BUY_REARM_MODES),
                 "sell_stage_rearm_drawdown_pct": list(ROBUST_SELL_STAGE_REARM_DRAWDOWN_VALUES),
             },
             compatible_buy_strategies=all_buys,
@@ -616,6 +622,7 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
                 "grid_second_sell_pct": 40.0,
                 "grid_min_sell_amount": 200.0,
                 "sell_allow_same_day_sell": False,
+                "buy_rearm_mode": BUY_REARM_MODE_CUMULATIVE,
             },
             {
                 "grid_rebound_step_pct": list(ROBUST_GRID_REBOUND_STEPS),
@@ -623,6 +630,7 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
                 "grid_second_sell_pct": list(ROBUST_GRID_SECOND_SELLS),
                 "sell_allow_same_day_sell": [False, True],
                 "dca_rearm_drawdown_pct": list(ROBUST_DCA_REARM_DRAWDOWN_VALUES),
+                "buy_rearm_mode": list(BUY_REARM_MODES),
                 "sell_stage_rearm_drawdown_pct": list(ROBUST_SELL_STAGE_REARM_DRAWDOWN_VALUES),
             },
             compatible_buy_strategies=all_buys,
@@ -640,6 +648,7 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
                 "cost_third_sell_pct": 30.0,
                 "cost_deleverage_cooldown_days": 0,
                 "sell_allow_same_day_sell": False,
+                "buy_rearm_mode": BUY_REARM_MODE_CUMULATIVE,
             },
             {
                 "cost_profit_sets": [list(item) for item in ROBUST_COST_PROFIT_SETS],
@@ -647,6 +656,7 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
                 "cost_deleverage_cooldown_days": list(ROBUST_COST_COOLDOWNS),
                 "sell_allow_same_day_sell": [False, True],
                 "dca_rearm_drawdown_pct": list(ROBUST_DCA_REARM_DRAWDOWN_VALUES),
+                "buy_rearm_mode": list(BUY_REARM_MODES),
                 "sell_stage_rearm_drawdown_pct": list(ROBUST_SELL_STAGE_REARM_DRAWDOWN_VALUES),
             },
             compatible_buy_strategies=all_buys,
@@ -876,14 +886,33 @@ def _with_rearm_variants(
         for rearm in rearm_values:
             if rearm is not None and not _parameter_value_is_selected(value_selection, "dca_rearm_drawdown_pct", rearm):
                 continue
-            for sell_stage_rearm in _sell_stage_rearm_variants(rearm, inputs, value_selection):
-                item = dict(params)
-                if rearm is not None:
-                    item["dca_rearm_drawdown_pct"] = float(rearm)
-                if sell_stage_rearm is not None:
-                    item["sell_stage_rearm_drawdown_pct"] = float(sell_stage_rearm)
-                result.append(item)
+            for buy_rearm_mode in _buy_rearm_mode_variants(rearm, inputs, value_selection):
+                for sell_stage_rearm in _sell_stage_rearm_variants(rearm, inputs, value_selection):
+                    item = dict(params)
+                    if rearm is not None:
+                        item["dca_rearm_drawdown_pct"] = float(rearm)
+                    if buy_rearm_mode is not None:
+                        item["buy_rearm_mode"] = buy_rearm_mode
+                    if sell_stage_rearm is not None:
+                        item["sell_stage_rearm_drawdown_pct"] = float(sell_stage_rearm)
+                    result.append(item)
     return _dedupe_param_dicts(result)
+
+
+def _buy_rearm_mode_variants(
+    dca_rearm_drawdown_pct: float | None,
+    inputs: StrategyInputs,
+    value_selection: ParameterValueSelection | None,
+) -> list[str | None]:
+    if dca_rearm_drawdown_pct is None:
+        return [None]
+    if _parameter_field_is_fixed(value_selection, "buy_rearm_mode"):
+        return [str(inputs.buy_rearm_mode)]
+    return [
+        mode
+        for mode in BUY_REARM_MODES
+        if _parameter_value_is_selected(value_selection, "buy_rearm_mode", mode)
+    ]
 
 
 def _sell_stage_rearm_variants(
@@ -984,6 +1013,8 @@ def _candidate_key(
         parts.append("same1")
     if sell_params.get("dca_rearm_drawdown_pct") is not None:
         parts.append(f"rearm{float(sell_params['dca_rearm_drawdown_pct']):g}")
+    if sell_params.get("buy_rearm_mode") == BUY_REARM_MODE_RESTART_FROM_REARM:
+        parts.append("rearmmode_restart")
     if sell_params.get("sell_stage_rearm_drawdown_pct") is not None:
         parts.append(f"sellrearm{float(sell_params['sell_stage_rearm_drawdown_pct']):g}")
     return "__".join(parts)
@@ -1053,6 +1084,8 @@ def _sell_label(strategy_key: str, params: Mapping[str, object]) -> str:
         label = f"{label} / 买入日可卖"
     if params.get("dca_rearm_drawdown_pct") is not None:
         label = f"{label} / 卖后重启 {float(params['dca_rearm_drawdown_pct']):g}%回撤"
+    if params.get("buy_rearm_mode") == BUY_REARM_MODE_RESTART_FROM_REARM:
+        label = f"{label} / 重启后从首档"
     if params.get("sell_stage_rearm_drawdown_pct") is not None:
         label = f"{label} / 卖档重启 {float(params['sell_stage_rearm_drawdown_pct']):g}%回撤"
     return label

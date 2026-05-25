@@ -87,8 +87,14 @@ class StrategyParameterRegistryTest(unittest.TestCase):
         self.assertTrue(salary_candidates)
         for candidates in (equal_slice_candidates, linear_candidates, salary_candidates):
             self.assertTrue(all(item["sell_strategy"] == "repair_step" for item in candidates))
-        self.assertEqual({item["dca_rearm_drawdown_pct"] for item in equal_slice_candidates}, {None})
-        self.assertEqual({item["dca_rearm_drawdown_pct"] for item in linear_candidates}, {None})
+        self.assertEqual(
+            {item["dca_rearm_drawdown_pct"] for item in equal_slice_candidates},
+            {0.0, 5.0, 10.0, 15.0, 20.0},
+        )
+        self.assertEqual(
+            {item["dca_rearm_drawdown_pct"] for item in linear_candidates},
+            {0.0, 5.0, 10.0, 15.0, 20.0},
+        )
 
     def test_position_repair_step_keeps_baseline_repair_params_outside_selected_values(self):
         inputs = StrategyInputs(
@@ -163,7 +169,10 @@ class StrategyParameterRegistryTest(unittest.TestCase):
             self.assertEqual({item["sell_min_profit_pct"] for item in candidates}, {12.5})
             self.assertEqual({item["repair_sell_cooldown_days"] for item in candidates}, {45})
             self.assertEqual({item["repair_stage_sell_pct"] for item in candidates}, {18.0})
-            self.assertEqual({item["dca_rearm_drawdown_pct"] for item in candidates}, {None})
+            self.assertEqual(
+                {item["dca_rearm_drawdown_pct"] for item in candidates},
+                {0.0, 5.0, 10.0, 15.0, 20.0},
+            )
 
     def test_lot_repair_step_still_filters_repair_scan_values(self):
         candidates = expand_strategy_candidate_payloads(
@@ -444,7 +453,7 @@ class StrategyParameterRegistryTest(unittest.TestCase):
 
         same_day = [item for item in candidates if item["sell_allow_same_day_sell"]]
         default = [item for item in candidates if not item["sell_allow_same_day_sell"]]
-        self.assertEqual(len(candidates), 540)
+        self.assertEqual(len(candidates), 1080)
         self.assertEqual(len(same_day), len(default))
         self.assertTrue(all("买入日可卖" in item["label"] for item in same_day))
         self.assertTrue(all("same1" in item["key"] for item in same_day))
@@ -465,6 +474,33 @@ class StrategyParameterRegistryTest(unittest.TestCase):
                 for item in candidates
             },
         )
+
+    def test_buy_rearm_restart_mode_is_generated_as_separate_candidate(self):
+        candidates = expand_strategy_candidate_payloads(
+            ["linear_weighted_slice"],
+            ["cost_deleverage"],
+            StrategyInputs(),
+            selected_parameter_values={
+                "step_pct": [2.5],
+                "cost_first_profit_pct": [8.0],
+                "cost_second_profit_pct": [15.0],
+                "cost_third_profit_pct": [25.0],
+                "cost_first_sell_pct": [20.0],
+                "cost_second_sell_pct": [20.0],
+                "cost_third_sell_pct": [20.0],
+                "cost_deleverage_cooldown_days": [30],
+                "sell_allow_same_day_sell": [True],
+                "dca_rearm_drawdown_pct": [20.0],
+                "buy_rearm_mode": ["cumulative", "restart_from_rearm"],
+                "sell_stage_rearm_drawdown_pct": [None],
+            },
+        )
+
+        self.assertEqual({item["buy_rearm_mode"] for item in candidates}, {"cumulative", "restart_from_rearm"})
+        restart = [item for item in candidates if item["buy_rearm_mode"] == "restart_from_rearm"]
+        self.assertEqual(len(restart), 1)
+        self.assertIn("rearmmode_restart", restart[0]["key"])
+        self.assertIn("重启后从首档", restart[0]["label"])
 
     def test_non_none_sell_candidates_include_same_day_sell_variants(self):
         candidates = expand_strategy_candidate_payloads(

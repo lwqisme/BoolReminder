@@ -110,10 +110,20 @@ ROBUST_COST_SELL_SETS = [(20.0, 20.0, 20.0), (30.0, 30.0, 30.0), (40.0, 30.0, 20
 ROBUST_COST_COOLDOWNS = [0, 15, 30]
 ROBUST_NON_REPAIR_SELL_STRATEGIES = ("none",)
 LOT_SELL_BUY_STRATEGIES = {"pyramid_3"}
-REARM_BUY_STRATEGIES = {"pyramid_3", "weekly_dca", "salary_flow_dca", "core_dip_dca"}
+REARM_BUY_STRATEGIES = {
+    "pyramid_3",
+    "equal_slice",
+    "linear_weighted_slice",
+    "weekly_dca",
+    "salary_flow_dca",
+    "core_dip_dca",
+}
 POSITION_SELL_REARM_STRATEGIES = {"repair_step", "grid_rebound", "cost_deleverage"}
 ROBUST_DCA_REARM_DRAWDOWN_VALUES = [0.0, 5.0, 10.0, 15.0, 20.0]
 ROBUST_SELL_STAGE_REARM_DRAWDOWN_VALUES = [10.0, 15.0]
+BUY_REARM_MODE_CUMULATIVE = "cumulative"
+BUY_REARM_MODE_RESTART_FROM_REARM = "restart_from_rearm"
+BUY_REARM_MODES = (BUY_REARM_MODE_CUMULATIVE, BUY_REARM_MODE_RESTART_FROM_REARM)
 ROBUST_BUY_STEP_VALUES = [2.5, 5.0, 10.0]
 ROBUST_EQUAL_SLICE_ALLOCATION_VALUES = [2.5, 5.0, 7.5, 10.0]
 ROBUST_CORE_DIP_PARAM_SETS = [
@@ -161,6 +171,7 @@ class StrategyInputs:
     cost_deleverage_cooldown_days: int = 0
     sell_allow_same_day_sell: bool = False
     cost_min_sell_amount: float = 0.0
+    buy_rearm_mode: str = BUY_REARM_MODE_CUMULATIVE
     core_dip_initial_core_pct: float = 80.0
     core_dip_weekly_core_pct: float = 90.0
     core_dip_cash_reserve_pct: float = 8.0
@@ -226,6 +237,7 @@ class SymbolState:
     core_dip_pending_cash: float = 0.0
     core_dip_pending_days: int = 0
     buy_rearm_drawdown_pct: float | None = None
+    buy_rearm_anchor_drawdown_pct: float | None = None
     grid_rebound_cycle_anchor_drawdown_pct: float | None = None
 
 
@@ -375,6 +387,8 @@ def simulate_portfolio(
         raise ValueError("成本区间去杠杆冷却天数不能为负数。")
     if inputs.cost_min_sell_amount < 0:
         raise ValueError("成本区间最小卖出金额不能为负数。")
+    if inputs.buy_rearm_mode not in BUY_REARM_MODES:
+        raise ValueError("买入重启模式必须是 cumulative 或 restart_from_rearm。")
     if not 0 <= inputs.core_dip_initial_core_pct <= 100:
         raise ValueError("核心定投初始核心仓比例必须在 0 到 100 之间。")
     if not 0 <= inputs.core_dip_weekly_core_pct <= 100:
@@ -435,6 +449,7 @@ def simulate_portfolio(
             "cost_deleverage_cooldown_days": inputs.cost_deleverage_cooldown_days,
             "sell_allow_same_day_sell": inputs.sell_allow_same_day_sell,
             "cost_min_sell_amount": inputs.cost_min_sell_amount,
+            "buy_rearm_mode": inputs.buy_rearm_mode,
             "core_dip_initial_core_pct": inputs.core_dip_initial_core_pct,
             "core_dip_weekly_core_pct": inputs.core_dip_weekly_core_pct,
             "core_dip_cash_reserve_pct": inputs.core_dip_cash_reserve_pct,
@@ -985,6 +1000,7 @@ def _strategy_inputs_payload(inputs: StrategyInputs) -> dict[str, object]:
         "cost_deleverage_cooldown_days": inputs.cost_deleverage_cooldown_days,
         "sell_allow_same_day_sell": inputs.sell_allow_same_day_sell,
         "cost_min_sell_amount": inputs.cost_min_sell_amount,
+        "buy_rearm_mode": inputs.buy_rearm_mode,
         "core_dip_initial_core_pct": inputs.core_dip_initial_core_pct,
         "core_dip_weekly_core_pct": inputs.core_dip_weekly_core_pct,
         "core_dip_cash_reserve_pct": inputs.core_dip_cash_reserve_pct,
@@ -1004,6 +1020,7 @@ def _robust_parameter_grid_payload(inputs: StrategyInputs) -> dict[str, object]:
         "repair_stage_sell_pct": ROBUST_REPAIR_STAGE_SELLS,
         "dca_rearm_drawdown_pct": ROBUST_DCA_REARM_DRAWDOWN_VALUES,
         "sell_stage_rearm_drawdown_pct": ROBUST_SELL_STAGE_REARM_DRAWDOWN_VALUES,
+        "buy_rearm_mode": list(BUY_REARM_MODES),
         "grid_rebound_step_pct": ROBUST_GRID_REBOUND_STEPS,
         "grid_first_sell_pct": ROBUST_GRID_FIRST_SELLS,
         "grid_second_sell_pct": ROBUST_GRID_SECOND_SELLS,
@@ -1883,6 +1900,11 @@ def _score_robust_candidates(
                     candidate_inputs,
                     dca_rearm_drawdown_pct=float(candidate["dca_rearm_drawdown_pct"]),
                 )
+            if candidate.get("buy_rearm_mode") is not None:
+                candidate_inputs = replace(
+                    candidate_inputs,
+                    buy_rearm_mode=str(candidate["buy_rearm_mode"]),
+                )
             if candidate.get("sell_stage_rearm_drawdown_pct") is not None:
                 candidate_inputs = replace(
                     candidate_inputs,
@@ -2128,7 +2150,7 @@ def _simulate_strategy(
                     sell_strategy,
                 )
             else:
-                _rearm_buy_tranches_after_repair(point, executed[symbol], inputs)
+                _rearm_buy_tranches_after_repair(state, point, executed[symbol], inputs)
                 _rearm_buy_tranches_after_position_sell(state, point, executed[symbol], inputs)
                 bought_today = _execute_crossed_tranches(
                     state,
@@ -2921,10 +2943,12 @@ def _execute_crossed_tranches(
     sell_strategy: str,
 ) -> bool:
     drawdown_pct = _point_drawdown_pct(point, inputs)
+    anchor_drawdown_pct = _buy_rearm_anchor_drawdown_pct(state)
     bought = False
     for tranche in tranches:
+        effective_threshold_pct = anchor_drawdown_pct + tranche.threshold_pct
         threshold_key = round(tranche.threshold_pct, 8)
-        if drawdown_pct + 1e-9 < tranche.threshold_pct:
+        if drawdown_pct + 1e-9 < effective_threshold_pct:
             continue
         target_amount = state.budget * tranche.allocation_pct / 100.0
         already_executed = executed_thresholds.get(threshold_key, 0.0)
@@ -2977,14 +3001,16 @@ def _execute_crossed_tranches(
                 "symbol": state.symbol,
                 "buy_strategy": buy_strategy,
                 "sell_strategy": sell_strategy,
-                "threshold_pct": tranche.threshold_pct,
+                "threshold_pct": effective_threshold_pct,
+                "base_threshold_pct": tranche.threshold_pct,
+                "buy_rearm_anchor_drawdown_pct": anchor_drawdown_pct or None,
                 "drawdown_pct": drawdown_pct,
                 "price": point.close,
                 "price_usd": _price_usd(state.symbol, point.close, inputs),
-                "display_price": _point_peak(point, inputs) * (1.0 - tranche.threshold_pct / 100.0),
+                "display_price": _point_peak(point, inputs) * (1.0 - effective_threshold_pct / 100.0),
                 "display_price_usd": _price_usd(
                     state.symbol,
-                    _point_peak(point, inputs) * (1.0 - tranche.threshold_pct / 100.0),
+                    _point_peak(point, inputs) * (1.0 - effective_threshold_pct / 100.0),
                     inputs,
                 ),
                 "gross_amount": gross_amount,
@@ -2998,14 +3024,20 @@ def _execute_crossed_tranches(
     return bought
 
 
+def _buy_rearm_anchor_drawdown_pct(state: SymbolState) -> float:
+    return max(0.0, float(state.buy_rearm_anchor_drawdown_pct or 0.0))
+
+
 def _rearm_buy_tranches_after_repair(
+    state: SymbolState,
     point: PricePoint,
     executed_thresholds: dict[float, float],
     inputs: StrategyInputs,
 ) -> None:
     drawdown_pct = _point_drawdown_pct(point, inputs)
-    if executed_thresholds and drawdown_pct <= 0.50:
+    if drawdown_pct <= 0.50:
         executed_thresholds.clear()
+        state.buy_rearm_anchor_drawdown_pct = None
 
 
 def _rearm_buy_tranches_after_position_sell(
@@ -3019,6 +3051,10 @@ def _rearm_buy_tranches_after_position_sell(
     drawdown_pct = _point_drawdown_pct(point, inputs)
     if drawdown_pct + 1e-9 >= state.buy_rearm_drawdown_pct:
         executed_thresholds.clear()
+        if inputs.buy_rearm_mode == BUY_REARM_MODE_RESTART_FROM_REARM:
+            state.buy_rearm_anchor_drawdown_pct = drawdown_pct
+        else:
+            state.buy_rearm_anchor_drawdown_pct = None
         state.buy_rearm_drawdown_pct = None
 
 

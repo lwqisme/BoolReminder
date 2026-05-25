@@ -1698,6 +1698,7 @@
             'sell_allow_same_day_sell',
             'cost_min_sell_amount',
             'dca_rearm_drawdown_pct',
+            'buy_rearm_mode',
             'sell_stage_rearm_drawdown_pct'
         ];
         const buyParameterFields = parameterFields.slice(0, 11);
@@ -1729,6 +1730,7 @@
             cost_deleverage_cooldown_days: { label: '成本冷却', input: 'costDeleverageCooldown', formatter: (value) => `${number(value, 0)}日` },
             sell_allow_same_day_sell: { label: '买入日可卖', input: 'sellAllowSameDaySell', formatter: (value) => value === true || value === 'true' ? '开启' : '关闭' },
             dca_rearm_drawdown_pct: { label: '卖后重启', input: 'dcaRearmDrawdown', formatter: percentChip },
+            buy_rearm_mode: { label: '重启模式', formatter: (value) => value === 'restart_from_rearm' ? '从首档' : '累计补齐' },
             sell_stage_rearm_drawdown_pct: { label: '卖档重启', input: 'sellStageRearmDrawdown', formatter: (value) => value === null || value === undefined ? '关闭' : percentChip(value) }
         };
         const selectedParameterValues = {};
@@ -2922,6 +2924,7 @@
                 cost_deleverage_cooldown_days: cost.parameter_space?.cost_deleverage_cooldown_days || [],
                 sell_allow_same_day_sell: cost.parameter_space?.sell_allow_same_day_sell || repair.parameter_space?.sell_allow_same_day_sell || [false, true],
                 dca_rearm_drawdown_pct: repair.parameter_space?.dca_rearm_drawdown_pct || [],
+                buy_rearm_mode: repair.parameter_space?.buy_rearm_mode || [],
                 sell_stage_rearm_drawdown_pct: [null, ...(repair.parameter_space?.sell_stage_rearm_drawdown_pct || [])]
             };
             return spaces[field] || [];
@@ -3361,6 +3364,7 @@
             }
             if (sellStrategy !== 'none' && sellParams.sell_allow_same_day_sell) parts.push('same1');
             if (sellParams.dca_rearm_drawdown_pct !== null && sellParams.dca_rearm_drawdown_pct !== undefined) parts.push(`rearm${formatCompact(sellParams.dca_rearm_drawdown_pct)}`);
+            if (sellParams.buy_rearm_mode === 'restart_from_rearm') parts.push('rearmmode_restart');
             if (sellParams.sell_stage_rearm_drawdown_pct !== null && sellParams.sell_stage_rearm_drawdown_pct !== undefined) parts.push(`sellrearm${formatCompact(sellParams.sell_stage_rearm_drawdown_pct)}`);
             return parts.join('__');
         }
@@ -3397,6 +3401,7 @@
             }
             if (strategyKey !== 'none' && params.sell_allow_same_day_sell) label = `${label} / 买入日可卖`;
             if (params.dca_rearm_drawdown_pct !== null && params.dca_rearm_drawdown_pct !== undefined) label = `${label} / 卖后重启 ${formatCompact(params.dca_rearm_drawdown_pct)}%回撤`;
+            if (params.buy_rearm_mode === 'restart_from_rearm') label = `${label} / 重启后从首档`;
             if (params.sell_stage_rearm_drawdown_pct !== null && params.sell_stage_rearm_drawdown_pct !== undefined) label = `${label} / 卖档重启 ${formatCompact(params.sell_stage_rearm_drawdown_pct)}%回撤`;
             return label;
         }

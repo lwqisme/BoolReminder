@@ -92,7 +92,7 @@ const sellFields = [
   'cost_third_profit_pct', 'cost_first_sell_pct', 'cost_second_sell_pct',
   'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
   'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct',
-  'sell_stage_rearm_drawdown_pct'
+  'buy_rearm_mode', 'sell_stage_rearm_drawdown_pct'
 ];
 function packet(flags) {
   return {
@@ -204,7 +204,7 @@ const sellFields = [
   'cost_third_profit_pct', 'cost_first_sell_pct', 'cost_second_sell_pct',
   'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
   'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct',
-  'sell_stage_rearm_drawdown_pct'
+  'buy_rearm_mode', 'sell_stage_rearm_drawdown_pct'
 ];
 const packet = {
   run_id: 'grid-cycle',
@@ -304,7 +304,7 @@ const sellFields = [
   'cost_third_profit_pct', 'cost_first_sell_pct', 'cost_second_sell_pct',
   'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
   'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct',
-  'sell_stage_rearm_drawdown_pct'
+  'buy_rearm_mode', 'sell_stage_rearm_drawdown_pct'
 ];
 const packet = {
   run_id: 'googl-detail',
@@ -406,7 +406,7 @@ const sellFields = [
   'cost_third_profit_pct', 'cost_first_sell_pct', 'cost_second_sell_pct',
   'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
   'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct',
-  'sell_stage_rearm_drawdown_pct'
+  'buy_rearm_mode', 'sell_stage_rearm_drawdown_pct'
 ];
 const packet = {
   run_id: 'cost-cycle',
@@ -516,7 +516,7 @@ const sellFields = [
   'cost_third_profit_pct', 'cost_first_sell_pct', 'cost_second_sell_pct',
   'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
   'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct',
-  'sell_stage_rearm_drawdown_pct'
+  'buy_rearm_mode', 'sell_stage_rearm_drawdown_pct'
 ];
 const packet = {
   run_id: 'cost-rearm',
