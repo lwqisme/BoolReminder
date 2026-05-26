@@ -1842,6 +1842,20 @@
             'buy_rearm_mode',
             'sell_stage_rearm_drawdown_pct'
         ];
+        const BUY_PARAMETER_FIELDS = [
+            'step_pct', 'equal_slice_allocation_pct', 'core_dip_initial_core_pct', 'core_dip_weekly_core_pct',
+            'core_dip_cash_reserve_pct', 'core_dip_start_drawdown_pct', 'core_dip_full_drawdown_pct',
+            'core_dip_timing_enabled', 'core_dip_timing_max_delay_days', 'core_dip_timing_rise_threshold_pct',
+            'core_dip_timing_near_low_pct'
+        ];
+        const SELL_PARAMETER_FIELDS = [
+            'sell_min_profit_pct', 'repair_sell_cooldown_days', 'repair_stage_sell_pct',
+            'grid_rebound_step_pct', 'grid_sell_pct', 'grid_first_sell_pct', 'grid_second_sell_pct',
+            'grid_min_sell_amount', 'cost_first_profit_pct', 'cost_second_profit_pct', 'cost_third_profit_pct',
+            'cost_first_sell_pct', 'cost_second_sell_pct', 'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
+            'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct',
+            'buy_rearm_mode', 'sell_stage_rearm_drawdown_pct'
+        ];
         const buyParameterFields = parameterFields.slice(0, 11);
         const sellParameterFields = parameterFields.slice(11);
         const parameterLabScanFieldDefinitions = {
@@ -6820,10 +6834,10 @@
         restoreParameterLabDefaults();
         toggleGaStrategyControls();  // init GA panel state on load
 
-        // ── Genetic Algorithm EVOLVE mode ──────────────────────────────────
-        let gaJobId = '';
-        let gaPollTimer = null;
+        // ── Genetic Algorithm EVOLVE mode (client-side worker pool) ───────
         let gaCancelled = false;
+        let gaWorkers = [];
+        let gaCurrentRun = null;
 
         function toggleGaStrategyControls() {
             const crossEnabled = document.getElementById('gaCrossStrategy').value === 'true';
@@ -6834,18 +6848,20 @@
         }
 
         async function runGeneticEvolution() {
+            cancelParameterLab(false);
             gaCancelled = false;
+            progressFloatDismissed = false;
             document.getElementById('gaCancelBtn').style.display = '';
             document.getElementById('gaProgress').style.display = '';
             document.getElementById('gaProgressBar').style.width = '0%';
-            document.getElementById('gaStatus').textContent = '正在创建进化任务...';
+            document.getElementById('gaStatus').textContent = '正在准备 GA 数据包...';
+            const started = performance.now();
+
             const payload = parameterLabPayload();
             payload.ga_cross_strategy = document.getElementById('gaCrossStrategy').value;
             payload.ga_strategy_mutation_rate = parseFloat(document.getElementById('gaStrategyMutationRate').value) || 0.05;
-
             const crossEnabled = payload.ga_cross_strategy === 'true';
             if (crossEnabled) {
-                // Send all selected buy/sell strategies from the main panel checkboxes
                 const buyChecks = document.querySelectorAll('input[name="buyStrategy"]:checked');
                 const sellChecks = document.querySelectorAll('input[name="sellStrategy"]:checked');
                 payload.ga_buy_strategies = Array.from(buyChecks).map(function(cb) { return cb.value; });
@@ -6858,115 +6874,354 @@
             payload.ga_generations = parseInt(document.getElementById('gaGenerations').value, 10) || 20;
             payload.ga_mutation_rate = parseFloat(document.getElementById('gaMutationRate').value) || 0.15;
             payload.ga_crossover_rate = parseFloat(document.getElementById('gaCrossoverRate').value) || 0.80;
-            payload._job_id = 'ga_' + Date.now().toString(36);
+            payload.parameter_lab_concurrency = readNumber('workerCount');
+
             try {
-                const resp = await fetch('/api/strategy-lab/parameter-lab/evolve', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(payload)
+                setStatus('GA Preparing', '正在从服务端拉取行情与初始种群...', 5);
+                const resp = await fetch('/api/strategy-lab/parameter-lab/ga-packet', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
                 });
                 const data = await resp.json();
-                if (!data.success) throw new Error(data.message || '创建进化任务失败');
-                gaJobId = data.job.id;
-                pollGaJob();
+                if (!data.success) throw new Error(data.message || '准备 GA 数据包失败');
+                const packet = data.packet;
+                const gaConfig = packet.ga_config || {};
+                const paramRanges = packet.ga_parameter_ranges || {};
+                const totalGenerations = gaConfig.generations || 20;
+                const totalSims = (packet.candidate_rows || []).length * (packet.tasks || []).length;
+                document.getElementById('statCandidates').textContent = number(gaConfig.population_size || 50, 0);
+                document.getElementById('statTopics').textContent = number((packet.tasks || []).length, 0);
+                document.getElementById('statSimulations').textContent = number(totalSims * totalGenerations, 0);
+
+                // Build GA population from packet
+                const candidateById = buildCandidateIndex(packet);
+                const candidates = [];
+                for (const row of (packet.candidate_rows || [])) {
+                    const cid = row[0];
+                    const cand = candidateById.get(cid);
+                    if (cand) candidates.push(cand);
+                }
+                if (!candidates.length) {
+                    setStatus('GA Error', '初始种群为空。请调整 GA 参数或策略选择后重试。', 0);
+                    return;
+                }
+
+                // Create worker pool
+                const requested = Math.max(1, Math.min(12, Number(packet.parameter_lab_concurrency || 4)));
+                const hardware = Number(navigator.hardwareConcurrency || requested);
+                const workerCount = Math.max(1, Math.min(requested, hardware || requested, candidates.length || 1));
+                document.getElementById('statWorkers').textContent = number(workerCount, 0);
+                const workerPacketBase = {
+                    run_id: packet.run_id || createParameterLabRunId(),
+                    inputs: packet.inputs || {},
+                    tasks: packet.tasks || [],
+                    market_data: packet.market_data || {},
+                    registry: packet.registry || {},
+                    buy_variant_schema: packet.buy_variant_schema || [],
+                    sell_variant_schema: packet.sell_variant_schema || [],
+                    candidate_schema: packet.candidate_schema || [],
+                    buy_variants: packet.buy_variants || [],
+                    sell_variants: packet.sell_variants || [],
+                    diagnostics: { verbose_simulation_logs: false, progress_every: 1, progress_min_ms: 500, slow_simulation_ms: 3000 }
+                };
+
+                // GA state
+                let population = candidates.slice();
+                let allEvaluated = {};
+                let bestEver = null;
+                let bestFitnessEver = -Infinity;
+                const gaResults = [];
+                const buyVariantSchemaIndex = schemaIndexMap(packet.buy_variant_schema || []);
+                const sellVariantSchemaIndex = schemaIndexMap(packet.sell_variant_schema || []);
+
+                // Start workers
+                gaWorkers = [];
+                let settled = false;
+                for (let wi = 0; wi < workerCount; wi++) {
+                    const worker = new Worker(parameterLabWorkerUrl);
+                    gaWorkers.push(worker);
+                    worker.postMessage({
+                        type: 'start', run_id: workerPacketBase.run_id, worker_index: wi,
+                        total_simulations: population.length * (packet.tasks || []).length,
+                        packet: { ...workerPacketBase }
+                    });
+                }
+                gaCurrentRun = { run_id: workerPacketBase.run_id, workers: gaWorkers, settled: false };
+
+                // ── GA EVOLUTION LOOP ────────────────────────────────────────
+                for (let gen = 0; gen < totalGenerations; gen++) {
+                    if (gaCancelled) break;
+
+                    const genLabel = '第 ' + (gen + 1) + ' / ' + totalGenerations + ' 代';
+                    setStatus('GA Evolving', genLabel + ' — 正在评估 ' + number(population.length, 0) + ' 个个体...', 10 + (gen / totalGenerations) * 80);
+
+                    // Build variant + candidate rows for this generation
+                    const buyVariants = [];
+                    const sellVariants = [];
+                    const candidateRows = [];
+                    for (let i = 0; i < population.length; i++) {
+                        const cand = population[i];
+                        const buyRow = [i, cand.key || ('ga_' + i), cand.buy_strategy || ''];
+                        for (const field of BUY_PARAMETER_FIELDS) {
+                            buyRow.push(cand[field] !== undefined ? cand[field] : null);
+                        }
+                        const sellRow = [i, cand.key || ('ga_' + i), cand.sell_strategy || ''];
+                        for (const field of SELL_PARAMETER_FIELDS) {
+                            sellRow.push(cand[field] !== undefined ? cand[field] : null);
+                        }
+                        buyVariants.push(buyRow);
+                        sellVariants.push(sellRow);
+                        candidateRows.push([i, i, i]);
+                    }
+
+                    // Send batch to all workers, collect via Promise
+                    const genPacket = { ...workerPacketBase, buy_variants: buyVariants, sell_variants: sellVariants, candidate_rows: candidateRows };
+                    const observations = await evaluatePopulationWithWorkers(gaWorkers, genPacket, wi => gaCancelled);
+                    if (gaCancelled) break;
+
+                    // Compute fitness per individual
+                    const fitnesses = [];
+                    for (let i = 0; i < population.length; i++) {
+                        const obs = observations.filter(function(o) { return o.candidate_id === i; });
+                        const returns = obs.map(function(o) { return Number(o.return_pct || 0); });
+                        const drawdowns = obs.map(function(o) { return Number(o.max_drawdown_pct || 0); });
+                        const avgReturn = returns.length ? returns.reduce(function(a, b) { return a + b; }, 0) / returns.length : 0;
+                        const avgDD = drawdowns.length ? drawdowns.reduce(function(a, b) { return a + Math.max(0, -(b || 0)); }, 0) / drawdowns.length : 0;
+                        const fitness = avgReturn * 0.9 + avgDD * 0.1;
+                        fitnesses.push(fitness);
+
+                        const key = population[i].key || ('ga_' + i);
+                        if (!allEvaluated[key] || fitness > allEvaluated[key].fitness) {
+                            allEvaluated[key] = { individual: population[i], fitness: fitness, avg_return: avgReturn, avg_drawdown: -avgDD };
+                        }
+                    }
+
+                    // Record snapshot
+                    const genBestIdx = fitnesses.indexOf(Math.max.apply(null, fitnesses));
+                    const genBestFitness = fitnesses[genBestIdx];
+                    const genAvgFitness = fitnesses.reduce(function(a, b) { return a + b; }, 0) / fitnesses.length;
+                    if (genBestFitness > bestFitnessEver) {
+                        bestFitnessEver = genBestFitness;
+                        bestEver = population[genBestIdx];
+                    }
+                    gaResults.push({ generation: gen + 1, best_fitness: genBestFitness, avg_fitness: genAvgFitness, population_size: population.length });
+
+                    // Elitism + generate next generation
+                    const ranked = population.map(function(ind, i) { return { ind: ind, fit: fitnesses[i] }; })
+                        .sort(function(a, b) { return b.fit - a.fit; });
+                    const elites = ranked.slice(0, gaConfig.elitism_count || 3).map(function(r) { return r.ind; });
+                    const nextPop = elites.slice();
+
+                    while (nextPop.length < population.length) {
+                        if (gaCancelled) break;
+                        const p1 = tournamentSelectGa(ranked, gaConfig.tournament_size || 4);
+                        const p2 = tournamentSelectGa(ranked, gaConfig.tournament_size || 4);
+                        let child;
+                        if (Math.random() < (gaConfig.crossover_rate || 0.8)) {
+                            child = crossoverGa(p1, p2);
+                        } else {
+                            child = { ...p1 };
+                        }
+                        child = mutateGa(child, gaConfig.mutation_rate || 0.15, paramRanges, gaConfig, crossEnabled);
+                        nextPop.push(child);
+                    }
+                    population = nextPop.slice(0, gaConfig.population_size || 50);
+
+                    setStatus('GA Evolving', genLabel + ' — 最优适应度: ' + number(bestFitnessEver, 1), 10 + ((gen + 1) / totalGenerations) * 80);
+                }
+
+                // Cleanup workers
+                gaWorkers.forEach(function(w) { w.terminate(); });
+                gaWorkers = [];
+                gaCurrentRun = null;
+
+                // Display results
+                const finalRows = Object.values(allEvaluated).sort(function(a, b) { return b.fitness - a.fitness; });
+                const rows = finalRows.map(function(item, index) {
+                    const ind = item.individual;
+                    return {
+                        key: ind.key || ('ga_' + index), combination_key: ind.key || ('ga_' + index),
+                        candidate_key: ind.key || ('ga_' + index),
+                        label: ind.label || ((ind.buy_strategy || '') + ' / ' + (ind.sell_strategy || '')),
+                        buy_strategy: ind.buy_strategy, sell_strategy: ind.sell_strategy,
+                        final_score: item.fitness, final_rank: index + 1,
+                        avg_return_pct: item.avg_return || 0, avg_drawdown_pct: item.avg_drawdown || 0,
+                        avg_topic_score: item.fitness, topic_count: (packet.tasks || []).length,
+                        cells: [], ga_rank: index + 1,
+                        ga_buy_params: extractGaParams(ind, BUY_PARAMETER_FIELDS),
+                        ga_sell_params: extractGaParams(ind, SELL_PARAMETER_FIELDS)
+                    };
+                });
+                lastParameterPacket = packet;
+                lastParameterResult = {
+                    rows: rows, observations: [], observations_compacted: true, observation_count: rows.length * (packet.tasks || []).length,
+                    diagnostics: { scale: { observation_count: rows.length * (packet.tasks || []).length } },
+                    worker_metrics: { worker_count: workerCount }
+                };
+                document.getElementById('statCandidates').textContent = number(rows.length, 0);
+                document.getElementById('statTopics').textContent = number((packet.tasks || []).length, 0);
+                document.getElementById('statSimulations').textContent = number(gaResults.length, 0) + ' 代';
+                document.getElementById('statWorkers').textContent = 'GPU'; // indicate client-side
+                document.getElementById('statWall').textContent = number((performance.now() - started) / 1000, 1) + 's';
+                renderParameterMatrix();
+                setStatus('GA Done', '进化完成 — ' + number(rows.length, 0) + ' 个个体，' + number(gaResults.length, 0) + ' 代，最优适应度: ' + number(bestFitnessEver, 1), 100);
+                document.getElementById('gaStatus').textContent = '完成。最优: ' + (bestEver ? bestEver.label || bestEver.key : '—');
+                document.getElementById('gaCancelBtn').style.display = 'none';
+                scheduleProgressFloatAutoHide();
             } catch (error) {
+                gaWorkers.forEach(function(w) { w.terminate(); });
+                gaWorkers = [];
                 document.getElementById('gaStatus').textContent = '错误: ' + (error.message || String(error));
                 document.getElementById('gaCancelBtn').style.display = 'none';
                 document.getElementById('gaProgress').style.display = 'none';
+                setStatus('GA Error', error.message || '未知错误');
             }
         }
 
         function cancelGeneticEvolution() {
             gaCancelled = true;
-            if (gaPollTimer) { clearTimeout(gaPollTimer); gaPollTimer = null; }
-            if (gaJobId) {
-                fetch('/api/strategy-lab/jobs/' + encodeURIComponent(gaJobId) + '/cancel', {method: 'POST'}).catch(function(){});
-            }
+            gaWorkers.forEach(function(w) { try { w.terminate(); } catch(e) {} });
+            gaWorkers = [];
+            if (gaCurrentRun) gaCurrentRun.settled = true;
+            gaCurrentRun = null;
             document.getElementById('gaStatus').textContent = '已停止。';
             document.getElementById('gaCancelBtn').style.display = 'none';
         }
 
-        async function pollGaJob() {
-            if (gaCancelled || !gaJobId) return;
-            try {
-                const resp = await fetch('/api/strategy-lab/jobs/' + encodeURIComponent(gaJobId));
-                const data = await resp.json();
-                const job = data.job || {};
-                const status = job.status || 'unknown';
-                const progress = job.progress || 0;
-                document.getElementById('gaProgressBar').style.width = progress + '%';
-                if (status === 'running' || status === 'queued') {
-                    const gen = job.stage ? job.stage.replace(/[^0-9]/g, '') : '';
-                    document.getElementById('gaStatus').textContent = (job.message || '进化中...') + (gen ? ' (第 ' + gen + ' 代)' : '');
-                    gaPollTimer = setTimeout(pollGaJob, 2000);
-                } else if (status === 'completed') {
-                    document.getElementById('gaStatus').textContent = '进化完成！共评估 ' + (data.job?.result_summary?.total_evaluated || '--') + ' 个个体。';
-                    document.getElementById('gaCancelBtn').style.display = 'none';
-                    renderGaResults(job);
-                } else if (status === 'cancelled') {
-                    document.getElementById('gaStatus').textContent = '进化已取消。';
-                    document.getElementById('gaCancelBtn').style.display = 'none';
-                } else {
-                    document.getElementById('gaStatus').textContent = '状态: ' + status + ' - ' + (job.message || '');
-                    document.getElementById('gaCancelBtn').style.display = 'none';
+        // ── GA helper: send population to workers, collect observations ─────
+        function evaluatePopulationWithWorkers(workers, packet, shouldCancel) {
+            return new Promise(function(resolve, reject) {
+                const candidateRows = packet.candidate_rows || [];
+                const tasks = packet.tasks || [];
+                if (!candidateRows.length) { resolve([]); return; }
+                const batchSize = Math.max(1, Math.ceil(candidateRows.length / workers.length));
+                const batches = [];
+                for (let i = 0; i < candidateRows.length; i += batchSize) {
+                    batches.push({ batch_id: 'ga-' + i, candidate_rows: candidateRows.slice(i, i + batchSize) });
                 }
-            } catch (error) {
-                document.getElementById('gaStatus').textContent = '轮询错误: ' + (error.message || String(error));
-            }
+                let completedBatches = 0;
+                let settled = false;
+                const allRows = [];
+                const cleanup = function() {
+                    settled = true;
+                    workers.forEach(function(w) {
+                        try { w.onmessage = null; } catch(e) {}
+                    });
+                };
+
+                const assignNext = function(worker, wi) {
+                    if (settled) return;
+                    const next = batches.shift();
+                    if (!next) {
+                        worker.postMessage({ type: 'finish', run_id: packet.run_id, worker_index: wi });
+                        return;
+                    }
+                    worker.onmessage = function(event) {
+                        const msg = event.data || {};
+                        if (settled) return;
+                        if (msg.type === 'batch_done') {
+                            allRows.push.apply(allRows, (msg.rows || []).map(function(r) {
+                                return (r.observations || []).map(function(o) {
+                                    return { candidate_id: r.candidate_id, candidate_key: r.candidate_key,
+                                        return_pct: o.return_pct, max_drawdown_pct: o.max_drawdown_pct,
+                                        topic_key: o.topic_key };
+                                });
+                            }).flat());
+                            completedBatches++;
+                            if (shouldCancel && shouldCancel()) { cleanup(); resolve([]); return; }
+                            assignNext(worker, wi);
+                        } else if (msg.type === 'ready') {
+                            assignNext(worker, wi);
+                        } else if (msg.type === 'done') {
+                            completedBatches++;
+                        } else if (msg.type === 'error') {
+                            cleanup(); reject(new Error(msg.message || 'Worker error'));
+                        }
+                    };
+                    worker.postMessage({
+                        type: 'batch', run_id: packet.run_id, worker_index: wi,
+                        batch_id: next.batch_id, candidate_rows: next.candidate_rows
+                    });
+                };
+
+                workers.forEach(function(worker, wi) { assignNext(worker, wi); });
+
+                const checkDone = setInterval(function() {
+                    if (settled) { clearInterval(checkDone); return; }
+                    if (completedBatches >= batches.length || (shouldCancel && shouldCancel())) {
+                        cleanup(); clearInterval(checkDone); resolve(allRows);
+                    }
+                }, 200);
+            });
         }
 
-        function renderGaResults(job) {
-            const runId = job.id || '';
-            if (!runId) return;
-            fetch('/api/strategy-lab/runs/' + encodeURIComponent(runId)).then(function(resp) {
-                return resp.json();
-            }).then(function(data) {
-                const result = (data.run || {}).config_payload ? {} : (data.run || {});
-                const payload = (data.run || {}).config_payload || {};
-                const snapshots = (payload.result ? (payload.result.snapshots || []) : (payload.snapshots || []));
-                const population = (payload.result ? (payload.result.final_population || []) : (payload.final_population || []));
-                if (!population.length) {
-                    document.getElementById('gaStatus').textContent = '进化不成功，未产生任何个体。请检查数据源或调整参数。';
-                    return;
+        // ── GA operations (ported from Python) ──────────────────────────────
+        function tournamentSelectGa(ranked, tournamentSize) {
+            const size = Math.min(tournamentSize, ranked.length);
+            let best = ranked[0];
+            for (let i = 1; i < size; i++) {
+                const idx = Math.floor(Math.random() * ranked.length);
+                if (ranked[idx].fit > best.fit) best = ranked[idx];
+            }
+            return best.ind;
+        }
+
+        function crossoverGa(p1, p2) {
+            const child = { buy_strategy: p1.buy_strategy, sell_strategy: p1.sell_strategy };
+            for (const key of Object.keys(p1)) {
+                if (key === 'key' || key === 'label' || key === 'buy_strategy' || key === 'sell_strategy') continue;
+                child[key] = Math.random() < 0.5 ? p1[key] : p2[key];
+            }
+            return child;
+        }
+
+        function mutateGa(ind, mutationRate, paramRanges, gaConfig, crossEnabled) {
+            const child = { ...ind };
+            const buyRanges = paramRanges.buy_ranges || {};
+            const sellRanges = paramRanges.sell_ranges || {};
+            const intFields = new Set(paramRanges.int_fields || []);
+
+            for (const field of BUY_PARAMETER_FIELDS) {
+                if (Math.random() < mutationRate && buyRanges[field]) {
+                    const vals = buyRanges[field];
+                    child[field] = vals[Math.floor(Math.random() * vals.length)];
+                    if (intFields.has(field)) child[field] = Math.trunc(Number(child[field]));
                 }
-                // Build simple rows for matrix display
-                const rows = population.map(function(ind, index) {
-                    return {
-                        key: ind.key || ('ga_' + index),
-                        combination_key: ind.key || ('ga_' + index),
-                        candidate_key: ind.key || ('ga_' + index),
-                        label: ind.label || (ind.buy_strategy + ' / ' + ind.sell_strategy),
-                        buy_strategy: ind.buy_strategy,
-                        sell_strategy: ind.sell_strategy,
-                        final_score: ind.fitness || 0,
-                        final_rank: ind.rank || (index + 1),
-                        avg_return_pct: 0,
-                        avg_drawdown_pct: 0,
-                        avg_topic_score: ind.fitness || 0,
-                        topic_count: 1,
-                        cells: [],
-                        ga_rank: ind.rank || (index + 1),
-                        ga_buy_params: ind.buy_params || {},
-                        ga_sell_params: ind.sell_params || {}
-                    };
-                });
-                lastParameterResult = {
-                    rows: rows,
-                    observations: [],
-                    observations_compacted: true,
-                    observation_count: 0,
-                    diagnostics: { scale: { observation_count: 0 } },
-                    worker_metrics: { worker_count: 0 }
-                };
-                document.getElementById('statCandidates').textContent = rows.length;
-                document.getElementById('statTopics').textContent = 'GA';
-                document.getElementById('statSimulations').textContent = (snapshots.length || '--') + ' 代';
-                document.getElementById('statWorkers').textContent = 'Srv';
-                document.getElementById('statWall').textContent = 'done';
-                renderParameterMatrix();
-            }).catch(function(error) {
-                document.getElementById('gaStatus').textContent = '加载结果失败: ' + (error.message || String(error));
-            });
+            }
+            for (const field of SELL_PARAMETER_FIELDS) {
+                if (Math.random() < mutationRate && sellRanges[field]) {
+                    const vals = sellRanges[field];
+                    child[field] = vals[Math.floor(Math.random() * vals.length)];
+                    if (intFields.has(field)) child[field] = Math.trunc(Number(child[field]));
+                } else if (Math.random() < mutationRate && field === 'sell_allow_same_day_sell') {
+                    child[field] = Math.random() < 0.5;
+                }
+            }
+
+            // Strategy mutation for cross-strategy mode
+            if (crossEnabled && gaConfig.cross_strategy && Math.random() < (gaConfig.strategy_mutation_rate || 0.05)) {
+                const buyStrats = (paramRanges.buy_fields ? Object.keys(paramRanges.buy_fields) : [child.buy_strategy]) || [child.buy_strategy];
+                const sellStrats = (paramRanges.sell_fields ? Object.keys(paramRanges.sell_fields) : [child.sell_strategy]) || [child.sell_strategy];
+                child.buy_strategy = buyStrats[Math.floor(Math.random() * buyStrats.length)];
+                child.sell_strategy = sellStrats[Math.floor(Math.random() * sellStrats.length)];
+            }
+
+            // Enforce core_dip constraints
+            if (child.core_dip_start_drawdown_pct !== undefined && child.core_dip_full_drawdown_pct !== undefined) {
+                if (Number(child.core_dip_start_drawdown_pct) > Number(child.core_dip_full_drawdown_pct)) {
+                    child.core_dip_full_drawdown_pct = child.core_dip_start_drawdown_pct;
+                }
+            }
+
+            child.key = null; // will be regenerated on next serialization
+            return child;
+        }
+
+        function extractGaParams(ind, fields) {
+            const params = {};
+            for (const field of fields) {
+                if (ind[field] !== undefined && ind[field] !== null) params[field] = ind[field];
+            }
+            return params;
         }
         })();
     </script>

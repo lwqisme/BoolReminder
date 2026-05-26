@@ -44,6 +44,13 @@ from drawdown.strategy_lab_scoring import (
     DEFAULT_RETURN_WEIGHT,
     DEFAULT_DRAWDOWN_WEIGHT,
 )
+from drawdown.strategy_parameter_registry import (
+    BUY_PARAMETER_FIELDS,
+    SELL_PARAMETER_FIELDS,
+    PARAMETER_LAB_BUY_VARIANT_SCHEMA,
+    PARAMETER_LAB_SELL_VARIANT_SCHEMA,
+    PARAMETER_LAB_CANDIDATE_SCHEMA,
+)
 
 GA_FORMULA_VERSION = "ga_return_90_drawdown_10_v1"
 
@@ -920,5 +927,71 @@ def _build_cancelled_result(config: EvolutionConfig) -> dict[str, object]:
         "final_population": [],
         "total_evaluated": 0,
         "cancelled": True,
+    }
+
+
+def build_ga_client_manifest(
+    buy_strategies: list[str],
+    sell_strategies: list[str],
+    base_inputs: StrategyInputs,
+    config: EvolutionConfig | None = None,
+) -> dict[str, object]:
+    """Build variant and candidate rows for the GA initial population.
+
+    Returns a manifest dict compatible with the Parameter Lab client packet format:
+    {buy_variant_schema, sell_variant_schema, candidate_schema, buy_variants, sell_variants, candidate_rows}
+    """
+    config = config or EvolutionConfig()
+    if config.seed is not None:
+        random.seed(config.seed)
+
+    all_buy_fields = {bs: _relevant_buy_parameter_fields(bs) for bs in buy_strategies}
+    all_sell_fields = {ss: _relevant_sell_parameter_fields(ss, base_inputs, buy_strategies[0]) for ss in sell_strategies}
+
+    population = _initialize_population(
+        buy_strategies, sell_strategies, all_buy_fields, all_sell_fields,
+        base_inputs, config.population_size, cross_strategy=config.cross_strategy,
+    )
+
+    buy_variants: list[list[object]] = []
+    sell_variants: list[list[object]] = []
+    candidate_rows: list[list[int]] = []
+
+    for candidate_id, ind in enumerate(population):
+        buy_variant_id = candidate_id
+        sell_variant_id = candidate_id
+
+        buy_row: list[object] = [buy_variant_id, ind.key, ind.buy_strategy]
+        for field in BUY_PARAMETER_FIELDS:
+            buy_row.append(ind.buy_params.get(field))
+
+        sell_row: list[object] = [sell_variant_id, ind.key, ind.sell_strategy]
+        for field in SELL_PARAMETER_FIELDS:
+            sell_row.append(ind.sell_params.get(field))
+
+        buy_variants.append(buy_row)
+        sell_variants.append(sell_row)
+        candidate_rows.append([candidate_id, buy_variant_id, sell_variant_id])
+
+    return {
+        "buy_variant_schema": list(PARAMETER_LAB_BUY_VARIANT_SCHEMA),
+        "sell_variant_schema": list(PARAMETER_LAB_SELL_VARIANT_SCHEMA),
+        "candidate_schema": list(PARAMETER_LAB_CANDIDATE_SCHEMA),
+        "buy_variants": buy_variants,
+        "sell_variants": sell_variants,
+        "candidate_rows": candidate_rows,
+    }
+
+
+def ga_parameter_ranges_payload() -> dict[str, object]:
+    """Return parameter mutation ranges and strategy field mappings for JS-side GA."""
+    return {
+        "buy_ranges": {field: list(values) for field, values in _BUY_PARAM_RANGES.items()},
+        "sell_ranges": {field: list(values) for field, values in _SELL_PARAM_RANGES.items()},
+        "buy_fields": {k: list(v) for k, v in _RELEVANT_BUY_FIELDS.items()},
+        "sell_fields": {k: list(v) for k, v in _RELEVANT_SELL_FIELDS.items()},
+        "int_fields": list(_INT_FIELDS),
+        "buy_variant_schema": list(PARAMETER_LAB_BUY_VARIANT_SCHEMA),
+        "sell_variant_schema": list(PARAMETER_LAB_SELL_VARIANT_SCHEMA),
     }
 

@@ -48,6 +48,8 @@ from drawdown.strategy_parameter_genetic import (
     EvolutionConfig,
     make_fitness_fn,
     evolve_parameters,
+    build_ga_client_manifest,
+    ga_parameter_ranges_payload,
 )
 from drawdown.strategy_parameter_registry import (
     BUY_PARAMETER_FIELDS,
@@ -9711,6 +9713,90 @@ def _run_genetic_evolution_payload(payload: dict[str, object]) -> dict[str, obje
     return result
 
 
+def _prepare_ga_client_payload(payload: dict[str, object]) -> dict[str, object]:
+    """Prepare a client-side GA packet with market data + initial population."""
+    from drawdown.strategy_parameter_registry import strategy_parameter_lab_manifest_payload as _manifest_fn
+
+    end_date = date.fromisoformat(payload.get("end")) if payload.get("end") else datetime.now().date()
+    lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+    targets = lab_config.portfolio_or_default()
+    if targets is not None and not isinstance(targets, list):
+        raise ValueError("targets 必须是数组")
+    inputs = lab_config.to_strategy_inputs()
+
+    cross_strategy = str(payload.get("ga_cross_strategy", "")).lower() in {"true", "1", "yes", "on"}
+    if cross_strategy:
+        buy_strategies_raw = payload.get("ga_buy_strategies") or payload.get("buy_strategies")
+        sell_strategies_raw = payload.get("ga_sell_strategies") or payload.get("sell_strategies")
+        buy_strategies = [str(s) for s in buy_strategies_raw] if isinstance(buy_strategies_raw, list) else [str(payload.get("ga_buy_strategy") or payload.get("buy_strategy") or "equal_slice")]
+        sell_strategies = [str(s) for s in sell_strategies_raw] if isinstance(sell_strategies_raw, list) else [str(payload.get("ga_sell_strategy") or payload.get("sell_strategy") or "grid_rebound")]
+    else:
+        buy_strategies = [str(payload.get("ga_buy_strategy") or payload.get("buy_strategy") or "equal_slice")]
+        sell_strategies = [str(payload.get("ga_sell_strategy") or payload.get("sell_strategy") or "grid_rebound")]
+
+    ga_config = EvolutionConfig(
+        population_size=int(payload.get("ga_population_size") or 50),
+        generations=int(payload.get("ga_generations") or 20),
+        mutation_rate=float(payload.get("ga_mutation_rate") or 0.15),
+        crossover_rate=float(payload.get("ga_crossover_rate") or 0.80),
+        elitism_count=int(payload.get("ga_elitism_count") or 3),
+        tournament_size=int(payload.get("ga_tournament_size") or 4),
+        cross_strategy=cross_strategy,
+        strategy_mutation_rate=float(payload.get("ga_strategy_mutation_rate") or 0.05),
+    )
+
+    manifest = build_ga_client_manifest(buy_strategies, sell_strategies, inputs, ga_config)
+
+    scorecard_portfolios = _resolve_scorecard_portfolios(
+        targets,
+        payload.get("scorecard_portfolio_keys"),
+        lab_config.investment_universe_or_default(),
+    )
+    resolved_periods = _resolve_scorecard_periods(end_date, payload.get("scorecard_periods"))
+    if not scorecard_portfolios or not resolved_periods:
+        raise ValueError("没有可用于参数实验室的题目。")
+    start_date = min(period["fetch_start"] for period in resolved_periods)
+    fetch_end_date = max(period["end"] for period in resolved_periods)
+    full_points_by_symbol, warnings = _fetch_scorecard_points(scorecard_portfolios, start_date, fetch_end_date)
+    tasks = _build_robust_tasks(scorecard_portfolios, resolved_periods, full_points_by_symbol)
+    if not tasks:
+        raise ValueError("没有可用于参数实验室的题目。")
+
+    packet = {
+        "range": {"start": start_date.isoformat(), "end": fetch_end_date.isoformat()},
+        "inputs": _strategy_inputs_payload(inputs),
+        "tasks": tasks,
+        "warnings": warnings,
+        "buy_strategies": list(buy_strategies),
+        "sell_strategies": list(sell_strategies),
+        "candidate_counts": {"total": len(manifest["candidate_rows"])},
+        "simulation_counts": {"total": len(manifest["candidate_rows"]) * len(tasks)},
+        "registry": strategy_registry_payload(),
+    }
+
+    ga_payload = _compact_parameter_lab_packet(packet, manifest)
+    ga_payload["ga_config"] = {
+        "population_size": ga_config.population_size,
+        "generations": ga_config.generations,
+        "mutation_rate": ga_config.mutation_rate,
+        "crossover_rate": ga_config.crossover_rate,
+        "elitism_count": ga_config.elitism_count,
+        "tournament_size": ga_config.tournament_size,
+        "cross_strategy": ga_config.cross_strategy,
+        "strategy_mutation_rate": ga_config.strategy_mutation_rate,
+    }
+    ga_payload["ga_parameter_ranges"] = ga_parameter_ranges_payload()
+    ga_payload["payload_schema"] = "ga_client_packet_v1"
+
+    try:
+        concurrency = int(float(payload.get("parameter_lab_concurrency") or 4))
+    except (TypeError, ValueError):
+        concurrency = 4
+    ga_payload["parameter_lab_concurrency"] = max(1, min(12, concurrency))
+
+    return ga_payload
+
+
 def _prepare_strategy_robust_client_payload(payload: dict[str, object]) -> dict[str, object]:
     end_date = date.fromisoformat(payload.get("end")) if payload.get("end") else datetime.now().date()
     lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
@@ -10203,6 +10289,33 @@ def api_strategy_lab_parameter_lab_evolve():
             stack=traceback.format_exc(),
         )
         return _json_error(f"遗传算法优化失败: {exc}", 500)
+
+
+@app.route('/api/strategy-lab/parameter-lab/ga-packet', methods=['POST'])
+def api_strategy_lab_parameter_lab_ga_packet():
+    """准备 GA 客户端计算数据包。"""
+    payload = request.get_json(silent=True) or {}
+    started = time.perf_counter()
+    try:
+        packet = _prepare_ga_client_payload(payload)
+        run_id = str(payload.get("run_id") or "").strip()
+        packet["run_id"] = run_id
+        response = _json_response_with_optional_gzip({"success": True, "packet": packet, "run_id": run_id})
+        response.headers["X-Candidate-Count"] = str(len(packet.get("candidate_rows") or []))
+        response.headers["X-Task-Count"] = str(len(packet.get("tasks") or []))
+        _parameter_lab_log(
+            "ga_packet_done",
+            run_id=run_id,
+            elapsed_ms=round((time.perf_counter() - started) * 1000, 3),
+            candidate_count=len(packet.get("candidate_rows") or []),
+            task_count=len(packet.get("tasks") or []),
+        )
+        return response
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        _parameter_lab_error("ga_packet_error", message=str(exc), stack=traceback.format_exc())
+        return _json_error(f"准备 GA 数据包失败: {exc}", 500)
 
 
 @app.route('/api/strategy-lab/parameter-lab/estimate', methods=['POST'])
