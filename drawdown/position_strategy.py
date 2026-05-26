@@ -3263,6 +3263,11 @@ def _execute_position_grid_rebound_sells(
             sell_stage=mark,
         ):
             state.sell_marks.add(mark)
+            # Continue grid rebound cycle toward ATH:
+            # when the last stage fires and shares remain, reset for the next cycle.
+            if threshold <= 1e-9 and state.shares > 0:
+                state.sell_marks.clear()
+                state.grid_rebound_cycle_anchor_drawdown_pct = None
             return
 
 
