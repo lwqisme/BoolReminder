@@ -145,6 +145,50 @@ _INT_FIELDS = frozenset({
     "core_dip_timing_max_delay_days",
 })
 
+# Continuous mutation bounds (min, max) per parameter
+_PARAM_BOUNDS: dict[str, tuple[float, float]] = {
+    "step_pct": (0.5, 30.0),
+    "equal_slice_allocation_pct": (1.0, 50.0),
+    "core_dip_initial_core_pct": (10.0, 100.0),
+    "core_dip_weekly_core_pct": (10.0, 100.0),
+    "core_dip_cash_reserve_pct": (1.0, 50.0),
+    "core_dip_start_drawdown_pct": (1.0, 60.0),
+    "core_dip_full_drawdown_pct": (1.0, 80.0),
+    "core_dip_timing_max_delay_days": (0.0, 10.0),
+    "core_dip_timing_rise_threshold_pct": (0.5, 10.0),
+    "core_dip_timing_near_low_pct": (0.5, 10.0),
+    "sell_min_profit_pct": (1.0, 50.0),
+    "repair_sell_cooldown_days": (0.0, 120.0),
+    "repair_stage_sell_pct": (2.0, 50.0),
+    "grid_rebound_step_pct": (1.0, 30.0),
+    "grid_sell_pct": (5.0, 80.0),
+    "grid_min_sell_amount": (0.0, 5000.0),
+    "cost_first_profit_pct": (1.0, 80.0),
+    "cost_second_profit_pct": (1.0, 80.0),
+    "cost_third_profit_pct": (1.0, 80.0),
+    "cost_first_sell_pct": (5.0, 80.0),
+    "cost_second_sell_pct": (5.0, 80.0),
+    "cost_third_sell_pct": (5.0, 80.0),
+    "cost_deleverage_cooldown_days": (0.0, 120.0),
+    "cost_min_sell_amount": (0.0, 5000.0),
+    "dca_rearm_drawdown_pct": (0.0, 40.0),
+    "sell_stage_rearm_drawdown_pct": (0.0, 50.0),
+}
+
+# Precision: decimal places to round continuous values
+_PARAM_PRECISION: dict[str, int] = {
+    "step_pct": 2, "equal_slice_allocation_pct": 2, "core_dip_initial_core_pct": 1,
+    "core_dip_weekly_core_pct": 1, "core_dip_cash_reserve_pct": 1,
+    "core_dip_start_drawdown_pct": 2, "core_dip_full_drawdown_pct": 2,
+    "core_dip_timing_rise_threshold_pct": 2, "core_dip_timing_near_low_pct": 2,
+    "sell_min_profit_pct": 2, "repair_stage_sell_pct": 2,
+    "grid_rebound_step_pct": 2, "grid_sell_pct": 1,
+    "grid_min_sell_amount": 0, "cost_min_sell_amount": 0,
+    "cost_first_profit_pct": 1, "cost_second_profit_pct": 1, "cost_third_profit_pct": 1,
+    "cost_first_sell_pct": 1, "cost_second_sell_pct": 1, "cost_third_sell_pct": 1,
+    "dca_rearm_drawdown_pct": 2, "sell_stage_rearm_drawdown_pct": 2,
+}
+
 
 @dataclass(frozen=True)
 class Individual:
@@ -197,6 +241,8 @@ class EvolutionConfig:
     seed: int | None = None
     cross_strategy: bool = False
     strategy_mutation_rate: float = 0.05
+    continuous_mutation: bool = False
+    mutation_sigma_ratio: float = 0.15
 
     def __post_init__(self):
         if self.elitism_count >= self.population_size:
@@ -327,7 +373,8 @@ def evolve_parameters(
             child = _mutate(child, all_buy_fields, all_sell_fields, base_inputs,
                 config.mutation_rate,
                 buy_strategies=buy_strategies, sell_strategies=sell_strategies,
-                cross_strategy=config.cross_strategy, strategy_mutation_rate=config.strategy_mutation_rate)
+                cross_strategy=config.cross_strategy, strategy_mutation_rate=config.strategy_mutation_rate,
+                continuous_mutation=config.continuous_mutation, mutation_sigma_ratio=config.mutation_sigma_ratio)
             next_population.append(child)
 
         population = next_population[:config.population_size]
@@ -363,6 +410,8 @@ def evolve_parameters(
             "seed": config.seed,
             "cross_strategy": config.cross_strategy,
             "strategy_mutation_rate": config.strategy_mutation_rate,
+            "continuous_mutation": config.continuous_mutation,
+            "mutation_sigma_ratio": config.mutation_sigma_ratio,
         },
         "snapshots": snapshots,
         "best": final_rows[0] if final_rows else None,
@@ -518,7 +567,8 @@ def _initialize_population(
         attempts += 1
         bs, ss = _pick_strategies()
         ind = _random_individual(bs, ss,
-            all_buy_fields.get(bs, []), all_sell_fields.get(ss, []), base_inputs)
+            all_buy_fields.get(bs, []), all_sell_fields.get(ss, []), base_inputs,
+            continuous_mutation=cross_strategy and False)  # initial pop always discrete for seeding diversity
         if ind.key not in seen_keys:
             seen_keys.add(ind.key)
             population.append(ind)
@@ -542,18 +592,23 @@ def _random_individual(
     buy_fields: list[str],
     sell_fields: list[str],
     base_inputs: StrategyInputs,
+    *,
+    continuous_mutation: bool = False,
 ) -> Individual:
-    """Generate a completely random individual."""
     buy_params: dict[str, object] = {}
     for field in buy_fields:
-        if field in _BUY_PARAM_RANGES:
+        if continuous_mutation and field in _PARAM_BOUNDS:
+            buy_params[field] = _continuous_init_value(field)
+        elif field in _BUY_PARAM_RANGES:
             buy_params[field] = _random_param_value(field, _BUY_PARAM_RANGES[field])
         else:
             buy_params[field] = _get_default_for_field(base_inputs, field)
 
     sell_params: dict[str, object] = {}
     for field in sell_fields:
-        if field in _SELL_PARAM_RANGES:
+        if continuous_mutation and field in _PARAM_BOUNDS:
+            sell_params[field] = _continuous_init_value(field)
+        elif field in _SELL_PARAM_RANGES:
             sell_params[field] = _random_param_value(field, _SELL_PARAM_RANGES[field])
         elif field == "sell_allow_same_day_sell":
             sell_params[field] = random.choice([False, True])
@@ -562,7 +617,6 @@ def _random_individual(
         else:
             sell_params[field] = _get_default_for_field(base_inputs, field)
 
-    # Validate core_dip constraints
     _enforce_core_dip_constraints(buy_params)
 
     return Individual(
@@ -720,8 +774,9 @@ def _mutate(
     sell_strategies: list[str] | None = None,
     cross_strategy: bool = False,
     strategy_mutation_rate: float = 0.05,
+    continuous_mutation: bool = False,
+    mutation_sigma_ratio: float = 0.15,
 ) -> Individual:
-    """Mutate each gene with probability mutation_rate. Optionally mutate strategy type."""
     buy_strategy = individual.buy_strategy
     sell_strategy = individual.sell_strategy
 
@@ -736,13 +791,19 @@ def _mutate(
     buy_params = dict(individual.buy_params)
     for field in buy_fields:
         if random.random() < mutation_rate:
-            if field in _BUY_PARAM_RANGES:
+            if continuous_mutation and field in _PARAM_BOUNDS:
+                old = float(buy_params.get(field) or _get_default_for_field(base_inputs, field) or 0)
+                buy_params[field] = _continuous_mutate_value(field, old, mutation_sigma_ratio)
+            elif field in _BUY_PARAM_RANGES:
                 buy_params[field] = _random_param_value(field, _BUY_PARAM_RANGES[field])
 
     sell_params = dict(individual.sell_params)
     for field in sell_fields:
         if random.random() < mutation_rate:
-            if field in _SELL_PARAM_RANGES:
+            if continuous_mutation and field in _PARAM_BOUNDS:
+                old = float(sell_params.get(field) or _get_default_for_field(base_inputs, field) or 0)
+                sell_params[field] = _continuous_mutate_value(field, old, mutation_sigma_ratio)
+            elif field in _SELL_PARAM_RANGES:
                 sell_params[field] = _random_param_value(field, _SELL_PARAM_RANGES[field])
             elif field == "sell_allow_same_day_sell":
                 sell_params[field] = random.choice([False, True])
@@ -810,7 +871,6 @@ def _get_default_for_field(inputs: StrategyInputs, field: str) -> object:
 
 
 def _random_param_value(field: str, options: list[object]) -> object:
-    """Pick a random value for a parameter field."""
     if not options:
         return None
     value = random.choice(options)
@@ -819,6 +879,30 @@ def _random_param_value(field: str, options: list[object]) -> object:
     if isinstance(value, (int, float)):
         return float(value) if field not in _INT_FIELDS else int(value)
     return value
+
+
+def _continuous_init_value(field: str) -> float:
+    """Generate a uniform random value within the parameter's bounds."""
+    lo, hi = _PARAM_BOUNDS.get(field, (0, 100))
+    raw = random.uniform(lo, hi)
+    precision = _PARAM_PRECISION.get(field, 2)
+    rounded = round(raw, precision)
+    if field in _INT_FIELDS:
+        return float(int(rounded))
+    return rounded
+
+
+def _continuous_mutate_value(field: str, old_value: float, sigma_ratio: float) -> float:
+    """Apply Gaussian mutation centered on old_value, clamped to bounds."""
+    lo, hi = _PARAM_BOUNDS.get(field, (0, 100))
+    sigma = max(abs(old_value), 0.01) * sigma_ratio
+    new_value = random.gauss(old_value, sigma)
+    new_value = max(lo, min(hi, new_value))
+    precision = _PARAM_PRECISION.get(field, 2)
+    rounded = round(new_value, precision)
+    if field in _INT_FIELDS:
+        return float(int(rounded))
+    return rounded
 
 
 def _apply_params_to_inputs(
@@ -921,6 +1005,8 @@ def _build_cancelled_result(config: EvolutionConfig) -> dict[str, object]:
             "seed": config.seed,
             "cross_strategy": config.cross_strategy,
             "strategy_mutation_rate": config.strategy_mutation_rate,
+            "continuous_mutation": config.continuous_mutation,
+            "mutation_sigma_ratio": config.mutation_sigma_ratio,
         },
         "snapshots": [],
         "best": None,
@@ -984,13 +1070,14 @@ def build_ga_client_manifest(
 
 
 def ga_parameter_ranges_payload() -> dict[str, object]:
-    """Return parameter mutation ranges and strategy field mappings for JS-side GA."""
     return {
         "buy_ranges": {field: list(values) for field, values in _BUY_PARAM_RANGES.items()},
         "sell_ranges": {field: list(values) for field, values in _SELL_PARAM_RANGES.items()},
         "buy_fields": {k: list(v) for k, v in _RELEVANT_BUY_FIELDS.items()},
         "sell_fields": {k: list(v) for k, v in _RELEVANT_SELL_FIELDS.items()},
         "int_fields": list(_INT_FIELDS),
+        "bounds": {field: list(b) for field, b in _PARAM_BOUNDS.items()},
+        "precision": {field: p for field, p in _PARAM_PRECISION.items()},
         "buy_variant_schema": list(PARAMETER_LAB_BUY_VARIANT_SCHEMA),
         "sell_variant_schema": list(PARAMETER_LAB_SELL_VARIANT_SCHEMA),
     }

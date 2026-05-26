@@ -9647,6 +9647,8 @@ def _run_genetic_evolution_payload(payload: dict[str, object]) -> dict[str, obje
         seed=int(payload["ga_seed"]) if "ga_seed" in payload else None,
         cross_strategy=cross_strategy,
         strategy_mutation_rate=float(payload.get("ga_strategy_mutation_rate") or 0.05),
+        continuous_mutation=str(payload.get("ga_continuous_mutation", "")).lower() in {"true", "1", "yes", "on"},
+        mutation_sigma_ratio=float(payload.get("ga_sigma_ratio") or 0.15),
     )
 
     # Fetch market data once
@@ -9784,6 +9786,8 @@ def _prepare_ga_client_payload(payload: dict[str, object]) -> dict[str, object]:
         "tournament_size": ga_config.tournament_size,
         "cross_strategy": ga_config.cross_strategy,
         "strategy_mutation_rate": ga_config.strategy_mutation_rate,
+        "continuous_mutation": ga_config.continuous_mutation,
+        "mutation_sigma_ratio": ga_config.mutation_sigma_ratio,
     }
     ga_payload["ga_parameter_ranges"] = ga_parameter_ranges_payload()
     ga_payload["payload_schema"] = "ga_client_packet_v1"

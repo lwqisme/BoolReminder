@@ -1587,6 +1587,15 @@
                         <label>交叉率<span class="param-help" data-tooltip="两个父代通过交叉产生子代的概率。如 0.80 表示 80% 子代来自交叉组合，20% 直接复制父代。控制全局探索与局部利用的平衡。">?</span>
                             <input id="gaCrossoverRate" type="number" min="0" max="1" step="0.01" value="0.80">
                         </label>
+                        <label>连续变异<span class="param-help" data-tooltip="开启后参数可以变异到候选列表之外的连续值，GA在更大空间内搜索。关闭则只在预设候选值中跳变（离散模式）。">?</span>
+                            <select id="gaContinuousMutation">
+                                <option value="false" selected>关闭 - 离散候选</option>
+                                <option value="true">开启 - 野蛮生长</option>
+                            </select>
+                        </label>
+                        <label>变异幅度 σ<span class="param-help" data-tooltip="连续变异的高斯噪声标准差与当前值的比例。如 0.15 表示 σ = 当前值×15%，值越大变异幅度越猛。仅连续变异模式下生效。">?</span>
+                            <input id="gaSigmaRatio" type="number" min="0.01" max="1" step="0.01" value="0.15">
+                        </label>
                     </div>
                     <div id="gaStatus" style="margin-top:8px;font-size:12px;color:var(--muted);min-height:20px;">就绪。</div>
                     <div class="progress" id="gaProgress" style="display:none;">
@@ -6874,6 +6883,8 @@
             payload.ga_generations = parseInt(document.getElementById('gaGenerations').value, 10) || 20;
             payload.ga_mutation_rate = parseFloat(document.getElementById('gaMutationRate').value) || 0.15;
             payload.ga_crossover_rate = parseFloat(document.getElementById('gaCrossoverRate').value) || 0.80;
+            payload.ga_continuous_mutation = document.getElementById('gaContinuousMutation').value;
+            payload.ga_sigma_ratio = parseFloat(document.getElementById('gaSigmaRatio').value) || 0.15;
             payload.parameter_lab_concurrency = readNumber('workerCount');
 
             try {
@@ -7173,23 +7184,50 @@
             const child = { ...ind };
             const buyRanges = paramRanges.buy_ranges || {};
             const sellRanges = paramRanges.sell_ranges || {};
+            const bounds = paramRanges.bounds || {};
+            const precision = paramRanges.precision || {};
             const intFields = new Set(paramRanges.int_fields || []);
+            const continuous = gaConfig.continuous_mutation || false;
+            const sigmaRatio = gaConfig.mutation_sigma_ratio || 0.15;
+
+            function gaussMutate(field, currentVal) {
+                const b = bounds[field];
+                if (!b || b.length < 2) return currentVal;
+                const lo = Number(b[0]), hi = Number(b[1]);
+                const old = Number(currentVal || (lo + hi) / 2);
+                const sigma = Math.max(Math.abs(old), 0.01) * sigmaRatio;
+                let val = old + (Math.random() + Math.random() + Math.random() + Math.random() - 2) * sigma * 1.5; // approx Gaussian
+                val = Math.max(lo, Math.min(hi, val));
+                const prec = precision[field] !== undefined ? precision[field] : 2;
+                val = Number(val.toFixed(prec));
+                if (intFields.has(field)) val = Math.trunc(val);
+                return val;
+            }
 
             for (const field of BUY_PARAMETER_FIELDS) {
-                if (Math.random() < mutationRate && buyRanges[field]) {
-                    const vals = buyRanges[field];
-                    child[field] = vals[Math.floor(Math.random() * vals.length)];
-                    if (intFields.has(field)) child[field] = Math.trunc(Number(child[field]));
+                if (Math.random() < mutationRate) {
+                    if (continuous && bounds[field]) {
+                        child[field] = gaussMutate(field, child[field]);
+                    } else if (buyRanges[field]) {
+                        const vals = buyRanges[field];
+                        child[field] = vals[Math.floor(Math.random() * vals.length)];
+                        if (intFields.has(field)) child[field] = Math.trunc(Number(child[field]));
+                    }
                 }
             }
             for (const field of SELL_PARAMETER_FIELDS) {
-                if (Math.random() < mutationRate && sellRanges[field]) {
-                    const vals = sellRanges[field];
-                    child[field] = vals[Math.floor(Math.random() * vals.length)];
-                    if (intFields.has(field)) child[field] = Math.trunc(Number(child[field]));
-                } else if (Math.random() < mutationRate && field === 'sell_allow_same_day_sell') {
-                    child[field] = Math.random() < 0.5;
+                if (Math.random() < mutationRate) {
+                    if (continuous && bounds[field]) {
+                        child[field] = gaussMutate(field, child[field]);
+                    } else if (sellRanges[field]) {
+                        const vals = sellRanges[field];
+                        child[field] = vals[Math.floor(Math.random() * vals.length)];
+                        if (intFields.has(field)) child[field] = Math.trunc(Number(child[field]));
+                    } else if (field === 'sell_allow_same_day_sell') {
+                        child[field] = Math.random() < 0.5;
+                    }
                 }
+            }
             }
 
             // Strategy mutation for cross-strategy mode
