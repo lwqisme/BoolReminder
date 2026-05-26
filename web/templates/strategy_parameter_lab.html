@@ -7189,28 +7189,27 @@
             const gaPanel = document.getElementById('gaPanelBody');
             let oldTable = document.getElementById('gaHistoryTable');
             if (oldTable) oldTable.remove();
-
             if (!gaResults || !gaResults.length) return;
 
-            let html = '<div id="gaHistoryTable" style="margin-top:10px;"><details open><summary style="cursor:pointer;font-weight:900;color:var(--ink);padding:6px 0;">进化路径 (' + gaResults.length + ' 代)</summary>';
-            html += '<div style="max-height:240px;overflow:auto;margin-top:4px;"><table style="width:100%;font-size:12px;border-collapse:collapse;">';
+            let html = '<div id="gaHistoryTable" style="margin-top:8px;"><details open><summary style="cursor:pointer;font-weight:900;color:var(--ink);padding:4px 0;font-size:13px;">进化路径 (' + gaResults.length + ' 代)</summary>';
+            html += '<div style="max-height:200px;overflow:auto;margin-top:2px;"><table style="width:100%;font-size:11px;border-collapse:collapse;table-layout:fixed;">';
             html += '<thead><tr style="position:sticky;top:0;background:rgba(248,252,255,0.95);">';
-            html += '<th style="text-align:right;padding:3px 6px;">代</th>';
-            html += '<th style="text-align:right;padding:3px 6px;">最优</th>';
-            html += '<th style="text-align:right;padding:3px 6px;">均值</th>';
-            html += '<th style="text-align:left;padding:3px 6px;">策略</th>';
-            html += '<th style="text-align:left;padding:3px 6px;">关键参数</th>';
+            html += '<th style="text-align:right;padding:2px 4px;width:36px;">代</th>';
+            html += '<th style="text-align:right;padding:2px 4px;width:54px;">最优</th>';
+            html += '<th style="text-align:right;padding:2px 4px;width:54px;">均值</th>';
+            html += '<th style="text-align:left;padding:2px 4px;width:100px;">策略</th>';
+            html += '<th style="text-align:left;padding:2px 4px;">关键参数</th>';
             html += '</tr></thead><tbody>';
 
             for (const snap of gaResults) {
                 const isBest = Math.abs(snap.best_fitness - bestFitnessEver) < 1e-9;
                 const rowStyle = isBest ? 'background:rgba(0,133,111,0.08);font-weight:900;' : '';
                 html += '<tr style="' + rowStyle + '">';
-                html += '<td style="text-align:right;padding:2px 6px;">' + snap.generation + '</td>';
-                html += '<td style="text-align:right;padding:2px 6px;font-family:var(--mono);">' + number(snap.best_fitness, 1) + '</td>';
-                html += '<td style="text-align:right;padding:2px 6px;color:var(--muted);">' + number(snap.avg_fitness, 1) + '</td>';
-                html += '<td style="text-align:left;padding:2px 6px;">' + escapeHtml(String(snap.best_label || '-')) + '</td>';
-                html += '<td style="text-align:left;padding:2px 6px;color:var(--muted);">' + escapeHtml(String(snap.best_key_params || '-')) + '</td>';
+                html += '<td style="text-align:right;padding:1px 4px;">' + snap.generation + '</td>';
+                html += '<td style="text-align:right;padding:1px 4px;font-family:var(--mono);">' + number(snap.best_fitness, 1) + '</td>';
+                html += '<td style="text-align:right;padding:1px 4px;color:var(--muted);">' + number(snap.avg_fitness, 1) + '</td>';
+                html += '<td style="text-align:left;padding:1px 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(String(snap.best_label || '-')) + '">' + escapeHtml(String(snap.best_label || '-')) + '</td>';
+                html += '<td style="text-align:left;padding:1px 4px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + escapeHtml(String(snap.best_key_params || '-')) + '">' + escapeHtml(String(snap.best_key_params || '-')) + '</td>';
                 html += '</tr>';
             }
             html += '</tbody></table></div></details></div>';
