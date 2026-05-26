@@ -61,3 +61,4 @@ node_modules/
 *.bak
 *.bak_*
 *.tmp
+.omo/
