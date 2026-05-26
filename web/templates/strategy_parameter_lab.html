@@ -2932,7 +2932,8 @@
                 investment_universe: readInvestmentUniverse(),
                 parameter_lab_concurrency: readNumber('workerCount'),
                 parameter_lab_selected_values: selectedParameterValuesPayload(),
-                core_dip_timing_filter: document.getElementById('coreDipTimingFilter').value
+                core_dip_timing_filter: document.getElementById('coreDipTimingFilter').value,
+                leapsDrawdownGatePct: readNumber('leapsDrawdownGatePct')
             };
             return payload;
         }
@@ -6652,6 +6653,101 @@
                     if (tooltip) { tooltip.classList.remove('visible'); activeTarget = null; }
                 }
             }, { passive: true });
+        let autoSaveTimer = null;
+        const AUTO_SAVE_KEY = 'strategyLabAutoDefaults';
+        const AUTO_SAVE_DEBOUNCE_MS = 800;
+
+        function autoSaveParameterLabDefaults() {
+            if (autoSaveTimer) clearTimeout(autoSaveTimer);
+            autoSaveTimer = setTimeout(() => {
+                try {
+                    const payload = parameterLabPayload();
+                    localStorage.setItem(AUTO_SAVE_KEY, JSON.stringify(payload));
+                } catch (error) {
+                    console.warn('[parameter-lab] auto-save failed');
+                }
+            }, AUTO_SAVE_DEBOUNCE_MS);
+        }
+
+        function restoreParameterLabDefaults() {
+            try {
+                const raw = localStorage.getItem(AUTO_SAVE_KEY);
+                if (!raw) return false;
+                const payload = JSON.parse(raw);
+                if (!payload || typeof payload !== 'object') return false;
+                const fieldMap = {
+                    initial_cash: 'initialCash', monthly_contribution: 'monthlyContribution',
+                    max_drawdown_pct: 'maxDrawdown', step_pct: 'stepPct',
+                    equal_slice_allocation_pct: 'equalSliceAllocation', trade_fee: 'tradeFee',
+                    hkd_to_usd: 'hkdToUsd', reserve_position_pct: 'reservePosition',
+                    sell_min_profit_pct: 'sellMinProfit', repair_sell_cooldown_days: 'repairSellCooldown',
+                    repair_stage_sell_pct: 'repairStageSellPct', dca_rearm_drawdown_pct: 'dcaRearmDrawdown',
+                    sell_stage_rearm_drawdown_pct: 'sellStageRearmDrawdown',
+                    grid_rebound_step_pct: 'gridReboundStep', grid_sell_pct: 'gridSellPct',
+                    grid_min_sell_amount: 'gridMinSellAmount',
+                    cost_first_profit_pct: 'costFirstProfitPct', cost_second_profit_pct: 'costSecondProfitPct',
+                    cost_third_profit_pct: 'costThirdProfitPct', cost_first_sell_pct: 'costFirstSellPct',
+                    cost_second_sell_pct: 'costSecondSellPct', cost_third_sell_pct: 'costThirdSellPct',
+                    cost_deleverage_cooldown_days: 'costDeleverageCooldown', cost_min_sell_amount: 'costMinSellAmount',
+                    core_dip_initial_core_pct: 'coreDipInitialCorePct', core_dip_weekly_core_pct: 'coreDipWeeklyCorePct',
+                    core_dip_cash_reserve_pct: 'coreDipCashReservePct', core_dip_start_drawdown_pct: 'coreDipStartDrawdownPct',
+                    core_dip_full_drawdown_pct: 'coreDipFullDrawdownPct', core_dip_timing_max_delay_days: 'coreDipTimingMaxDelayDays',
+                    core_dip_timing_rise_threshold_pct: 'coreDipTimingRiseThresholdPct', core_dip_timing_near_low_pct: 'coreDipTimingNearLowPct',
+                    leaps_low_cash_threshold_pct: 'leapsLowCashThreshold', leaps_min_drawdown_pct: 'leapsMinDrawdown',
+                    leaps_premium_budget_cap: 'leapsPremiumBudgetCap', leaps_target_dte_label: 'leapsTargetDteLabel',
+                    parameter_lab_concurrency: 'workerCount'
+                };
+                Object.entries(fieldMap).forEach(([key, elId]) => {
+                    const val = payload[key];
+                    const el = document.getElementById(elId);
+                    if (el && val !== undefined && val !== null && String(val) !== '') {
+                        if (el.type === 'checkbox') el.checked = Boolean(val);
+                        else el.value = val;
+                    }
+                });
+                if (payload.drawdown_basis) { const el = document.getElementById('drawdownBasis'); if (el) el.value = payload.drawdown_basis; }
+                if (payload.start) document.getElementById('start').value = payload.start;
+                if (payload.end) document.getElementById('end').value = payload.end;
+                if (payload.sell_allow_same_day_sell !== undefined) { const el = document.getElementById('sellAllowSameDaySell'); if (el) el.checked = Boolean(payload.sell_allow_same_day_sell); }
+                if (payload.core_dip_timing_enabled !== undefined) { const el = document.getElementById('coreDipTimingEnabled'); if (el) el.value = payload.core_dip_timing_enabled ? 'true' : 'false'; }
+                if (payload.core_dip_timing_filter) { const el = document.getElementById('coreDipTimingFilter'); if (el) el.value = payload.core_dip_timing_filter; }
+                if (payload.leapsDrawdownGatePct !== undefined) { const el = document.getElementById('leapsDrawdownGatePct'); if (el) el.value = payload.leapsDrawdownGatePct; }
+                if (Array.isArray(payload.buy_strategies)) { document.querySelectorAll('input[name="buyStrategy"]').forEach((cb) => { cb.checked = payload.buy_strategies.includes(cb.value); }); }
+                if (Array.isArray(payload.sell_strategies)) { document.querySelectorAll('input[name="sellStrategy"]').forEach((cb) => { cb.checked = payload.sell_strategies.includes(cb.value); }); }
+                if (Array.isArray(payload.scorecard_portfolio_keys)) { document.querySelectorAll('input[name="scorecardPortfolio"]').forEach((cb) => { cb.checked = payload.scorecard_portfolio_keys.includes(cb.value); }); }
+                if (Array.isArray(payload.scorecard_periods)) { document.querySelectorAll('input[name="scorecardPeriod"]').forEach((cb) => { const period = payload.scorecard_periods.find((p) => p.key === cb.value); cb.checked = period ? period.enabled !== false : false; }); }
+                if (Array.isArray(payload.targets)) { const ta = document.getElementById('portfolioText'); if (ta) ta.value = JSON.stringify(payload.targets); }
+                if (Array.isArray(payload.investment_universe)) { const ta = document.getElementById('universeText'); if (ta) ta.value = JSON.stringify(payload.investment_universe); }
+                if (payload.parameter_lab_selected_values && typeof payload.parameter_lab_selected_values === 'object') {
+                    Object.keys(customParameterValues).forEach((k) => delete customParameterValues[k]);
+                    Object.assign(customParameterValues, payload.parameter_lab_selected_values.custom || {});
+                    Object.keys(selectedParameterValues).forEach((k) => delete selectedParameterValues[k]);
+                    if (payload.parameter_lab_selected_values.selected) {
+                        Object.entries(payload.parameter_lab_selected_values.selected).forEach(([field, keys]) => {
+                            selectedParameterValues[field] = new Set(Array.isArray(keys) ? keys : []);
+                        });
+                    }
+                }
+                return true;
+            } catch (error) { return false; }
+        }
+
+        function initAutoSaveListeners() {
+            const saveIds = ['start', 'end', 'initialCash', 'monthlyContribution', 'maxDrawdown', 'stepPct', 'equalSliceAllocation', 'tradeFee', 'hkdToUsd', 'reservePosition', 'sellMinProfit', 'repairSellCooldown', 'repairStageSellPct', 'dcaRearmDrawdown', 'sellStageRearmDrawdown', 'gridReboundStep', 'gridSellPct', 'gridMinSellAmount', 'costFirstProfitPct', 'costSecondProfitPct', 'costThirdProfitPct', 'costFirstSellPct', 'costSecondSellPct', 'costThirdSellPct', 'costDeleverageCooldown', 'costMinSellAmount', 'coreDipInitialCorePct', 'coreDipWeeklyCorePct', 'coreDipCashReservePct', 'coreDipStartDrawdownPct', 'coreDipFullDrawdownPct', 'coreDipTimingMaxDelayDays', 'coreDipTimingRiseThresholdPct', 'coreDipTimingNearLowPct', 'leapsLowCashThreshold', 'leapsMinDrawdown', 'leapsPremiumBudgetCap', 'leapsTargetDteLabel', 'leapsDrawdownGatePct', 'workerCount', 'drawdownBasis', 'coreDipTimingEnabled', 'coreDipTimingFilter'];
+            saveIds.forEach((id) => {
+                const el = document.getElementById(id);
+                if (el) { el.addEventListener('input', autoSaveParameterLabDefaults); el.addEventListener('change', autoSaveParameterLabDefaults); }
+            });
+            document.querySelectorAll('input[name="buyStrategy"], input[name="sellStrategy"], input[name="scorecardPortfolio"], input[name="scorecardPeriod"]').forEach((cb) => { cb.addEventListener('change', autoSaveParameterLabDefaults); });
+            const sameDayEl = document.getElementById('sellAllowSameDaySell'); if (sameDayEl) sameDayEl.addEventListener('change', autoSaveParameterLabDefaults);
+            const leapsGate = document.getElementById('leapsDrawdownGate'); if (leapsGate) leapsGate.addEventListener('change', autoSaveParameterLabDefaults);
+            const pfText = document.getElementById('portfolioText'); if (pfText) pfText.addEventListener('input', autoSaveParameterLabDefaults);
+            const univText = document.getElementById('universeText'); if (univText) univText.addEventListener('input', autoSaveParameterLabDefaults);
+            const grid = document.getElementById('candidateGridSummary'); if (grid) { grid.addEventListener('click', (e) => { if (e.target.closest('[data-parameter-value-key]')) setTimeout(autoSaveParameterLabDefaults, 100); }); }
+        }
+
+        initAutoSaveListeners();
+        restoreParameterLabDefaults();
         })();
     </script>
 </body>
