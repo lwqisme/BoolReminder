@@ -1598,6 +1598,10 @@
                             <option value="high" selected>仅高等级</option>
                         </select>
                     </label>
+                    <label class="switch-label">
+                        <input id="leapsDrawdownGate" type="checkbox" onchange="renderParameterMatrix()">
+                        回撤≥20%才高等级
+                    </label>
                     <label>排名
                         <select id="rankMethod" onchange="renderParameterMatrix()">
                             <option value="normalized" selected>题内归一化</option>
@@ -1814,6 +1818,19 @@
         const customParameterValues = {};
         const nonCustomParameterFields = new Set(['sell_allow_same_day_sell', 'buy_rearm_mode', 'core_dip_timing_enabled']);
         const leapsGradeRank = { '高': 3, '中': 2, '低': 1, '无': 0 };
+        function leapsDrawdownGateEnabled() {
+            return document.getElementById('leapsDrawdownGate')?.checked === true;
+        }
+        function leapsDrawdownGateThreshold() {
+            return leapsDrawdownGateEnabled() ? 20 : 0;
+        }
+        function leapsEffectiveGrade(signal) {
+            const threshold = leapsDrawdownGateThreshold();
+            if (!threshold || !signal) return signal?.grade || '无';
+            const drawdown = Number(signal.drawdown_pct);
+            if (signal.grade === '高' && Number.isFinite(drawdown) && drawdown < threshold) return '中';
+            return signal.grade || '无';
+        }
 
         function escapeHtml(value) {
             return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -1890,8 +1907,8 @@
             return '';
         }
         function betterLeapsSignal(a, b) {
-            const ar = leapsGradeRank[a?.grade || '无'] || 0;
-            const br = leapsGradeRank[b?.grade || '无'] || 0;
+            const ar = leapsGradeRank[leapsEffectiveGrade(a) || '无'] || 0;
+            const br = leapsGradeRank[leapsEffectiveGrade(b) || '无'] || 0;
             if (ar !== br) return ar > br ? a : b;
             const scoreDiff = Number(a?.score || 0) - Number(b?.score || 0);
             if (Math.abs(scoreDiff) > 1e-9) return scoreDiff >= 0 ? a : b;
@@ -1921,7 +1938,7 @@
         }
         function sortedLeapsSignals(signals) {
             return [...(signals || [])].sort((a, b) => {
-                const gradeDiff = (leapsGradeRank[b.grade] || 0) - (leapsGradeRank[a.grade] || 0);
+                const gradeDiff = (leapsGradeRank[leapsEffectiveGrade(b) || '无'] || 0) - (leapsGradeRank[leapsEffectiveGrade(a) || '无'] || 0);
                 if (gradeDiff) return gradeDiff;
                 const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
                 if (Math.abs(scoreDiff) > 1e-9) return scoreDiff;
@@ -1929,12 +1946,29 @@
             });
         }
         function finalizeAggregateLeapsSummary({ best = null, triggerCount = 0, gradeCounts = null, coverage = null, topSignals = [], estimateSignals = [], allSignals = [], hasFullSignals = false } = {}) {
-            const counts = { ...emptyLeapsGradeCounts(), ...(gradeCounts || {}) };
-            const periodLabelsByGrade = {};
+            let counts = { ...emptyLeapsGradeCounts(), ...(gradeCounts || {}) };
+            let periodLabelsByGrade = {};
             ['高', '中', '低'].forEach((grade) => {
                 periodLabelsByGrade[grade] = Array.from(coverage?.[grade] || []).sort();
             });
-            const grade = firstAvailableLeapsGrade(counts, best?.grade || '无');
+            if (leapsDrawdownGateEnabled()) {
+                const allAvailable = topSignals.concat(allSignals);
+                counts = emptyLeapsGradeCounts();
+                const effectiveCoverage = { 高: new Set(), 中: new Set(), 低: new Set() };
+                allAvailable.forEach((signal) => {
+                    const grade = leapsEffectiveGrade(signal);
+                    if (grade !== '无') {
+                        counts[grade] = (counts[grade] || 0) + 1;
+                        const label = topicPeriodLabel(signal);
+                        if (label) effectiveCoverage[grade].add(label);
+                    }
+                });
+                periodLabelsByGrade = {};
+                ['高', '中', '低'].forEach((grade) => {
+                    periodLabelsByGrade[grade] = Array.from(effectiveCoverage[grade]).sort();
+                });
+            }
+            const grade = firstAvailableLeapsGrade(counts, leapsEffectiveGrade(best) || '无');
             const sortedTopSignals = sortedLeapsSignals(topSignals);
             const result = {
                 aggregate: true,
@@ -2608,7 +2642,7 @@
                 stock_sell_label: formatGroupedStockSell(group.signals),
                 stock_sell_risk: !group.signals.some((signal) => signal.next_stock_sell_date)
             })).sort((a, b) => {
-                const gradeDiff = (leapsGradeRank[b.best_signal?.grade || '无'] || 0) - (leapsGradeRank[a.best_signal?.grade || '无'] || 0);
+                const gradeDiff = (leapsGradeRank[leapsEffectiveGrade(b.best_signal) || '无'] || 0) - (leapsGradeRank[leapsEffectiveGrade(a.best_signal) || '无'] || 0);
                 if (gradeDiff) return gradeDiff;
                 const scoreDiff = Number(b.best_signal?.score || 0) - Number(a.best_signal?.score || 0);
                 if (Math.abs(scoreDiff) > 1e-9) return scoreDiff;
@@ -4805,7 +4839,7 @@
                     font: { color: '#06324c', family: 'Aptos, IBM Plex Sans, Noto Sans SC, sans-serif' },
                     hovermode: 'x unified',
                     legend: { orientation: 'h', y: fullscreen ? -0.14 : -0.18, x: 0, yanchor: 'top', font: { color: '#315d78' } },
-                    xaxis: { type: 'date', gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2' },
+                    xaxis: { type: 'date', gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2', rangebreaks: [{ bounds: ['sat', 'mon'] }] },
                     yaxis: { title: '组合 / 现金', gridcolor: '#d7ecf8', zerolinecolor: '#a2d5f2', tickprefix: '$' },
                     yaxis2: { title: '股价', overlaying: 'y', side: 'right', tickprefix: '$', showgrid: false, zeroline: false }
                 },
