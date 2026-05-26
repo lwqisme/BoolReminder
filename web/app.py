@@ -9756,6 +9756,7 @@ def _ga_clamp_value(field: str, value: object, bounds: dict[str, tuple[float, fl
 def _apply_ga_bounds_to_manifest(manifest: dict[str, object], bounds: dict[str, tuple[float, float]]) -> None:
     if not bounds:
         return
+    changed_variant_ids: set[object] = set()
     for rows_key, schema_key in (
         ("buy_variants", "buy_variant_schema"),
         ("sell_variants", "sell_variant_schema"),
@@ -9778,8 +9779,17 @@ def _apply_ga_bounds_to_manifest(manifest: dict[str, object], bounds: dict[str, 
                 if new_value != old_value:
                     row[field_index] = new_value
                     changed = True
-            if changed and len(row) > 1:
-                row[1] = f"{row[1]}__bounded"
+            if changed and row:
+                changed_variant_ids.add(row[0])
+    if not changed_variant_ids:
+        return
+    for rows_key in ("buy_variants", "sell_variants"):
+        rows = manifest.get(rows_key)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if isinstance(row, list) and row and row[0] in changed_variant_ids and len(row) > 2:
+                row[1] = f"{row[2]}__bounded_{row[0]}"
 
 
 def _apply_ga_bounds_to_ranges(ranges: dict[str, object], bounds: dict[str, tuple[float, float]]) -> None:

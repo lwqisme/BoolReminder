@@ -7351,6 +7351,9 @@
                 const sellParams = extractGaParams(ind, SELL_PARAMETER_FIELDS);
                 const suffix = index !== null ? '__seed' + index : '__' + Math.random().toString(36).slice(2, 8);
                 ind.key = buildCandidateKey(ind.buy_strategy || '', ind.sell_strategy || '', buyParams, sellParams) + suffix;
+                ind.combination_key = ind.key;
+                ind.buy_variant_key = ind.key;
+                ind.sell_variant_key = ind.key;
                 ind.label = null;
             }
             return ind;
