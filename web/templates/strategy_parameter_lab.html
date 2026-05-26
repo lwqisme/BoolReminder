@@ -6845,8 +6845,6 @@
 
         // ── Genetic Algorithm EVOLVE mode (client-side worker pool) ───────
         let gaCancelled = false;
-        let gaWorkers = [];
-        let gaCurrentRun = null;
 
         function toggleGaStrategyControls() {
             const crossEnabled = document.getElementById('gaCrossStrategy').value === 'true';
@@ -6936,22 +6934,6 @@
                 let bestEver = null;
                 let bestFitnessEver = -Infinity;
                 const gaResults = [];
-                const buyVariantSchemaIndex = schemaIndexMap(packet.buy_variant_schema || []);
-                const sellVariantSchemaIndex = schemaIndexMap(packet.sell_variant_schema || []);
-
-                // Start workers
-                gaWorkers = [];
-                let settled = false;
-                for (let wi = 0; wi < workerCount; wi++) {
-                    const worker = new Worker(parameterLabWorkerUrl);
-                    gaWorkers.push(worker);
-                    worker.postMessage({
-                        type: 'start', run_id: workerPacketBase.run_id, worker_index: wi,
-                        total_simulations: population.length * (packet.tasks || []).length,
-                        packet: { ...workerPacketBase }
-                    });
-                }
-                gaCurrentRun = { run_id: workerPacketBase.run_id, workers: gaWorkers, settled: false };
 
                 // ── GA EVOLUTION LOOP ────────────────────────────────────────
                 for (let gen = 0; gen < totalGenerations; gen++) {
@@ -6967,21 +6949,19 @@
                     for (let i = 0; i < population.length; i++) {
                         const cand = population[i];
                         const buyRow = [i, cand.key || ('ga_' + i), cand.buy_strategy || ''];
-                        for (const field of BUY_PARAMETER_FIELDS) {
-                            buyRow.push(cand[field] !== undefined ? cand[field] : null);
-                        }
+                        for (const field of BUY_PARAMETER_FIELDS) buyRow.push(cand[field] !== undefined ? cand[field] : null);
                         const sellRow = [i, cand.key || ('ga_' + i), cand.sell_strategy || ''];
-                        for (const field of SELL_PARAMETER_FIELDS) {
-                            sellRow.push(cand[field] !== undefined ? cand[field] : null);
-                        }
+                        for (const field of SELL_PARAMETER_FIELDS) sellRow.push(cand[field] !== undefined ? cand[field] : null);
                         buyVariants.push(buyRow);
                         sellVariants.push(sellRow);
                         candidateRows.push([i, i, i]);
                     }
 
-                    // Send batch to all workers, collect via Promise
-                    const genPacket = { ...workerPacketBase, buy_variants: buyVariants, sell_variants: sellVariants, candidate_rows: candidateRows };
-                    const observations = await evaluatePopulationWithWorkers(gaWorkers, genPacket, wi => gaCancelled);
+                    const genPacket = {
+                        ...workerPacketBase,
+                        buy_variants: buyVariants, sell_variants: sellVariants, candidate_rows: candidateRows
+                    };
+                    const observations = await evaluatePopulationWithWorkers(genPacket, workerCount, function() { return gaCancelled; });
                     if (gaCancelled) break;
 
                     // Compute fitness per individual
@@ -7005,10 +6985,7 @@
                     const genBestIdx = fitnesses.indexOf(Math.max.apply(null, fitnesses));
                     const genBestFitness = fitnesses[genBestIdx];
                     const genAvgFitness = fitnesses.reduce(function(a, b) { return a + b; }, 0) / fitnesses.length;
-                    if (genBestFitness > bestFitnessEver) {
-                        bestFitnessEver = genBestFitness;
-                        bestEver = population[genBestIdx];
-                    }
+                    if (genBestFitness > bestFitnessEver) { bestFitnessEver = genBestFitness; bestEver = population[genBestIdx]; }
                     gaResults.push({ generation: gen + 1, best_fitness: genBestFitness, avg_fitness: genAvgFitness, population_size: population.length });
 
                     // Elitism + generate next generation
@@ -7016,29 +6993,16 @@
                         .sort(function(a, b) { return b.fit - a.fit; });
                     const elites = ranked.slice(0, gaConfig.elitism_count || 3).map(function(r) { return r.ind; });
                     const nextPop = elites.slice();
-
                     while (nextPop.length < population.length) {
                         if (gaCancelled) break;
                         const p1 = tournamentSelectGa(ranked, gaConfig.tournament_size || 4);
                         const p2 = tournamentSelectGa(ranked, gaConfig.tournament_size || 4);
-                        let child;
-                        if (Math.random() < (gaConfig.crossover_rate || 0.8)) {
-                            child = crossoverGa(p1, p2);
-                        } else {
-                            child = { ...p1 };
-                        }
-                        child = mutateGa(child, gaConfig.mutation_rate || 0.15, paramRanges, gaConfig, crossEnabled);
-                        nextPop.push(child);
+                        const child = Math.random() < (gaConfig.crossover_rate || 0.8) ? crossoverGa(p1, p2) : { ...p1 };
+                        nextPop.push(mutateGa(child, gaConfig.mutation_rate || 0.15, paramRanges, gaConfig, crossEnabled));
                     }
                     population = nextPop.slice(0, gaConfig.population_size || 50);
-
                     setStatus('GA Evolving', genLabel + ' — 最优适应度: ' + number(bestFitnessEver, 1), 10 + ((gen + 1) / totalGenerations) * 80);
                 }
-
-                // Cleanup workers
-                gaWorkers.forEach(function(w) { w.terminate(); });
-                gaWorkers = [];
-                gaCurrentRun = null;
 
                 // Display results
                 const finalRows = Object.values(allEvaluated).sort(function(a, b) { return b.fitness - a.fitness; });
@@ -7074,8 +7038,7 @@
                 document.getElementById('gaCancelBtn').style.display = 'none';
                 scheduleProgressFloatAutoHide();
             } catch (error) {
-                gaWorkers.forEach(function(w) { w.terminate(); });
-                gaWorkers = [];
+                gaCancelled = true;
                 document.getElementById('gaStatus').textContent = '错误: ' + (error.message || String(error));
                 document.getElementById('gaCancelBtn').style.display = 'none';
                 document.getElementById('gaProgress').style.display = 'none';
@@ -7085,78 +7048,87 @@
 
         function cancelGeneticEvolution() {
             gaCancelled = true;
-            gaWorkers.forEach(function(w) { try { w.terminate(); } catch(e) {} });
-            gaWorkers = [];
-            if (gaCurrentRun) gaCurrentRun.settled = true;
-            gaCurrentRun = null;
             document.getElementById('gaStatus').textContent = '已停止。';
             document.getElementById('gaCancelBtn').style.display = 'none';
         }
 
-        // ── GA helper: send population to workers, collect observations ─────
-        function evaluatePopulationWithWorkers(workers, packet, shouldCancel) {
+        // ── GA helper: spawn workers, evaluate a generation, collect observations ──
+        function evaluatePopulationWithWorkers(packet, workerCount, shouldCancel) {
             return new Promise(function(resolve, reject) {
-                const candidateRows = packet.candidate_rows || [];
+                const runId = packet.run_id || ('ga-' + Date.now().toString(36));
                 const tasks = packet.tasks || [];
+                const candidateRows = packet.candidate_rows || [];
                 if (!candidateRows.length) { resolve([]); return; }
-                const batchSize = Math.max(1, Math.ceil(candidateRows.length / workers.length));
+
+                const batchSize = Math.max(1, Math.ceil(candidateRows.length / workerCount));
                 const batches = [];
                 for (let i = 0; i < candidateRows.length; i += batchSize) {
-                    batches.push({ batch_id: 'ga-' + i, candidate_rows: candidateRows.slice(i, i + batchSize) });
+                    batches.push({ batch_id: 'ga-' + runId + '-' + i, candidate_rows: candidateRows.slice(i, i + batchSize) });
                 }
-                let completedBatches = 0;
-                let settled = false;
+
+                let completedBatches = 0, settled = false;
                 const allRows = [];
+                const workers = [];
                 const cleanup = function() {
                     settled = true;
-                    workers.forEach(function(w) {
-                        try { w.onmessage = null; } catch(e) {}
-                    });
+                    workers.forEach(function(w) { try { w.terminate(); } catch(e) {} });
                 };
 
-                const assignNext = function(worker, wi) {
+                // Create workers for this generation
+                for (let wi = 0; wi < workerCount; wi++) {
+                    workers.push(new Worker(parameterLabWorkerUrl));
+                }
+
+                const assignNext = function(wi) {
                     if (settled) return;
                     const next = batches.shift();
-                    if (!next) {
-                        worker.postMessage({ type: 'finish', run_id: packet.run_id, worker_index: wi });
-                        return;
-                    }
+                    const worker = workers[wi];
+                    if (!next) { return; }
+
                     worker.onmessage = function(event) {
-                        const msg = event.data || {};
                         if (settled) return;
+                        const msg = event.data || {};
                         if (msg.type === 'batch_done') {
-                            allRows.push.apply(allRows, (msg.rows || []).map(function(r) {
+                            const obs = (msg.rows || []).map(function(r) {
                                 return (r.observations || []).map(function(o) {
                                     return { candidate_id: r.candidate_id, candidate_key: r.candidate_key,
-                                        return_pct: o.return_pct, max_drawdown_pct: o.max_drawdown_pct,
-                                        topic_key: o.topic_key };
+                                        return_pct: o.return_pct, max_drawdown_pct: o.max_drawdown_pct, topic_key: o.topic_key };
                                 });
-                            }).flat());
+                            }).flat();
+                            allRows.push.apply(allRows, obs);
                             completedBatches++;
-                            if (shouldCancel && shouldCancel()) { cleanup(); resolve([]); return; }
-                            assignNext(worker, wi);
+                            if (shouldCancel && shouldCancel()) { cleanup(); resolve(allRows); return; }
+                            if (batches.length) { assignNext(wi); } else { cleanup(); resolve(allRows); }
                         } else if (msg.type === 'ready') {
-                            assignNext(worker, wi);
-                        } else if (msg.type === 'done') {
-                            completedBatches++;
+                            assignNext(wi);
                         } else if (msg.type === 'error') {
                             cleanup(); reject(new Error(msg.message || 'Worker error'));
                         }
                     };
+
+                    worker.onerror = function(e) { cleanup(); reject(new Error(e.message || 'Worker crashed')); };
+
                     worker.postMessage({
-                        type: 'batch', run_id: packet.run_id, worker_index: wi,
+                        type: 'start', run_id: runId, worker_index: wi,
+                        total_simulations: next.candidate_rows.length * tasks.length,
+                        packet: {
+                            run_id: runId, inputs: packet.inputs || {}, tasks: tasks,
+                            market_data: packet.market_data || {}, registry: packet.registry || {},
+                            buy_variant_schema: packet.buy_variant_schema || [],
+                            sell_variant_schema: packet.sell_variant_schema || [],
+                            candidate_schema: packet.candidate_schema || [],
+                            buy_variants: packet.buy_variants || [],
+                            sell_variants: packet.sell_variants || [],
+                            diagnostics: { verbose_simulation_logs: false, progress_every: 1, progress_min_ms: 500, slow_simulation_ms: 3000 }
+                        }
+                    });
+                    worker.postMessage({
+                        type: 'batch', run_id: runId, worker_index: wi,
                         batch_id: next.batch_id, candidate_rows: next.candidate_rows
                     });
                 };
 
-                workers.forEach(function(worker, wi) { assignNext(worker, wi); });
-
-                const checkDone = setInterval(function() {
-                    if (settled) { clearInterval(checkDone); return; }
-                    if (completedBatches >= batches.length || (shouldCancel && shouldCancel())) {
-                        cleanup(); clearInterval(checkDone); resolve(allRows);
-                    }
-                }, 200);
+                for (let wi = 0; wi < workerCount; wi++) assignNext(wi);
             });
         }
 
@@ -7227,7 +7199,6 @@
                         child[field] = Math.random() < 0.5;
                     }
                 }
-            }
             }
 
             // Strategy mutation for cross-strategy mode
