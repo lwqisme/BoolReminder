@@ -44,6 +44,11 @@ from drawdown.position_strategy import (
     _scorecard_symbol_key,
 )
 from drawdown.strategy_lab_config import StrategyLabConfig
+from drawdown.strategy_parameter_genetic import (
+    EvolutionConfig,
+    make_fitness_fn,
+    evolve_parameters,
+)
 from drawdown.strategy_parameter_registry import (
     BUY_PARAMETER_FIELDS,
     SELL_PARAMETER_FIELDS,
@@ -9597,6 +9602,103 @@ def _run_strategy_robust_payload(payload: dict[str, object]) -> dict[str, object
     )
 
 
+def _run_genetic_evolution_payload(payload: dict[str, object]) -> dict[str, object]:
+    """Run genetic algorithm optimization for strategy parameters."""
+    from drawdown.position_strategy import (
+        PortfolioTarget,
+        build_longbridge_quote_context,
+        fetch_longbridge_daily_candles,
+    )
+
+    start_date, end_date = parse_date_range(payload.get("start"), payload.get("end"))
+    lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+    targets = lab_config.portfolio_or_default()
+    if not isinstance(targets, list) or not targets:
+        raise ValueError("targets 必须是数组且不能为空")
+    base_inputs = lab_config.to_strategy_inputs()
+
+    # Parse GA parameters from payload
+    buy_strategy = str(payload.get("ga_buy_strategy") or payload.get("buy_strategy") or "equal_slice")
+    sell_strategy = str(payload.get("ga_sell_strategy") or payload.get("sell_strategy") or "grid_rebound")
+    if buy_strategy not in STRATEGY_LABELS:
+        raise ValueError(f"未知买入策略: {buy_strategy}")
+    if sell_strategy not in SELL_STRATEGY_LABELS:
+        raise ValueError(f"未知卖出策略: {sell_strategy}")
+
+    ga_config = EvolutionConfig(
+        population_size=int(payload.get("ga_population_size") or 50),
+        generations=int(payload.get("ga_generations") or 20),
+        mutation_rate=float(payload.get("ga_mutation_rate") or 0.15),
+        crossover_rate=float(payload.get("ga_crossover_rate") or 0.80),
+        elitism_count=int(payload.get("ga_elitism_count") or 3),
+        tournament_size=int(payload.get("ga_tournament_size") or 4),
+        seed=int(payload["ga_seed"]) if "ga_seed" in payload else None,
+    )
+
+    # Fetch market data once
+    quote_ctx = build_longbridge_quote_context()
+    price_points_by_symbol: dict[str, list] = {}
+    portfolio_targets: list[PortfolioTarget] = []
+    warnings: list[str] = []
+
+    for target in targets:
+        symbol = str(target.get("symbol", "")).strip()
+        name = str(target.get("name", "") or symbol).strip()
+        weight = float(target.get("weight", 100))
+        max_dd = float(target.get("max_drawdown_pct", base_inputs.max_drawdown_pct))
+        portfolio_targets.append(PortfolioTarget(symbol=symbol, name=name, weight=weight, max_drawdown_pct=max_dd))
+
+        try:
+            candles = fetch_longbridge_daily_candles(quote_ctx, symbol, start_date, end_date)
+        except Exception:
+            raise RuntimeError(f"Longbridge 没有返回 {symbol} 的历史日线。")
+        if not candles:
+            raise RuntimeError(f"Longbridge 没有返回 {symbol} 的历史日线。")
+
+        from drawdown.position_strategy import candle_datetime, build_price_points_from_series
+        series = [
+            (candle_datetime(candle).replace(tzinfo=None), float(candle.close))
+            for candle in candles
+        ]
+        points = build_price_points_from_series(series)
+        if not points:
+            raise RuntimeError(f"无法从 Longbridge 构建 {symbol} 的价格序列。")
+        if points[0].date.date() > start_date:
+            warnings.append(f"{symbol} 首个可用交易日为 {points[0].date.date().isoformat()}")
+        price_points_by_symbol[symbol] = points
+
+    # Create fitness function
+    fitness_fn = make_fitness_fn(
+        buy_strategy=buy_strategy,
+        sell_strategy=sell_strategy,
+        price_points_by_symbol=price_points_by_symbol,
+        targets=portfolio_targets,
+        base_inputs=base_inputs,
+    )
+
+    # Run GA evolution
+    cancel_checker = _strategy_lab_job_control_checker(str(payload.get("_job_id") or ""))
+    result = evolve_parameters(
+        buy_strategy=buy_strategy,
+        sell_strategy=sell_strategy,
+        base_inputs=base_inputs,
+        fitness_fn=fitness_fn,
+        config=ga_config,
+        cancel_checker=cancel_checker,
+    )
+
+    result["range"] = {
+        "start": start_date.isoformat(),
+        "end": end_date.isoformat(),
+    }
+    result["warnings"] = warnings
+    result["buy_strategy"] = buy_strategy
+    result["sell_strategy"] = sell_strategy
+    result["buy_strategy_label"] = STRATEGY_LABELS.get(buy_strategy, buy_strategy)
+    result["sell_strategy_label"] = SELL_STRATEGY_LABELS.get(sell_strategy, sell_strategy)
+    return result
+
+
 def _prepare_strategy_robust_client_payload(payload: dict[str, object]) -> dict[str, object]:
     end_date = date.fromisoformat(payload.get("end")) if payload.get("end") else datetime.now().date()
     lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
@@ -9987,6 +10089,7 @@ def _create_strategy_lab_job(kind: str, payload: dict[str, object]) -> dict[str,
         "score": _run_strategy_score_payload,
         "scan": _run_strategy_scan_payload,
         "robust": _run_strategy_robust_payload,
+        "evolve": _run_genetic_evolution_payload,
     }
     if kind not in runners:
         raise ValueError("未知 strategy-lab job 类型。")
@@ -10050,6 +10153,44 @@ def api_strategy_lab_robust_client_packet():
 @app.route('/api/strategy-lab/parameter-lab/registry', methods=['GET'])
 def api_strategy_lab_parameter_registry():
     return jsonify({"success": True, "registry": strategy_registry_payload()})
+
+
+@app.route('/api/strategy-lab/parameter-lab/evolve', methods=['POST'])
+def api_strategy_lab_parameter_lab_evolve():
+    """启动遗传算法优化任务。"""
+    payload = request.get_json(silent=True) or {}
+    _parameter_lab_log(
+        "evolve_request_start",
+        run_id=str(payload.get("run_id") or "").strip(),
+        buy_strategy=payload.get("ga_buy_strategy"),
+        sell_strategy=payload.get("ga_sell_strategy"),
+        content_length=request.content_length,
+        remote_addr=request.headers.get("X-Forwarded-For", request.remote_addr),
+    )
+    try:
+        job = _create_strategy_lab_job("evolve", {
+            **payload,
+            "_job_id": str(payload.get("_job_id") or uuid.uuid4().hex),
+        })
+        _parameter_lab_log(
+            "evolve_request_done",
+            job_id=job["id"],
+            run_id=str(payload.get("run_id") or "").strip(),
+        )
+        return jsonify({"success": True, "job": job}), 202
+    except ValueError as exc:
+        _parameter_lab_warn(
+            "evolve_request_value_error",
+            message=str(exc),
+        )
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        _parameter_lab_error(
+            "evolve_request_error",
+            message=str(exc),
+            stack=traceback.format_exc(),
+        )
+        return _json_error(f"遗传算法优化失败: {exc}", 500)
 
 
 @app.route('/api/strategy-lab/parameter-lab/estimate', methods=['POST'])

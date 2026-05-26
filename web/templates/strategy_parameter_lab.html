@@ -1540,6 +1540,51 @@
                 </div>
             </div>
 
+            <div class="panel">
+                <div class="panel-head">
+                    <h2>遗传算法 (GA)</h2>
+                    <span style="font-family:var(--mono);font-size:12px;color:var(--muted);">进化优化</span>
+                </div>
+                <div class="panel-body">
+                    <div class="field-grid">
+                        <label>买入策略
+                            <select id="gaBuyStrategy">
+                                {% for key, label in buy_strategy_labels.items() %}
+                                <option value="{{ key }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                        <label>卖出策略
+                            <select id="gaSellStrategy">
+                                {% for key, label in sell_strategy_labels.items() %}
+                                <option value="{{ key }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </label>
+                        <label>种群大小
+                            <input id="gaPopSize" type="number" min="10" max="200" step="10" value="50">
+                        </label>
+                        <label>进化代数
+                            <input id="gaGenerations" type="number" min="5" max="100" step="5" value="20">
+                        </label>
+                        <label>变异率
+                            <input id="gaMutationRate" type="number" min="0" max="1" step="0.01" value="0.15">
+                        </label>
+                        <label>交叉率
+                            <input id="gaCrossoverRate" type="number" min="0" max="1" step="0.01" value="0.80">
+                        </label>
+                    </div>
+                    <div id="gaStatus" style="margin-top:8px;font-size:12px;color:var(--muted);min-height:20px;">就绪。</div>
+                    <div class="progress" id="gaProgress" style="display:none;">
+                        <span id="gaProgressBar" style="width:0%;"></span>
+                    </div>
+                    <div class="actions" style="margin-top:8px;">
+                        <button class="primary" type="button" onclick="runGeneticEvolution()">运行遗传算法</button>
+                        <button class="danger" type="button" onclick="cancelGeneticEvolution()" id="gaCancelBtn" style="display:none;">停止</button>
+                    </div>
+                </div>
+            </div>
+
         </aside>
 
         <main class="main">
@@ -6748,6 +6793,135 @@
 
         initAutoSaveListeners();
         restoreParameterLabDefaults();
+
+        // ── Genetic Algorithm EVOLVE mode ──────────────────────────────────
+        let gaJobId = '';
+        let gaPollTimer = null;
+        let gaCancelled = false;
+
+        async function runGeneticEvolution() {
+            gaCancelled = false;
+            document.getElementById('gaCancelBtn').style.display = '';
+            document.getElementById('gaProgress').style.display = '';
+            document.getElementById('gaProgressBar').style.width = '0%';
+            document.getElementById('gaStatus').textContent = '正在创建进化任务...';
+            const payload = parameterLabPayload();
+            payload.ga_buy_strategy = document.getElementById('gaBuyStrategy').value;
+            payload.ga_sell_strategy = document.getElementById('gaSellStrategy').value;
+            payload.ga_population_size = parseInt(document.getElementById('gaPopSize').value, 10) || 50;
+            payload.ga_generations = parseInt(document.getElementById('gaGenerations').value, 10) || 20;
+            payload.ga_mutation_rate = parseFloat(document.getElementById('gaMutationRate').value) || 0.15;
+            payload.ga_crossover_rate = parseFloat(document.getElementById('gaCrossoverRate').value) || 0.80;
+            payload._job_id = 'ga_' + Date.now().toString(36);
+            try {
+                const resp = await fetch('/api/strategy-lab/parameter-lab/evolve', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.message || '创建进化任务失败');
+                gaJobId = data.job.id;
+                pollGaJob();
+            } catch (error) {
+                document.getElementById('gaStatus').textContent = '错误: ' + (error.message || String(error));
+                document.getElementById('gaCancelBtn').style.display = 'none';
+                document.getElementById('gaProgress').style.display = 'none';
+            }
+        }
+
+        function cancelGeneticEvolution() {
+            gaCancelled = true;
+            if (gaPollTimer) { clearTimeout(gaPollTimer); gaPollTimer = null; }
+            if (gaJobId) {
+                fetch('/api/strategy-lab/jobs/' + encodeURIComponent(gaJobId) + '/cancel', {method: 'POST'}).catch(function(){});
+            }
+            document.getElementById('gaStatus').textContent = '已停止。';
+            document.getElementById('gaCancelBtn').style.display = 'none';
+        }
+
+        async function pollGaJob() {
+            if (gaCancelled || !gaJobId) return;
+            try {
+                const resp = await fetch('/api/strategy-lab/jobs/' + encodeURIComponent(gaJobId));
+                const data = await resp.json();
+                const job = data.job || {};
+                const status = job.status || 'unknown';
+                const progress = job.progress || 0;
+                document.getElementById('gaProgressBar').style.width = progress + '%';
+                if (status === 'running' || status === 'queued') {
+                    const gen = job.stage ? job.stage.replace(/[^0-9]/g, '') : '';
+                    document.getElementById('gaStatus').textContent = (job.message || '进化中...') + (gen ? ' (第 ' + gen + ' 代)' : '');
+                    gaPollTimer = setTimeout(pollGaJob, 2000);
+                } else if (status === 'completed') {
+                    document.getElementById('gaStatus').textContent = '进化完成！共评估 ' + (data.job?.result_summary?.total_evaluated || '--') + ' 个个体。';
+                    document.getElementById('gaCancelBtn').style.display = 'none';
+                    renderGaResults(job);
+                } else if (status === 'cancelled') {
+                    document.getElementById('gaStatus').textContent = '进化已取消。';
+                    document.getElementById('gaCancelBtn').style.display = 'none';
+                } else {
+                    document.getElementById('gaStatus').textContent = '状态: ' + status + ' - ' + (job.message || '');
+                    document.getElementById('gaCancelBtn').style.display = 'none';
+                }
+            } catch (error) {
+                document.getElementById('gaStatus').textContent = '轮询错误: ' + (error.message || String(error));
+            }
+        }
+
+        function renderGaResults(job) {
+            const runId = job.id || '';
+            if (!runId) return;
+            fetch('/api/strategy-lab/runs/' + encodeURIComponent(runId)).then(function(resp) {
+                return resp.json();
+            }).then(function(data) {
+                const result = (data.run || {}).config_payload ? {} : (data.run || {});
+                const payload = (data.run || {}).config_payload || {};
+                const snapshots = (payload.result ? (payload.result.snapshots || []) : (payload.snapshots || []));
+                const population = (payload.result ? (payload.result.final_population || []) : (payload.final_population || []));
+                if (!population.length) {
+                    document.getElementById('gaStatus').textContent = '进化不成功，未产生任何个体。请检查数据源或调整参数。';
+                    return;
+                }
+                // Build simple rows for matrix display
+                const rows = population.map(function(ind, index) {
+                    return {
+                        key: ind.key || ('ga_' + index),
+                        combination_key: ind.key || ('ga_' + index),
+                        candidate_key: ind.key || ('ga_' + index),
+                        label: ind.label || (ind.buy_strategy + ' / ' + ind.sell_strategy),
+                        buy_strategy: ind.buy_strategy,
+                        sell_strategy: ind.sell_strategy,
+                        final_score: ind.fitness || 0,
+                        final_rank: ind.rank || (index + 1),
+                        avg_return_pct: 0,
+                        avg_drawdown_pct: 0,
+                        avg_topic_score: ind.fitness || 0,
+                        topic_count: 1,
+                        cells: [],
+                        ga_rank: ind.rank || (index + 1),
+                        ga_buy_params: ind.buy_params || {},
+                        ga_sell_params: ind.sell_params || {}
+                    };
+                });
+                lastParameterResult = {
+                    rows: rows,
+                    observations: [],
+                    observations_compacted: true,
+                    observation_count: 0,
+                    diagnostics: { scale: { observation_count: 0 } },
+                    worker_metrics: { worker_count: 0 }
+                };
+                document.getElementById('statCandidates').textContent = rows.length;
+                document.getElementById('statTopics').textContent = 'GA';
+                document.getElementById('statSimulations').textContent = (snapshots.length || '--') + ' 代';
+                document.getElementById('statWorkers').textContent = 'Srv';
+                document.getElementById('statWall').textContent = 'done';
+                renderParameterMatrix();
+            }).catch(function(error) {
+                document.getElementById('gaStatus').textContent = '加载结果失败: ' + (error.message || String(error));
+            });
+        }
         })();
     </script>
 </body>

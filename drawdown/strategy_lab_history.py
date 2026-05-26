@@ -208,6 +208,7 @@ def _kind_label(kind: str) -> str:
         "score": "策略评分",
         "scan": "参数扫描",
         "robust": "收益 Top10",
+        "evolve": "遗传优化",
     }.get(kind, kind)
 
 
@@ -255,6 +256,8 @@ def _result_summary(kind: str, result: Mapping[str, object]) -> dict[str, object
         return _scan_result_summary(result)
     if kind == "robust":
         return _robust_result_summary(result)
+    if kind == "evolve":
+        return _evolve_result_summary(result)
     return {
         "warnings": _warnings(result),
     }
@@ -328,6 +331,28 @@ def _robust_result_summary(result: Mapping[str, object]) -> dict[str, object]:
         "top_score": _number(top.get("score", top.get("robust_score"))) if top else None,
         "top_return_pct": _number(top.get("avg_return_pct")) if top else None,
         "top_drawdown_pct": _number(top.get("avg_drawdown_pct")) if top else None,
+        "warnings": _warnings(result),
+    }
+
+
+def _evolve_result_summary(result: Mapping[str, object]) -> dict[str, object]:
+    snaps = result.get("snapshots")
+    snaps = snaps if isinstance(snaps, list) else []
+    population = result.get("final_population")
+    population = population if isinstance(population, list) else []
+    best = result.get("best")
+    best = best if isinstance(best, Mapping) else None
+    last_snap = snaps[-1] if snaps and isinstance(snaps[-1], Mapping) else None
+    return {
+        "generations": len(snaps),
+        "total_evaluated": result.get("total_evaluated") or 0,
+        "population_size": len(population),
+        "range": result.get("range") or {},
+        "buy_strategy_label": result.get("buy_strategy_label"),
+        "sell_strategy_label": result.get("sell_strategy_label"),
+        "best_fitness": _number(last_snap.get("best_fitness")) if last_snap else None,
+        "best_label": best.get("label") if best else None,
+        "best_rank": best.get("rank") if best else None,
         "warnings": _warnings(result),
     }
 
