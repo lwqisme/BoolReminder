@@ -3070,6 +3070,7 @@
             if (selected.has(valueKey)) selected.delete(valueKey);
             else selected.add(valueKey);
             renderCandidateGridSummary();
+            autoSaveParameterLabDefaults();
         }
         function parameterFieldAllowsCustomValue(field) {
             return parameterLabScanFieldDefinitions[field] && !nonCustomParameterFields.has(field);
@@ -3100,6 +3101,7 @@
             ensureSelectedParameterValues(field, definitions).add(key);
             if (input) input.value = '';
             renderCandidateGridSummary();
+            autoSaveParameterLabDefaults();
         }
         function removeCustomParameterValue(field, valueKey) {
             if (!customParameterValues[field]) return;
@@ -3107,6 +3109,7 @@
             const selected = ensureSelectedParameterValues(field);
             selected.delete(valueKey);
             renderCandidateGridSummary();
+            autoSaveParameterLabDefaults();
         }
         function parameterBaselineValue(field) {
             const definition = parameterLabScanFieldDefinitions[field] || {};
@@ -6716,7 +6719,11 @@
             autoSaveTimer = setTimeout(() => {
                 try {
                     const payload = parameterLabPayload();
-                    localStorage.setItem(AUTO_SAVE_KEY, JSON.stringify(payload));
+                    const saveData = {
+                        payload,
+                        customParameterValues: JSON.parse(JSON.stringify(customParameterValues))
+                    };
+                    localStorage.setItem(AUTO_SAVE_KEY, JSON.stringify(saveData));
                 } catch (error) {
                     console.warn('[parameter-lab] auto-save failed');
                 }
@@ -6727,8 +6734,22 @@
             try {
                 const raw = localStorage.getItem(AUTO_SAVE_KEY);
                 if (!raw) return false;
-                const payload = JSON.parse(raw);
+                const saved = JSON.parse(raw);
+                const payload = saved.payload || saved; // backward compat: old format was just payload
+                const savedCustom = saved.customParameterValues || {};
                 if (!payload || typeof payload !== 'object') return false;
+                // Restore customParameterValues first
+                Object.keys(customParameterValues).forEach((k) => delete customParameterValues[k]);
+                Object.assign(customParameterValues, typeof savedCustom === 'object' ? savedCustom : {});
+                // Restore selectedParameterValues from payload
+                if (payload.parameter_lab_selected_values && typeof payload.parameter_lab_selected_values === 'object') {
+                    Object.keys(selectedParameterValues).forEach((k) => delete selectedParameterValues[k]);
+                    Object.entries(payload.parameter_lab_selected_values).forEach(([field, values]) => {
+                        if (Array.isArray(values)) {
+                            selectedParameterValues[field] = new Set(values.map((v) => parameterValueKey(v)));
+                        }
+                    });
+                }
                 const fieldMap = {
                     initial_cash: 'initialCash', monthly_contribution: 'monthlyContribution',
                     max_drawdown_pct: 'maxDrawdown', step_pct: 'stepPct',
@@ -6772,16 +6793,7 @@
                 if (Array.isArray(payload.scorecard_periods)) { document.querySelectorAll('input[name="scorecardPeriod"]').forEach((cb) => { const period = payload.scorecard_periods.find((p) => p.key === cb.value); cb.checked = period ? period.enabled !== false : false; }); }
                 if (Array.isArray(payload.targets)) { const ta = document.getElementById('portfolioText'); if (ta) ta.value = JSON.stringify(payload.targets); }
                 if (Array.isArray(payload.investment_universe)) { const ta = document.getElementById('universeText'); if (ta) ta.value = JSON.stringify(payload.investment_universe); }
-                if (payload.parameter_lab_selected_values && typeof payload.parameter_lab_selected_values === 'object') {
-                    Object.keys(customParameterValues).forEach((k) => delete customParameterValues[k]);
-                    Object.assign(customParameterValues, payload.parameter_lab_selected_values.custom || {});
-                    Object.keys(selectedParameterValues).forEach((k) => delete selectedParameterValues[k]);
-                    if (payload.parameter_lab_selected_values.selected) {
-                        Object.entries(payload.parameter_lab_selected_values.selected).forEach(([field, keys]) => {
-                            selectedParameterValues[field] = new Set(Array.isArray(keys) ? keys : []);
-                        });
-                    }
-                }
+                renderCandidateGridSummary();
                 return true;
             } catch (error) { return false; }
         }
@@ -6797,7 +6809,6 @@
             const leapsGate = document.getElementById('leapsDrawdownGate'); if (leapsGate) leapsGate.addEventListener('change', autoSaveParameterLabDefaults);
             const pfText = document.getElementById('portfolioText'); if (pfText) pfText.addEventListener('input', autoSaveParameterLabDefaults);
             const univText = document.getElementById('universeText'); if (univText) univText.addEventListener('input', autoSaveParameterLabDefaults);
-            const grid = document.getElementById('candidateGridSummary'); if (grid) { grid.addEventListener('click', (e) => { if (e.target.closest('[data-parameter-value-key]')) setTimeout(autoSaveParameterLabDefaults, 100); }); }
         }
 
         initAutoSaveListeners();
