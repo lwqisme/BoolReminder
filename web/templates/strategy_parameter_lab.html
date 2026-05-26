@@ -1600,7 +1600,7 @@
                     </label>
                     <label class="switch-label">
                         <input id="leapsDrawdownGate" type="checkbox" onchange="renderParameterMatrix()">
-                        回撤≥20%才高等级
+                        回撤≥<input id="leapsDrawdownGatePct" type="number" min="0" max="100" step="1" value="20" style="width:48px;padding:1px 3px;margin:0 2px;" onchange="renderParameterMatrix()">%才高等级
                     </label>
                     <label>排名
                         <select id="rankMethod" onchange="renderParameterMatrix()">
@@ -1822,7 +1822,10 @@
             return document.getElementById('leapsDrawdownGate')?.checked === true;
         }
         function leapsDrawdownGateThreshold() {
-            return leapsDrawdownGateEnabled() ? 20 : 0;
+            if (!leapsDrawdownGateEnabled()) return 0;
+            const input = document.getElementById('leapsDrawdownGatePct');
+            const pct = Number(input?.value);
+            return Number.isFinite(pct) && pct > 0 ? pct : 20;
         }
         function leapsEffectiveGrade(signal) {
             const threshold = leapsDrawdownGateThreshold();
