@@ -7053,7 +7053,8 @@
                 renderParameterMatrix();
                 renderGaHistory(gaResults, bestFitnessEver);
                 setStatus('GA Done', '进化完成 — ' + number(rows.length, 0) + ' 个个体，' + number(gaResults.length, 0) + ' 代，最优适应度: ' + number(bestFitnessEver, 1), 100);
-                document.getElementById('gaStatus').textContent = '完成。最优: ' + (bestEver ? bestEver.label || bestEver.key : '—');
+                const statusLabel = bestEver ? (bestEver.label || bestEver.key || (bestEver.buy_strategy || '') + ' / ' + (bestEver.sell_strategy || '')) : '—';
+                document.getElementById('gaStatus').textContent = '完成。最优: ' + statusLabel;
                 document.getElementById('gaCancelBtn').style.display = 'none';
                 scheduleProgressFloatAutoHide();
             } catch (error) {
@@ -7234,10 +7235,11 @@
         }
 
         function crossoverGa(p1, p2) {
-            const child = { buy_strategy: p1.buy_strategy, sell_strategy: p1.sell_strategy };
-            for (const key of Object.keys(p1)) {
-                if (key === 'key' || key === 'label' || key === 'buy_strategy' || key === 'sell_strategy') continue;
-                child[key] = Math.random() < 0.5 ? p1[key] : p2[key];
+            const child = { buy_strategy: p1.buy_strategy, sell_strategy: p1.sell_strategy,
+                label: p1.label || p2.label, key: p1.key || p2.key };
+            for (const k of Object.keys(p1)) {
+                if (k === 'key' || k === 'label' || k === 'buy_strategy' || k === 'sell_strategy') continue;
+                child[k] = Math.random() < 0.5 ? p1[k] : p2[k];
             }
             return child;
         }
@@ -7306,7 +7308,8 @@
                 }
             }
 
-            child.key = null; // will be regenerated on next serialization
+            child.key = 'ga_' + (child.buy_strategy || 'x') + '__' + (child.sell_strategy || 'x') + '__' + Math.random().toString(36).slice(2, 8);
+
             return child;
         }
 

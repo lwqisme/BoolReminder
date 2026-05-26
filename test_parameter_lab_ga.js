@@ -34,10 +34,11 @@ function tournamentSelectGa(ranked, tournamentSize) {
 }
 
 function crossoverGa(p1, p2) {
-    const child = { buy_strategy: p1.buy_strategy, sell_strategy: p1.sell_strategy };
-    for (const key of Object.keys(p1)) {
-        if (key === 'key' || key === 'label' || key === 'buy_strategy' || key === 'sell_strategy') continue;
-        child[key] = Math.random() < 0.5 ? p1[key] : p2[key];
+    const child = { buy_strategy: p1.buy_strategy, sell_strategy: p1.sell_strategy,
+        label: p1.label || p2.label, key: p1.key || p2.key };
+    for (const k of Object.keys(p1)) {
+        if (k === 'key' || k === 'label' || k === 'buy_strategy' || k === 'sell_strategy') continue;
+        child[k] = Math.random() < 0.5 ? p1[k] : p2[k];
     }
     return child;
 }
@@ -102,7 +103,7 @@ function mutateGa(ind, mutationRate, paramRanges, gaConfig, crossEnabled) {
             child.core_dip_full_drawdown_pct = child.core_dip_start_drawdown_pct;
         }
     }
-    child.key = null;
+    child.key = 'test_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
     return child;
 }
 
@@ -280,6 +281,26 @@ function test_bestever_fallback() {
     console.log('PASS: test_bestever_fallback');
 }
 
+// Test 10: crossover preserves label and key from parents
+function test_crossover_preserves_label_and_key() {
+    const p1 = { buy_strategy: 'eq', step_pct: 5, label: '等距细切', key: 'k1' };
+    const p2 = { buy_strategy: 'eq', step_pct: 10, label: '等距', key: 'k2' };
+    const child = crossoverGa(p1, p2);
+    assert.ok(child.label, 'crossover must preserve label');
+    assert.ok(child.key, 'crossover must preserve key');
+    console.log('PASS: test_crossover_preserves_label_and_key');
+}
+
+// Test 11: mutateGa generates a non-null key
+function test_mutate_generates_key() {
+    const ind = { buy_strategy: 'eq', sell_strategy: 'none', step_pct: 5, label: 'T', key: 'old' };
+    const gaConfig = { continuous_mutation: false, mutation_sigma_ratio: 0.15 };
+    const child = mutateGa(ind, 0, paramRanges, gaConfig, false);
+    assert.ok(child.key, 'mutateGa must generate a non-null key');
+    assert.notStrictEqual(child.key, 'old', 'mutated key should differ from parent');
+    console.log('PASS: test_mutate_generates_key');
+}
+
 // ── Run ──
 
 const tests = [
@@ -292,6 +313,8 @@ const tests = [
     test_core_dip_constraint_enforced,
     test_nan_fitness_filtered,
     test_bestever_fallback,
+    test_crossover_preserves_label_and_key,
+    test_mutate_generates_key,
 ];
 
 let passed = 0, failed = 0;
