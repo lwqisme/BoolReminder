@@ -7322,14 +7322,46 @@
             return params;
         }
         function extractGaKeyParams(ind) {
+            const buy = ind.buy_strategy || '';
+            const sell = ind.sell_strategy || '';
             const parts = [];
-            if (ind.step_pct !== undefined && ind.step_pct !== null) parts.push('步长' + formatCompact(ind.step_pct));
-            if (ind.equal_slice_allocation_pct !== undefined && ind.equal_slice_allocation_pct !== null) parts.push('每步' + formatCompact(ind.equal_slice_allocation_pct));
-            if (ind.sell_min_profit_pct !== undefined && ind.sell_min_profit_pct !== null) parts.push('盈利' + formatCompact(ind.sell_min_profit_pct) + '%');
-            if (ind.repair_sell_cooldown_days !== undefined && ind.repair_sell_cooldown_days !== null) parts.push('冷却' + formatCompact(Math.trunc(Number(ind.repair_sell_cooldown_days))) + 'd');
-            if (ind.grid_sell_pct !== undefined && ind.grid_sell_pct !== null) parts.push('卖' + formatCompact(ind.grid_sell_pct) + '%');
-            if (ind.grid_rebound_step_pct !== undefined && ind.grid_rebound_step_pct !== null) parts.push('步长' + formatCompact(ind.grid_rebound_step_pct));
-            if (ind.core_dip_start_drawdown_pct !== undefined && ind.core_dip_start_drawdown_pct !== null) parts.push('加仓' + formatCompact(ind.core_dip_start_drawdown_pct) + '-' + formatCompact(ind.core_dip_full_drawdown_pct));
+
+            if (buy === 'equal_slice' || buy === 'linear_weighted_slice') {
+                if (ind.step_pct !== undefined && ind.step_pct !== null) parts.push('步长' + formatCompact(ind.step_pct) + '%');
+                if (ind.equal_slice_allocation_pct !== undefined && ind.equal_slice_allocation_pct !== null) parts.push('每步' + formatCompact(ind.equal_slice_allocation_pct) + '%');
+            }
+            if (buy === 'core_dip_dca') {
+                if (ind.core_dip_start_drawdown_pct !== undefined && ind.core_dip_start_drawdown_pct !== null)
+                    parts.push('加仓' + formatCompact(ind.core_dip_start_drawdown_pct) + '-' + formatCompact(ind.core_dip_full_drawdown_pct) + '%');
+                if (ind.core_dip_timing_enabled) parts.push('买点优化');
+            }
+
+            if (sell === 'repair_step') {
+                if (ind.sell_min_profit_pct !== undefined && ind.sell_min_profit_pct !== null) parts.push('盈利' + formatCompact(ind.sell_min_profit_pct) + '%');
+                if (ind.repair_sell_cooldown_days !== undefined && ind.repair_sell_cooldown_days !== null) parts.push('冷却' + formatCompact(Math.trunc(Number(ind.repair_sell_cooldown_days))) + 'd');
+                if (ind.repair_stage_sell_pct !== undefined && ind.repair_stage_sell_pct !== null) parts.push('卖' + formatCompact(ind.repair_stage_sell_pct) + '%');
+            }
+            if (sell === 'grid_rebound') {
+                if (ind.sell_min_profit_pct !== undefined && ind.sell_min_profit_pct !== null) parts.push('盈利≥' + formatCompact(ind.sell_min_profit_pct) + '%');
+                if (ind.grid_rebound_step_pct !== undefined && ind.grid_rebound_step_pct !== null) parts.push('回弹' + formatCompact(ind.grid_rebound_step_pct) + '%');
+                if (ind.grid_sell_pct !== undefined && ind.grid_sell_pct !== null) parts.push('每档卖' + formatCompact(ind.grid_sell_pct) + '%');
+                if (ind.grid_min_sell_amount !== undefined && ind.grid_min_sell_amount !== null && Number(ind.grid_min_sell_amount) > 0) parts.push('≥$' + formatCompact(ind.grid_min_sell_amount));
+            }
+            if (sell === 'cost_deleverage') {
+                const profits = [ind.cost_first_profit_pct, ind.cost_second_profit_pct, ind.cost_third_profit_pct];
+                const sells = [ind.cost_first_sell_pct, ind.cost_second_sell_pct, ind.cost_third_sell_pct];
+                if (profits.every(function(v) { return v !== undefined && v !== null; }))
+                    parts.push('盈' + profits.map(formatCompact).join('/'));
+                if (sells.every(function(v) { return v !== undefined && v !== null; }))
+                    parts.push('卖' + sells.map(formatCompact).join('/'));
+                if (ind.cost_deleverage_cooldown_days !== undefined && ind.cost_deleverage_cooldown_days !== null) parts.push('冷却' + formatCompact(Math.trunc(Number(ind.cost_deleverage_cooldown_days))) + 'd');
+            }
+
+            if (sell !== 'none') {
+                if (ind.dca_rearm_drawdown_pct !== undefined && ind.dca_rearm_drawdown_pct !== null && Number(ind.dca_rearm_drawdown_pct) > 0) parts.push('卖后重启' + formatCompact(ind.dca_rearm_drawdown_pct) + '%');
+                if (ind.sell_stage_rearm_drawdown_pct !== undefined && ind.sell_stage_rearm_drawdown_pct !== null && Number(ind.sell_stage_rearm_drawdown_pct) > 0) parts.push('卖档重启' + formatCompact(ind.sell_stage_rearm_drawdown_pct) + '%');
+                if (ind.sell_allow_same_day_sell) parts.push('买入日可卖');
+            }
             return parts.join(' / ') || '-';
         }
         function buildGaStatusLabel(ind) {
