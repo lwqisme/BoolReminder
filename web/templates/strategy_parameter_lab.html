@@ -6972,7 +6972,11 @@
                         const drawdowns = obs.map(function(o) { return Number(o.max_drawdown_pct || 0); });
                         const avgReturn = returns.length ? returns.reduce(function(a, b) { return a + b; }, 0) / returns.length : 0;
                         const avgDD = drawdowns.length ? drawdowns.reduce(function(a, b) { return a + Math.max(0, -(b || 0)); }, 0) / drawdowns.length : 0;
-                        const fitness = avgReturn * 0.9 + avgDD * 0.1;
+                        let fitness = avgReturn * 0.9 + avgDD * 0.1;
+                        if (!isFinite(fitness)) {
+                            console.warn('[GA] NaN fitness', {i, avgReturn, avgDD, returns, drawdowns, key: population[i].key});
+                            fitness = 0;
+                        }
                         fitnesses.push(fitness);
 
                         const key = population[i].key || ('ga_' + i);
@@ -6981,10 +6985,11 @@
                         }
                     }
 
-                    // Record snapshot
-                    const genBestIdx = fitnesses.indexOf(Math.max.apply(null, fitnesses));
-                    const genBestFitness = fitnesses[genBestIdx];
-                    const genAvgFitness = fitnesses.reduce(function(a, b) { return a + b; }, 0) / fitnesses.length;
+                    // Record snapshot – filter out NaN fitnesses
+                    const validFitnesses = fitnesses.filter(function(f) { return isFinite(f); });
+                    const genBestFitness = validFitnesses.length ? Math.max.apply(null, validFitnesses) : 0;
+                    const genAvgFitness = validFitnesses.length ? validFitnesses.reduce(function(a, b) { return a + b; }, 0) / validFitnesses.length : 0;
+                    const genBestIdx = validFitnesses.length ? fitnesses.indexOf(genBestFitness) : 0;
                     if (genBestFitness > bestFitnessEver) { bestFitnessEver = genBestFitness; bestEver = population[genBestIdx]; }
                     gaResults.push({
                         generation: gen + 1, best_fitness: genBestFitness, avg_fitness: genAvgFitness,
@@ -7009,6 +7014,12 @@
                     }
                     population = nextPop.slice(0, gaConfig.population_size || 50);
                     setStatus('GA Evolving', genLabel + ' — 最优适应度: ' + number(bestFitnessEver, 1), 10 + ((gen + 1) / totalGenerations) * 80);
+                }
+
+                // Safeguard: if bestEver is still null, pick from final population
+                if (!bestEver && population.length) {
+                    bestEver = population[0];
+                    console.warn('[GA] bestEver was null after evolution, falling back to first candidate');
                 }
 
                 // Display results
@@ -7074,7 +7085,7 @@
                     batches.push({ batch_id: 'ga-' + runId + '-' + i, candidate_rows: candidateRows.slice(i, i + batchSize) });
                 }
 
-                let completedBatches = 0, settled = false;
+                let completedBatches = 0, settled = false, readyCount = 0;
                 const allRows = [];
                 const workers = [];
                 const cleanup = function() {
@@ -7082,39 +7093,50 @@
                     workers.forEach(function(w) { try { w.terminate(); } catch(e) {} });
                 };
 
-                // Create workers for this generation
+                // Create workers
                 for (let wi = 0; wi < workerCount; wi++) {
                     workers.push(new Worker(parameterLabWorkerUrl));
                 }
 
-                const assignNext = function(wi) {
+                const assignBatch = function(wi) {
                     if (settled) return;
                     const next = batches.shift();
+                    if (!next) return;
                     const worker = workers[wi];
-                    if (!next) { return; }
 
                     worker.onmessage = function(event) {
                         if (settled) return;
                         const msg = event.data || {};
                         if (msg.type === 'batch_done') {
                             const obs = (msg.rows || []).map(function(r) {
+                                const cid = r.candidate_id;
                                 return (r.observations || []).map(function(o) {
-                                    return { candidate_id: r.candidate_id, candidate_key: r.candidate_key,
-                                        return_pct: o.return_pct, max_drawdown_pct: o.max_drawdown_pct, topic_key: o.topic_key };
+                                    const rp = Number(o.return_pct), dd = Number(o.max_drawdown_pct);
+                                    if (!isFinite(rp) || !isFinite(dd)) {
+                                        console.warn('[GA] NaN observation', {cid, return_pct: o.return_pct, max_drawdown_pct: o.max_drawdown_pct});
+                                    }
+                                    return { candidate_id: cid, return_pct: rp, max_drawdown_pct: dd, topic_key: o.topic_key };
                                 });
                             }).flat();
                             allRows.push.apply(allRows, obs);
                             completedBatches++;
                             if (shouldCancel && shouldCancel()) { cleanup(); resolve(allRows); return; }
-                            if (batches.length) { assignNext(wi); } else { cleanup(); resolve(allRows); }
+                            if (batches.length) { assignBatch(wi); } else { cleanup(); resolve(allRows); }
                         } else if (msg.type === 'ready') {
-                            assignNext(wi);
+                            // Worker initialized – send first batch
+                            if (batches.length >= workers.length - wi) {
+                                assignBatch(wi);
+                            }
                         } else if (msg.type === 'error') {
+                            console.error('[GA] Worker error:', msg.message, msg);
                             cleanup(); reject(new Error(msg.message || 'Worker error'));
                         }
                     };
 
-                    worker.onerror = function(e) { cleanup(); reject(new Error(e.message || 'Worker crashed')); };
+                    worker.onerror = function(e) {
+                        console.error('[GA] Worker crash:', e);
+                        cleanup(); reject(new Error(e.message || 'Worker crashed'));
+                    };
 
                     worker.postMessage({
                         type: 'start', run_id: runId, worker_index: wi,
@@ -7130,13 +7152,9 @@
                             diagnostics: { verbose_simulation_logs: false, progress_every: 1, progress_min_ms: 500, slow_simulation_ms: 3000 }
                         }
                     });
-                    worker.postMessage({
-                        type: 'batch', run_id: runId, worker_index: wi,
-                        batch_id: next.batch_id, candidate_rows: next.candidate_rows
-                    });
                 };
 
-                for (let wi = 0; wi < workerCount; wi++) assignNext(wi);
+                for (let wi = 0; wi < workerCount; wi++) assignBatch(wi);
             });
         }
 

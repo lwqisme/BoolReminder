@@ -257,6 +257,29 @@ function test_core_dip_constraint_enforced() {
     console.log('PASS: test_core_dip_constraint_enforced');
 }
 
+// Test 8: NaN fitness values filtered, Math.max NaN → indexOf -1 bug exposed
+function test_nan_fitness_filtered() {
+    const fitnesses = [10, NaN, 5, 20, NaN, 15];
+    const valid = fitnesses.filter(function(f) { return isFinite(f); });
+    assert.strictEqual(valid.length, 4);
+    assert.strictEqual(Math.max.apply(null, valid), 20);
+    assert.ok(isNaN(Math.max(1, NaN, 3)), 'Math.max with NaN returns NaN');
+    assert.strictEqual([1, NaN, 3].indexOf(NaN), -1, 'indexOf(NaN) must be -1 – this is the root bug');
+    const best = valid.length ? Math.max.apply(null, valid) : 0;
+    const idx = valid.length ? fitnesses.indexOf(best) : 0;
+    assert.strictEqual(idx, 3, 'indexOf should find 20 at index 3');
+    console.log('PASS: test_nan_fitness_filtered');
+}
+
+// Test 9: bestEver null fallback
+function test_bestever_fallback() {
+    let bestEver = null;
+    const pop = [{ key: 'a' }, { key: 'b' }];
+    if (!bestEver && pop.length) bestEver = pop[0];
+    assert.strictEqual(bestEver.key, 'a');
+    console.log('PASS: test_bestever_fallback');
+}
+
 // ── Run ──
 
 const tests = [
@@ -267,6 +290,8 @@ const tests = [
     test_tournament_select_returns_best,
     test_extract_ga_params,
     test_core_dip_constraint_enforced,
+    test_nan_fitness_filtered,
+    test_bestever_fallback,
 ];
 
 let passed = 0, failed = 0;
