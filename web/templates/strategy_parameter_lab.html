@@ -4769,6 +4769,92 @@
             }
             if (button) button.disabled = !enabled;
         }
+        function leapsOutcomeTraces(outcomes, priceTraces, dates, closesByDate) {
+            if (!Array.isArray(outcomes) || !outcomes.length) return [];
+            const gradeColors = { '高': '#e74c3c', '中': '#f39c12', '低': '#3498db', '无': '#95a5a6' };
+            const gradeSymbols = { '高': 'circle', '中': 'square', '低': 'diamond', '无': 'x' };
+            const entryByGrade = { '高': [], '中': [], '低': [], '无': [] };
+            const exitPoints = [];
+            outcomes.forEach((outcome) => {
+                if (outcome.status !== 'success') return;
+                const entryDate = String(outcome.entry_date || outcome.date || '');
+                const exitDate = String(outcome.exit_date || outcome.stock_sell_date || '');
+                const buyPrice = Number(outcome.stock_buy_price);
+                const sellPrice = Number(outcome.stock_mark_price ?? outcome.stock_sell_price);
+                const grade = outcome.grade || outcome.signal_grade || '无';
+                const gradeKey = grade in gradeColors ? grade : '无';
+                if (entryDate && Number.isFinite(buyPrice) && buyPrice > 0) {
+                    const roi = Number(outcome.roi_pct);
+                    entryByGrade[gradeKey].push({
+                        date: entryDate, price: buyPrice, grade: gradeKey,
+                        strike: Number(outcome.strike), contract: String(outcome.contract || ''),
+                        roi: Number.isFinite(roi) ? roi : null,
+                        tooltipLines: [
+                            `${entryDate} 期权买入 · ${gradeKey}等`,
+                            `期权合约: ${outcome.contract || '--'}`,
+                            `行权价: ${Number.isFinite(Number(outcome.strike)) ? money(Number(outcome.strike)) : '--'}`,
+                            `正股买入价: ${money(buyPrice)}`,
+                            Number.isFinite(roi) ? `期权收益: ${roi > 0 ? '+' : ''}${number(roi)}%` : ''
+                        ].filter(Boolean).join('<br>')
+                    });
+                }
+                if (exitDate && Number.isFinite(sellPrice) && sellPrice > 0) {
+                    const roi = Number(outcome.roi_pct);
+                    exitPoints.push({
+                        date: exitDate, price: sellPrice,
+                        roi: Number.isFinite(roi) ? roi : null,
+                        tooltipLines: [
+                            `${exitDate} 期权卖出`,
+                            `期权合约: ${outcome.contract || '--'}`,
+                            `正股卖出价: ${money(sellPrice)}`,
+                            Number.isFinite(roi) ? `期权收益: ${roi > 0 ? '+' : ''}${number(roi)}%` : ''
+                        ].filter(Boolean).join('<br>')
+                    });
+                }
+            });
+            const hasPriceTraces = priceTraces.length > 0;
+            const traces = [];
+            ['高', '中', '低', '无'].forEach((grade) => {
+                const items = entryByGrade[grade];
+                if (!items.length) return;
+                traces.push({
+                    type: 'scatter', mode: 'markers',
+                    name: `期权买入·${grade}`,
+                    x: items.map((item) => item.date), y: items.map((item) => item.price),
+                    ...(hasPriceTraces ? { yaxis: 'y2' } : {}),
+                    text: items.map((item) => item.tooltipLines),
+                    hovertemplate: '%{text}<extra></extra>',
+                    marker: { color: gradeColors[grade], size: 10, symbol: gradeSymbols[grade], line: { color: '#fff', width: 1 } }
+                });
+            });
+            if (exitPoints.length) {
+                const profitExits = exitPoints.filter((item) => (item.roi ?? 0) >= 0);
+                const lossExits = exitPoints.filter((item) => (item.roi ?? 0) < 0);
+                if (profitExits.length) {
+                    traces.push({
+                        type: 'scatter', mode: 'markers',
+                        name: '期权卖出·盈利',
+                        x: profitExits.map((item) => item.date), y: profitExits.map((item) => item.price),
+                        ...(hasPriceTraces ? { yaxis: 'y2' } : {}),
+                        text: profitExits.map((item) => item.tooltipLines),
+                        hovertemplate: '%{text}<extra></extra>',
+                        marker: { color: '#27ae60', size: 9, symbol: 'triangle-up', line: { color: '#fff', width: 1 } }
+                    });
+                }
+                if (lossExits.length) {
+                    traces.push({
+                        type: 'scatter', mode: 'markers',
+                        name: '期权卖出·亏损',
+                        x: lossExits.map((item) => item.date), y: lossExits.map((item) => item.price),
+                        ...(hasPriceTraces ? { yaxis: 'y2' } : {}),
+                        text: lossExits.map((item) => item.tooltipLines),
+                        hovertemplate: '%{text}<extra></extra>',
+                        marker: { color: '#c0392b', size: 9, symbol: 'triangle-down', line: { color: '#fff', width: 1 } }
+                    });
+                }
+            }
+            return traces;
+        }
         function buildCellTradeChartFigure(cell, options = {}) {
             const dates = cell.series.dates || [];
             const portfolioValues = cell.series.portfolio_values || [];
@@ -4777,6 +4863,11 @@
             const usePriceAxisForTrades = priceTraces.length > 0;
             const yByDate = new Map(dates.map((date, index) => [date, portfolioValues[index]]));
             const cashByDate = new Map(dates.map((date, index) => [date, cashValues[index]]));
+            const closesByDate = {};
+            priceTraces.forEach((trace) => {
+                (trace.x || []).forEach((date, index) => { closesByDate[date] = trace.y?.[index]; });
+            });
+            const drawdownBasisLabel = ((lastParameterPacket?.inputs?.drawdown_basis || 'ath') === 'rolling_120') ? '120日回撤' : 'ATH回撤';
             const trades = Array.isArray(cell.trade_log) ? cell.trade_log : [];
             const tradeTrace = (action, name, color, symbol, lineColor = '#fafafa') => {
                 const items = trades.filter((trade) => trade.action === action);
@@ -4786,6 +4877,7 @@
                     const lines = [
                         `${trade.date} ${trade.symbol || ''}`,
                         `股票价格: ${number(trade.price)}`,
+                        `${drawdownBasisLabel}: ${pct(trade.drawdown_pct)}`,
                         `交易金额: ${money(trade.gross_amount)}`,
                         `交易后现金: ${Number.isFinite(cashAfter) ? money(cashAfter) : '--'}`,
                         `交易后现金占比: ${Number.isFinite(cashPctAfter) ? pct(cashPctAfter) : '--'}`
@@ -4814,12 +4906,14 @@
                     marker: { color, size: 11, symbol, line: { color: lineColor, width: 1 } }
                 };
             };
+            const outcomeTraces = leapsOutcomeTraces(options.leapsOutcomes, priceTraces, dates, closesByDate);
             const traces = [
                 { type: 'scatter', mode: 'lines', name: '组合价值', x: dates, y: portfolioValues, line: { color: '#07689f', width: 2.2 } },
                 { type: 'scatter', mode: 'lines', name: '现金', x: dates, y: cashValues, line: { color: '#00856f', width: 1.9, dash: 'dot' } },
                 ...priceTraces,
                 tradeTrace('buy', '买入', '#ff7e67', 'circle'),
-                tradeTrace('sell', '卖出', '#054d76', 'diamond')
+                tradeTrace('sell', '卖出', '#054d76', 'diamond'),
+                ...outcomeTraces
             ];
             const fullscreen = Boolean(options.fullscreen);
             return {
@@ -4846,6 +4940,23 @@
                 config: { displayModeBar: fullscreen, displaylogo: false, responsive: true }
             };
         }
+        function getActiveCellLeapsOutcomes(row) {
+            if (!row) return [];
+            const outcomeEntry = leapsOptionOutcomeCache.get(leapsDetailCacheKey(row));
+            const outcomes = leapsOptionVisibleOutcomes(outcomeEntry);
+            if (!outcomes.length) return [];
+            const detailEntry = leapsDetailCache.get(leapsDetailCacheKey(row));
+            const allSignals = detailEntry?.all_signals || [];
+            const gradeByKey = {};
+            allSignals.forEach((signal) => {
+                if (signal.signal_key) gradeByKey[signal.signal_key] = signal.grade || '无';
+            });
+            return outcomes.map((outcome) => ({
+                ...outcome,
+                grade: gradeByKey[outcome.signal_key] || '无',
+                signal_grade: gradeByKey[outcome.signal_key] || '无'
+            }));
+        }
         function renderCellTradeChartPlot(chart, cell, options = {}) {
             if (!chart || !window.Plotly || !cell?.series?.dates?.length) return false;
             Plotly.purge(chart);
@@ -4856,14 +4967,14 @@
             });
             return true;
         }
-        function renderCellTradeChart(cell) {
+        function renderCellTradeChart(cell, leapsOutcomes = []) {
             const chart = document.getElementById('detailTradeChart');
             if (!chart) return;
             if (!window.Plotly || !cell?.series?.dates?.length) {
                 clearCellTradeChart('等待重放序列。');
                 return;
             }
-            setDetailTradeChartExpandable(renderCellTradeChartPlot(chart, cell, { fullscreen: false }));
+            setDetailTradeChartExpandable(renderCellTradeChartPlot(chart, cell, { fullscreen: false, leapsOutcomes }));
         }
         function getActiveCellReplayContext() {
             const row = findRow(activeDetailRowKey);
@@ -4878,7 +4989,8 @@
                 topicKey,
                 sourceCell,
                 cell,
-                mismatch: cellMetricsMismatch(sourceCell, cell)
+                mismatch: cellMetricsMismatch(sourceCell, cell),
+                leapsOutcomes: getActiveCellLeapsOutcomes(row)
             };
         }
         function compactCellChartCombinationLabel(row) {
@@ -4931,7 +5043,7 @@
             summary.innerHTML = renderCellChartFullscreenSummary(context);
             overlay.classList.remove('hidden');
             overlay.setAttribute('aria-hidden', 'false');
-            renderCellTradeChartPlot(chart, context.cell, { fullscreen: true });
+            renderCellTradeChartPlot(chart, context.cell, { fullscreen: true, leapsOutcomes: context.leapsOutcomes || [] });
             requestAnimationFrame(() => document.getElementById('cellChartFullscreenClose')?.focus());
         }
         function closeCellChartFullscreen() {
@@ -4963,7 +5075,7 @@
             if (entry?.status === 'done') {
                 status.classList.add(cellMetricsMismatch(findSourceCell(row, topicKey), entry.cell) ? 'warn' : 'ok');
                 trades.innerHTML = renderCellTradeRows(entry.cell);
-                renderCellTradeChart(entry.cell);
+                renderCellTradeChart(entry.cell, getActiveCellLeapsOutcomes(row));
             } else {
                 trades.innerHTML = '<tr><td colspan="8">等待 cell 重放。</td></tr>';
                 renderCellTradeChart(null);
