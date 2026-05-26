@@ -6986,7 +6986,14 @@
                     const genBestFitness = fitnesses[genBestIdx];
                     const genAvgFitness = fitnesses.reduce(function(a, b) { return a + b; }, 0) / fitnesses.length;
                     if (genBestFitness > bestFitnessEver) { bestFitnessEver = genBestFitness; bestEver = population[genBestIdx]; }
-                    gaResults.push({ generation: gen + 1, best_fitness: genBestFitness, avg_fitness: genAvgFitness, population_size: population.length });
+                    gaResults.push({
+                        generation: gen + 1, best_fitness: genBestFitness, avg_fitness: genAvgFitness,
+                        population_size: population.length,
+                        best_label: population[genBestIdx].label || ((population[genBestIdx].buy_strategy || '') + ' / ' + (population[genBestIdx].sell_strategy || '')),
+                        best_buy: population[genBestIdx].buy_strategy,
+                        best_sell: population[genBestIdx].sell_strategy,
+                        best_key_params: extractGaKeyParams(population[genBestIdx])
+                    });
 
                     // Elitism + generate next generation
                     const ranked = population.map(function(ind, i) { return { ind: ind, fit: fitnesses[i] }; })
@@ -7033,6 +7040,7 @@
                 document.getElementById('statWorkers').textContent = 'GPU'; // indicate client-side
                 document.getElementById('statWall').textContent = number((performance.now() - started) / 1000, 1) + 's';
                 renderParameterMatrix();
+                renderGaHistory(gaResults, bestFitnessEver);
                 setStatus('GA Done', '进化完成 — ' + number(rows.length, 0) + ' 个个体，' + number(gaResults.length, 0) + ' 代，最优适应度: ' + number(bestFitnessEver, 1), 100);
                 document.getElementById('gaStatus').textContent = '完成。最优: ' + (bestEver ? bestEver.label || bestEver.key : '—');
                 document.getElementById('gaCancelBtn').style.display = 'none';
@@ -7132,6 +7140,44 @@
             });
         }
 
+        function renderGaHistory(gaResults, bestFitnessEver) {
+            const gaPanel = document.getElementById('gaPanelBody');
+            let oldTable = document.getElementById('gaHistoryTable');
+            if (oldTable) oldTable.remove();
+
+            if (!gaResults || !gaResults.length) return;
+
+            let html = '<div id="gaHistoryTable" style="margin-top:10px;"><details open><summary style="cursor:pointer;font-weight:900;color:var(--ink);padding:6px 0;">进化路径 (' + gaResults.length + ' 代)</summary>';
+            html += '<div style="max-height:240px;overflow:auto;margin-top:4px;"><table style="width:100%;font-size:12px;border-collapse:collapse;">';
+            html += '<thead><tr style="position:sticky;top:0;background:rgba(248,252,255,0.95);">';
+            html += '<th style="text-align:right;padding:3px 6px;">代</th>';
+            html += '<th style="text-align:right;padding:3px 6px;">最优</th>';
+            html += '<th style="text-align:right;padding:3px 6px;">均值</th>';
+            html += '<th style="text-align:left;padding:3px 6px;">策略</th>';
+            html += '<th style="text-align:left;padding:3px 6px;">关键参数</th>';
+            html += '</tr></thead><tbody>';
+
+            for (const snap of gaResults) {
+                const isBest = Math.abs(snap.best_fitness - bestFitnessEver) < 1e-9;
+                const rowStyle = isBest ? 'background:rgba(0,133,111,0.08);font-weight:900;' : '';
+                html += '<tr style="' + rowStyle + '">';
+                html += '<td style="text-align:right;padding:2px 6px;">' + snap.generation + '</td>';
+                html += '<td style="text-align:right;padding:2px 6px;font-family:var(--mono);">' + number(snap.best_fitness, 1) + '</td>';
+                html += '<td style="text-align:right;padding:2px 6px;color:var(--muted);">' + number(snap.avg_fitness, 1) + '</td>';
+                html += '<td style="text-align:left;padding:2px 6px;">' + escapeHtml(String(snap.best_label || '-')) + '</td>';
+                html += '<td style="text-align:left;padding:2px 6px;color:var(--muted);">' + escapeHtml(String(snap.best_key_params || '-')) + '</td>';
+                html += '</tr>';
+            }
+            html += '</tbody></table></div></details></div>';
+
+            const container = gaPanel || document.getElementById('gaStatus').parentNode;
+            if (container) {
+                const div = document.createElement('div');
+                div.innerHTML = html;
+                container.appendChild(div.firstElementChild);
+            }
+        }
+
         // ── GA operations (ported from Python) ──────────────────────────────
         function tournamentSelectGa(ranked, tournamentSize) {
             const size = Math.min(tournamentSize, ranked.length);
@@ -7226,6 +7272,17 @@
                 if (ind[field] !== undefined && ind[field] !== null) params[field] = ind[field];
             }
             return params;
+        }
+        function extractGaKeyParams(ind) {
+            const parts = [];
+            if (ind.step_pct !== undefined && ind.step_pct !== null) parts.push('步长' + formatCompact(ind.step_pct));
+            if (ind.equal_slice_allocation_pct !== undefined && ind.equal_slice_allocation_pct !== null) parts.push('每步' + formatCompact(ind.equal_slice_allocation_pct));
+            if (ind.sell_min_profit_pct !== undefined && ind.sell_min_profit_pct !== null) parts.push('盈利' + formatCompact(ind.sell_min_profit_pct) + '%');
+            if (ind.repair_sell_cooldown_days !== undefined && ind.repair_sell_cooldown_days !== null) parts.push('冷却' + formatCompact(Math.trunc(Number(ind.repair_sell_cooldown_days))) + 'd');
+            if (ind.grid_sell_pct !== undefined && ind.grid_sell_pct !== null) parts.push('卖' + formatCompact(ind.grid_sell_pct) + '%');
+            if (ind.grid_rebound_step_pct !== undefined && ind.grid_rebound_step_pct !== null) parts.push('步长' + formatCompact(ind.grid_rebound_step_pct));
+            if (ind.core_dip_start_drawdown_pct !== undefined && ind.core_dip_start_drawdown_pct !== null) parts.push('加仓' + formatCompact(ind.core_dip_start_drawdown_pct) + '-' + formatCompact(ind.core_dip_full_drawdown_pct));
+            return parts.join(' / ') || '-';
         }
         window.runGeneticEvolution = runGeneticEvolution;
         window.cancelGeneticEvolution = cancelGeneticEvolution;
