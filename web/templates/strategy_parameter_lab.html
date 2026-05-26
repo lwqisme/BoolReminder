@@ -7052,6 +7052,11 @@
                 document.getElementById('statWall').textContent = number((performance.now() - started) / 1000, 1) + 's';
                 renderParameterMatrix();
                 renderGaHistory(gaResults, bestFitnessEver);
+
+                // Show topics info
+                const taskLabels = (packet.tasks || []).map(function(t) { return t.portfolio_label + ' / ' + t.period_label; }).join(', ');
+                document.getElementById('gaStatus').title = '题目 (' + (packet.tasks || []).length + '): ' + escapeHtml(taskLabels);
+                document.getElementById('statTopics').title = escapeHtml(taskLabels);
                 setStatus('GA Done', '进化完成 — ' + number(rows.length, 0) + ' 个个体，' + number(gaResults.length, 0) + ' 代，最优适应度: ' + number(bestFitnessEver, 1), 100);
                 const statusLabel = bestEver
                     ? (bestEver.label || buildGaStatusLabel(bestEver))
@@ -7197,8 +7202,8 @@
             html += '<div style="max-height:200px;overflow:auto;margin-top:2px;"><table style="width:100%;font-size:11px;border-collapse:collapse;table-layout:fixed;">';
             html += '<thead><tr style="position:sticky;top:0;background:rgba(248,252,255,0.95);">';
             html += '<th style="text-align:right;padding:2px 4px;width:36px;">代</th>';
-            html += '<th style="text-align:right;padding:2px 4px;width:54px;">最优</th>';
-            html += '<th style="text-align:right;padding:2px 4px;width:54px;">均值</th>';
+            html += '<th style="text-align:right;padding:2px 4px;width:54px;" title="收益 × 90% + 回撤控制 × 10%（跨题目平均）">最优<span class="param-help" style="display:inline-flex;width:12px;height:12px;font-size:9px;" data-tooltip="收益×90% + 回撤控制×10%。收益为所有评分题目的平均 return_pct，回撤控制为 -max_drawdown_pct 取正后的均值。分数越高越好。">?</span></th>';
+            html += '<th style="text-align:right;padding:2px 4px;width:54px;" title="种群内所有个体适应度的平均值">均值</th>';
             html += '<th style="text-align:left;padding:2px 4px;width:100px;">策略</th>';
             html += '<th style="text-align:left;padding:2px 4px;">关键参数</th>';
             html += '</tr></thead><tbody>';
