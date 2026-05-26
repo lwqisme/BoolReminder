@@ -8929,8 +8929,10 @@ ACCOUNT_SIGNAL_TEMPLATE = """
     function candidateLabel(candidate) {
       const summary = candidate.summary || {};
       const saved = candidate.saved_at ? ` · ${candidate.saved_at}` : '';
-      const note = candidate.note ? ` · 备注: ${candidate.note}` : '';
-      return `${candidate.candidate_key} · ${summary.buy || candidate.buy_strategy} / ${summary.sell || candidate.sell_strategy}${saved}${note}`;
+      if (candidate.note) {
+        return `备注: ${candidate.note} · ${summary.buy || candidate.buy_strategy} / ${summary.sell || candidate.sell_strategy}${saved}`;
+      }
+      return `${candidate.candidate_key} · ${summary.buy || candidate.buy_strategy} / ${summary.sell || candidate.sell_strategy}${saved}`;
     }
     function renderCandidateAssign(symbol, target, candidates) {
       if (!target || !target.enabled) return '';
