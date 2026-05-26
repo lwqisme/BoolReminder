@@ -104,6 +104,7 @@ function mutateGa(ind, mutationRate, paramRanges, gaConfig, crossEnabled) {
         }
     }
     child.key = 'test_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+    child.label = null;
     return child;
 }
 
@@ -301,6 +302,17 @@ function test_mutate_generates_key() {
     console.log('PASS: test_mutate_generates_key');
 }
 
+// Test 12: mutate clears stale label so status display rebuilds from current params
+function test_mutate_clears_label() {
+    const ind = { buy_strategy: 'eq', sell_strategy: 'none', step_pct: 5, label: 'OLD LABEL', key: 'k' };
+    const gaConfig = { continuous_mutation: false, mutation_sigma_ratio: 0.15, cross_strategy: false };
+    const child = mutateGa(ind, 0.01, paramRanges, gaConfig, false);
+    assert.strictEqual(child.label, null, 'mutate must clear label to force regeneration');
+    assert.ok(child.key, 'key must still exist');
+    assert.notStrictEqual(child.key, 'k', 'key should be regenerated');
+    console.log('PASS: test_mutate_clears_label');
+}
+
 // ── Run ──
 
 const tests = [
@@ -315,6 +327,7 @@ const tests = [
     test_bestever_fallback,
     test_crossover_preserves_label_and_key,
     test_mutate_generates_key,
+    test_mutate_clears_label,
 ];
 
 let passed = 0, failed = 0;

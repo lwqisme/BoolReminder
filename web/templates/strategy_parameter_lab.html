@@ -7053,7 +7053,9 @@
                 renderParameterMatrix();
                 renderGaHistory(gaResults, bestFitnessEver);
                 setStatus('GA Done', '进化完成 — ' + number(rows.length, 0) + ' 个个体，' + number(gaResults.length, 0) + ' 代，最优适应度: ' + number(bestFitnessEver, 1), 100);
-                const statusLabel = bestEver ? (bestEver.label || bestEver.key || (bestEver.buy_strategy || '') + ' / ' + (bestEver.sell_strategy || '')) : '—';
+                const statusLabel = bestEver
+                    ? (bestEver.label || buildGaStatusLabel(bestEver))
+                    : '—';
                 document.getElementById('gaStatus').textContent = '完成。最优: ' + statusLabel;
                 document.getElementById('gaCancelBtn').style.display = 'none';
                 scheduleProgressFloatAutoHide();
@@ -7308,7 +7310,7 @@
             }
 
             child.key = 'ga_' + (child.buy_strategy || 'x') + '__' + (child.sell_strategy || 'x') + '__' + Math.random().toString(36).slice(2, 8);
-
+            child.label = null; // stale after mutation – regenerate from params
             return child;
         }
 
@@ -7329,6 +7331,12 @@
             if (ind.grid_rebound_step_pct !== undefined && ind.grid_rebound_step_pct !== null) parts.push('步长' + formatCompact(ind.grid_rebound_step_pct));
             if (ind.core_dip_start_drawdown_pct !== undefined && ind.core_dip_start_drawdown_pct !== null) parts.push('加仓' + formatCompact(ind.core_dip_start_drawdown_pct) + '-' + formatCompact(ind.core_dip_full_drawdown_pct));
             return parts.join(' / ') || '-';
+        }
+        function buildGaStatusLabel(ind) {
+            const buyName = buyStrategyLabels[ind.buy_strategy] || ind.buy_strategy || '';
+            const sellName = sellStrategyLabels[ind.sell_strategy] || ind.sell_strategy || '';
+            const params = extractGaKeyParams(ind);
+            return buyName + ' / ' + sellName + (params !== '-' ? ' (' + params + ')' : '');
         }
         window.runGeneticEvolution = runGeneticEvolution;
         window.cancelGeneticEvolution = cancelGeneticEvolution;
