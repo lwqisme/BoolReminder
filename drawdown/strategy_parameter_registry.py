@@ -1147,10 +1147,15 @@ def _sell_stage_rearm_variants(
             if value is not None and float(value) > float(dca_rearm_drawdown_pct)
         ],
     ]
+    selected_disabled_equivalent = any(
+        value is not None and float(value) <= float(dca_rearm_drawdown_pct)
+        for value in _selected_values_for_field(value_selection, "sell_stage_rearm_drawdown_pct")
+    )
     return [
         value
         for value in values
         if _parameter_value_is_selected(value_selection, "sell_stage_rearm_drawdown_pct", value)
+        or (value is None and selected_disabled_equivalent)
     ]
 
 

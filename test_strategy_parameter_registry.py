@@ -497,6 +497,26 @@ class StrategyParameterRegistryTest(unittest.TestCase):
         self.assertEqual({item["dca_rearm_drawdown_pct"] for item in candidates}, {10.0})
         self.assertEqual({item["sell_stage_rearm_drawdown_pct"] for item in candidates}, {None, 15.0})
 
+    def test_selected_zero_sell_stage_rearm_maps_to_disabled_override(self):
+        candidates = expand_strategy_candidate_payloads(
+            ["equal_slice"],
+            ["grid_rebound"],
+            StrategyInputs(),
+            selected_parameter_values={
+                "step_pct": [2.5],
+                "equal_slice_allocation_pct": [10.0],
+                "grid_rebound_step_pct": [5.0],
+                "grid_sell_pct": [15.0],
+                "dca_rearm_drawdown_pct": [0.0],
+                "sell_stage_rearm_drawdown_pct": [0.0],
+                "sell_allow_same_day_sell": [False],
+            },
+        )
+
+        self.assertTrue(candidates)
+        self.assertEqual({item["dca_rearm_drawdown_pct"] for item in candidates}, {0.0})
+        self.assertEqual({item["sell_stage_rearm_drawdown_pct"] for item in candidates}, {None})
+
     def test_core_timing_details_do_not_expand_when_timing_enabled_is_fixed_off(self):
         candidates = expand_strategy_candidate_payloads(
             ["core_dip_dca"],
