@@ -9618,12 +9618,22 @@ def _run_genetic_evolution_payload(payload: dict[str, object]) -> dict[str, obje
     base_inputs = lab_config.to_strategy_inputs()
 
     # Parse GA parameters from payload
-    buy_strategy = str(payload.get("ga_buy_strategy") or payload.get("buy_strategy") or "equal_slice")
-    sell_strategy = str(payload.get("ga_sell_strategy") or payload.get("sell_strategy") or "grid_rebound")
-    if buy_strategy not in STRATEGY_LABELS:
-        raise ValueError(f"未知买入策略: {buy_strategy}")
-    if sell_strategy not in SELL_STRATEGY_LABELS:
-        raise ValueError(f"未知卖出策略: {sell_strategy}")
+    cross_strategy = str(payload.get("ga_cross_strategy", "")).lower() in {"true", "1", "yes", "on"}
+    if cross_strategy:
+        buy_strategies_raw = payload.get("ga_buy_strategies") or payload.get("buy_strategies")
+        sell_strategies_raw = payload.get("ga_sell_strategies") or payload.get("sell_strategies")
+        buy_strategies = [str(s) for s in buy_strategies_raw] if isinstance(buy_strategies_raw, list) else [str(payload.get("ga_buy_strategy") or payload.get("buy_strategy") or "equal_slice")]
+        sell_strategies = [str(s) for s in sell_strategies_raw] if isinstance(sell_strategies_raw, list) else [str(payload.get("ga_sell_strategy") or payload.get("sell_strategy") or "grid_rebound")]
+    else:
+        buy_strategies = [str(payload.get("ga_buy_strategy") or payload.get("buy_strategy") or "equal_slice")]
+        sell_strategies = [str(payload.get("ga_sell_strategy") or payload.get("sell_strategy") or "grid_rebound")]
+
+    for bs in buy_strategies:
+        if bs not in STRATEGY_LABELS:
+            raise ValueError(f"未知买入策略: {bs}")
+    for ss in sell_strategies:
+        if ss not in SELL_STRATEGY_LABELS:
+            raise ValueError(f"未知卖出策略: {ss}")
 
     ga_config = EvolutionConfig(
         population_size=int(payload.get("ga_population_size") or 50),
@@ -9633,6 +9643,8 @@ def _run_genetic_evolution_payload(payload: dict[str, object]) -> dict[str, obje
         elitism_count=int(payload.get("ga_elitism_count") or 3),
         tournament_size=int(payload.get("ga_tournament_size") or 4),
         seed=int(payload["ga_seed"]) if "ga_seed" in payload else None,
+        cross_strategy=cross_strategy,
+        strategy_mutation_rate=float(payload.get("ga_strategy_mutation_rate") or 0.05),
     )
 
     # Fetch market data once
@@ -9669,8 +9681,8 @@ def _run_genetic_evolution_payload(payload: dict[str, object]) -> dict[str, obje
 
     # Create fitness function
     fitness_fn = make_fitness_fn(
-        buy_strategy=buy_strategy,
-        sell_strategy=sell_strategy,
+        buy_strategies=buy_strategies,
+        sell_strategies=sell_strategies,
         price_points_by_symbol=price_points_by_symbol,
         targets=portfolio_targets,
         base_inputs=base_inputs,
@@ -9679,8 +9691,8 @@ def _run_genetic_evolution_payload(payload: dict[str, object]) -> dict[str, obje
     # Run GA evolution
     cancel_checker = _strategy_lab_job_control_checker(str(payload.get("_job_id") or ""))
     result = evolve_parameters(
-        buy_strategy=buy_strategy,
-        sell_strategy=sell_strategy,
+        buy_strategy=buy_strategies,
+        sell_strategy=sell_strategies,
         base_inputs=base_inputs,
         fitness_fn=fitness_fn,
         config=ga_config,
@@ -9692,10 +9704,10 @@ def _run_genetic_evolution_payload(payload: dict[str, object]) -> dict[str, obje
         "end": end_date.isoformat(),
     }
     result["warnings"] = warnings
-    result["buy_strategy"] = buy_strategy
-    result["sell_strategy"] = sell_strategy
-    result["buy_strategy_label"] = STRATEGY_LABELS.get(buy_strategy, buy_strategy)
-    result["sell_strategy_label"] = SELL_STRATEGY_LABELS.get(sell_strategy, sell_strategy)
+    result["buy_strategy"] = buy_strategies[0] if len(buy_strategies) == 1 else ",".join(buy_strategies)
+    result["sell_strategy"] = sell_strategies[0] if len(sell_strategies) == 1 else ",".join(sell_strategies)
+    result["buy_strategy_label"] = STRATEGY_LABELS.get(buy_strategies[0], buy_strategies[0]) if len(buy_strategies) == 1 else "跨策略"
+    result["sell_strategy_label"] = SELL_STRATEGY_LABELS.get(sell_strategies[0], sell_strategies[0]) if len(sell_strategies) == 1 else "跨策略"
     return result
 
 

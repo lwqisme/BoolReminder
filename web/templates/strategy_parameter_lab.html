@@ -1561,6 +1561,15 @@
                                 {% endfor %}
                             </select>
                         </label>
+                        <label>跨策略进化<span class="param-help" data-tooltip="开启后，GA 种群中不同买入/卖出策略类型的个体可以在同一代中竞争，策略类型本身也会参与进化和变异。">?</span>
+                            <select id="gaCrossStrategy">
+                                <option value="false" selected>关闭 - 单策略模式</option>
+                                <option value="true">开启 - 跨策略竞争</option>
+                            </select>
+                        </label>
+                        <label>策略突变率
+                            <input id="gaStrategyMutationRate" type="number" min="0" max="1" step="0.01" value="0.05">
+                        </label>
                         <label>种群大小
                             <input id="gaPopSize" type="number" min="10" max="200" step="10" value="50">
                         </label>
@@ -6806,8 +6815,20 @@
             document.getElementById('gaProgressBar').style.width = '0%';
             document.getElementById('gaStatus').textContent = '正在创建进化任务...';
             const payload = parameterLabPayload();
-            payload.ga_buy_strategy = document.getElementById('gaBuyStrategy').value;
-            payload.ga_sell_strategy = document.getElementById('gaSellStrategy').value;
+            payload.ga_cross_strategy = document.getElementById('gaCrossStrategy').value;
+            payload.ga_strategy_mutation_rate = parseFloat(document.getElementById('gaStrategyMutationRate').value) || 0.05;
+
+            const crossEnabled = payload.ga_cross_strategy === 'true';
+            if (crossEnabled) {
+                // Send all selected buy/sell strategies from the main panel checkboxes
+                const buyChecks = document.querySelectorAll('input[name="buyStrategy"]:checked');
+                const sellChecks = document.querySelectorAll('input[name="sellStrategy"]:checked');
+                payload.ga_buy_strategies = Array.from(buyChecks).map(function(cb) { return cb.value; });
+                payload.ga_sell_strategies = Array.from(sellChecks).map(function(cb) { return cb.value; });
+            } else {
+                payload.ga_buy_strategy = document.getElementById('gaBuyStrategy').value;
+                payload.ga_sell_strategy = document.getElementById('gaSellStrategy').value;
+            }
             payload.ga_population_size = parseInt(document.getElementById('gaPopSize').value, 10) || 50;
             payload.ga_generations = parseInt(document.getElementById('gaGenerations').value, 10) || 20;
             payload.ga_mutation_rate = parseFloat(document.getElementById('gaMutationRate').value) || 0.15;
