@@ -4771,6 +4771,7 @@
         }
         function leapsOutcomeTraces(outcomes, priceTraces, dates, closesByDate) {
             if (!Array.isArray(outcomes) || !outcomes.length) return [];
+            console.info('[parameter-lab] leapsOutcomeTraces called with', outcomes.length, 'outcomes');
             const gradeColors = { '高': '#e74c3c', '中': '#f39c12', '低': '#3498db', '无': '#95a5a6' };
             const gradeSymbols = { '高': 'circle', '中': 'square', '低': 'diamond', '无': 'x' };
             const entryByGrade = { '高': [], '中': [], '低': [], '无': [] };
@@ -4856,6 +4857,7 @@
             return traces;
         }
         function buildCellTradeChartFigure(cell, options = {}) {
+            console.info('[parameter-lab] buildCellTradeChartFigure drawdownBasis:', (lastParameterPacket?.inputs?.drawdown_basis || 'ath'), 'leapsOutcomes:', (options.leapsOutcomes || []).length);
             const dates = cell.series.dates || [];
             const portfolioValues = cell.series.portfolio_values || [];
             const cashValues = cell.series.cash_values || [];
