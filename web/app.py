@@ -3365,7 +3365,7 @@ STRATEGY_LAB_TEMPLATE = """
         <main class="container">
         <div class="header">
             <div class="title-block">
-                <div class="title-kicker">Strategy Lab</div>
+                <div class="title-kicker">Strategy Lab · REARM-REL-20260526</div>
                 <h1>仓位策略实验室</h1>
                 <p>按交易日时序演算股票回撤加仓、卖出规则和现金复用。</p>
             </div>
