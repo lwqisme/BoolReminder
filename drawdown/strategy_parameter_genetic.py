@@ -146,35 +146,21 @@ _INT_FIELDS = frozenset({
     "core_dip_timing_max_delay_days",
 })
 
-# Continuous mutation bounds (min, max) per parameter
-_PARAM_BOUNDS: dict[str, tuple[float, float]] = {
-    "step_pct": (0.5, 30.0),
-    "equal_slice_allocation_pct": (1.0, 50.0),
-    "core_dip_initial_core_pct": (10.0, 100.0),
-    "core_dip_weekly_core_pct": (10.0, 100.0),
-    "core_dip_cash_reserve_pct": (1.0, 50.0),
-    "core_dip_start_drawdown_pct": (1.0, 60.0),
-    "core_dip_full_drawdown_pct": (1.0, 80.0),
-    "core_dip_timing_max_delay_days": (0.0, 10.0),
-    "core_dip_timing_rise_threshold_pct": (0.5, 10.0),
-    "core_dip_timing_near_low_pct": (0.5, 10.0),
-    "sell_min_profit_pct": (1.0, 50.0),
-    "repair_sell_cooldown_days": (0.0, 120.0),
-    "repair_stage_sell_pct": (2.0, 50.0),
-    "grid_rebound_step_pct": (1.0, 30.0),
-    "grid_sell_pct": (5.0, 80.0),
-    "grid_min_sell_amount": (0.0, 5000.0),
-    "cost_first_profit_pct": (1.0, 80.0),
-    "cost_second_profit_pct": (1.0, 80.0),
-    "cost_third_profit_pct": (1.0, 80.0),
-    "cost_first_sell_pct": (5.0, 80.0),
-    "cost_second_sell_pct": (5.0, 80.0),
-    "cost_third_sell_pct": (5.0, 80.0),
-    "cost_deleverage_cooldown_days": (0.0, 120.0),
-    "cost_min_sell_amount": (0.0, 5000.0),
-    "dca_rearm_drawdown_pct": (0.0, 40.0),
-    "sell_stage_rearm_drawdown_pct": (0.0, 50.0),
-}
+# Continuous mutation bounds (min, max) per parameter — computed from
+# _BUY_PARAM_RANGES / _SELL_PARAM_RANGES so continuous mutation stays
+# within the same parameter range as discrete mutation.
+
+
+def _compute_param_bounds() -> dict[str, tuple[float, float]]:
+    bounds: dict[str, tuple[float, float]] = {}
+    for field, values in {**_BUY_PARAM_RANGES, **_SELL_PARAM_RANGES}.items():
+        numerics = [float(v) for v in values if v is not None]
+        if numerics:
+            bounds[field] = (min(numerics), max(numerics))
+    return bounds
+
+
+_PARAM_BOUNDS = _compute_param_bounds()
 
 # Precision: decimal places to round continuous values
 _PARAM_PRECISION: dict[str, int] = {
