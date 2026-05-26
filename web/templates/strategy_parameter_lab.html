@@ -7085,29 +7085,38 @@
                     batches.push({ batch_id: 'ga-' + runId + '-' + i, candidate_rows: candidateRows.slice(i, i + batchSize) });
                 }
 
-                let completedBatches = 0, settled = false, readyCount = 0;
+                let completedBatches = 0, settled = false;
                 const allRows = [];
                 const workers = [];
+                const readyFlags = [];
                 const cleanup = function() {
                     settled = true;
                     workers.forEach(function(w) { try { w.terminate(); } catch(e) {} });
                 };
 
-                // Create workers
-                for (let wi = 0; wi < workerCount; wi++) {
-                    workers.push(new Worker(parameterLabWorkerUrl));
-                }
-
-                const assignBatch = function(wi) {
+                const sendBatch = function(wi) {
                     if (settled) return;
                     const next = batches.shift();
                     if (!next) return;
-                    const worker = workers[wi];
+                    workers[wi].postMessage({
+                        type: 'batch', run_id: runId, worker_index: wi,
+                        batch_id: next.batch_id, candidate_rows: next.candidate_rows
+                    });
+                };
+
+                for (let wi = 0; wi < workerCount; wi++) {
+                    const worker = new Worker(parameterLabWorkerUrl);
+                    workers.push(worker);
+                    readyFlags.push(false);
 
                     worker.onmessage = function(event) {
                         if (settled) return;
                         const msg = event.data || {};
-                        if (msg.type === 'batch_done') {
+                        if (msg.type === 'ready') {
+                            readyFlags[wi] = true;
+                            // Send batch now that worker is initialized
+                            sendBatch(wi);
+                        } else if (msg.type === 'batch_done') {
                             const obs = (msg.rows || []).map(function(r) {
                                 const cid = r.candidate_id;
                                 return (r.observations || []).map(function(o) {
@@ -7121,14 +7130,9 @@
                             allRows.push.apply(allRows, obs);
                             completedBatches++;
                             if (shouldCancel && shouldCancel()) { cleanup(); resolve(allRows); return; }
-                            if (batches.length) { assignBatch(wi); } else { cleanup(); resolve(allRows); }
-                        } else if (msg.type === 'ready') {
-                            // Worker initialized – send first batch
-                            if (batches.length >= workers.length - wi) {
-                                assignBatch(wi);
-                            }
+                            if (batches.length) { sendBatch(wi); } else { cleanup(); resolve(allRows); }
                         } else if (msg.type === 'error') {
-                            console.error('[GA] Worker error:', msg.message, msg);
+                            console.error('[GA] Worker error:', msg.message);
                             cleanup(); reject(new Error(msg.message || 'Worker error'));
                         }
                     };
@@ -7140,7 +7144,7 @@
 
                     worker.postMessage({
                         type: 'start', run_id: runId, worker_index: wi,
-                        total_simulations: next.candidate_rows.length * tasks.length,
+                        total_simulations: candidateRows.length * tasks.length,
                         packet: {
                             run_id: runId, inputs: packet.inputs || {}, tasks: tasks,
                             market_data: packet.market_data || {}, registry: packet.registry || {},
@@ -7152,9 +7156,7 @@
                             diagnostics: { verbose_simulation_logs: false, progress_every: 1, progress_min_ms: 500, slow_simulation_ms: 3000 }
                         }
                     });
-                };
-
-                for (let wi = 0; wi < workerCount; wi++) assignBatch(wi);
+                }
             });
         }
 
