@@ -5068,6 +5068,20 @@
             event.preventDefault();
             openCellChartFullscreen();
         }
+        async function autoLoadLeapsOutcomesForChart(row) {
+            if (!row) return;
+            const cached = getActiveCellLeapsOutcomes(row);
+            if (cached.length) return;
+            if (!row.leaps_signal || row.leaps_signal.grade === '无') return;
+            try {
+                console.info('[parameter-lab] auto-loading LEAPS outcomes for chart');
+                const detail = await ensureFullLeapsDetailsForRow(row);
+                if (!detail || detail.status !== 'done') return;
+                await calculateLeapsOptionOutcomes(row, null, { scopeLabel: '买卖点图自动计算' });
+            } catch (error) {
+                console.warn('[parameter-lab] auto-load LEAPS outcomes failed:', error.message);
+            }
+        }
         function renderCellReplay(row, topicKey) {
             const status = document.getElementById('detailCellStatus');
             const trades = document.getElementById('detailTrades');
@@ -5078,6 +5092,12 @@
                 status.classList.add(cellMetricsMismatch(findSourceCell(row, topicKey), entry.cell) ? 'warn' : 'ok');
                 trades.innerHTML = renderCellTradeRows(entry.cell);
                 renderCellTradeChart(entry.cell, getActiveCellLeapsOutcomes(row));
+                autoLoadLeapsOutcomesForChart(row).then(() => {
+                    const reEntry = cellDetailCache.get(cellDetailCacheKey(row, topicKey));
+                    if (reEntry?.status === 'done') {
+                        renderCellTradeChart(reEntry.cell, getActiveCellLeapsOutcomes(row));
+                    }
+                });
             } else {
                 trades.innerHTML = '<tr><td colspan="8">等待 cell 重放。</td></tr>';
                 renderCellTradeChart(null);
