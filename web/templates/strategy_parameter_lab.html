@@ -6893,13 +6893,8 @@
                 document.getElementById('statSimulations').textContent = number(totalSims * totalGenerations, 0);
 
                 // Build GA population from packet
-                const candidateById = buildCandidateIndex(packet);
-                const candidates = [];
-                for (const row of (packet.candidate_rows || [])) {
-                    const cid = row[0];
-                    const cand = candidateById.get(cid);
-                    if (cand) candidates.push(cand);
-                }
+                const candidateIndex = buildCandidateIndex(packet);
+                const candidates = candidateIndex.candidates;
                 if (!candidates.length) {
                     setStatus('GA Error', '初始种群为空。请调整 GA 参数或策略选择后重试。', 0);
                     return;
