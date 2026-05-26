@@ -9745,6 +9745,8 @@ def _prepare_ga_client_payload(payload: dict[str, object]) -> dict[str, object]:
         tournament_size=int(payload.get("ga_tournament_size") or 4),
         cross_strategy=cross_strategy,
         strategy_mutation_rate=float(payload.get("ga_strategy_mutation_rate") or 0.05),
+        continuous_mutation=str(payload.get("ga_continuous_mutation", "")).lower() in {"true", "1", "yes", "on"},
+        mutation_sigma_ratio=float(payload.get("ga_sigma_ratio") or 0.15),
     )
 
     manifest = build_ga_client_manifest(buy_strategies, sell_strategies, inputs, ga_config)
