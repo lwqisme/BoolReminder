@@ -1597,6 +1597,19 @@
                             <input id="gaSigmaRatio" type="number" min="0.01" max="1" step="0.01" value="0.15">
                         </label>
                     </div>
+                    <details style="margin-top:4px;border:1px solid rgba(174,185,200,0.3);border-radius:var(--radius-sm);padding:6px 8px;">
+                        <summary style="cursor:pointer;font-weight:900;font-size:12px;color:var(--ink);">参数范围<span class="param-help" data-tooltip="限制 GA 搜索的参数上下界。留空使用默认范围。对变异阶段生效，连续和离散模式均受约束。">?</span></summary>
+                        <div class="field-grid" style="margin-top:6px;font-size:11px;">
+                            <label>卖后重启 % (0~40)<div style="display:flex;gap:3px;"><input id="gaB_dcaRe" type="number" min="0" max="40" step="1" placeholder="0" style="width:50%;"><span>~</span><input id="gaB_dcaReHi" type="number" min="0" max="40" step="1" placeholder="40" style="width:50%;"></div></label>
+                            <label>卖档重启 % (0~50)<div style="display:flex;gap:3px;"><input id="gaB_stgRe" type="number" min="0" max="50" step="1" placeholder="0" style="width:50%;"><span>~</span><input id="gaB_stgReHi" type="number" min="0" max="50" step="1" placeholder="50" style="width:50%;"></div></label>
+                            <label>步长 % (0.5~30)<div style="display:flex;gap:3px;"><input id="gaB_step" type="number" min="0.5" max="30" step="0.5" placeholder="0.5" style="width:50%;"><span>~</span><input id="gaB_stepHi" type="number" min="0.5" max="30" step="0.5" placeholder="30" style="width:50%;"></div></label>
+                            <label>每步投入 % (1~50)<div style="display:flex;gap:3px;"><input id="gaB_alloc" type="number" min="1" max="50" step="1" placeholder="1" style="width:50%;"><span>~</span><input id="gaB_allocHi" type="number" min="1" max="50" step="1" placeholder="50" style="width:50%;"></div></label>
+                            <label>回弹步长 % (1~30)<div style="display:flex;gap:3px;"><input id="gaB_gStp" type="number" min="1" max="30" step="0.5" placeholder="1" style="width:50%;"><span>~</span><input id="gaB_gStpHi" type="number" min="1" max="30" step="0.5" placeholder="30" style="width:50%;"></div></label>
+                            <label>每档卖出 % (5~80)<div style="display:flex;gap:3px;"><input id="gaB_gSel" type="number" min="5" max="80" step="1" placeholder="5" style="width:50%;"><span>~</span><input id="gaB_gSelHi" type="number" min="5" max="80" step="1" placeholder="80" style="width:50%;"></div></label>
+                            <label>最小盈利 % (1~50)<div style="display:flex;gap:3px;"><input id="gaB_mPrf" type="number" min="1" max="50" step="1" placeholder="1" style="width:50%;"><span>~</span><input id="gaB_mPrfHi" type="number" min="1" max="50" step="1" placeholder="50" style="width:50%;"></div></label>
+                            <label>修复冷却 天 (0~120)<div style="display:flex;gap:3px;"><input id="gaB_rpCd" type="number" min="0" max="120" step="1" placeholder="0" style="width:50%;"><span>~</span><input id="gaB_rpCdHi" type="number" min="0" max="120" step="1" placeholder="120" style="width:50%;"></div></label>
+                        </div>
+                    </details>
                     <div id="gaStatus" style="margin-top:8px;font-size:12px;color:var(--muted);min-height:20px;">就绪。</div>
                     <div class="progress" id="gaProgress" style="display:none;">
                         <span id="gaProgressBar" style="width:0%;"></span>
@@ -6895,6 +6908,7 @@
                 const packet = data.packet;
                 const gaConfig = packet.ga_config || {};
                 const paramRanges = packet.ga_parameter_ranges || {};
+                applyGaCustomBounds(paramRanges);
                 const totalGenerations = gaConfig.generations || 20;
                 const totalSims = (packet.candidate_rows || []).length * (packet.tasks || []).length;
                 document.getElementById('statCandidates').textContent = number(gaConfig.population_size || 50, 0);
@@ -7190,6 +7204,25 @@
                     });
                 }
             });
+        }
+
+        function applyGaCustomBounds(paramRanges) {
+            const map = {
+                dcaRe: 'dca_rearm_drawdown_pct', stgRe: 'sell_stage_rearm_drawdown_pct',
+                step: 'step_pct', alloc: 'equal_slice_allocation_pct',
+                gStp: 'grid_rebound_step_pct', gSel: 'grid_sell_pct',
+                mPrf: 'sell_min_profit_pct', rpCd: 'repair_sell_cooldown_days'
+            };
+            const bounds = paramRanges.bounds || {};
+            for (const [suffix, field] of Object.entries(map)) {
+                const lo = document.getElementById('gaB_' + suffix);
+                const hi = document.getElementById('gaB_' + suffix + 'Hi');
+                if (!lo || !hi) continue;
+                const vLo = parseFloat(lo.value), vHi = parseFloat(hi.value);
+                if (!isNaN(vLo) && lo.value !== '' && !isNaN(vHi) && hi.value !== '') {
+                    bounds[field] = [vLo, vHi];
+                }
+            }
         }
 
         function renderGaHistory(gaResults, bestFitnessEver) {
