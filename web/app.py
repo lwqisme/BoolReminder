@@ -9715,6 +9715,111 @@ def _run_genetic_evolution_payload(payload: dict[str, object]) -> dict[str, obje
     return result
 
 
+def _parse_ga_parameter_bounds(payload: dict[str, object]) -> dict[str, tuple[float, float]]:
+    raw_bounds = payload.get("ga_parameter_bounds")
+    if not isinstance(raw_bounds, dict):
+        return {}
+    default_bounds = (ga_parameter_ranges_payload().get("bounds") or {})
+    parsed: dict[str, tuple[float, float]] = {}
+    for field, raw in raw_bounds.items():
+        if field not in default_bounds or not isinstance(raw, list) or len(raw) < 2:
+            continue
+        default = default_bounds.get(field) or []
+        try:
+            lo = float(default[0]) if raw[0] is None else float(raw[0])
+            hi = float(default[1]) if raw[1] is None else float(raw[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if not math.isfinite(lo) or not math.isfinite(hi):
+            continue
+        parsed[str(field)] = (min(lo, hi), max(lo, hi))
+    return parsed
+
+
+def _ga_clamp_value(field: str, value: object, bounds: dict[str, tuple[float, float]]) -> object:
+    if value is None or isinstance(value, bool) or field not in bounds:
+        return value
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return value
+    if not math.isfinite(numeric):
+        return value
+    lo, hi = bounds[field]
+    numeric = max(lo, min(hi, numeric))
+    if field in {"repair_sell_cooldown_days", "cost_deleverage_cooldown_days", "core_dip_timing_max_delay_days"}:
+        return int(numeric)
+    precision = (ga_parameter_ranges_payload().get("precision") or {}).get(field, 2)
+    return round(numeric, int(precision))
+
+
+def _apply_ga_bounds_to_manifest(manifest: dict[str, object], bounds: dict[str, tuple[float, float]]) -> None:
+    if not bounds:
+        return
+    for rows_key, schema_key in (
+        ("buy_variants", "buy_variant_schema"),
+        ("sell_variants", "sell_variant_schema"),
+    ):
+        rows = manifest.get(rows_key)
+        schema = manifest.get(schema_key)
+        if not isinstance(rows, list) or not isinstance(schema, list):
+            continue
+        index = {str(field): i for i, field in enumerate(schema)}
+        for row in rows:
+            if not isinstance(row, list):
+                continue
+            changed = False
+            for field in bounds:
+                field_index = index.get(field)
+                if field_index is None or field_index >= len(row):
+                    continue
+                old_value = row[field_index]
+                new_value = _ga_clamp_value(field, old_value, bounds)
+                if new_value != old_value:
+                    row[field_index] = new_value
+                    changed = True
+            if changed and len(row) > 1:
+                row[1] = f"{row[1]}__bounded"
+
+
+def _apply_ga_bounds_to_ranges(ranges: dict[str, object], bounds: dict[str, tuple[float, float]]) -> None:
+    if not bounds:
+        return
+    ranges_bounds = ranges.get("bounds")
+    if isinstance(ranges_bounds, dict):
+        for field, (lo, hi) in bounds.items():
+            ranges_bounds[field] = [lo, hi]
+    ranges["_custom_bounds_fields"] = list(bounds.keys())
+    for ranges_key in ("buy_ranges", "sell_ranges"):
+        group = ranges.get(ranges_key)
+        if not isinstance(group, dict):
+            continue
+        for field, (lo, hi) in bounds.items():
+            values = group.get(field)
+            if not isinstance(values, list):
+                continue
+            kept: list[object] = []
+            seen: set[str] = set()
+            for value in [*values, lo, hi]:
+                if value is None:
+                    if "null" not in seen:
+                        kept.append(None)
+                        seen.add("null")
+                    continue
+                clamped = _ga_clamp_value(field, value, bounds)
+                try:
+                    numeric = float(clamped)
+                except (TypeError, ValueError):
+                    continue
+                if not (lo <= numeric <= hi):
+                    continue
+                key = str(clamped)
+                if key not in seen:
+                    kept.append(clamped)
+                    seen.add(key)
+            group[field] = kept
+
+
 def _prepare_ga_client_payload(payload: dict[str, object]) -> dict[str, object]:
     """Prepare a client-side GA packet with market data + initial population."""
     from drawdown.strategy_parameter_registry import strategy_parameter_lab_manifest_payload as _manifest_fn
@@ -9750,6 +9855,8 @@ def _prepare_ga_client_payload(payload: dict[str, object]) -> dict[str, object]:
     )
 
     manifest = build_ga_client_manifest(buy_strategies, sell_strategies, inputs, ga_config)
+    custom_bounds = _parse_ga_parameter_bounds(payload)
+    _apply_ga_bounds_to_manifest(manifest, custom_bounds)
 
     scorecard_portfolios = _resolve_scorecard_portfolios(
         targets,
@@ -9791,7 +9898,9 @@ def _prepare_ga_client_payload(payload: dict[str, object]) -> dict[str, object]:
         "continuous_mutation": ga_config.continuous_mutation,
         "mutation_sigma_ratio": ga_config.mutation_sigma_ratio,
     }
-    ga_payload["ga_parameter_ranges"] = ga_parameter_ranges_payload()
+    ga_ranges = ga_parameter_ranges_payload()
+    _apply_ga_bounds_to_ranges(ga_ranges, custom_bounds)
+    ga_payload["ga_parameter_ranges"] = ga_ranges
     ga_payload["payload_schema"] = "ga_client_packet_v1"
 
     try:

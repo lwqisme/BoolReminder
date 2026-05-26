@@ -6896,6 +6896,7 @@
             payload.ga_crossover_rate = parseFloat(document.getElementById('gaCrossoverRate').value) || 0.80;
             payload.ga_continuous_mutation = document.getElementById('gaContinuousMutation').value;
             payload.ga_sigma_ratio = parseFloat(document.getElementById('gaSigmaRatio').value) || 0.15;
+            payload.ga_parameter_bounds = readGaCustomBounds();
             payload.parameter_lab_concurrency = readNumber('workerCount');
 
             try {
@@ -6908,7 +6909,11 @@
                 const packet = data.packet;
                 const gaConfig = packet.ga_config || {};
                 const paramRanges = packet.ga_parameter_ranges || {};
-                applyGaCustomBounds(paramRanges);
+                applyGaCustomBounds(paramRanges, payload.ga_parameter_bounds);
+                const activeBoundsLabel = gaActiveBoundsLabel(paramRanges);
+                if (activeBoundsLabel) {
+                    document.getElementById('gaStatus').title = '生效参数范围: ' + activeBoundsLabel;
+                }
                 const totalGenerations = gaConfig.generations || 20;
                 const totalSims = (packet.candidate_rows || []).length * (packet.tasks || []).length;
                 document.getElementById('statCandidates').textContent = number(gaConfig.population_size || 50, 0);
@@ -6954,6 +6959,9 @@
                 // ── GA EVOLUTION LOOP ────────────────────────────────────────
                 for (let gen = 0; gen < totalGenerations; gen++) {
                     if (gaCancelled) break;
+                    population = population.map(function(ind) {
+                        return enforceGaIndividualBounds({ ...ind }, paramRanges);
+                    });
 
                     const genLabel = '第 ' + (gen + 1) + ' / ' + totalGenerations + ' 代';
                     setStatus('GA Evolving', genLabel + ' — 正在评估 ' + number(population.length, 0) + ' 个个体...', 10 + (gen / totalGenerations) * 80);
@@ -7077,7 +7085,7 @@
 
                 // Show topics info
                 const taskLabels = (packet.tasks || []).map(function(t) { return t.portfolio_label + ' / ' + t.period_label; }).join(', ');
-                document.getElementById('gaStatus').title = '题目 (' + (packet.tasks || []).length + '): ' + escapeHtml(taskLabels);
+                document.getElementById('gaStatus').title = (activeBoundsLabel ? '生效参数范围: ' + activeBoundsLabel + '\n' : '') + '题目 (' + (packet.tasks || []).length + '): ' + escapeHtml(taskLabels);
                 document.getElementById('statTopics').title = escapeHtml(taskLabels);
                 setStatus('GA Done', '进化完成 — ' + number(rows.length, 0) + ' 个个体，' + number(gaResults.length, 0) + ' 代，最优适应度: ' + number(bestFitnessEver, 1), 100);
                 const statusLabel = bestEver
@@ -7214,26 +7222,41 @@
             });
         }
 
-        function applyGaCustomBounds(paramRanges) {
+        function readGaCustomBounds() {
             const map = {
                 dcaRe: 'dca_rearm_drawdown_pct', stgRe: 'sell_stage_rearm_drawdown_pct',
                 step: 'step_pct', alloc: 'equal_slice_allocation_pct',
                 gStp: 'grid_rebound_step_pct', gSel: 'grid_sell_pct',
                 mPrf: 'sell_min_profit_pct', rpCd: 'repair_sell_cooldown_days'
             };
-            const bounds = paramRanges.bounds || {};
-            paramRanges.bounds = bounds;
-            paramRanges._custom_bounds_fields = paramRanges._custom_bounds_fields || [];
+            const out = {};
             for (const [suffix, field] of Object.entries(map)) {
                 const lo = document.getElementById('gaB_' + suffix);
                 const hi = document.getElementById('gaB_' + suffix + 'Hi');
                 if (!lo || !hi) continue;
-                const defaultBound = bounds[field] || [];
                 const hasLo = lo.value !== '';
                 const hasHi = hi.value !== '';
-                const vLo = hasLo ? parseFloat(lo.value) : Number(defaultBound[0]);
-                const vHi = hasHi ? parseFloat(hi.value) : Number(defaultBound[1]);
-                if ((hasLo || hasHi) && Number.isFinite(vLo) && Number.isFinite(vHi)) {
+                if (!hasLo && !hasHi) continue;
+                const vLo = hasLo ? parseFloat(lo.value) : null;
+                const vHi = hasHi ? parseFloat(hi.value) : null;
+                if ((vLo === null || Number.isFinite(vLo)) && (vHi === null || Number.isFinite(vHi))) {
+                    out[field] = [vLo, vHi];
+                }
+            }
+            return out;
+        }
+
+        function applyGaCustomBounds(paramRanges, customBounds = null) {
+            const bounds = paramRanges.bounds || {};
+            paramRanges.bounds = bounds;
+            paramRanges._custom_bounds_fields = paramRanges._custom_bounds_fields || [];
+            const requestedBounds = customBounds || readGaCustomBounds();
+            for (const [field, requested] of Object.entries(requestedBounds || {})) {
+                if (!Array.isArray(requested)) continue;
+                const defaultBound = bounds[field] || [];
+                const vLo = requested[0] === null || requested[0] === undefined ? Number(defaultBound[0]) : Number(requested[0]);
+                const vHi = requested[1] === null || requested[1] === undefined ? Number(defaultBound[1]) : Number(requested[1]);
+                if (Number.isFinite(vLo) && Number.isFinite(vHi)) {
                     bounds[field] = vLo <= vHi ? [vLo, vHi] : [vHi, vLo];
                     if (!paramRanges._custom_bounds_fields.includes(field)) {
                         paramRanges._custom_bounds_fields.push(field);
@@ -7331,6 +7354,23 @@
                 ind.label = null;
             }
             return ind;
+        }
+
+        function gaActiveBoundsLabel(paramRanges) {
+            const labels = {
+                dca_rearm_drawdown_pct: '卖后重启',
+                sell_stage_rearm_drawdown_pct: '卖档重启',
+                step_pct: '步长',
+                equal_slice_allocation_pct: '每步投入',
+                grid_rebound_step_pct: '回弹步长',
+                grid_sell_pct: '每档卖出',
+                sell_min_profit_pct: '最小盈利',
+                repair_sell_cooldown_days: '修复冷却'
+            };
+            return (paramRanges?._custom_bounds_fields || []).map(function(field) {
+                const b = gaNumericBounds(field, paramRanges);
+                return b ? (labels[field] || field) + ' ' + formatCompact(b[0]) + '~' + formatCompact(b[1]) : '';
+            }).filter(Boolean).join('；');
         }
 
         function renderGaHistory(gaResults, bestFitnessEver) {
