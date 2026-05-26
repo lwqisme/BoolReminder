@@ -6917,7 +6917,9 @@
 
                 // Build GA population from packet
                 const candidateIndex = buildCandidateIndex(packet);
-                const candidates = candidateIndex.candidates;
+                const candidates = candidateIndex.candidates.map(function(candidate, index) {
+                    return enforceGaIndividualBounds({ ...candidate }, paramRanges, index);
+                });
                 if (!candidates.length) {
                     setStatus('GA Error', '初始种群为空。请调整 GA 参数或策略选择后重试。', 0);
                     return;
@@ -7008,7 +7010,7 @@
                     gaResults.push({
                         generation: gen + 1, best_fitness: genBestFitness, avg_fitness: genAvgFitness,
                         population_size: population.length,
-                        best_label: population[genBestIdx].label || ((population[genBestIdx].buy_strategy || '') + ' / ' + (population[genBestIdx].sell_strategy || '')),
+                        best_label: population[genBestIdx].label || buildGaStatusLabel(population[genBestIdx]),
                         best_buy: population[genBestIdx].buy_strategy,
                         best_sell: population[genBestIdx].sell_strategy,
                         best_key_params: extractGaKeyParams(population[genBestIdx])
@@ -7043,18 +7045,24 @@
                     return {
                         key: ind.key || ('ga_' + index), combination_key: ind.key || ('ga_' + index),
                         candidate_key: ind.key || ('ga_' + index),
-                        label: ind.label || ((ind.buy_strategy || '') + ' / ' + (ind.sell_strategy || '')),
+                        label: ind.label || buildGaStatusLabel(ind),
                         buy_strategy: ind.buy_strategy, sell_strategy: ind.sell_strategy,
                         final_score: item.fitness, final_rank: index + 1,
                         avg_return_pct: item.avg_return || 0, avg_drawdown_pct: item.avg_drawdown || 0,
                         avg_topic_score: item.fitness, topic_count: (packet.tasks || []).length,
                         cells: [], ga_rank: index + 1,
                         ga_buy_params: extractGaParams(ind, BUY_PARAMETER_FIELDS),
-                        ga_sell_params: extractGaParams(ind, SELL_PARAMETER_FIELDS)
+                        ga_sell_params: extractGaParams(ind, SELL_PARAMETER_FIELDS),
+                        candidate: {
+                            ...ind,
+                            label: ind.label || buildGaStatusLabel(ind),
+                            combination_key: ind.key || ('ga_' + index)
+                        }
                     };
                 });
                 lastParameterPacket = packet;
                 lastParameterResult = {
+                    ...packet,
                     rows: rows, observations: [], observations_compacted: true, observation_count: rows.length * (packet.tasks || []).length,
                     diagnostics: { scale: { observation_count: rows.length * (packet.tasks || []).length } },
                     worker_metrics: { worker_count: workerCount }
@@ -7214,15 +7222,115 @@
                 mPrf: 'sell_min_profit_pct', rpCd: 'repair_sell_cooldown_days'
             };
             const bounds = paramRanges.bounds || {};
+            paramRanges.bounds = bounds;
+            paramRanges._custom_bounds_fields = paramRanges._custom_bounds_fields || [];
             for (const [suffix, field] of Object.entries(map)) {
                 const lo = document.getElementById('gaB_' + suffix);
                 const hi = document.getElementById('gaB_' + suffix + 'Hi');
                 if (!lo || !hi) continue;
-                const vLo = parseFloat(lo.value), vHi = parseFloat(hi.value);
-                if (!isNaN(vLo) && lo.value !== '' && !isNaN(vHi) && hi.value !== '') {
-                    bounds[field] = [vLo, vHi];
+                const defaultBound = bounds[field] || [];
+                const hasLo = lo.value !== '';
+                const hasHi = hi.value !== '';
+                const vLo = hasLo ? parseFloat(lo.value) : Number(defaultBound[0]);
+                const vHi = hasHi ? parseFloat(hi.value) : Number(defaultBound[1]);
+                if ((hasLo || hasHi) && Number.isFinite(vLo) && Number.isFinite(vHi)) {
+                    bounds[field] = vLo <= vHi ? [vLo, vHi] : [vHi, vLo];
+                    if (!paramRanges._custom_bounds_fields.includes(field)) {
+                        paramRanges._custom_bounds_fields.push(field);
+                    }
                 }
             }
+            for (const field of paramRanges._custom_bounds_fields) {
+                if (paramRanges.buy_ranges && paramRanges.buy_ranges[field]) {
+                    paramRanges.buy_ranges[field] = gaDiscreteValuesWithinBounds(field, paramRanges.buy_ranges[field], paramRanges);
+                }
+                if (paramRanges.sell_ranges && paramRanges.sell_ranges[field]) {
+                    paramRanges.sell_ranges[field] = gaDiscreteValuesWithinBounds(field, paramRanges.sell_ranges[field], paramRanges);
+                }
+            }
+        }
+
+        function gaNumericBounds(field, paramRanges) {
+            const b = paramRanges?.bounds?.[field];
+            if (!b || b.length < 2) return null;
+            const lo = Number(b[0]);
+            const hi = Number(b[1]);
+            if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
+            return lo <= hi ? [lo, hi] : [hi, lo];
+        }
+
+        function gaNormalizeBoundedValue(field, value, paramRanges) {
+            if (value === null || value === undefined || typeof value === 'boolean' || typeof value === 'string') {
+                return value;
+            }
+            const b = gaNumericBounds(field, paramRanges);
+            const n = Number(value);
+            if (!b || !Number.isFinite(n)) return value;
+            const precision = paramRanges?.precision || {};
+            const intFields = new Set(paramRanges?.int_fields || []);
+            let bounded = Math.max(b[0], Math.min(b[1], n));
+            if (intFields.has(field)) {
+                bounded = Math.trunc(bounded);
+            } else {
+                const prec = precision[field] !== undefined ? precision[field] : 2;
+                bounded = Number(bounded.toFixed(prec));
+            }
+            return bounded;
+        }
+
+        function gaValueWithinBounds(field, value, paramRanges) {
+            if (value === null || value === undefined) return true;
+            const b = gaNumericBounds(field, paramRanges);
+            if (!b) return true;
+            const n = Number(value);
+            return Number.isFinite(n) && n >= b[0] && n <= b[1];
+        }
+
+        function gaDiscreteValuesWithinBounds(field, values, paramRanges) {
+            const b = gaNumericBounds(field, paramRanges);
+            if (!b || !(paramRanges?._custom_bounds_fields || []).includes(field)) return values;
+            const seen = new Set();
+            const add = function(out, value) {
+                if (!gaValueWithinBounds(field, value, paramRanges)) return;
+                const normalized = gaNormalizeBoundedValue(field, value, paramRanges);
+                const key = normalized === null || normalized === undefined ? 'null' : String(normalized);
+                if (!seen.has(key)) {
+                    seen.add(key);
+                    out.push(normalized);
+                }
+            };
+            const out = [];
+            (values || []).forEach(function(value) { add(out, value); });
+            add(out, b[0]);
+            add(out, b[1]);
+            return out;
+        }
+
+        function enforceGaIndividualBounds(ind, paramRanges, index = null) {
+            let changed = false;
+            for (const field of BUY_PARAMETER_FIELDS.concat(SELL_PARAMETER_FIELDS)) {
+                if (!Object.prototype.hasOwnProperty.call(ind, field)) continue;
+                const before = ind[field];
+                const after = gaNormalizeBoundedValue(field, before, paramRanges);
+                if (after !== before) {
+                    ind[field] = after;
+                    changed = true;
+                }
+            }
+            if (ind.core_dip_start_drawdown_pct !== undefined && ind.core_dip_full_drawdown_pct !== undefined) {
+                if (Number(ind.core_dip_start_drawdown_pct) > Number(ind.core_dip_full_drawdown_pct)) {
+                    ind.core_dip_full_drawdown_pct = ind.core_dip_start_drawdown_pct;
+                    changed = true;
+                }
+            }
+            if (changed || index !== null) {
+                const buyParams = extractGaParams(ind, BUY_PARAMETER_FIELDS);
+                const sellParams = extractGaParams(ind, SELL_PARAMETER_FIELDS);
+                const suffix = index !== null ? '__seed' + index : '__' + Math.random().toString(36).slice(2, 8);
+                ind.key = buildCandidateKey(ind.buy_strategy || '', ind.sell_strategy || '', buyParams, sellParams) + suffix;
+                ind.label = null;
+            }
+            return ind;
         }
 
         function renderGaHistory(gaResults, bestFitnessEver) {
@@ -7312,7 +7420,7 @@
                     if (continuous && bounds[field]) {
                         child[field] = gaussMutate(field, child[field]);
                     } else if (buyRanges[field]) {
-                        const vals = buyRanges[field];
+                        const vals = gaDiscreteValuesWithinBounds(field, buyRanges[field], paramRanges);
                         child[field] = vals[Math.floor(Math.random() * vals.length)];
                         if (intFields.has(field)) child[field] = Math.trunc(Number(child[field]));
                     }
@@ -7323,7 +7431,7 @@
                     if (continuous && bounds[field]) {
                         child[field] = gaussMutate(field, child[field]);
                     } else if (sellRanges[field]) {
-                        const vals = sellRanges[field];
+                        const vals = gaDiscreteValuesWithinBounds(field, sellRanges[field], paramRanges);
                         child[field] = vals[Math.floor(Math.random() * vals.length)];
                         if (intFields.has(field)) child[field] = Math.trunc(Number(child[field]));
                     } else if (field === 'sell_allow_same_day_sell') {
@@ -7347,6 +7455,7 @@
                 }
             }
 
+            enforceGaIndividualBounds(child, paramRanges);
             child.key = 'ga_' + (child.buy_strategy || 'x') + '__' + (child.sell_strategy || 'x') + '__' + Math.random().toString(36).slice(2, 8);
             child.label = null; // stale after mutation – regenerate from params
             return child;

@@ -53,6 +53,66 @@ function mutateGa(ind, mutationRate, paramRanges, gaConfig, crossEnabled) {
     const continuous = gaConfig.continuous_mutation || false;
     const sigmaRatio = gaConfig.mutation_sigma_ratio || 0.15;
 
+    function gaNumericBounds(field) {
+        const b = bounds[field];
+        if (!b || b.length < 2) return null;
+        const lo = Number(b[0]);
+        const hi = Number(b[1]);
+        if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
+        return lo <= hi ? [lo, hi] : [hi, lo];
+    }
+
+    function gaNormalizeBoundedValue(field, value) {
+        if (value === null || value === undefined || typeof value === 'boolean' || typeof value === 'string') return value;
+        const b = gaNumericBounds(field);
+        const n = Number(value);
+        if (!b || !Number.isFinite(n)) return value;
+        let bounded = Math.max(b[0], Math.min(b[1], n));
+        if (intFields.has(field)) {
+            bounded = Math.trunc(bounded);
+        } else {
+            const prec = precision[field] !== undefined ? precision[field] : 2;
+            bounded = Number(bounded.toFixed(prec));
+        }
+        return bounded;
+    }
+
+    function gaValueWithinBounds(field, value) {
+        if (value === null || value === undefined) return true;
+        const b = gaNumericBounds(field);
+        if (!b) return true;
+        const n = Number(value);
+        return Number.isFinite(n) && n >= b[0] && n <= b[1];
+    }
+
+    function gaDiscreteValuesWithinBounds(field, values) {
+        const b = gaNumericBounds(field);
+        if (!b || !(paramRanges._custom_bounds_fields || []).includes(field)) return values;
+        const seen = new Set();
+        const out = [];
+        function add(value) {
+            if (!gaValueWithinBounds(field, value)) return;
+            const normalized = gaNormalizeBoundedValue(field, value);
+            const key = normalized === null || normalized === undefined ? 'null' : String(normalized);
+            if (!seen.has(key)) {
+                seen.add(key);
+                out.push(normalized);
+            }
+        }
+        (values || []).forEach(add);
+        add(b[0]);
+        add(b[1]);
+        return out;
+    }
+
+    function enforceGaIndividualBounds(child) {
+        for (const field of BUY_PARAMETER_FIELDS.concat(SELL_PARAMETER_FIELDS)) {
+            if (!Object.prototype.hasOwnProperty.call(child, field)) continue;
+            child[field] = gaNormalizeBoundedValue(field, child[field]);
+        }
+        return child;
+    }
+
     function gaussMutate(field, currentVal) {
         const b = bounds[field];
         if (!b || b.length < 2) return currentVal;
@@ -72,7 +132,7 @@ function mutateGa(ind, mutationRate, paramRanges, gaConfig, crossEnabled) {
             if (continuous && bounds[field]) {
                 child[field] = gaussMutate(field, child[field]);
             } else if (buyRanges[field]) {
-                const vals = buyRanges[field];
+                const vals = gaDiscreteValuesWithinBounds(field, buyRanges[field]);
                 child[field] = vals[Math.floor(Math.random() * vals.length)];
                 if (intFields.has(field)) child[field] = Math.trunc(Number(child[field]));
             }
@@ -83,7 +143,7 @@ function mutateGa(ind, mutationRate, paramRanges, gaConfig, crossEnabled) {
             if (continuous && bounds[field]) {
                 child[field] = gaussMutate(field, child[field]);
             } else if (sellRanges[field]) {
-                const vals = sellRanges[field];
+                const vals = gaDiscreteValuesWithinBounds(field, sellRanges[field]);
                 child[field] = vals[Math.floor(Math.random() * vals.length)];
                 if (intFields.has(field)) child[field] = Math.trunc(Number(child[field]));
             } else if (field === 'sell_allow_same_day_sell') {
@@ -103,6 +163,7 @@ function mutateGa(ind, mutationRate, paramRanges, gaConfig, crossEnabled) {
             child.core_dip_full_drawdown_pct = child.core_dip_start_drawdown_pct;
         }
     }
+    enforceGaIndividualBounds(child);
     child.key = 'test_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
     child.label = null;
     return child;
@@ -313,6 +374,33 @@ function test_mutate_clears_label() {
     console.log('PASS: test_mutate_clears_label');
 }
 
+// Test 13: custom bounds constrain discrete mutation ranges and inherited values
+function test_custom_bounds_constrain_rearm_params() {
+    const boundedRanges = JSON.parse(JSON.stringify(paramRanges));
+    boundedRanges.sell_ranges.sell_stage_rearm_drawdown_pct = [null, 10, 15];
+    boundedRanges.bounds.dca_rearm_drawdown_pct = [0, 2];
+    boundedRanges.bounds.sell_stage_rearm_drawdown_pct = [0, 2];
+    boundedRanges._custom_bounds_fields = ['dca_rearm_drawdown_pct', 'sell_stage_rearm_drawdown_pct'];
+    const ind = {
+        buy_strategy: 'equal_slice', sell_strategy: 'grid_rebound',
+        dca_rearm_drawdown_pct: 10, sell_stage_rearm_drawdown_pct: 15
+    };
+    const gaConfig = { continuous_mutation: false, mutation_sigma_ratio: 0.15 };
+    for (let i = 0; i < 100; i++) {
+        const child = mutateGa(ind, 1, boundedRanges, gaConfig, false);
+        assert.ok(child.dca_rearm_drawdown_pct >= 0 && child.dca_rearm_drawdown_pct <= 2,
+            `dca_rearm_drawdown_pct=${child.dca_rearm_drawdown_pct} outside custom bounds`);
+        if (child.sell_stage_rearm_drawdown_pct !== null && child.sell_stage_rearm_drawdown_pct !== undefined) {
+            assert.ok(child.sell_stage_rearm_drawdown_pct >= 0 && child.sell_stage_rearm_drawdown_pct <= 2,
+                `sell_stage_rearm_drawdown_pct=${child.sell_stage_rearm_drawdown_pct} outside custom bounds`);
+        }
+    }
+    const inherited = mutateGa(ind, 0, boundedRanges, gaConfig, false);
+    assert.strictEqual(inherited.dca_rearm_drawdown_pct, 2);
+    assert.strictEqual(inherited.sell_stage_rearm_drawdown_pct, 2);
+    console.log('PASS: test_custom_bounds_constrain_rearm_params');
+}
+
 // ── Run ──
 
 const tests = [
@@ -328,6 +416,7 @@ const tests = [
     test_crossover_preserves_label_and_key,
     test_mutate_generates_key,
     test_mutate_clears_label,
+    test_custom_bounds_constrain_rearm_params,
 ];
 
 let passed = 0, failed = 0;
