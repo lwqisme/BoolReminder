@@ -5,6 +5,7 @@ from drawdown.strategy_parameter_registry import (
     BUY_PARAMETER_FIELDS,
     SELL_PARAMETER_FIELDS,
     STRATEGY_DEFINITION_VERSION,
+    apply_candidate_to_inputs,
     expand_buy_parameter_variants,
     expand_strategy_candidate_payloads,
     strategy_parameter_lab_manifest_payload,
@@ -205,6 +206,9 @@ class StrategyParameterRegistryTest(unittest.TestCase):
         self.assertEqual(payload["definitions"]["grid_rebound"]["strategy_type"], "sell")
         self.assertEqual(payload["definitions"]["repair_step"]["parameter_space"]["sell_allow_same_day_sell"], [False, True])
         self.assertEqual(payload["definitions"]["grid_rebound"]["parameter_space"]["sell_allow_same_day_sell"], [False, True])
+        self.assertEqual(payload["definitions"]["grid_rebound"]["parameter_space"]["grid_sell_pct"], [15.0, 25.0, 40.0, 50.0])
+        self.assertNotIn("grid_first_sell_pct", payload["definitions"]["grid_rebound"]["parameter_space"])
+        self.assertNotIn("grid_second_sell_pct", payload["definitions"]["grid_rebound"]["parameter_space"])
         cost_space = payload["definitions"]["cost_deleverage"]["parameter_space"]
         self.assertEqual(cost_space["sell_allow_same_day_sell"], [False, True])
         self.assertEqual(cost_space["sell_stage_rearm_drawdown_pct"], [10.0, 15.0])
@@ -230,6 +234,49 @@ class StrategyParameterRegistryTest(unittest.TestCase):
         self.assertLess(len(manifest["buy_variants"]), len(candidates))
         self.assertLess(len(manifest["sell_variants"]), len(candidates))
         self.assertIn("candidate_manifest_hash", manifest)
+
+    def test_grid_rebound_candidates_use_single_sell_pct_key_and_label(self):
+        candidates = expand_strategy_candidate_payloads(
+            ["weekly_dca"],
+            ["grid_rebound"],
+            StrategyInputs(
+                sell_min_profit_pct=15,
+                grid_rebound_step_pct=5,
+                grid_first_sell_pct=10,
+                grid_second_sell_pct=15,
+            ),
+            active_parameter_fields=[],
+        )
+
+        self.assertEqual(len(candidates), 1)
+        candidate = candidates[0]
+        self.assertEqual(candidate["grid_sell_pct"], 15.0)
+        self.assertIsNone(candidate["grid_first_sell_pct"])
+        self.assertIsNone(candidate["grid_second_sell_pct"])
+        self.assertIn("gsell15", candidate["key"])
+        self.assertIn("每档15%卖出", candidate["label"])
+        self.assertIn("15%最小盈利", candidate["label"])
+
+    def test_grid_rebound_min_profit_label_does_not_filter_grid_candidates(self):
+        candidates = expand_strategy_candidate_payloads(
+            ["equal_slice"],
+            ["grid_rebound"],
+            StrategyInputs(
+                sell_min_profit_pct=15,
+                grid_rebound_step_pct=5,
+                grid_sell_pct=15,
+                grid_min_sell_amount=200,
+            ),
+            selected_parameter_values={
+                "sell_min_profit_pct": [10],
+                "grid_rebound_step_pct": [5],
+                "grid_sell_pct": [15],
+            },
+        )
+
+        self.assertGreater(len(candidates), 0)
+        self.assertEqual({candidate["sell_min_profit_pct"] for candidate in candidates}, {15.0})
+        self.assertTrue(all("15%最小盈利" in candidate["label"] for candidate in candidates))
 
     def test_active_fields_omitted_preserves_full_candidate_expansion(self):
         default_candidates = expand_strategy_candidate_payloads(
@@ -320,6 +367,24 @@ class StrategyParameterRegistryTest(unittest.TestCase):
         self.assertTrue(candidate["sell_allow_same_day_sell"])
         self.assertEqual(candidate["dca_rearm_drawdown_pct"], 15.0)
         self.assertIsNone(candidate["sell_stage_rearm_drawdown_pct"])
+
+    def test_apply_candidate_preserves_explicit_null_sell_stage_rearm(self):
+        inputs = StrategyInputs(
+            max_drawdown_pct=50,
+            dca_rearm_drawdown_pct=15.0,
+            sell_stage_rearm_drawdown_pct=15.0,
+        )
+
+        applied = apply_candidate_to_inputs(
+            inputs,
+            {
+                "dca_rearm_drawdown_pct": 5.0,
+                "sell_stage_rearm_drawdown_pct": None,
+            },
+        )
+
+        self.assertEqual(applied.dca_rearm_drawdown_pct, 5.0)
+        self.assertIsNone(applied.sell_stage_rearm_drawdown_pct)
 
     def test_partial_active_fields_reduce_candidates_and_fix_inactive_values(self):
         inputs = StrategyInputs(step_pct=5.0, equal_slice_allocation_pct=7.5)

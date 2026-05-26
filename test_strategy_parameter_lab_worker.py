@@ -245,7 +245,7 @@ const packet = {
   sell_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...sellFields],
   candidate_schema: ['candidate_id', 'buy_variant_id', 'sell_variant_id'],
   buy_variants: [[0, 'buy:equal', 'equal_slice', 10, 100, null, null, null, null, null, null, null, null, null]],
-  sell_variants: [[0, 'sell:grid', 'grid_rebound', 0, null, null, 5, 10, 10, 0, null, null, null, null, null, null, null, false, 0, 0, null]],
+  sell_variants: [[0, 'sell:grid', 'grid_rebound', 0, null, null, 5, 10, 15, 0, null, null, null, null, null, null, null, false, 0, 0, null]],
   candidate_rows: [[0, 0, 0]],
   include_trades: true
 };
@@ -254,7 +254,9 @@ const packet = {
   await context.processBatch({ run_id: packet.run_id, worker_index: 0, batch_id: 'b1', candidate_rows: packet.candidate_rows }, 0, packet.run_id);
   const done = messages.find((message) => message.type === 'batch_done');
   const trades = done.rows[0].observations[0].trade_log;
-  const sells = trades.filter((trade) => trade.action === 'sell').map((trade) => [trade.date, trade.stage, trade.trigger_value]);
+  const sells = trades
+    .filter((trade) => trade.action === 'sell')
+    .map((trade) => [trade.date, trade.stage, trade.trigger_value, Number(trade.shares.toFixed(6))]);
   process.stdout.write(JSON.stringify(sells));
 })().catch((error) => {
   console.error(error);
@@ -271,11 +273,11 @@ const packet = {
         self.assertEqual(
             json.loads(completed.stdout),
             [
-                ["2025-01-03", "grid_1", 45],
-                ["2025-01-04", "grid_2", 40],
-                ["2025-01-05", "grid_3", 35],
-                ["2025-01-06", "grid_4", 30],
-                ["2025-01-07", "grid_5", 25],
+                ["2025-01-03", "grid_1", 45, 15],
+                ["2025-01-04", "grid_2", 40, 12.75],
+                ["2025-01-05", "grid_3", 35, 10.8375],
+                ["2025-01-06", "grid_4", 30, 9.211875],
+                ["2025-01-07", "grid_5", 25, 7.830094],
             ],
         )
 
@@ -591,6 +593,126 @@ const packet = {
         self.assertIn(("2025-01-03", 10), sells)
         self.assertIn(("2025-01-05", 10), sells)
         self.assertTrue(rearm_buys)
+
+    def test_candidate_null_sell_stage_rearm_uses_dca_rearm_threshold(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript grid rearm check")
+
+        script = r"""
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const messages = [];
+const context = {
+  console: { info() {}, warn() {}, error() {} },
+  postMessage(message) { messages.push(message); },
+  performance: { now: () => 0 },
+  setTimeout
+};
+context.self = context;
+vm.createContext(context);
+vm.runInContext(source, context);
+const buyFields = [
+  'step_pct', 'equal_slice_allocation_pct', 'core_dip_initial_core_pct',
+  'core_dip_weekly_core_pct', 'core_dip_cash_reserve_pct',
+  'core_dip_start_drawdown_pct', 'core_dip_full_drawdown_pct',
+  'core_dip_timing_enabled', 'core_dip_timing_max_delay_days',
+  'core_dip_timing_rise_threshold_pct', 'core_dip_timing_near_low_pct'
+];
+const sellFields = [
+  'sell_min_profit_pct', 'repair_sell_cooldown_days', 'repair_stage_sell_pct',
+  'grid_rebound_step_pct', 'grid_sell_pct', 'grid_first_sell_pct', 'grid_second_sell_pct',
+  'grid_min_sell_amount', 'cost_first_profit_pct', 'cost_second_profit_pct',
+  'cost_third_profit_pct', 'cost_first_sell_pct', 'cost_second_sell_pct',
+  'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
+  'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct',
+  'buy_rearm_mode', 'sell_stage_rearm_drawdown_pct'
+];
+const buyParams = { step_pct: 10, equal_slice_allocation_pct: 50 };
+const sellParams = {
+  sell_min_profit_pct: 0,
+  grid_rebound_step_pct: 5,
+  grid_sell_pct: 25,
+  grid_min_sell_amount: 0,
+  sell_allow_same_day_sell: false,
+  cost_min_sell_amount: 0,
+  dca_rearm_drawdown_pct: 5,
+  buy_rearm_mode: 'cumulative',
+  sell_stage_rearm_drawdown_pct: null
+};
+const rowValue = (params, field) => Object.prototype.hasOwnProperty.call(params, field) ? params[field] : null;
+const packet = {
+  run_id: 'grid-null-rearm',
+  inputs: {
+    initial_cash: 1000,
+    monthly_contribution: 0,
+    max_drawdown_pct: 50,
+    drawdown_basis: 'ath',
+    trade_fee: 0,
+    hkd_to_usd: 0.128,
+    reserve_position_pct: 0,
+    sell_min_profit_pct: 0,
+    sell_allow_same_day_sell: false,
+    dca_rearm_drawdown_pct: 0,
+    sell_stage_rearm_drawdown_pct: 15
+  },
+  tasks: [{
+    key: 'googl_grid_rearm',
+    portfolio_key: 'single',
+    portfolio_label: 'Single',
+    period_key: 'cycle',
+    period_label: 'Cycle',
+    start: '2025-01-01',
+    end: '2025-01-06',
+    symbols: ['GOOGL.US'],
+    targets: [{ symbol: 'GOOGL.US', weight: 100, name: 'GOOGL', max_drawdown_pct: 50 }]
+  }],
+  market_data: {
+    symbols: {
+      'GOOGL.US': {
+        dates: ['2025-01-01', '2025-01-02', '2025-01-03', '2025-01-04', '2025-01-05', '2025-01-06'],
+        closes: [100, 90, 95, 100, 90, 95]
+      }
+    }
+  },
+  buy_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...buyFields],
+  sell_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...sellFields],
+  candidate_schema: ['candidate_id', 'buy_variant_id', 'sell_variant_id'],
+  buy_variants: [[0, 'buy:equal', 'equal_slice', ...buyFields.map((field) => rowValue(buyParams, field))]],
+  sell_variants: [[0, 'sell:grid', 'grid_rebound', ...sellFields.map((field) => rowValue(sellParams, field))]],
+  candidate_rows: [[0, 0, 0]],
+  include_trades: true,
+  include_series: false
+};
+(async () => {
+  await context.initRun(packet, 0, packet.run_id, 1);
+  await context.processBatch({ run_id: packet.run_id, worker_index: 0, batch_id: 'b1', candidate_rows: packet.candidate_rows }, 0, packet.run_id);
+  const done = messages.find((message) => message.type === 'batch_done');
+  process.stdout.write(JSON.stringify(done.rows[0].observations[0].trade_log));
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+"""
+        completed = subprocess.run(
+            ["node", "-e", script, str(WORKER_JS)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        trades = json.loads(completed.stdout)
+        sells = [(trade["date"], trade.get("stage")) for trade in trades if trade["action"] == "sell"]
+        rearm_buys = [trade for trade in trades if trade["action"] == "buy" and trade.get("sell_cycle_rearmed")]
+
+        self.assertEqual(
+            sells,
+            [
+                ("2025-01-03", "grid_1"),
+                ("2025-01-04", "grid_2"),
+                ("2025-01-06", "grid_1"),
+            ],
+        )
+        self.assertEqual([trade["date"] for trade in rearm_buys], ["2025-01-05"])
 
     def test_leaps_signal_helper_scores_low_cash_deep_drawdown_above_chasing_buy(self):
         if shutil.which("node") is None:

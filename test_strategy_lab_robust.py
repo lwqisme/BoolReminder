@@ -186,8 +186,7 @@ class StrategyLabRobustTest(unittest.TestCase):
 
         self.assertEqual(result["sell_strategies"], ["grid_rebound"])
         self.assertEqual(result["method"]["parameter_grid"]["grid_rebound_step_pct"], [2.5, 5.0, 7.5, 10.0, 15.0])
-        self.assertEqual(result["method"]["parameter_grid"]["grid_first_sell_pct"], [10.0, 15.0, 25.0, 40.0])
-        self.assertEqual(result["method"]["parameter_grid"]["grid_second_sell_pct"], [15.0, 25.0, 40.0, 50.0])
+        self.assertEqual(result["method"]["parameter_grid"]["grid_sell_pct"], [15.0, 25.0, 40.0, 50.0])
         self.assertEqual(result["method"]["parameter_grid"]["dca_rearm_drawdown_pct"], [0.0, 5.0, 10.0, 15.0, 20.0])
         candidates = [row["candidate"] for row in result["leaderboard"]]
         self.assertTrue(candidates)

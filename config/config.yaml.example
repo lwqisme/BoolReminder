@@ -75,8 +75,7 @@ position_strategy:
   default_dca_rearm_drawdown_pct: 5
   default_sell_stage_rearm_drawdown_pct: 15
   default_grid_rebound_step_pct: 5
-  default_grid_first_sell_pct: 40
-  default_grid_second_sell_pct: 40
+  default_grid_sell_pct: 40
   default_grid_min_sell_amount: 200
   default_cost_first_profit_pct: 8
   default_cost_second_profit_pct: 15

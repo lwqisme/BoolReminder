@@ -1463,8 +1463,7 @@
                         <label>修复冷却<input id="repairSellCooldown" type="number" step="1" value="{{ default_config.default_repair_sell_cooldown_days }}"></label>
                         <label>单档卖出 %<input id="repairStageSellPct" type="number" step="0.5" value="{{ default_config.default_repair_stage_sell_pct }}"></label>
                         <label>网格步长 %<input id="gridReboundStep" type="number" step="0.5" value="{{ default_config.default_grid_rebound_step_pct }}"></label>
-                        <label>网格一档 %<input id="gridFirstSellPct" type="number" step="1" value="{{ default_config.default_grid_first_sell_pct }}"></label>
-                        <label>网格二档 %<input id="gridSecondSellPct" type="number" step="1" value="{{ default_config.default_grid_second_sell_pct }}"></label>
+                        <label>网格每档 %<input id="gridSellPct" type="number" step="1" value="{{ default_config.default_grid_sell_pct }}"></label>
                         <label>网格最小额<input id="gridMinSellAmount" type="number" step="10" value="{{ default_config.default_grid_min_sell_amount }}"></label>
                         <label>成本一档盈利<input id="costFirstProfitPct" type="number" step="0.5" value="{{ default_config.default_cost_first_profit_pct }}"></label>
                         <label>成本二档盈利<input id="costSecondProfitPct" type="number" step="0.5" value="{{ default_config.default_cost_second_profit_pct }}"></label>
@@ -1719,8 +1718,7 @@
             'repair_sell_cooldown_days',
             'repair_stage_sell_pct',
             'grid_rebound_step_pct',
-            'grid_first_sell_pct',
-            'grid_second_sell_pct',
+            'grid_sell_pct',
             'grid_min_sell_amount',
             'cost_first_profit_pct',
             'cost_second_profit_pct',
@@ -1753,8 +1751,7 @@
             repair_sell_cooldown_days: { label: '修复冷却', input: 'repairSellCooldown', formatter: (value) => `${number(value, 0)}日` },
             repair_stage_sell_pct: { label: '单档卖出', input: 'repairStageSellPct', formatter: percentChip },
             grid_rebound_step_pct: { label: '网格回弹', input: 'gridReboundStep', formatter: (value) => `${number(value)}%步长` },
-            grid_first_sell_pct: { label: '网格一档', input: 'gridFirstSellPct', formatter: percentChip },
-            grid_second_sell_pct: { label: '网格二档', input: 'gridSecondSellPct', formatter: percentChip },
+            grid_sell_pct: { label: '网格每档卖出', input: 'gridSellPct', formatter: percentChip },
             cost_first_profit_pct: { label: '成本一档盈利', input: 'costFirstProfitPct', formatter: percentChip },
             cost_second_profit_pct: { label: '成本二档盈利', input: 'costSecondProfitPct', formatter: percentChip },
             cost_third_profit_pct: { label: '成本三档盈利', input: 'costThirdProfitPct', formatter: percentChip },
@@ -2817,8 +2814,7 @@
                 dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown'),
                 sell_stage_rearm_drawdown_pct: readOptionalNumber('sellStageRearmDrawdown'),
                 grid_rebound_step_pct: readNumber('gridReboundStep'),
-                grid_first_sell_pct: readNumber('gridFirstSellPct'),
-                grid_second_sell_pct: readNumber('gridSecondSellPct'),
+                grid_sell_pct: readNumber('gridSellPct'),
                 grid_min_sell_amount: readNumber('gridMinSellAmount'),
                 cost_first_profit_pct: readNumber('costFirstProfitPct'),
                 cost_second_profit_pct: readNumber('costSecondProfitPct'),
@@ -3013,8 +3009,7 @@
                 repair_sell_cooldown_days: repair.parameter_space?.repair_sell_cooldown_days || [],
                 repair_stage_sell_pct: repair.parameter_space?.repair_stage_sell_pct || [],
                 grid_rebound_step_pct: grid.parameter_space?.grid_rebound_step_pct || [],
-                grid_first_sell_pct: grid.parameter_space?.grid_first_sell_pct || [],
-                grid_second_sell_pct: grid.parameter_space?.grid_second_sell_pct || [],
+                grid_sell_pct: grid.parameter_space?.grid_sell_pct || [],
                 cost_first_profit_pct: costProfitColumn(0),
                 cost_second_profit_pct: costProfitColumn(1),
                 cost_third_profit_pct: costProfitColumn(2),
@@ -3457,8 +3452,7 @@
             }
             if (sellStrategy === 'grid_rebound') {
                 parts.push(`g${formatCompact(sellParams.grid_rebound_step_pct)}`);
-                parts.push(`g1${formatCompact(sellParams.grid_first_sell_pct)}`);
-                parts.push(`g2${formatCompact(sellParams.grid_second_sell_pct)}`);
+                parts.push(`gsell${formatCompact(sellParams.grid_sell_pct ?? sellParams.grid_second_sell_pct)}`);
                 parts.push(`gmin${formatCompact(sellParams.grid_min_sell_amount)}`);
             }
             if (sellStrategy === 'cost_deleverage') {
@@ -3493,12 +3487,12 @@
             }
             return bits.length ? `${label} (${bits.join(' / ')})` : label;
         }
-        function buildSellLabel(strategyKey, params) {
+        function buildSellLabel(strategyKey, params, baseInputs = {}) {
             let label;
             if (strategyKey === 'repair_step') {
                 label = `阶梯修复 ${formatCompact(params.sell_min_profit_pct)}%盈利 ${formatCompact(Math.trunc(Number(params.repair_sell_cooldown_days || 0)))}日冷却 ${formatCompact(params.repair_stage_sell_pct)}%单档`;
             } else if (strategyKey === 'grid_rebound') {
-                label = `网格回弹 ${formatCompact(params.grid_rebound_step_pct)}%步长 ${formatCompact(params.grid_first_sell_pct)}%+${formatCompact(params.grid_second_sell_pct)}%卖出`;
+                label = `网格回弹 ${formatCompact(params.grid_rebound_step_pct)}%步长 每档${formatCompact(params.grid_sell_pct ?? params.grid_second_sell_pct)}%卖出 ${formatCompact(params.sell_min_profit_pct ?? baseInputs.sell_min_profit_pct)}%最小盈利`;
             } else if (strategyKey === 'cost_deleverage') {
                 const profits = [params.cost_first_profit_pct, params.cost_second_profit_pct, params.cost_third_profit_pct];
                 const sells = [params.cost_first_sell_pct, params.cost_second_sell_pct, params.cost_third_sell_pct];
@@ -3529,7 +3523,7 @@
                 key,
                 candidate_id: candidateRow[candidateSchema.candidate_id],
                 combination_key: `${buyRow[1] || `buy:${buyVariantId}`}__${sellRow[1] || `sell:${sellVariantId}`}`,
-                label: `${buildBuyLabel(buyStrategy, buyParams)} / ${buildSellLabel(sellStrategy, sellParams)}`,
+                label: `${buildBuyLabel(buyStrategy, buyParams)} / ${buildSellLabel(sellStrategy, sellParams, packet.inputs || {})}`,
                 buy_strategy: buyStrategy,
                 sell_strategy: sellStrategy,
                 buy_variant_key: buyRow[1],

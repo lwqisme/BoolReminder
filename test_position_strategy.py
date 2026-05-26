@@ -12,6 +12,7 @@ from drawdown.position_strategy import (
     PortfolioTarget,
     SymbolState,
     StrategyInputs,
+    _grid_rebound_stages,
     _rearm_position_sell_cycle_after_dca_buy,
     _score_question_strategies,
     build_strategy_tranches,
@@ -831,6 +832,56 @@ class PositionStrategyTest(unittest.TestCase):
         self.assertEqual([trade["trigger_value"] for trade in sells], [40, 30, 20, 10, 0])
         self.assertEqual([trade["stage"] for trade in sells], ["grid_1", "grid_2", "grid_3", "grid_4", "grid_5"])
 
+    def test_grid_rebound_legacy_second_sell_pct_becomes_each_grid_sell_pct(self):
+        inputs = StrategyInputs(
+            grid_rebound_step_pct=10,
+            grid_first_sell_pct=10,
+            grid_second_sell_pct=15,
+            grid_min_sell_amount=0,
+        )
+
+        stages = _grid_rebound_stages(50, inputs)
+
+        self.assertEqual([(stage, sell_pct) for stage, _threshold, sell_pct in stages], [
+            ("grid_1", 15.0),
+            ("grid_2", 15.0),
+            ("grid_3", 15.0),
+            ("grid_4", 15.0),
+            ("grid_5", 15.0),
+        ])
+
+    def test_grid_rebound_each_grid_uses_same_sell_pct_and_keeps_selling(self):
+        inputs = StrategyInputs(
+            initial_cash=10000,
+            monthly_contribution=0,
+            max_drawdown_pct=60,
+            drawdown_basis="ath",
+            step_pct=2.5,
+            equal_slice_allocation_pct=10,
+            trade_fee=0,
+            reserve_position_pct=40,
+            sell_min_profit_pct=10,
+            grid_rebound_step_pct=5,
+            grid_sell_pct=15,
+            grid_min_sell_amount=0,
+            dca_rearm_drawdown_pct=5,
+            sell_stage_rearm_drawdown_pct=10,
+            sell_allow_same_day_sell=False,
+        )
+
+        result = simulate_portfolio(
+            {"GOOGL.US": points(200, 100, 140, 150, 160, 170, 180)},
+            [PortfolioTarget("GOOGL.US", 100, "GOOGL", max_drawdown_pct=60)],
+            inputs,
+            strategies=("equal_slice",),
+            sell_strategies=("grid_rebound",),
+        )
+
+        sells = [trade for trade in result["strategies"][0]["trades"] if trade["action"] == "sell"]
+        self.assertEqual([trade["stage"] for trade in sells], ["grid_1", "grid_2", "grid_3", "grid_4", "grid_5"])
+        self.assertEqual([trade["trigger_value"] for trade in sells], [45, 40, 35, 30, 25])
+        self.assertEqual([round(trade["shares"], 6) for trade in sells], [15.0, 12.75, 10.8375, 9.211875, 7.830094])
+
     def test_position_grid_rebound_jump_to_ath_sells_one_grid_per_day(self):
         inputs = StrategyInputs(
             initial_cash=10000,
@@ -1104,6 +1155,46 @@ class PositionStrategyTest(unittest.TestCase):
         self.assertTrue(rearmed)
         self.assertEqual(state.sell_marks, set())
         self.assertIsNone(state.grid_rebound_cycle_anchor_drawdown_pct)
+
+    def test_grid_rebound_rearms_from_dca_threshold_when_sell_stage_rearm_is_cleared(self):
+        inputs = StrategyInputs(
+            initial_cash=1000,
+            monthly_contribution=0,
+            max_drawdown_pct=50,
+            step_pct=10,
+            equal_slice_allocation_pct=50,
+            trade_fee=0,
+            sell_min_profit_pct=0,
+            grid_rebound_step_pct=5,
+            grid_sell_pct=25,
+            grid_min_sell_amount=0,
+            dca_rearm_drawdown_pct=5,
+            sell_stage_rearm_drawdown_pct=None,
+        )
+
+        result = simulate_portfolio(
+            {"GOOGL.US": points(100, 90, 95, 100, 90, 95)},
+            [PortfolioTarget("GOOGL.US", 100, "GOOGL", max_drawdown_pct=50)],
+            inputs,
+            strategies=("equal_slice",),
+            sell_strategies=("grid_rebound",),
+        )
+        trades = result["strategies"][0]["trades"]
+        sells = [(trade["date"], trade.get("stage")) for trade in trades if trade["action"] == "sell"]
+        rearming_buys = [
+            trade for trade in trades
+            if trade["action"] == "buy" and trade.get("sell_cycle_rearmed")
+        ]
+
+        self.assertEqual(
+            sells,
+            [
+                ("2024-01-03", "grid_1"),
+                ("2024-01-04", "grid_2"),
+                ("2024-01-06", "grid_1"),
+            ],
+        )
+        self.assertEqual([trade["date"] for trade in rearming_buys], ["2024-01-05"])
 
     def test_sell_stage_rearm_can_delay_cost_mark_reset_after_dca_buy(self):
         state = SymbolState(symbol="TSLA.US", name="TSLA", weight=100, budget=10000, cash=0, sell_marks={"cost_1"})

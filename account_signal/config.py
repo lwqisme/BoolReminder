@@ -184,8 +184,7 @@ def tsla_inputs() -> StrategyInputs:
         trade_fee=0.35,
         sell_min_profit_pct=10.0,
         grid_rebound_step_pct=2.5,
-        grid_first_sell_pct=10.0,
-        grid_second_sell_pct=40.0,
+        grid_sell_pct=40.0,
         grid_min_sell_amount=0.0,
     )
 

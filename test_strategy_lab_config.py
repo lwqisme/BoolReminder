@@ -11,8 +11,7 @@ class StrategyLabConfigTest(unittest.TestCase):
         self.assertEqual(config.to_legacy_defaults()["default_dca_rearm_drawdown_pct"], 5.0)
         self.assertEqual(config.to_legacy_defaults()["default_sell_stage_rearm_drawdown_pct"], 15.0)
         self.assertEqual(config.to_legacy_defaults()["default_grid_rebound_step_pct"], 5.0)
-        self.assertEqual(config.to_legacy_defaults()["default_grid_first_sell_pct"], 40.0)
-        self.assertEqual(config.to_legacy_defaults()["default_grid_second_sell_pct"], 40.0)
+        self.assertEqual(config.to_legacy_defaults()["default_grid_sell_pct"], 40.0)
         self.assertEqual(config.to_legacy_defaults()["default_grid_min_sell_amount"], 200.0)
         self.assertEqual(config.to_legacy_defaults()["default_cost_first_profit_pct"], 8.0)
         self.assertEqual(config.to_legacy_defaults()["default_cost_third_sell_pct"], 30.0)
@@ -41,8 +40,7 @@ class StrategyLabConfigTest(unittest.TestCase):
                 "dca_rearm_drawdown_pct": 10,
                 "sell_stage_rearm_drawdown_pct": 15,
                 "grid_rebound_step_pct": 7.5,
-                "grid_first_sell_pct": 35,
-                "grid_second_sell_pct": 30,
+                "grid_sell_pct": 30,
                 "grid_min_sell_amount": 300,
                 "cost_first_profit_pct": 9,
                 "cost_second_profit_pct": 18,
@@ -76,8 +74,7 @@ class StrategyLabConfigTest(unittest.TestCase):
         self.assertEqual(inputs.dca_rearm_drawdown_pct, 10.0)
         self.assertEqual(inputs.sell_stage_rearm_drawdown_pct, 15.0)
         self.assertEqual(inputs.grid_rebound_step_pct, 7.5)
-        self.assertEqual(inputs.grid_first_sell_pct, 35.0)
-        self.assertEqual(inputs.grid_second_sell_pct, 30.0)
+        self.assertEqual(inputs.grid_sell_pct, 30.0)
         self.assertEqual(inputs.grid_min_sell_amount, 300.0)
         self.assertEqual(inputs.cost_first_profit_pct, 9.0)
         self.assertEqual(inputs.cost_second_profit_pct, 18.0)
@@ -99,6 +96,64 @@ class StrategyLabConfigTest(unittest.TestCase):
         self.assertEqual(inputs.core_dip_timing_near_low_pct, 1.5)
         self.assertEqual(config.score_weights(), (0.9, 0.1))
         self.assertEqual(config.portfolio_or_default()[0]["symbol"], "TSM.US")
+
+    def test_runtime_optional_sell_stage_rearm_can_be_cleared(self):
+        base = strategy_lab_default_dict()
+        self.assertEqual(base["default_sell_stage_rearm_drawdown_pct"], 15.0)
+
+        config = StrategyLabConfig.from_runtime_payload(
+            {
+                "dca_rearm_drawdown_pct": 5,
+                "sell_stage_rearm_drawdown_pct": None,
+            },
+            base,
+        )
+
+        self.assertIsNone(config.sell_stage_rearm_drawdown_pct)
+        self.assertIsNone(config.to_strategy_inputs().sell_stage_rearm_drawdown_pct)
+
+    def test_saved_defaults_optional_sell_stage_rearm_can_be_cleared(self):
+        config = StrategyLabConfig.from_saved_defaults(
+            {
+                **strategy_lab_default_dict(),
+                "default_sell_stage_rearm_drawdown_pct": None,
+            }
+        )
+
+        self.assertIsNone(config.sell_stage_rearm_drawdown_pct)
+        self.assertIsNone(config.to_legacy_defaults()["default_sell_stage_rearm_drawdown_pct"])
+
+    def test_legacy_grid_second_sell_pct_migrates_to_grid_sell_pct(self):
+        config = StrategyLabConfig.from_runtime_payload(
+            {
+                "grid_rebound_step_pct": 5,
+                "grid_first_sell_pct": 10,
+                "grid_second_sell_pct": 15,
+            },
+            strategy_lab_default_dict(),
+        )
+
+        self.assertEqual(config.grid_sell_pct, 15.0)
+        self.assertEqual(config.to_strategy_inputs().grid_sell_pct, 15.0)
+
+        defaults_config = StrategyLabConfig.from_defaults_payload(
+            {"default_grid_first_sell_pct": 10, "default_grid_second_sell_pct": 15},
+            strategy_lab_default_dict(),
+        )
+        self.assertEqual(defaults_config.grid_sell_pct, 15.0)
+
+    def test_grid_sell_pct_takes_precedence_over_legacy_second_sell_pct(self):
+        config = StrategyLabConfig.from_runtime_payload(
+            {
+                "grid_sell_pct": 40,
+                "grid_first_sell_pct": 10,
+                "grid_second_sell_pct": 15,
+            },
+            strategy_lab_default_dict(),
+        )
+
+        self.assertEqual(config.grid_sell_pct, 40.0)
+        self.assertEqual(config.to_strategy_inputs().grid_sell_pct, 40.0)
 
     def test_investment_universe_round_trips_and_dedupes(self):
         config = StrategyLabConfig.from_defaults_payload(

@@ -109,17 +109,18 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("setFieldValue('dcaRearmDrawdown', candidate.dca_rearm_drawdown_pct)", html)
         self.assertIn("setFieldValue('sellStageRearmDrawdown', candidate.sell_stage_rearm_drawdown_pct ?? '')", html)
         self.assertIn('id="gridReboundStep"', html)
-        self.assertIn('id="gridFirstSellPct"', html)
-        self.assertIn('id="gridSecondSellPct"', html)
+        self.assertIn('id="gridSellPct"', html)
         self.assertIn('id="gridMinSellAmount"', html)
         self.assertIn("grid_rebound_step_pct: readNumber('gridReboundStep')", html)
+        self.assertIn("grid_sell_pct: readNumber('gridSellPct')", html)
         self.assertIn("default_grid_rebound_step_pct: readNumber('gridReboundStep')", html)
+        self.assertIn("default_grid_sell_pct: readNumber('gridSellPct')", html)
         self.assertIn("setFieldValue('gridReboundStep', candidate.grid_rebound_step_pct)", html)
         self.assertIn("function robustGridSellParams(candidate)", html)
         self.assertIn("candidate.grid_rebound_step_pct ?? readNumber('gridReboundStep')", html)
         self.assertIn("网格回弹步长", html)
-        self.assertIn("解释网格第一档卖出", html)
-        self.assertIn("解释网格第二档卖出", html)
+        self.assertIn("解释网格每档卖出", html)
+        self.assertIn("最小盈利", html)
         self.assertIn("解释网格最小卖出额", html)
         self.assertIn('id="costFirstProfitPct"', html)
         self.assertIn('id="costMinSellAmount"', html)
@@ -515,8 +516,10 @@ class StrategyLabFrontendTest(unittest.TestCase):
 
     def test_detail_chart_labels_cash_as_post_trade_and_marks_initial_cash(self):
         with app.test_client() as client:
-            html = client.get("/strategy-lab").get_data(as_text=True)
+            response = client.get("/strategy-lab")
+            html = response.get_data(as_text=True)
 
+        self.assertIn("no-cache, no-store, must-revalidate", response.headers.get("Cache-Control", ""))
         self.assertIn("现金线口径：交易后余额", html)
         self.assertIn("现金线记录每日买卖执行后的余额", html)
         self.assertIn("现金余额（交易后）", html)
@@ -524,6 +527,8 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("首日交易后现金", html)
         self.assertIn("首日买入金额", html)
         self.assertIn("现金 USD（交易后）", html)
+        self.assertIn("<th>阶段</th>", html)
+        self.assertIn("trade.stage || trade.base_threshold_pct", html)
 
     def test_parameter_lab_cell_replays_detail_inside_parameter_lab(self):
         with app.test_client() as client:

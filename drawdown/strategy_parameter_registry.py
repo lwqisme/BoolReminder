@@ -24,9 +24,8 @@ from drawdown.position_strategy import (
     ROBUST_CORE_DIP_TIMING_RISE_THRESHOLDS,
     ROBUST_DCA_REARM_DRAWDOWN_VALUES,
     ROBUST_EQUAL_SLICE_ALLOCATION_VALUES,
-    ROBUST_GRID_FIRST_SELLS,
     ROBUST_GRID_REBOUND_STEPS,
-    ROBUST_GRID_SECOND_SELLS,
+    ROBUST_GRID_SELLS,
     ROBUST_REPAIR_COOLDOWNS,
     ROBUST_REPAIR_SELL_MIN_PROFITS,
     ROBUST_REPAIR_STAGE_SELLS,
@@ -37,7 +36,7 @@ from drawdown.position_strategy import (
 )
 
 
-STRATEGY_DEFINITION_VERSION = "strategy-params-v4"
+STRATEGY_DEFINITION_VERSION = "strategy-params-v6"
 
 BUY_PARAMETER_FIELDS = (
     "step_pct",
@@ -58,6 +57,7 @@ SELL_PARAMETER_FIELDS = (
     "repair_sell_cooldown_days",
     "repair_stage_sell_pct",
     "grid_rebound_step_pct",
+    "grid_sell_pct",
     "grid_first_sell_pct",
     "grid_second_sell_pct",
     "grid_min_sell_amount",
@@ -383,8 +383,10 @@ def apply_candidate_to_inputs(inputs: StrategyInputs, candidate: Mapping[str, ob
 
     replacements: dict[str, object] = {}
     for field in BUY_PARAMETER_FIELDS + SELL_PARAMETER_FIELDS:
-        value = candidate.get(field)
-        if value is not None and hasattr(inputs, field):
+        if field not in candidate or not hasattr(inputs, field):
+            continue
+        value = candidate[field]
+        if value is not None or field == "sell_stage_rearm_drawdown_pct":
             replacements[field] = value
     return replace(inputs, **replacements)
 
@@ -512,6 +514,18 @@ def _extended_parameter_values(
         seen.add(key)
         values.append(value)
     for selected in _selected_values_for_field(value_selection, field):
+        key = _canonical_parameter_value(selected)
+        if key in seen:
+            continue
+        seen.add(key)
+        values.append(selected)
+    return values
+
+
+def _extended_grid_sell_values(value_selection: ParameterValueSelection | None) -> list[object]:
+    values = _extended_parameter_values(value_selection, "grid_sell_pct", ROBUST_GRID_SELLS)
+    seen = {_canonical_parameter_value(value) for value in values}
+    for selected in _selected_values_for_field(value_selection, "grid_second_sell_pct"):
         key = _canonical_parameter_value(selected)
         if key in seen:
             continue
@@ -682,16 +696,14 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
             "sell",
             {
                 "grid_rebound_step_pct": 5.0,
-                "grid_first_sell_pct": 40.0,
-                "grid_second_sell_pct": 40.0,
+                "grid_sell_pct": 40.0,
                 "grid_min_sell_amount": 200.0,
                 "sell_allow_same_day_sell": False,
                 "buy_rearm_mode": BUY_REARM_MODE_CUMULATIVE,
             },
             {
                 "grid_rebound_step_pct": list(ROBUST_GRID_REBOUND_STEPS),
-                "grid_first_sell_pct": list(ROBUST_GRID_FIRST_SELLS),
-                "grid_second_sell_pct": list(ROBUST_GRID_SECOND_SELLS),
+                "grid_sell_pct": list(ROBUST_GRID_SELLS),
                 "sell_allow_same_day_sell": [False, True],
                 "dca_rearm_drawdown_pct": list(ROBUST_DCA_REARM_DRAWDOWN_VALUES),
                 "buy_rearm_mode": list(BUY_REARM_MODES),
@@ -917,20 +929,20 @@ def _sell_param_variants(
         variants = [
             {
                 "grid_rebound_step_pct": float(step),
-                "grid_first_sell_pct": float(first_sell),
-                "grid_second_sell_pct": float(second_sell),
+                "grid_sell_pct": float(sell_pct),
                 "grid_min_sell_amount": float(inputs.grid_min_sell_amount),
             }
             for step in _extended_parameter_values(value_selection, "grid_rebound_step_pct", ROBUST_GRID_REBOUND_STEPS)
-            for first_sell in _extended_parameter_values(value_selection, "grid_first_sell_pct", ROBUST_GRID_FIRST_SELLS)
-            for second_sell in _extended_parameter_values(value_selection, "grid_second_sell_pct", ROBUST_GRID_SECOND_SELLS)
+            for sell_pct in _extended_grid_sell_values(value_selection)
         ]
         variants = _filter_and_project_param_variants(
             variants,
-            ("grid_rebound_step_pct", "grid_first_sell_pct", "grid_second_sell_pct", "grid_min_sell_amount"),
+            ("grid_rebound_step_pct", "grid_sell_pct", "grid_min_sell_amount"),
             inputs,
             value_selection,
         )
+        for variant in variants:
+            variant["sell_min_profit_pct"] = float(inputs.sell_min_profit_pct)
         return _with_rearm_variants(
             _with_same_day_sell_variants(variants, inputs, value_selection),
             buy_strategy,
@@ -1184,8 +1196,7 @@ def _candidate_key(
         parts.extend(
             [
                 f"g{float(sell_params.get('grid_rebound_step_pct') or 0):g}",
-                f"g1{float(sell_params.get('grid_first_sell_pct') or 0):g}",
-                f"g2{float(sell_params.get('grid_second_sell_pct') or 0):g}",
+                f"gsell{float(_grid_sell_param(sell_params) or 0):g}",
                 f"gmin{float(sell_params.get('grid_min_sell_amount') or 0):g}",
             ]
         )
@@ -1254,10 +1265,11 @@ def _sell_label(strategy_key: str, params: Mapping[str, object]) -> str:
             f"{float(params.get('repair_stage_sell_pct') or 0):g}%单档"
         )
     elif strategy_key == "grid_rebound":
+        min_profit = params.get("sell_min_profit_pct")
         label = (
             f"网格回弹 {float(params.get('grid_rebound_step_pct') or 0):g}%步长 "
-            f"{float(params.get('grid_first_sell_pct') or 0):g}%+"
-            f"{float(params.get('grid_second_sell_pct') or 0):g}%卖出"
+            f"每档{float(_grid_sell_param(params) or 0):g}%卖出"
+            + (f" {float(min_profit):g}%最小盈利" if min_profit is not None else "")
         )
     elif strategy_key == "cost_deleverage":
         profits = [
@@ -1288,6 +1300,13 @@ def _sell_label(strategy_key: str, params: Mapping[str, object]) -> str:
     if params.get("sell_stage_rearm_drawdown_pct") is not None:
         label = f"{label} / 卖档重启 {float(params['sell_stage_rearm_drawdown_pct']):g}%回撤"
     return label
+
+
+def _grid_sell_param(params: Mapping[str, object]) -> object:
+    value = params.get("grid_sell_pct")
+    if value is not None:
+        return value
+    return params.get("grid_second_sell_pct")
 
 
 def _variant_key(strategy_key: str, params: Mapping[str, object]) -> str:

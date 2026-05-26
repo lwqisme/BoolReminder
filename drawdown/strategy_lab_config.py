@@ -42,6 +42,7 @@ DEFAULT_STRATEGY_LAB_DEFAULTS: dict[str, object] = {
     "default_dca_rearm_drawdown_pct": 5,
     "default_sell_stage_rearm_drawdown_pct": 15,
     "default_grid_rebound_step_pct": 5,
+    "default_grid_sell_pct": 40,
     "default_grid_first_sell_pct": 40,
     "default_grid_second_sell_pct": 40,
     "default_grid_min_sell_amount": 200,
@@ -115,6 +116,7 @@ class StrategyLabConfig:
     dca_rearm_drawdown_pct: float = 5.0
     sell_stage_rearm_drawdown_pct: float | None = 15.0
     grid_rebound_step_pct: float = 5.0
+    grid_sell_pct: float = 40.0
     grid_first_sell_pct: float = 40.0
     grid_second_sell_pct: float = 40.0
     grid_min_sell_amount: float = 200.0
@@ -174,6 +176,7 @@ class StrategyLabConfig:
                 float(_default("default_sell_stage_rearm_drawdown_pct")),
             ),
             grid_rebound_step_pct=_read_float(raw, "default_grid_rebound_step_pct"),
+            grid_sell_pct=_read_default_grid_sell_pct(raw),
             grid_first_sell_pct=_read_float(raw, "default_grid_first_sell_pct"),
             grid_second_sell_pct=_read_float(raw, "default_grid_second_sell_pct"),
             grid_min_sell_amount=_read_float(raw, "default_grid_min_sell_amount"),
@@ -224,6 +227,8 @@ class StrategyLabConfig:
         base_config = base if isinstance(base, StrategyLabConfig) else cls.from_saved_defaults(base)
         merged = base_config.to_legacy_defaults()
         merged.update(dict(payload))
+        if "default_grid_sell_pct" not in payload and payload.get("default_grid_second_sell_pct") not in (None, ""):
+            merged["default_grid_sell_pct"] = payload["default_grid_second_sell_pct"]
         return cls.from_saved_defaults(merged)
 
     @classmethod
@@ -272,6 +277,7 @@ class StrategyLabConfig:
                 "grid_rebound_step_pct",
                 base_config.grid_rebound_step_pct,
             ),
+            grid_sell_pct=_read_runtime_grid_sell_pct(payload, base_config.grid_sell_pct),
             grid_first_sell_pct=_read_float(
                 payload,
                 "grid_first_sell_pct",
@@ -436,10 +442,8 @@ class StrategyLabConfig:
             raise ValueError("卖出档位重启回撤不能小于 0。")
         if self.grid_rebound_step_pct <= 0:
             raise ValueError("网格回弹步长必须大于 0。")
-        if not 0 <= self.grid_first_sell_pct <= 100:
-            raise ValueError("网格第一档卖出比例必须在 0 到 100 之间。")
-        if not 0 <= self.grid_second_sell_pct <= 100:
-            raise ValueError("网格第二档卖出比例必须在 0 到 100 之间。")
+        if not 0 <= self.grid_sell_pct <= 100:
+            raise ValueError("网格每档卖出比例必须在 0 到 100 之间。")
         if self.grid_min_sell_amount < 0:
             raise ValueError("网格最小卖出金额不能小于 0。")
         cost_profits = [self.cost_first_profit_pct, self.cost_second_profit_pct, self.cost_third_profit_pct]
@@ -496,6 +500,7 @@ class StrategyLabConfig:
             dca_rearm_drawdown_pct=self.dca_rearm_drawdown_pct,
             sell_stage_rearm_drawdown_pct=self.sell_stage_rearm_drawdown_pct,
             grid_rebound_step_pct=self.grid_rebound_step_pct,
+            grid_sell_pct=self.grid_sell_pct,
             grid_first_sell_pct=self.grid_first_sell_pct,
             grid_second_sell_pct=self.grid_second_sell_pct,
             grid_min_sell_amount=self.grid_min_sell_amount,
@@ -556,6 +561,7 @@ class StrategyLabConfig:
             "default_dca_rearm_drawdown_pct": self.dca_rearm_drawdown_pct,
             "default_sell_stage_rearm_drawdown_pct": self.sell_stage_rearm_drawdown_pct,
             "default_grid_rebound_step_pct": self.grid_rebound_step_pct,
+            "default_grid_sell_pct": self.grid_sell_pct,
             "default_grid_first_sell_pct": self.grid_first_sell_pct,
             "default_grid_second_sell_pct": self.grid_second_sell_pct,
             "default_grid_min_sell_amount": self.grid_min_sell_amount,
@@ -614,14 +620,30 @@ def _read_float(payload: Mapping[str, object], key: str, default: float | None =
     return parsed
 
 
+def _read_default_grid_sell_pct(payload: Mapping[str, object]) -> float:
+    if payload.get("default_grid_sell_pct") not in (None, ""):
+        return _read_float(payload, "default_grid_sell_pct")
+    return _read_float(payload, "default_grid_second_sell_pct")
+
+
+def _read_runtime_grid_sell_pct(payload: Mapping[str, object], default: float) -> float:
+    if payload.get("grid_sell_pct") not in (None, ""):
+        return _read_float(payload, "grid_sell_pct", default)
+    if payload.get("grid_second_sell_pct") not in (None, ""):
+        return _read_float(payload, "grid_second_sell_pct", default)
+    return float(default)
+
+
 def _read_optional_float(
     payload: Mapping[str, object],
     key: str,
     default: float | None = None,
 ) -> float | None:
-    value = payload.get(key, default)
-    if value in (None, ""):
+    if key not in payload:
         return default
+    value = payload.get(key)
+    if value in (None, ""):
+        return None
     parsed = float(value)
     if not math.isfinite(parsed):
         return default

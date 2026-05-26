@@ -103,8 +103,9 @@ ROBUST_REPAIR_SELL_MIN_PROFITS = [5, 10, 20]
 ROBUST_REPAIR_COOLDOWNS = [0, 30, 60]
 ROBUST_REPAIR_STAGE_SELLS = [8, 15, 25]
 ROBUST_GRID_REBOUND_STEPS = [2.5, 5.0, 7.5, 10.0, 15.0]
+ROBUST_GRID_SELLS = [15.0, 25.0, 40.0, 50.0]
 ROBUST_GRID_FIRST_SELLS = [10.0, 15.0, 25.0, 40.0]
-ROBUST_GRID_SECOND_SELLS = [15.0, 25.0, 40.0, 50.0]
+ROBUST_GRID_SECOND_SELLS = ROBUST_GRID_SELLS
 ROBUST_COST_PROFIT_SETS = [(8.0, 15.0, 25.0), (10.0, 20.0, 30.0), (15.0, 25.0, 40.0)]
 ROBUST_COST_SELL_SETS = [(20.0, 20.0, 20.0), (30.0, 30.0, 30.0), (40.0, 30.0, 20.0)]
 ROBUST_COST_COOLDOWNS = [0, 15, 30]
@@ -159,6 +160,7 @@ class StrategyInputs:
     dca_rearm_drawdown_pct: float = 5.0
     sell_stage_rearm_drawdown_pct: float | None = None
     grid_rebound_step_pct: float = 5.0
+    grid_sell_pct: float | None = None
     grid_first_sell_pct: float = 40.0
     grid_second_sell_pct: float = 40.0
     grid_min_sell_amount: float = 200.0
@@ -181,6 +183,10 @@ class StrategyInputs:
     core_dip_timing_max_delay_days: int = 3
     core_dip_timing_rise_threshold_pct: float = 1.5
     core_dip_timing_near_low_pct: float = 2.0
+
+    def __post_init__(self) -> None:
+        if self.grid_sell_pct is None:
+            object.__setattr__(self, "grid_sell_pct", float(self.grid_second_sell_pct))
 
 
 @dataclass(frozen=True)
@@ -363,10 +369,8 @@ def simulate_portfolio(
         raise ValueError("卖出档位重启回撤不能为负数。")
     if inputs.grid_rebound_step_pct <= 0 or inputs.grid_rebound_step_pct > 100:
         raise ValueError("网格回弹步长必须在 0 到 100 之间。")
-    if inputs.grid_first_sell_pct < 0 or inputs.grid_first_sell_pct > 100:
-        raise ValueError("网格第一档卖出比例必须在 0 到 100 之间。")
-    if inputs.grid_second_sell_pct < 0 or inputs.grid_second_sell_pct > 100:
-        raise ValueError("网格第二档卖出比例必须在 0 到 100 之间。")
+    if float(inputs.grid_sell_pct or 0) < 0 or float(inputs.grid_sell_pct or 0) > 100:
+        raise ValueError("网格每档卖出比例必须在 0 到 100 之间。")
     if inputs.grid_min_sell_amount < 0:
         raise ValueError("网格最小卖出金额不能为负数。")
     cost_profits = [
@@ -438,6 +442,7 @@ def simulate_portfolio(
             "dca_rearm_drawdown_pct": inputs.dca_rearm_drawdown_pct,
             "sell_stage_rearm_drawdown_pct": inputs.sell_stage_rearm_drawdown_pct,
             "grid_rebound_step_pct": inputs.grid_rebound_step_pct,
+            "grid_sell_pct": inputs.grid_sell_pct,
             "grid_first_sell_pct": inputs.grid_first_sell_pct,
             "grid_second_sell_pct": inputs.grid_second_sell_pct,
             "grid_min_sell_amount": inputs.grid_min_sell_amount,
@@ -989,6 +994,7 @@ def _strategy_inputs_payload(inputs: StrategyInputs) -> dict[str, object]:
         "dca_rearm_drawdown_pct": inputs.dca_rearm_drawdown_pct,
         "sell_stage_rearm_drawdown_pct": inputs.sell_stage_rearm_drawdown_pct,
         "grid_rebound_step_pct": inputs.grid_rebound_step_pct,
+        "grid_sell_pct": inputs.grid_sell_pct,
         "grid_first_sell_pct": inputs.grid_first_sell_pct,
         "grid_second_sell_pct": inputs.grid_second_sell_pct,
         "grid_min_sell_amount": inputs.grid_min_sell_amount,
@@ -1023,8 +1029,7 @@ def _robust_parameter_grid_payload(inputs: StrategyInputs) -> dict[str, object]:
         "sell_stage_rearm_drawdown_pct": ROBUST_SELL_STAGE_REARM_DRAWDOWN_VALUES,
         "buy_rearm_mode": list(BUY_REARM_MODES),
         "grid_rebound_step_pct": ROBUST_GRID_REBOUND_STEPS,
-        "grid_first_sell_pct": ROBUST_GRID_FIRST_SELLS,
-        "grid_second_sell_pct": ROBUST_GRID_SECOND_SELLS,
+        "grid_sell_pct": ROBUST_GRID_SELLS,
         "grid_min_sell_amount": [inputs.grid_min_sell_amount],
         "sell_allow_same_day_sell": [False, True],
         "cost_profit_sets": ROBUST_COST_PROFIT_SETS,
@@ -1302,6 +1307,7 @@ def _non_repair_candidates(buy_strategies: Iterable[str]) -> list[dict[str, obje
             "repair_sell_cooldown_days": None,
             "repair_stage_sell_pct": None,
             "grid_rebound_step_pct": None,
+            "grid_sell_pct": None,
             "grid_first_sell_pct": None,
             "grid_second_sell_pct": None,
             "grid_min_sell_amount": None,
@@ -1357,6 +1363,7 @@ def _repair_candidates(
             "repair_sell_cooldown_days": int(cooldown),
             "repair_stage_sell_pct": float(stage),
             "grid_rebound_step_pct": None,
+            "grid_sell_pct": None,
             "grid_first_sell_pct": None,
             "grid_second_sell_pct": None,
             "grid_min_sell_amount": None,
@@ -1413,6 +1420,7 @@ def _dca_repair_candidates(
             "repair_sell_cooldown_days": int(inputs.repair_sell_cooldown_days),
             "repair_stage_sell_pct": float(inputs.repair_stage_sell_pct),
             "grid_rebound_step_pct": None,
+            "grid_sell_pct": None,
             "grid_first_sell_pct": None,
             "grid_second_sell_pct": None,
             "grid_min_sell_amount": None,
@@ -1446,8 +1454,7 @@ def _grid_rebound_candidates(
                 "grid_rebound",
                 buy_params,
                 grid_step=step,
-                grid_first=first_sell,
-                grid_second=second_sell,
+                grid_sell=sell_pct,
                 grid_min=inputs.grid_min_sell_amount,
                 dca_rearm_drawdown_pct=rearm,
                 sell_allow_same_day_sell=allow_same_day_sell,
@@ -1457,21 +1464,22 @@ def _grid_rebound_candidates(
                 "grid_rebound",
                 buy_params,
                 grid_step=step,
-                grid_first=first_sell,
-                grid_second=second_sell,
+                grid_sell=sell_pct,
                 grid_min=inputs.grid_min_sell_amount,
+                sell_min_profit_pct=inputs.sell_min_profit_pct,
                 dca_rearm_drawdown_pct=rearm,
                 sell_allow_same_day_sell=allow_same_day_sell,
             ),
             "buy_strategy": buy_strategy,
             "sell_strategy": "grid_rebound",
             **buy_params,
-            "sell_min_profit_pct": None,
+            "sell_min_profit_pct": float(inputs.sell_min_profit_pct),
             "repair_sell_cooldown_days": None,
             "repair_stage_sell_pct": None,
             "grid_rebound_step_pct": float(step),
-            "grid_first_sell_pct": float(first_sell),
-            "grid_second_sell_pct": float(second_sell),
+            "grid_sell_pct": float(sell_pct),
+            "grid_first_sell_pct": None,
+            "grid_second_sell_pct": None,
             "grid_min_sell_amount": float(inputs.grid_min_sell_amount),
             "cost_first_profit_pct": None,
             "cost_second_profit_pct": None,
@@ -1487,8 +1495,7 @@ def _grid_rebound_candidates(
         for buy_strategy in buy_strategies
         for buy_params in _buy_param_variants(buy_strategy)
         for step in ROBUST_GRID_REBOUND_STEPS
-        for first_sell in ROBUST_GRID_FIRST_SELLS
-        for second_sell in ROBUST_GRID_SECOND_SELLS
+        for sell_pct in ROBUST_GRID_SELLS
         for allow_same_day_sell in (False, True)
         for rearm in _dca_rearm_variants(buy_strategy, "grid_rebound")
     ]
@@ -1531,6 +1538,7 @@ def _cost_deleverage_candidates(
             "repair_sell_cooldown_days": None,
             "repair_stage_sell_pct": None,
             "grid_rebound_step_pct": None,
+            "grid_sell_pct": None,
             "grid_first_sell_pct": None,
             "grid_second_sell_pct": None,
             "grid_min_sell_amount": None,
@@ -1656,8 +1664,7 @@ def _candidate_key(
     dca_rearm_drawdown_pct: float | None = None,
     sell_stage_rearm_drawdown_pct: float | None = None,
     grid_step: float | None = None,
-    grid_first: float | None = None,
-    grid_second: float | None = None,
+    grid_sell: float | None = None,
     grid_min: float | None = None,
     cost_profits: tuple[float, float, float] | None = None,
     cost_sells: tuple[float, float, float] | None = None,
@@ -1691,8 +1698,7 @@ def _candidate_key(
     if sell_strategy == "grid_rebound":
         parts.extend([
             f"g{float(grid_step or 0):g}",
-            f"g1{float(grid_first or 0):g}",
-            f"g2{float(grid_second or 0):g}",
+            f"gsell{float(grid_sell or 0):g}",
             f"gmin{float(grid_min or 0):g}",
         ])
     if sell_strategy == "cost_deleverage":
@@ -1725,9 +1731,9 @@ def _candidate_label(
     dca_rearm_drawdown_pct: float | None = None,
     sell_stage_rearm_drawdown_pct: float | None = None,
     grid_step: float | None = None,
-    grid_first: float | None = None,
-    grid_second: float | None = None,
+    grid_sell: float | None = None,
     grid_min: float | None = None,
+    sell_min_profit_pct: float | None = None,
     cost_profits: tuple[float, float, float] | None = None,
     cost_sells: tuple[float, float, float] | None = None,
     cost_cooldown: int | None = None,
@@ -1763,7 +1769,8 @@ def _candidate_label(
     elif sell_strategy == "grid_rebound":
         sell_label = (
             f"网格回弹 {float(grid_step or 0):g}%步长 "
-            f"{float(grid_first or 0):g}%+{float(grid_second or 0):g}%卖出"
+            f"每档{float(grid_sell or 0):g}%卖出"
+            + (f" {float(sell_min_profit_pct):g}%最小盈利" if sell_min_profit_pct is not None else "")
         )
     elif sell_strategy == "cost_deleverage":
         cost_profits = cost_profits or (0.0, 0.0, 0.0)
@@ -1872,8 +1879,12 @@ def _score_robust_candidates(
                 candidate_inputs = replace(
                     candidate_inputs,
                     grid_rebound_step_pct=float(candidate.get("grid_rebound_step_pct") or inputs.grid_rebound_step_pct),
-                    grid_first_sell_pct=float(candidate.get("grid_first_sell_pct") or inputs.grid_first_sell_pct),
-                    grid_second_sell_pct=float(candidate.get("grid_second_sell_pct") or inputs.grid_second_sell_pct),
+                    grid_sell_pct=float(
+                        candidate.get("grid_sell_pct")
+                        or candidate.get("grid_second_sell_pct")
+                        or inputs.grid_sell_pct
+                        or inputs.grid_second_sell_pct
+                    ),
                     grid_min_sell_amount=float(candidate.get("grid_min_sell_amount") or inputs.grid_min_sell_amount),
                     sell_allow_same_day_sell=bool(candidate.get("sell_allow_same_day_sell")),
                 )
@@ -1906,10 +1917,13 @@ def _score_robust_candidates(
                     candidate_inputs,
                     buy_rearm_mode=str(candidate["buy_rearm_mode"]),
                 )
-            if candidate.get("sell_stage_rearm_drawdown_pct") is not None:
+            if "sell_stage_rearm_drawdown_pct" in candidate:
+                sell_stage_rearm = candidate["sell_stage_rearm_drawdown_pct"]
                 candidate_inputs = replace(
                     candidate_inputs,
-                    sell_stage_rearm_drawdown_pct=float(candidate["sell_stage_rearm_drawdown_pct"]),
+                    sell_stage_rearm_drawdown_pct=(
+                        None if sell_stage_rearm is None else float(sell_stage_rearm)
+                    ),
                 )
             result = simulate_portfolio(
                 task["price_points"],
@@ -3263,8 +3277,7 @@ def _grid_rebound_stages(
     stage_index = 1
     while True:
         threshold = max(0.0, anchor_drawdown_pct - step * stage_index)
-        sell_pct = inputs.grid_first_sell_pct if stage_index == 1 else inputs.grid_second_sell_pct
-        stages.append((f"grid_{stage_index}", threshold, sell_pct))
+        stages.append((f"grid_{stage_index}", threshold, float(inputs.grid_sell_pct or 0)))
         if threshold <= 0:
             return stages
         stage_index += 1

@@ -27,6 +27,7 @@ PROFILE_CANDIDATES_PATH = DATA_DIR / "profile_candidates.json"
 PROFILE_PARAMETER_FIELDS = tuple(field.name for field in fields(StrategyInputs))
 LAB_PARAMETER_FIELDS = tuple(dict.fromkeys((*BUY_PARAMETER_FIELDS, *SELL_PARAMETER_FIELDS)))
 ALLOWED_PARAMETER_FIELDS = set(PROFILE_PARAMETER_FIELDS)
+NULLABLE_PARAMETER_FIELDS = {"sell_stage_rearm_drawdown_pct"}
 
 
 @dataclass(frozen=True)
@@ -84,8 +85,10 @@ def strategy_inputs_for_profile(
 ) -> StrategyInputs:
     kwargs: dict[str, Any] = {}
     for key, value in profile.parameters.items():
-        if key in ALLOWED_PARAMETER_FIELDS and value is not None:
+        if key in ALLOWED_PARAMETER_FIELDS and (value is not None or key in NULLABLE_PARAMETER_FIELDS):
             kwargs[key] = value
+    if "grid_sell_pct" not in kwargs and "grid_second_sell_pct" in kwargs:
+        kwargs["grid_sell_pct"] = kwargs["grid_second_sell_pct"]
     if "sell_allow_same_day_sell" not in profile.parameters and fallback_same_day_sell is not None:
         kwargs["sell_allow_same_day_sell"] = bool(fallback_same_day_sell)
     return replace(StrategyInputs(), **kwargs)
@@ -397,7 +400,7 @@ def candidate_from_lab_payload(candidate: dict[str, Any], *, note: str = "") -> 
 def _candidate_parameters_from_payload(candidate: dict[str, Any]) -> dict[str, Any]:
     parameters: dict[str, Any] = {}
     for key in LAB_PARAMETER_FIELDS:
-        if key in candidate and candidate[key] is not None:
+        if key in candidate and (candidate[key] is not None or key in NULLABLE_PARAMETER_FIELDS):
             parameters[key] = candidate[key]
     snapshot_items = (
         (candidate.get("parameter_snapshot") or {}).items()
@@ -409,7 +412,7 @@ def _candidate_parameters_from_payload(candidate: dict[str, Any]) -> dict[str, A
             for nested_key, nested_value in value.items():
                 if nested_key not in LAB_PARAMETER_FIELDS:
                     raise ValueError(f"不支持的候选参数: {nested_key}")
-                if nested_value is not None:
+                if nested_value is not None or nested_key in NULLABLE_PARAMETER_FIELDS:
                     parameters[nested_key] = nested_value
     return parameters
 
@@ -510,6 +513,8 @@ def _validate_parameters(raw: Any) -> dict[str, Any]:
         if key not in field_names:
             raise ValueError(f"不支持的 profile 参数: {key}")
         result[key] = _coerce_parameter(key, value, getattr(defaults, key))
+    if "grid_sell_pct" not in result and "grid_second_sell_pct" in result:
+        result["grid_sell_pct"] = result["grid_second_sell_pct"]
     return result
 
 
@@ -619,8 +624,11 @@ def _sell_summary(strategy: str, params: dict[str, Any]) -> str:
     if strategy == "grid_rebound":
         return (
             f"网格回弹卖出: 步长{params.get('grid_rebound_step_pct', 5):g}% / "
-            f"卖出{params.get('grid_first_sell_pct', 40):g}%+{params.get('grid_second_sell_pct', 40):g}%"
+            f"每档{params.get('grid_sell_pct', params.get('grid_second_sell_pct', 40)):g}%卖出"
         )
+    sell_stage_rearm = params.get("sell_stage_rearm_drawdown_pct")
+    if sell_stage_rearm is None:
+        sell_stage_rearm = params.get("dca_rearm_drawdown_pct", 5)
     return (
         f"成本去杠杆: 盈利{params.get('cost_first_profit_pct', 8):g}/"
         f"{params.get('cost_second_profit_pct', 15):g}/"
@@ -630,7 +638,7 @@ def _sell_summary(strategy: str, params: dict[str, Any]) -> str:
         f"{params.get('cost_third_sell_pct', 30):g}%, "
         f"冷却{params.get('cost_deleverage_cooldown_days', 0):g}日, "
         f"卖后重启{params.get('dca_rearm_drawdown_pct', 5):g}%回撤, "
-        f"卖档重启{params.get('sell_stage_rearm_drawdown_pct', params.get('dca_rearm_drawdown_pct', 5)):g}%回撤"
+        f"卖档重启{sell_stage_rearm:g}%回撤"
     )
 
 

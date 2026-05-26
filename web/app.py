@@ -3576,12 +3576,8 @@ STRATEGY_LAB_TEMPLATE = """
                             <input id="gridReboundStep" type="number" min="0.5" max="100" step="0.5" value="{{ default_config.default_grid_rebound_step_pct }}">
                         </div>
                         <div>
-                            <label for="gridFirstSellPct">网格第一档卖出 %</label>
-                            <input id="gridFirstSellPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_grid_first_sell_pct }}">
-                        </div>
-                        <div>
-                            <label for="gridSecondSellPct">网格第二档卖出 %</label>
-                            <input id="gridSecondSellPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_grid_second_sell_pct }}">
+                            <label for="gridSellPct">网格每档卖出 %</label>
+                            <input id="gridSellPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_grid_sell_pct }}">
                         </div>
                         <div>
                             <label for="gridMinSellAmount">网格最小卖出额 USD</label>
@@ -4128,9 +4124,10 @@ STRATEGY_LAB_TEMPLATE = """
                 <table>
                     <thead>
                         <tr>
-                            <th>动作</th>
-                            <th>日期</th>
-                            <th>标的</th>
+	                            <th>动作</th>
+	                            <th>阶段</th>
+	                            <th>日期</th>
+	                            <th>标的</th>
                             <th>触发值</th>
                             <th>实际回撤</th>
                             <th>价格</th>
@@ -4139,7 +4136,7 @@ STRATEGY_LAB_TEMPLATE = """
                             <th>手续费</th>
                         </tr>
                     </thead>
-                    <tbody id="detailTradeBody"></tbody>
+	                    <tbody id="detailTradeBody"></tbody>
                 </table>
             </div>
             </div>
@@ -4155,9 +4152,10 @@ STRATEGY_LAB_TEMPLATE = """
                 <table>
                     <thead>
                         <tr>
-                            <th>策略</th>
-                            <th>动作</th>
-                            <th>日期</th>
+	                            <th>策略</th>
+	                            <th>动作</th>
+	                            <th>阶段</th>
+	                            <th>日期</th>
                             <th>标的</th>
                             <th>触发回撤</th>
                             <th>实际回撤</th>
@@ -4167,7 +4165,7 @@ STRATEGY_LAB_TEMPLATE = """
                         </tr>
                     </thead>
                     <tbody id="tradeBody">
-                        <tr><td colspan="9">尚未运行。</td></tr>
+	                        <tr><td colspan="10">尚未运行。</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -4767,8 +4765,7 @@ STRATEGY_LAB_TEMPLATE = """
                 dca_rearm_drawdown_pct: parameterValues('repair_step', 'dca_rearm_drawdown_pct'),
                 sell_stage_rearm_drawdown_pct: parameterValues('repair_step', 'sell_stage_rearm_drawdown_pct'),
                 grid_rebound_step_pct: parameterValues('grid_rebound', 'grid_rebound_step_pct'),
-                grid_first_sell_pct: parameterValues('grid_rebound', 'grid_first_sell_pct'),
-                grid_second_sell_pct: parameterValues('grid_rebound', 'grid_second_sell_pct'),
+                grid_sell_pct: parameterValues('grid_rebound', 'grid_sell_pct'),
                 cost_profit_sets: parameterValues('cost_deleverage', 'cost_profit_sets'),
                 cost_sell_sets: parameterValues('cost_deleverage', 'cost_sell_sets'),
                 cost_deleverage_cooldown_days: parameterValues('cost_deleverage', 'cost_deleverage_cooldown_days'),
@@ -4811,8 +4808,7 @@ STRATEGY_LAB_TEMPLATE = """
                 : 1;
             const sameDayMultiplier = sellStrategy === 'none' ? 1 : Math.max(1, parameterValues(sellStrategy, 'sell_allow_same_day_sell').length);
             const gridVariantCount = Math.max(1, parameterValues('grid_rebound', 'grid_rebound_step_pct').length)
-                * Math.max(1, parameterValues('grid_rebound', 'grid_first_sell_pct').length)
-                * Math.max(1, parameterValues('grid_rebound', 'grid_second_sell_pct').length)
+                * Math.max(1, parameterValues('grid_rebound', 'grid_sell_pct').length)
                 * sameDayMultiplier;
             const costVariantCount = Math.max(1, parameterValues('cost_deleverage', 'cost_profit_sets').length)
                 * Math.max(1, parameterValues('cost_deleverage', 'cost_sell_sets').length)
@@ -5000,8 +4996,7 @@ STRATEGY_LAB_TEMPLATE = """
                 dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown'),
                 sell_stage_rearm_drawdown_pct: readOptionalNumber('sellStageRearmDrawdown'),
                 grid_rebound_step_pct: readNumber('gridReboundStep'),
-                grid_first_sell_pct: readNumber('gridFirstSellPct'),
-                grid_second_sell_pct: readNumber('gridSecondSellPct'),
+                grid_sell_pct: readNumber('gridSellPct'),
                 grid_min_sell_amount: readNumber('gridMinSellAmount'),
                 cost_first_profit_pct: readNumber('costFirstProfitPct'),
                 cost_second_profit_pct: readNumber('costSecondProfitPct'),
@@ -5475,8 +5470,7 @@ STRATEGY_LAB_TEMPLATE = """
             setFieldValue('dcaRearmDrawdown', payload.dca_rearm_drawdown_pct);
             setFieldValue('sellStageRearmDrawdown', payload.sell_stage_rearm_drawdown_pct ?? '');
             setFieldValue('gridReboundStep', payload.grid_rebound_step_pct);
-            setFieldValue('gridFirstSellPct', payload.grid_first_sell_pct);
-            setFieldValue('gridSecondSellPct', payload.grid_second_sell_pct);
+            setFieldValue('gridSellPct', payload.grid_sell_pct ?? payload.grid_second_sell_pct);
             setFieldValue('gridMinSellAmount', payload.grid_min_sell_amount);
             setFieldValue('costFirstProfitPct', payload.cost_first_profit_pct);
             setFieldValue('costSecondProfitPct', payload.cost_second_profit_pct);
@@ -6119,10 +6113,11 @@ STRATEGY_LAB_TEMPLATE = """
             document.getElementById('tradeBody').innerHTML = rows.length ? rows.slice(0, 80).map((trade) => {
                 const trigger = trade.threshold_pct ?? trade.trigger_value ?? 0;
                 return `
-                    <tr>
-                        <td>${trade.strategy}</td>
-                        <td>${trade.action === 'sell' ? '卖出' : '买入'}</td>
-                        <td>${trade.date}</td>
+	                    <tr>
+	                        <td>${trade.strategy}</td>
+	                        <td>${trade.action === 'sell' ? '卖出' : '买入'}</td>
+	                        <td>${escapeHtml(trade.stage || trade.base_threshold_pct || '')}</td>
+	                        <td>${trade.date}</td>
                         <td>${trade.symbol}</td>
                         <td>${pct(trigger)}</td>
                         <td>${pct(trade.drawdown_pct)}</td>
@@ -6131,7 +6126,7 @@ STRATEGY_LAB_TEMPLATE = """
                         <td>${money(trade.fee)}</td>
                     </tr>
                 `;
-            }).join('') : '<tr><td colspan="9">没有触发交易。</td></tr>';
+	            }).join('') : '<tr><td colspan="10">没有触发交易。</td></tr>';
             setPerfMetric('tradesRenderMs', performance.now() - perfStart);
         }
 
@@ -6225,10 +6220,13 @@ STRATEGY_LAB_TEMPLATE = """
             renderDetailTrades(strategy, symbol);
         }
 
-        function renderDetailMetrics(strategy, symbol) {
-            const metrics = strategy.metrics;
-            const symbolState = (strategy.symbols || []).find((item) => item.symbol === symbol) || {};
-            const items = [
+	        function renderDetailMetrics(strategy, symbol) {
+	            const metrics = strategy.metrics;
+	            const symbolState = (strategy.symbols || []).find((item) => item.symbol === symbol) || {};
+	            const symbolTrades = (strategy.trades || []).filter((trade) => trade.symbol === symbol);
+	            const symbolBuys = symbolTrades.filter((trade) => trade.action !== 'sell').length;
+	            const symbolSells = symbolTrades.filter((trade) => trade.action === 'sell').length;
+	            const items = [
                 ['最终市值', money(metrics.final_value)],
                 ['累计投入', money(metrics.total_contributed)],
                 ['总收益率', pct(metrics.return_pct)],
@@ -6237,9 +6235,10 @@ STRATEGY_LAB_TEMPLATE = """
                 ['现金使用率', pct(metrics.cash_usage_pct)],
                 ['单股盈利', money(symbolState.profit)],
                 ['单股收益率', pct(symbolState.return_pct)],
-                ['买入次数', number(metrics.buy_trade_count)],
-                ['卖出次数', number(metrics.sell_trade_count)],
-                ['卖出质量', number(metrics.sell_quality_score)],
+	                ['买入次数', number(metrics.buy_trade_count)],
+	                ['卖出次数', number(metrics.sell_trade_count)],
+	                ['当前标的买/卖', `${number(symbolBuys, 0)} / ${number(symbolSells, 0)}`],
+	                ['卖出质量', number(metrics.sell_quality_score)],
                 ['卖出盈利均值', pct(metrics.avg_sell_profit_pct)],
                 ['卖出回撤均值', pct(metrics.avg_sell_drawdown_pct)],
                 ['现金复用率', pct(metrics.cash_reuse_pct)],
@@ -6377,9 +6376,10 @@ STRATEGY_LAB_TEMPLATE = """
             document.getElementById('detailTradeBody').innerHTML = rows.length ? rows.map((trade) => {
                 const trigger = trade.threshold_pct ?? trade.trigger_value ?? 0;
                 return `
-                    <tr>
-                        <td>${trade.action === 'sell' ? '卖出' : '买入'}</td>
-                        <td>${trade.date}</td>
+	                    <tr>
+	                        <td>${trade.action === 'sell' ? '卖出' : '买入'}</td>
+	                        <td>${escapeHtml(trade.stage || trade.base_threshold_pct || '')}</td>
+	                        <td>${trade.date}</td>
                         <td>${trade.symbol}</td>
                         <td>${pct(trigger)}</td>
                         <td>${pct(trade.drawdown_pct)}</td>
@@ -6389,7 +6389,7 @@ STRATEGY_LAB_TEMPLATE = """
                         <td>${money(trade.fee)}</td>
                     </tr>
                 `;
-            }).join('') : '<tr><td colspan="9">这个标的在该策略组合下没有触发交易。</td></tr>';
+	            }).join('') : '<tr><td colspan="10">这个标的在该策略组合下没有触发交易。</td></tr>';
         }
 
         function scorecardPayload() {
@@ -6419,8 +6419,7 @@ STRATEGY_LAB_TEMPLATE = """
                 dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown'),
                 sell_stage_rearm_drawdown_pct: readOptionalNumber('sellStageRearmDrawdown'),
                 grid_rebound_step_pct: readNumber('gridReboundStep'),
-                grid_first_sell_pct: readNumber('gridFirstSellPct'),
-                grid_second_sell_pct: readNumber('gridSecondSellPct'),
+                grid_sell_pct: readNumber('gridSellPct'),
                 grid_min_sell_amount: readNumber('gridMinSellAmount'),
                 cost_first_profit_pct: readNumber('costFirstProfitPct'),
                 cost_second_profit_pct: readNumber('costSecondProfitPct'),
@@ -6469,8 +6468,7 @@ STRATEGY_LAB_TEMPLATE = """
                 default_dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown'),
                 default_sell_stage_rearm_drawdown_pct: readOptionalNumber('sellStageRearmDrawdown'),
                 default_grid_rebound_step_pct: readNumber('gridReboundStep'),
-                default_grid_first_sell_pct: readNumber('gridFirstSellPct'),
-                default_grid_second_sell_pct: readNumber('gridSecondSellPct'),
+                default_grid_sell_pct: readNumber('gridSellPct'),
                 default_grid_min_sell_amount: readNumber('gridMinSellAmount'),
                 default_cost_first_profit_pct: readNumber('costFirstProfitPct'),
                 default_cost_second_profit_pct: readNumber('costSecondProfitPct'),
@@ -6684,20 +6682,20 @@ STRATEGY_LAB_TEMPLATE = """
             return `<button class="metric-help score-info-btn robust-param-help" type="button" aria-label="${escapeHtml(label)}" data-tooltip="${escapeHtml(tooltip)}">?</button>`;
         }
 
-        function robustGridSellParams(candidate) {
-            const step = candidate.grid_rebound_step_pct ?? readNumber('gridReboundStep');
-            const firstSell = candidate.grid_first_sell_pct ?? readNumber('gridFirstSellPct');
-            const secondSell = candidate.grid_second_sell_pct ?? readNumber('gridSecondSellPct');
-            const minAmount = candidate.grid_min_sell_amount ?? readNumber('gridMinSellAmount');
-            const sameDay = candidate.sell_allow_same_day_sell ?? Boolean(document.getElementById('sellAllowSameDaySell')?.checked);
-            return [
-                `${pct(step)} 回弹 ${scoreHelpButton('解释网格回弹步长', '网格回弹步长\\n从平均买入回撤向上修复多少个百分点后触发卖出。\\n例如平均买在 20% 回撤、回弹步长 5%，第一档会在回撤修复到 15% 左右时尝试卖出。')}`,
-                `${pct(firstSell)} 第一档 ${scoreHelpButton('解释网格第一档卖出', '网格第一档卖出\\n非金字塔策略按整仓聚合计算，第一档触发时卖出当前可卖仓位的这个比例。\\n仍会受底仓比例和最小卖出额约束。')}`,
-                `${pct(secondSell)} 第二档 ${scoreHelpButton('解释网格第二档卖出', '网格第二档卖出\\n价格再修复一个回弹步长后，第二档卖出当前可卖仓位的这个比例。\\n现在一天最多触发一个整仓网格档位，避免快速反弹时同日连续减仓。')}`,
-                `最小 ${number(minAmount)} USD ${scoreHelpButton('解释网格最小卖出额', '网格最小卖出额\\n只约束非金字塔的整仓网格卖出。\\n若某次卖出金额低于这个值，会跳过该次交易，用来减少小额碎片成交。')}`,
-                sameDay ? '买入日可卖' : ''
-            ].filter(Boolean).join(' / ');
-        }
+	        function robustGridSellParams(candidate) {
+	            const step = candidate.grid_rebound_step_pct ?? readNumber('gridReboundStep');
+	            const sellPct = candidate.grid_sell_pct ?? candidate.grid_second_sell_pct ?? readNumber('gridSellPct');
+	            const minProfit = candidate.sell_min_profit_pct ?? readNumber('sellMinProfit');
+	            const minAmount = candidate.grid_min_sell_amount ?? readNumber('gridMinSellAmount');
+	            const sameDay = candidate.sell_allow_same_day_sell ?? Boolean(document.getElementById('sellAllowSameDaySell')?.checked);
+	            return [
+	                `${pct(step)} 回弹 ${scoreHelpButton('解释网格回弹步长', '网格回弹步长\\n从平均买入回撤向上修复多少个百分点后触发卖出。\\n例如平均买在 20% 回撤、回弹步长 5%，第一档会在回撤修复到 15% 左右时尝试卖出。')}`,
+	                `${pct(sellPct)} 每档卖出 ${scoreHelpButton('解释网格每档卖出', '网格每档卖出\\n每个网格档位触发时都按同一个比例卖出当前可卖仓位。\\n仍会受底仓比例和最小卖出额约束。')}`,
+	                `${pct(minProfit)} 最小盈利 ${scoreHelpButton('解释最小卖出盈利', '最小卖出盈利\\n网格、修复、成本去杠杆卖出都会先检查当前价格是否比剩余平均成本高出这个比例。\\n未达到时，即使回弹档位已到，也不会卖出。')}`,
+	                `最小 ${number(minAmount)} USD ${scoreHelpButton('解释网格最小卖出额', '网格最小卖出额\\n只约束非金字塔的整仓网格卖出。\\n若某次卖出金额低于这个值，会跳过该次交易，用来减少小额碎片成交。')}`,
+	                sameDay ? '买入日可卖' : ''
+	            ].filter(Boolean).join(' / ');
+	        }
 
         function robustCostSellParams(candidate) {
             const p1 = candidate.cost_first_profit_pct ?? readNumber('costFirstProfitPct');
@@ -6813,7 +6811,7 @@ STRATEGY_LAB_TEMPLATE = """
                 bits.push(`买点优化: ${grid.core_dip_timing_enabled || []}；延迟 ${grid.core_dip_timing_max_delay_days || []}；大涨 ${grid.core_dip_timing_rise_threshold_pct || []}；近低 ${grid.core_dip_timing_near_low_pct || []}`);
             }
             if ((data.sell_strategies || []).includes('grid_rebound')) {
-                bits.push(`网格: 步长 ${grid.grid_rebound_step_pct || []}，第一档 ${grid.grid_first_sell_pct || []}，第二档 ${grid.grid_second_sell_pct || []}，最小额沿用当前 ${grid.grid_min_sell_amount || []} USD`);
+                bits.push(`网格: 步长 ${grid.grid_rebound_step_pct || []}，每档卖出 ${grid.grid_sell_pct || []}，最小额沿用当前 ${grid.grid_min_sell_amount || []} USD`);
             }
             if ((data.sell_strategies || []).includes('cost_deleverage')) {
                 bits.push(`成本: 盈利组 ${JSON.stringify(grid.cost_profit_sets || [])}，卖出组 ${JSON.stringify(grid.cost_sell_sets || [])}，冷却 ${grid.cost_deleverage_cooldown_days || []}，最小额沿用当前 ${grid.cost_min_sell_amount || []} USD`);
@@ -6974,8 +6972,7 @@ STRATEGY_LAB_TEMPLATE = """
             }
             if (candidate.sell_strategy === 'grid_rebound') {
                 setFieldValue('gridReboundStep', candidate.grid_rebound_step_pct);
-                setFieldValue('gridFirstSellPct', candidate.grid_first_sell_pct);
-                setFieldValue('gridSecondSellPct', candidate.grid_second_sell_pct);
+                setFieldValue('gridSellPct', candidate.grid_sell_pct ?? candidate.grid_second_sell_pct);
                 setFieldValue('gridMinSellAmount', candidate.grid_min_sell_amount);
             }
             if (candidate.sell_strategy === 'cost_deleverage') {
@@ -7045,8 +7042,7 @@ STRATEGY_LAB_TEMPLATE = """
             }
             if (candidate.sell_strategy === 'grid_rebound') {
                 setFieldValue('gridReboundStep', candidate.grid_rebound_step_pct);
-                setFieldValue('gridFirstSellPct', candidate.grid_first_sell_pct);
-                setFieldValue('gridSecondSellPct', candidate.grid_second_sell_pct);
+                setFieldValue('gridSellPct', candidate.grid_sell_pct ?? candidate.grid_second_sell_pct);
                 setFieldValue('gridMinSellAmount', candidate.grid_min_sell_amount);
             }
             if (candidate.sell_strategy === 'cost_deleverage') {
@@ -7907,7 +7903,7 @@ function gridReboundStages(anchor, inputs) {
   let stageIndex = 1;
   while (true) {
     const threshold = Math.max(0, anchor - step * stageIndex);
-    const sellPct = stageIndex === 1 ? num(inputs.grid_first_sell_pct) : num(inputs.grid_second_sell_pct);
+    const sellPct = num(inputs.grid_sell_pct);
     stages.push([`grid_${stageIndex}`, threshold, sellPct]);
     if (threshold <= 0) break;
     stageIndex += 1;
@@ -7948,6 +7944,9 @@ function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog,
   }
 }
 function candidateInputs(base, candidate) {
+  const sellStageRearm = Object.prototype.hasOwnProperty.call(candidate, 'sell_stage_rearm_drawdown_pct')
+    ? candidate.sell_stage_rearm_drawdown_pct
+    : base.sell_stage_rearm_drawdown_pct;
   return { ...base,
     step_pct: candidate.step_pct ?? base.step_pct,
     equal_slice_allocation_pct: candidate.equal_slice_allocation_pct ?? base.equal_slice_allocation_pct,
@@ -7964,8 +7963,9 @@ function candidateInputs(base, candidate) {
     repair_sell_cooldown_days: candidate.repair_sell_cooldown_days ?? base.repair_sell_cooldown_days,
     repair_stage_sell_pct: candidate.repair_stage_sell_pct ?? base.repair_stage_sell_pct,
     dca_rearm_drawdown_pct: candidate.dca_rearm_drawdown_pct ?? base.dca_rearm_drawdown_pct,
-    sell_stage_rearm_drawdown_pct: candidate.sell_stage_rearm_drawdown_pct ?? base.sell_stage_rearm_drawdown_pct,
+    sell_stage_rearm_drawdown_pct: sellStageRearm,
     grid_rebound_step_pct: candidate.grid_rebound_step_pct ?? base.grid_rebound_step_pct,
+    grid_sell_pct: candidate.grid_sell_pct ?? candidate.grid_second_sell_pct ?? base.grid_sell_pct ?? base.grid_second_sell_pct,
     grid_first_sell_pct: candidate.grid_first_sell_pct ?? base.grid_first_sell_pct,
     grid_second_sell_pct: candidate.grid_second_sell_pct ?? base.grid_second_sell_pct,
     grid_min_sell_amount: candidate.grid_min_sell_amount ?? base.grid_min_sell_amount,
@@ -8227,9 +8227,9 @@ async function run(packet) {
 `;
         }
 
-        async function loadScorecardDetail(questionKey, buyStrategy, sellStrategy) {
-            setStatus('info', '正在加载评分题目详情...');
-            try {
+	        async function loadScorecardDetail(questionKey, buyStrategy, sellStrategy) {
+	            setStatus('info', '正在加载评分题目详情...');
+	            try {
                 const apiStart = performance.now();
                 const payload = {
                     ...scorecardPayload(),
@@ -8251,16 +8251,25 @@ async function run(packet) {
                 lastLabSignature = null;
                 renderSummary(result.data);
                 renderTrades(result.data);
-                const meta = result.data.scorecard_detail || {};
-                scoreDetailContext = meta;
-                showDetail(0);
-                activateTab('results');
-                const panel = document.getElementById('detailPanel');
-                if (panel) {
-                    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-                setStatus('success', `已加载评分详情: ${meta.portfolio_label || ''} ${meta.period_label || ''}；可用详情上方按钮返回评分。`);
-                addRunHistory(
+	                const meta = result.data.scorecard_detail || {};
+	                scoreDetailContext = meta;
+	                showDetail(0);
+	                activateTab('results');
+	                const panel = document.getElementById('detailPanel');
+	                if (panel) {
+	                    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	                }
+	                const detailStrategy = (result.data.strategies || [])[0] || {};
+	                const detailSymbol = (result.data.targets || [])[0]?.symbol || '';
+	                const detailSells = (detailStrategy.trades || []).filter((trade) => (
+	                    trade.action === 'sell' && (!detailSymbol || trade.symbol === detailSymbol)
+	                ));
+	                const sellStages = detailSells.map((trade) => `${trade.date || ''} ${trade.stage || ''}`.trim()).filter(Boolean).join('，');
+	                setStatus(
+	                    'success',
+	                    `已加载评分详情: ${meta.portfolio_label || ''} ${meta.period_label || ''}；当前标的卖出 ${number(detailSells.length, 0)} 笔${sellStages ? `：${sellStages}` : ''}。`
+	                );
+	                addRunHistory(
                     'detail',
                     '评分详情已加载',
                     `${meta.portfolio_label || ''} ${meta.period_label || ''}`.trim() || '评分题目详情'
@@ -9285,16 +9294,24 @@ def api_drawdown_generate():
 @app.route('/strategy-lab')
 def strategy_lab_page():
     """组合仓位策略实验室。"""
-    return render_template_string(STRATEGY_LAB_TEMPLATE, **_strategy_lab_page_context())
+    response = app.make_response(render_template_string(STRATEGY_LAB_TEMPLATE, **_strategy_lab_page_context()))
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 @app.route('/strategy-lab/parameter-lab')
 def strategy_parameter_lab_page():
     """策略参数全量实验室。"""
-    return render_template(
+    response = app.make_response(render_template(
         "strategy_parameter_lab.html",
         **_strategy_lab_page_context(),
-    )
+    ))
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 def _strategy_lab_page_context() -> dict[str, object]:

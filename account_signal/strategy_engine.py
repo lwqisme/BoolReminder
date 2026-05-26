@@ -320,8 +320,7 @@ def _grid_rebound_stages(
     stage_index = 1
     while True:
         threshold = max(0.0, anchor_drawdown_pct - step * stage_index)
-        sell_pct = inputs.grid_first_sell_pct if stage_index == 1 else inputs.grid_second_sell_pct
-        stages.append((f"grid_{stage_index}", threshold, sell_pct))
+        stages.append((f"grid_{stage_index}", threshold, float(inputs.grid_sell_pct or 0)))
         if threshold <= 0:
             break
         stage_index += 1

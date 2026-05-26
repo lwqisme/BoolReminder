@@ -136,6 +136,7 @@ const SELL_PARAMETER_FIELDS = [
   'repair_sell_cooldown_days',
   'repair_stage_sell_pct',
   'grid_rebound_step_pct',
+  'grid_sell_pct',
   'grid_first_sell_pct',
   'grid_second_sell_pct',
   'grid_min_sell_amount',
@@ -317,6 +318,12 @@ function formatCompact(value) {
   return Number.isInteger(n) ? String(n) : String(Number(n.toPrecision(6))).replace(/\.0+$/, '');
 }
 
+function gridSellPct(params) {
+  if (!params) return 0;
+  if (params.grid_sell_pct !== null && params.grid_sell_pct !== undefined) return params.grid_sell_pct;
+  return params.grid_second_sell_pct;
+}
+
 function buildCandidateKey(buyStrategy, sellStrategy, buyParams, sellParams) {
   const parts = [buyStrategy];
   if (buyParams.step_pct !== null && buyParams.step_pct !== undefined) parts.push(`step${formatCompact(buyParams.step_pct)}`);
@@ -341,8 +348,7 @@ function buildCandidateKey(buyStrategy, sellStrategy, buyParams, sellParams) {
   }
   if (sellStrategy === 'grid_rebound') {
     parts.push(`g${formatCompact(sellParams.grid_rebound_step_pct)}`);
-    parts.push(`g1${formatCompact(sellParams.grid_first_sell_pct)}`);
-    parts.push(`g2${formatCompact(sellParams.grid_second_sell_pct)}`);
+    parts.push(`gsell${formatCompact(gridSellPct(sellParams))}`);
     parts.push(`gmin${formatCompact(sellParams.grid_min_sell_amount)}`);
   }
   if (sellStrategy === 'cost_deleverage') {
@@ -391,12 +397,12 @@ function buildBuyLabel(strategyKey, params, labels = {}) {
   return bits.length ? `${label} (${bits.join(' / ')})` : label;
 }
 
-function buildSellLabel(strategyKey, params, labels = {}) {
+function buildSellLabel(strategyKey, params, labels = {}, baseInputs = {}) {
   let label;
   if (strategyKey === 'repair_step') {
     label = `阶梯修复 ${formatCompact(params.sell_min_profit_pct)}%盈利 ${formatCompact(Math.trunc(num(params.repair_sell_cooldown_days)))}日冷却 ${formatCompact(params.repair_stage_sell_pct)}%单档`;
   } else if (strategyKey === 'grid_rebound') {
-    label = `网格回弹 ${formatCompact(params.grid_rebound_step_pct)}%步长 ${formatCompact(params.grid_first_sell_pct)}%+${formatCompact(params.grid_second_sell_pct)}%卖出`;
+    label = `网格回弹 ${formatCompact(params.grid_rebound_step_pct)}%步长 每档${formatCompact(gridSellPct(params))}%卖出 ${formatCompact(params.sell_min_profit_pct ?? baseInputs.sell_min_profit_pct)}%最小盈利`;
   } else if (strategyKey === 'cost_deleverage') {
     const profits = [
       params.cost_first_profit_pct,
@@ -445,7 +451,7 @@ function inflateCandidate(packet, candidateRow) {
   const buyLabels = labels.buy || registry.buy_strategy_labels || {};
   const sellLabels = labels.sell || registry.sell_strategy_labels || {};
   const buyLabel = buildBuyLabel(buyStrategy, buyVariant, buyLabels);
-  const sellLabel = buildSellLabel(sellStrategy, sellVariant, sellLabels);
+  const sellLabel = buildSellLabel(sellStrategy, sellVariant, sellLabels, packet.inputs || {});
   const candidate = {
     key: buildCandidateKey(buyStrategy, sellStrategy, buyVariant, sellVariant),
     candidate_id: candidateId,
@@ -773,7 +779,7 @@ function gridReboundStages(anchor, inputs) {
   let stageIndex = 1;
   while (true) {
     const threshold = Math.max(0, anchor - step * stageIndex);
-    const sellPct = stageIndex === 1 ? num(inputs.grid_first_sell_pct) : num(inputs.grid_second_sell_pct);
+    const sellPct = num(inputs.grid_sell_pct);
     stages.push([`grid_${stageIndex}`, threshold, sellPct]);
     if (threshold <= 0) break;
     stageIndex += 1;
@@ -835,6 +841,9 @@ function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog,
 }
 
 function candidateInputs(base, candidate) {
+  const sellStageRearm = Object.prototype.hasOwnProperty.call(candidate, 'sell_stage_rearm_drawdown_pct')
+    ? candidate.sell_stage_rearm_drawdown_pct
+    : base.sell_stage_rearm_drawdown_pct;
   return {
     ...base,
     step_pct: candidate.step_pct ?? base.step_pct,
@@ -852,8 +861,9 @@ function candidateInputs(base, candidate) {
     repair_sell_cooldown_days: candidate.repair_sell_cooldown_days ?? base.repair_sell_cooldown_days,
     repair_stage_sell_pct: candidate.repair_stage_sell_pct ?? base.repair_stage_sell_pct,
     dca_rearm_drawdown_pct: candidate.dca_rearm_drawdown_pct ?? base.dca_rearm_drawdown_pct,
-    sell_stage_rearm_drawdown_pct: candidate.sell_stage_rearm_drawdown_pct ?? base.sell_stage_rearm_drawdown_pct,
+    sell_stage_rearm_drawdown_pct: sellStageRearm,
     grid_rebound_step_pct: candidate.grid_rebound_step_pct ?? base.grid_rebound_step_pct,
+    grid_sell_pct: candidate.grid_sell_pct ?? candidate.grid_second_sell_pct ?? base.grid_sell_pct ?? base.grid_second_sell_pct,
     grid_first_sell_pct: candidate.grid_first_sell_pct ?? base.grid_first_sell_pct,
     grid_second_sell_pct: candidate.grid_second_sell_pct ?? base.grid_second_sell_pct,
     grid_min_sell_amount: candidate.grid_min_sell_amount ?? base.grid_min_sell_amount,
