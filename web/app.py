@@ -3564,11 +3564,11 @@ STRATEGY_LAB_TEMPLATE = """
                             <input id="repairStageSellPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_repair_stage_sell_pct }}">
                         </div>
                         <div>
-                            <label for="dcaRearmDrawdown">卖后重启回撤 %</label>
+                            <label for="dcaRearmDrawdown">卖后重启回撤 % <button class="metric-help score-info-btn" type="button" aria-label="解释卖后重启回撤" data-tooltip="卖后重启回撤\n控制卖出后的下一轮买入档位何时重新打开；也是卖档重启留空或关闭覆盖时的默认阈值。\n0% 表示卖出后只要仍在当前回撤附近即可重启；5% 表示需要从卖出位置再加深约 5 个百分点。">?</button></label>
                             <input id="dcaRearmDrawdown" type="number" min="0" max="95" step="0.5" value="{{ default_config.default_dca_rearm_drawdown_pct }}">
                         </div>
                         <div>
-                            <label for="sellStageRearmDrawdown">卖档重启回撤 %</label>
+                            <label for="sellStageRearmDrawdown">卖档重启回撤 % <button class="metric-help score-info-btn" type="button" aria-label="解释卖档重启回撤" data-tooltip="卖档重启回撤\n只控制后续补仓/定投买入后，是否清空已经卖过的网格、修复或成本卖出档位。\n只有比卖后重启更深时才作为覆盖生效；留空、0、或小于等于卖后重启时，等价于关闭覆盖并使用卖后重启。">?</button></label>
                             <input id="sellStageRearmDrawdown" type="number" min="0" max="95" step="0.5" value="{{ default_config.default_sell_stage_rearm_drawdown_pct if default_config.default_sell_stage_rearm_drawdown_pct is not none else '' }}">
                         </div>
                         <div>
@@ -5988,6 +5988,7 @@ STRATEGY_LAB_TEMPLATE = """
 
         function initScoreTooltip() {
             const containers = [
+                document.getElementById('setup'),
                 document.getElementById('scoreMatrixBody'),
                 document.getElementById('robustWorkspace'),
                 document.getElementById('robustBoard')
@@ -6878,7 +6879,7 @@ STRATEGY_LAB_TEMPLATE = """
                         ? `${escapeHtml(dcaRearmParam)} ${scoreHelpButton('解释卖后重启', '卖后重启回撤\\n三档金字塔：整仓/网格/成本卖出后，回撤需要从卖出当天再加深这些百分点，已用过的买入档位才会重新打开。\\n定投类策略：后续买入发生在不低于这个回撤的位置时，整仓卖出档位会重新打开。\\n0% 表示卖出后只要仍在当前回撤附近即可重启。')}`
                         : '',
                     sellStageRearmParam
-                        ? `${escapeHtml(sellStageRearmParam)} ${scoreHelpButton('解释卖档重启', '卖档重启回撤\\n控制定投/补仓买入后，是否清空整仓卖出档位标记。\\n留空时继承卖后重启回撤；设得更深可以避免浅回撤补仓后立刻重新触发已卖过的成本去杠杆档位。')}`
+                        ? `${escapeHtml(sellStageRearmParam)} ${scoreHelpButton('解释卖档重启', '卖档重启回撤\\n控制定投/补仓买入后，是否清空整仓卖出档位标记。\\n只有比卖后重启更深时才覆盖；留空、0、或小于等于卖后重启时，等价于关闭覆盖并使用卖后重启。')}`
                         : ''
                 ].filter(Boolean).join(' / ');
                 return `

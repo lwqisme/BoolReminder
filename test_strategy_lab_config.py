@@ -112,6 +112,20 @@ class StrategyLabConfigTest(unittest.TestCase):
         self.assertIsNone(config.sell_stage_rearm_drawdown_pct)
         self.assertIsNone(config.to_strategy_inputs().sell_stage_rearm_drawdown_pct)
 
+    def test_runtime_sell_stage_rearm_not_deeper_than_dca_is_disabled(self):
+        base = strategy_lab_default_dict()
+
+        config = StrategyLabConfig.from_runtime_payload(
+            {
+                "dca_rearm_drawdown_pct": 5,
+                "sell_stage_rearm_drawdown_pct": 0,
+            },
+            base,
+        )
+
+        self.assertEqual(config.sell_stage_rearm_drawdown_pct, 0.0)
+        self.assertIsNone(config.to_strategy_inputs().sell_stage_rearm_drawdown_pct)
+
     def test_saved_defaults_optional_sell_stage_rearm_can_be_cleared(self):
         config = StrategyLabConfig.from_saved_defaults(
             {

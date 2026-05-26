@@ -484,6 +484,9 @@ class StrategyLabConfig:
         return self
 
     def to_strategy_inputs(self) -> StrategyInputs:
+        sell_stage_rearm = self.sell_stage_rearm_drawdown_pct
+        if sell_stage_rearm is not None and sell_stage_rearm <= self.dca_rearm_drawdown_pct:
+            sell_stage_rearm = None
         return StrategyInputs(
             initial_cash=self.initial_cash,
             monthly_contribution=self.monthly_contribution,
@@ -498,7 +501,7 @@ class StrategyLabConfig:
             repair_sell_cooldown_days=self.repair_sell_cooldown_days,
             repair_stage_sell_pct=self.repair_stage_sell_pct,
             dca_rearm_drawdown_pct=self.dca_rearm_drawdown_pct,
-            sell_stage_rearm_drawdown_pct=self.sell_stage_rearm_drawdown_pct,
+            sell_stage_rearm_drawdown_pct=sell_stage_rearm,
             grid_rebound_step_pct=self.grid_rebound_step_pct,
             grid_sell_pct=self.grid_sell_pct,
             grid_first_sell_pct=self.grid_first_sell_pct,
