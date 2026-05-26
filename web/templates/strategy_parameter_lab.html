@@ -1547,39 +1547,44 @@
                 </div>
                 <div class="panel-body">
                     <div class="field-grid">
-                        <label>买入策略
-                            <select id="gaBuyStrategy">
-                                {% for key, label in buy_strategy_labels.items() %}
-                                <option value="{{ key }}">{{ label }}</option>
-                                {% endfor %}
-                            </select>
-                        </label>
-                        <label>卖出策略
-                            <select id="gaSellStrategy">
-                                {% for key, label in sell_strategy_labels.items() %}
-                                <option value="{{ key }}">{{ label }}</option>
-                                {% endfor %}
-                            </select>
-                        </label>
-                        <label>跨策略进化<span class="param-help" data-tooltip="开启后，GA 种群中不同买入/卖出策略类型的个体可以在同一代中竞争，策略类型本身也会参与进化和变异。">?</span>
-                            <select id="gaCrossStrategy">
+                        <div id="gaSingleStrategyRow">
+                            <label>买入策略<span class="param-help" data-tooltip="选择 GA 要优化的买入策略类型。跨策略模式下此选项隐藏，使用策略集合面板中勾选的所有买入策略。">?</span>
+                                <select id="gaBuyStrategy">
+                                    {% for key, label in buy_strategy_labels.items() %}
+                                    <option value="{{ key }}">{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </label>
+                            <label>卖出策略<span class="param-help" data-tooltip="选择 GA 要优化的卖出策略类型。跨策略模式下此选项隐藏，使用策略集合面板中勾选的所有卖出策略。">?</span>
+                                <select id="gaSellStrategy">
+                                    {% for key, label in sell_strategy_labels.items() %}
+                                    <option value="{{ key }}">{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </label>
+                        </div>
+                        <div id="gaCrossStrategyHint" style="display:none;grid-column:1/-1;padding:6px 8px;border:1px solid rgba(17,103,216,0.16);border-radius:12px;background:rgba(239,246,255,0.6);color:var(--blue);font-size:12px;font-weight:800;">
+                            跨策略模式：使用「策略集合」面板中勾选的策略参与进化。
+                        </div>
+                        <label>跨策略进化<span class="param-help" data-tooltip="开启后，GA 种群中不同买入/卖出策略类型的个体可以在同一代中竞争，策略类型本身也会参与进化和变异。关闭则只优化单策略对的参数。">?</span>
+                            <select id="gaCrossStrategy" onchange="toggleGaStrategyControls()">
                                 <option value="false" selected>关闭 - 单策略模式</option>
                                 <option value="true">开启 - 跨策略竞争</option>
                             </select>
                         </label>
-                        <label>策略突变率
+                        <label>策略突变率<span class="param-help" data-tooltip="跨策略模式下，个体切换策略类型（如等距细切→核心定投）的概率。仅在跨策略模式下生效。值越高策略跳变越频繁。">?</span>
                             <input id="gaStrategyMutationRate" type="number" min="0" max="1" step="0.01" value="0.05">
                         </label>
-                        <label>种群大小
+                        <label>种群大小<span class="param-help" data-tooltip="每代保留的候选参数组合数量。种群越大探索范围越广，但每代计算量也越大。典型值 30-100。">?</span>
                             <input id="gaPopSize" type="number" min="10" max="200" step="10" value="50">
                         </label>
-                        <label>进化代数
+                        <label>进化代数<span class="param-help" data-tooltip="遗传算法迭代的世代数。代数越多进化越充分，总计算量 = 种群大小 × 代数。建议从 10-20 代起步。">?</span>
                             <input id="gaGenerations" type="number" min="5" max="100" step="5" value="20">
                         </label>
-                        <label>变异率
+                        <label>变异率<span class="param-help" data-tooltip="每个参数独立发生随机突变的概率。如 0.15 表示每个参数有 15% 概率被随机替换为其他候选值。过高→随机搜索，过低→早熟收敛。">?</span>
                             <input id="gaMutationRate" type="number" min="0" max="1" step="0.01" value="0.15">
                         </label>
-                        <label>交叉率
+                        <label>交叉率<span class="param-help" data-tooltip="两个父代通过交叉产生子代的概率。如 0.80 表示 80% 子代来自交叉组合，20% 直接复制父代。控制全局探索与局部利用的平衡。">?</span>
                             <input id="gaCrossoverRate" type="number" min="0" max="1" step="0.01" value="0.80">
                         </label>
                     </div>
@@ -6813,11 +6818,20 @@
 
         initAutoSaveListeners();
         restoreParameterLabDefaults();
+        toggleGaStrategyControls();  // init GA panel state on load
 
         // ── Genetic Algorithm EVOLVE mode ──────────────────────────────────
         let gaJobId = '';
         let gaPollTimer = null;
         let gaCancelled = false;
+
+        function toggleGaStrategyControls() {
+            const crossEnabled = document.getElementById('gaCrossStrategy').value === 'true';
+            const singleRow = document.getElementById('gaSingleStrategyRow');
+            const hint = document.getElementById('gaCrossStrategyHint');
+            if (singleRow) singleRow.style.display = crossEnabled ? 'none' : '';
+            if (hint) hint.style.display = crossEnabled ? '' : 'none';
+        }
 
         async function runGeneticEvolution() {
             gaCancelled = false;
