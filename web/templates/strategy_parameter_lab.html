@@ -7088,33 +7088,57 @@
                 let completedBatches = 0, settled = false;
                 const allRows = [];
                 const workers = [];
-                const readyFlags = [];
+                const workerReady = [];
+                const workerBatchCount = [];
+                const totalBatchCount = batches.length;
                 const cleanup = function() {
                     settled = true;
                     workers.forEach(function(w) { try { w.terminate(); } catch(e) {} });
                 };
 
+                // Timeout safety: kill after 2 minutes
+                const timeoutId = setTimeout(function() {
+                    if (settled) return;
+                    console.error('[GA] evaluatePopulationWithWorkers timeout', {
+                        completedBatches, totalBatches: totalBatchCount,
+                        readyWorkers: workerReady.filter(Boolean).length, totalWorkers: workers.length,
+                        batchCounts: workerBatchCount
+                    });
+                    cleanup();
+                    if (allRows.length) { resolve(allRows); }
+                    else { reject(new Error('Worker evaluation timed out (120s) – only ' + completedBatches + '/' + totalBatchCount + ' batches completed')); }
+                }, 120000);
+
                 const sendBatch = function(wi) {
                     if (settled) return;
                     const next = batches.shift();
                     if (!next) return;
+                    workerBatchCount[wi] = (workerBatchCount[wi] || 0) + 1;
                     workers[wi].postMessage({
                         type: 'batch', run_id: runId, worker_index: wi,
                         batch_id: next.batch_id, candidate_rows: next.candidate_rows
                     });
                 };
 
+                const maybeResolve = function() {
+                    if (completedBatches >= totalBatchCount && !settled) {
+                        clearTimeout(timeoutId);
+                        cleanup();
+                        resolve(allRows);
+                    }
+                };
+
                 for (let wi = 0; wi < workerCount; wi++) {
                     const worker = new Worker(parameterLabWorkerUrl);
                     workers.push(worker);
-                    readyFlags.push(false);
+                    workerReady.push(false);
+                    workerBatchCount.push(0);
 
                     worker.onmessage = function(event) {
                         if (settled) return;
                         const msg = event.data || {};
                         if (msg.type === 'ready') {
-                            readyFlags[wi] = true;
-                            // Send batch now that worker is initialized
+                            workerReady[wi] = true;
                             sendBatch(wi);
                         } else if (msg.type === 'batch_done') {
                             const obs = (msg.rows || []).map(function(r) {
@@ -7129,11 +7153,11 @@
                             }).flat();
                             allRows.push.apply(allRows, obs);
                             completedBatches++;
-                            if (shouldCancel && shouldCancel()) { cleanup(); resolve(allRows); return; }
-                            if (batches.length) { sendBatch(wi); } else { cleanup(); resolve(allRows); }
+                            if (shouldCancel && shouldCancel()) { clearTimeout(timeoutId); cleanup(); resolve(allRows); return; }
+                            if (batches.length) { sendBatch(wi); } else { maybeResolve(); }
                         } else if (msg.type === 'error') {
-                            console.error('[GA] Worker error:', msg.message);
-                            cleanup(); reject(new Error(msg.message || 'Worker error'));
+                            console.error('[GA] Worker error:', msg.message, msg);
+                            clearTimeout(timeoutId); cleanup(); reject(new Error(msg.message || 'Worker error'));
                         }
                     };
 

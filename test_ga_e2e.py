@@ -394,19 +394,131 @@ for (let i = 0; i < 50; i++) {
         self.assertEqual(len(p["candidate_rows"]), 3, "Should have 3 candidates")
         self.assertEqual(len(p["buy_variants"]), 3)
         self.assertEqual(len(p["sell_variants"]), 3)
-        # Verify variant rows match schema
         for row in p["buy_variants"]:
             self.assertEqual(len(row), len(p["buy_variant_schema"]))
         for row in p["sell_variants"]:
             self.assertEqual(len(row), len(p["sell_variant_schema"]))
-        # Verify ga_config has required keys
         gc = p["ga_config"]
         for key in ["population_size", "generations", "mutation_rate", "crossover_rate", "continuous_mutation"]:
             self.assertIn(key, gc, f"ga_config missing: {key}")
-        # Verify parameter ranges exist
         pr = p["ga_parameter_ranges"]
         self.assertIn("bounds", pr)
         self.assertIn("int_fields", pr)
+
+    def test_equal_slice_grid_rebound_full_worker_lifecycle(self):
+        """S6: equal_slice + grid_rebound (user's failing combo) through worker message-passing lifecycle."""
+        script = r"""
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+
+// Simulate the evaluatePopulationWithWorkers lifecycle with a real worker VM
+const buyF = [
+  'step_pct', 'equal_slice_allocation_pct', 'core_dip_initial_core_pct', 'core_dip_weekly_core_pct',
+  'core_dip_cash_reserve_pct', 'core_dip_start_drawdown_pct', 'core_dip_full_drawdown_pct',
+  'core_dip_timing_enabled', 'core_dip_timing_max_delay_days', 'core_dip_timing_rise_threshold_pct',
+  'core_dip_timing_near_low_pct'
+];
+const sellF = [
+  'sell_min_profit_pct', 'repair_sell_cooldown_days', 'repair_stage_sell_pct',
+  'grid_rebound_step_pct', 'grid_sell_pct', 'grid_first_sell_pct', 'grid_second_sell_pct',
+  'grid_min_sell_amount', 'cost_first_profit_pct', 'cost_second_profit_pct', 'cost_third_profit_pct',
+  'cost_first_sell_pct', 'cost_second_sell_pct', 'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
+  'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct',
+  'buy_rearm_mode', 'sell_stage_rearm_drawdown_pct'
+];
+
+const packet = {
+  run_id: 'e2e-s6',
+  inputs: { initial_cash: 20000, monthly_contribution: 1000, max_drawdown_pct: 50, drawdown_basis: 'ath',
+    trade_fee: 0.35, hkd_to_usd: 0.128, reserve_position_pct: 40, sell_min_profit_pct: 10,
+    sell_allow_same_day_sell: false, dca_rearm_drawdown_pct: 5, sell_stage_rearm_drawdown_pct: null },
+  tasks: [{
+    key: 'tsla_1y', portfolio_key: 'tsla_100', portfolio_label: 'TSLA', period_key: '1y', period_label: '1Y',
+    start: '2025-06-01', end: '2025-06-15', symbols: ['TSLA.US'],
+    targets: [{ symbol: 'TSLA.US', weight: 100, name: 'TSLA', max_drawdown_pct: 50 }]
+  }],
+  market_data: { symbols: { 'TSLA.US': {
+    dates: ['2025-06-01','2025-06-02','2025-06-03','2025-06-04','2025-06-05',
+            '2025-06-06','2025-06-07','2025-06-08','2025-06-09','2025-06-10',
+            '2025-06-11','2025-06-12','2025-06-13','2025-06-14','2025-06-15'],
+    closes: [200,195,190,185,180,175,180,190,200,210,220,215,210,205,200]
+  } } },
+  buy_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...buyF],
+  sell_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...sellF],
+  candidate_schema: ['candidate_id', 'buy_variant_id', 'sell_variant_id'],
+  buy_variants: [],
+  sell_variants: [],
+  candidate_rows: [],
+  diagnostics: { verbose_simulation_logs: false, progress_every: 1, progress_min_ms: 500, slow_simulation_ms: 3000 }
+};
+
+// Generate 10 equal_slice + grid_rebound candidates (matching user scenario)
+for (let i = 0; i < 10; i++) {
+  packet.buy_variants.push([i, 'buy' + i, 'equal_slice', 5 + i * 2, 5 + i * 3, null,null,null,null,null,null,null,null,null]);
+  packet.sell_variants.push([i, 'sell' + i, 'grid_rebound', 10, null, null, 5 + i, 40, null, null, 200, null,null,null,null,null,null,null,false,null,null,null]);
+  packet.candidate_rows.push([i, i, i]);
+}
+
+// Create worker VM and simulate the message-passing lifecycle
+const runId = packet.run_id;
+let settled = false, allRows = [], batchDoneCount = 0;
+const totalCandidates = packet.candidate_rows.length;
+
+// Simulate worker creation + start message
+const messages = [];
+const workerContext = {
+  console: { info() {}, warn() {}, error() {} },
+  postMessage(msg) { messages.push(msg); },
+  performance: { now: () => 0 },
+  setTimeout
+};
+workerContext.self = workerContext;
+vm.createContext(workerContext);
+vm.runInContext(source, workerContext);
+
+async function runLifecycle() {
+  // Phase 1: start (equivalent to worker.postMessage({type:'start', packet}))
+  await workerContext.initRun(packet, 0, runId, totalCandidates * packet.tasks.length);
+  
+  const readyMsgs = messages.filter(m => m.type === 'ready');
+  if (!readyMsgs.length) return { error: 'No ready message from worker' };
+  
+  // Phase 2: batch (only after ready!)
+  await workerContext.processBatch(
+    { run_id: runId, worker_index: 0, batch_id: 'b1', candidate_rows: packet.candidate_rows },
+    0, runId
+  );
+  
+  const done = messages.find(m => m.type === 'batch_done');
+  if (!done) return { error: 'No batch_done', msgTypes: messages.map(m => m.type) };
+  
+  const summary = done.rows.map(r => ({
+    cid: r.candidate_id, obs_count: r.observations.length,
+    ret: Number(r.observations[0]?.return_pct),
+    dd: Number(r.observations[0]?.max_drawdown_pct),
+    all_finite: r.observations.every(o => isFinite(Number(o.return_pct)) && isFinite(Number(o.max_drawdown_pct)))
+  }));
+  
+  return {
+    ok: true, row_count: done.rows.length,
+    all_finite: summary.every(s => s.all_finite),
+    any_nan: summary.some(s => !s.all_finite),
+    candidates: summary
+  };
+}
+
+runLifecycle().then(r => process.stdout.write(JSON.stringify(r)))
+  .catch(e => process.stdout.write(JSON.stringify({error: e.message, stack: e.stack?.split('\n').slice(0,3)})));
+"""
+        result = self._run_node_script(script)
+        self.assertIn("ok", result, f"Lifecycle failed: {result}")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["row_count"], 10, "Should process all 10 candidates")
+        self.assertTrue(result["all_finite"], "All candidates must have finite observations")
+        self.assertFalse(result.get("any_nan"), "No NaN values allowed")
+        for c in result["candidates"]:
+            self.assertTrue(c["all_finite"], f"candidate {c['cid']} has NaN")
 
 
 if __name__ == "__main__":
