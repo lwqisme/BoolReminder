@@ -8862,6 +8862,20 @@ ACCOUNT_SIGNAL_TEMPLATE = """
     .buy { color: var(--green); font-weight: 800; }
     .sell { color: var(--red); font-weight: 800; }
     .empty { color: var(--muted); padding: 18px; text-align: center; border: 1px dashed var(--line); }
+    .bt-toggle { margin-top: 10px; padding: 5px 10px; font-size: 12px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .bt-toggle:hover { background: var(--ink); color: var(--panel); }
+    .bt-panel { display: none; margin-top: 10px; border: 1px solid var(--line); padding: 12px; background: #fffdf8; }
+    .bt-panel.open { display: block; }
+    .bt-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+    .bt-tab { padding: 4px 10px; font-size: 12px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .bt-tab.active { background: var(--ink); color: var(--panel); }
+    .bt-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+    .bt-metric { border-top: 2px solid var(--ink); padding-top: 4px; }
+    .bt-metric .label { font-size: 10px; }
+    .bt-metric .value { font-size: 15px; }
+    .bt-chart { width: 100%; height: 320px; }
+    .bt-status { font-size: 12px; color: var(--muted); padding: 8px 0; }
+    @media (max-width: 860px) { .bt-metrics { grid-template-columns: repeat(2, 1fr); } .bt-chart { height: 240px; } }
     .errors { margin: 0; padding-left: 18px; color: var(--red); }
     @media (max-width: 860px) {
       .top, .grid { grid-template-columns: 1fr; }
@@ -8870,6 +8884,7 @@ ACCOUNT_SIGNAL_TEMPLATE = """
       table { font-size: 11px; }
     }
   </style>
+    <script src="/static/vendor/plotly-2.35.2.min.js"></script>
 </head>
 <body>
   <main class="shell">
@@ -8969,6 +8984,7 @@ ACCOUNT_SIGNAL_TEMPLATE = """
       `;
     }
     function render(data) {
+      window._lastAccountData = data;
       const errors = data.errors || data.latest_run?.errors || [];
       const warnings = data.warnings || data.latest_run?.warnings || [];
       if (errors.length) setStatus('bad', errors.join(' · '));
@@ -9015,6 +9031,17 @@ ACCOUNT_SIGNAL_TEMPLATE = """
             ${metric('月投入', money(target.monthly_contribution_usd))}
             ${metric('当前价', m.price ? money(m.price) : '—')}
             ${metric('120日回撤', m.drawdown_120_pct === undefined ? '—' : number(m.drawdown_120_pct) + '%')}
+          </div>
+          <button class="bt-toggle" type="button" onclick="toggleBacktest(this, '${symbol}', '${profile?.buy_strategy || ''}', '${profile?.sell_strategy || ''}')">📊 回测 1y/3y/5y</button>
+          <div class="bt-panel" id="bt-${symbol.replace(/[^a-zA-Z0-9]/g, '_')}">
+            <div class="bt-tabs">
+              <button class="bt-tab active" data-period="1y" onclick="switchBtPeriod(this, '${symbol}')">1年</button>
+              <button class="bt-tab" data-period="3y" onclick="switchBtPeriod(this, '${symbol}')">3年</button>
+              <button class="bt-tab" data-period="5y" onclick="switchBtPeriod(this, '${symbol}')">5年</button>
+            </div>
+            <div class="bt-status" id="bt-status-${symbol.replace(/[^a-zA-Z0-9]/g, '_')}">点击加载回测数据...</div>
+            <div class="bt-metrics" id="bt-metrics-${symbol.replace(/[^a-zA-Z0-9]/g, '_')}"></div>
+            <div class="bt-chart" id="bt-chart-${symbol.replace(/[^a-zA-Z0-9]/g, '_')}"></div>
           </div>
         </article>`;
       }).join('');
@@ -9122,6 +9149,99 @@ ACCOUNT_SIGNAL_TEMPLATE = """
       const button = event.target.closest('[data-assign-profile]');
       if (button) assignCandidate(button.dataset.assignProfile);
     });
+    const btCache = {};
+    function toggleBacktest(btn, symbol, buyStrategy, sellStrategy) {
+      const safeId = symbol.replace(/[^a-zA-Z0-9]/g, '_');
+      const panel = document.getElementById('bt-' + safeId);
+      if (!panel) return;
+      const isOpen = panel.classList.contains('open');
+      if (isOpen) { panel.classList.remove('open'); return; }
+      panel.classList.add('open');
+      if (!btCache[symbol]) {
+        loadBacktest(symbol, buyStrategy, sellStrategy);
+      } else {
+        renderBacktest(symbol);
+      }
+    }
+    function switchBtPeriod(tab, symbol) {
+      const tabs = tab.parentElement.querySelectorAll('.bt-tab');
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      renderBacktest(symbol, tab.dataset.period);
+    }
+    async function loadBacktest(symbol, buyStrategy, sellStrategy) {
+      const safeId = symbol.replace(/[^a-zA-Z0-9]/g, '_');
+      const statusEl = document.getElementById('bt-status-' + safeId);
+      statusEl.textContent = '正在加载回测数据...';
+      const activeProfile = (window._lastAccountData?.profiles?.active || {})[symbol] || {};
+      const params = activeProfile.parameters || {};
+      try {
+        const response = await fetch('/api/account-signal/backtest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbol, buy_strategy: buyStrategy || 'pyramid_3', sell_strategy: sellStrategy || 'none', parameters: params })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
+          statusEl.textContent = '回测失败: ' + (data.message || '未知错误');
+          return;
+        }
+        btCache[symbol] = data.periods;
+        statusEl.textContent = '';
+        renderBacktest(symbol);
+      } catch (err) {
+        statusEl.textContent = '请求失败: ' + err.message;
+      }
+    }
+    function renderBacktest(symbol, period) {
+      const safeId = symbol.replace(/[^a-zA-Z0-9]/g, '_');
+      const periods = btCache[symbol];
+      if (!periods) return;
+      period = period || '1y';
+      const data = periods[period];
+      const metricsEl = document.getElementById('bt-metrics-' + safeId);
+      const chartEl = document.getElementById('bt-chart-' + safeId);
+      const statusEl = document.getElementById('bt-status-' + safeId);
+      if (!data) { metricsEl.innerHTML = ''; chartEl.innerHTML = ''; statusEl.textContent = '无数据'; return; }
+      if (data.error) { metricsEl.innerHTML = ''; chartEl.innerHTML = ''; statusEl.textContent = data.error; return; }
+      statusEl.textContent = data.start + ' 至 ' + data.end + ' · ' + data.trading_days + ' 个交易日';
+      const retColor = data.return_pct >= 0 ? 'var(--green)' : 'var(--red)';
+      metricsEl.innerHTML = [
+        '<div class="bt-metric"><div class="label">累计收益</div><div class="value" style="color:' + retColor + '">' + number(data.return_pct) + '%</div></div>',
+        '<div class="bt-metric"><div class="label">年化收益</div><div class="value" style="color:' + retColor + '">' + number(data.annualized_return_pct) + '%</div></div>',
+        '<div class="bt-metric"><div class="label">最大回撤</div><div class="value" style="color:var(--red)">' + number(data.max_drawdown_pct) + '%</div></div>',
+        '<div class="bt-metric"><div class="label">买/卖次数</div><div class="value">' + data.buy_count + ' / ' + data.sell_count + '</div></div>'
+      ].join('');
+      if (!data.dates || !data.portfolio_values) { chartEl.innerHTML = '<div class="bt-status">无序列数据</div>'; return; }
+      const dates = data.dates;
+      const values = data.portfolio_values;
+      const trades = data.trades || [];
+      const buys = trades.filter(t => t.action === 'buy');
+      const sells = trades.filter(t => t.action === 'sell');
+      const buyDates = new Set(buys.map(t => t.date));
+      const sellDates = new Set(sells.map(t => t.date));
+      const buyPrices = dates.map((d, i) => buyDates.has(d) ? values[i] : null);
+      const sellPrices = dates.map((d, i) => sellDates.has(d) ? values[i] : null);
+      const traces = [
+        { x: dates, y: values, name: '组合净值', type: 'scatter', mode: 'lines', line: { color: '#1d4ed8', width: 1.5 }, yaxis: 'y2' },
+        { x: dates, y: buyPrices, name: '买入', type: 'scatter', mode: 'markers', marker: { symbol: 'triangle-up', size: 10, color: '#087f5b' }, yaxis: 'y2', hovertemplate: '%{x}<br>净值: %{y:.2f}<extra>买入</extra>' },
+        { x: dates, y: sellPrices, name: '卖出', type: 'scatter', mode: 'markers', marker: { symbol: 'diamond', size: 10, color: '#b42318' }, yaxis: 'y2', hovertemplate: '%{x}<br>净值: %{y:.2f}<extra>卖出</extra>' }
+      ];
+      const layout = {
+        margin: { l: 45, r: 15, t: 10, b: 30 },
+        height: 320,
+        paper_bgcolor: 'transparent',
+        plot_bgcolor: 'transparent',
+        font: { family: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', size: 11 },
+        xaxis: { showgrid: false, linecolor: '#d8cbb5' },
+        yaxis2: { side: 'right', showgrid: false, linecolor: '#d8cbb5', tickprefix: '$' },
+        legend: { x: 0, y: 1.12, orientation: 'h', font: { size: 10 } },
+        hovermode: 'x unified'
+      };
+      if (typeof Plotly !== 'undefined') {
+        Plotly.react(chartEl, traces, layout, { responsive: true, displayModeBar: false });
+      }
+    }
     loadStatus();
   </script>
 </body>
@@ -9229,6 +9349,122 @@ def api_account_signal_run():
     except Exception as exc:
         app.logger.exception("account signal run failed")
         return jsonify({"success": False, "message": str(exc)}), 500
+
+
+@app.route('/api/account-signal/backtest', methods=['POST'])
+def api_account_signal_backtest():
+    """Run backtest for a symbol's profile across 1y/3y/5y periods and return metrics + trades."""
+    from dataclasses import fields as dc_fields, replace
+    from datetime import timedelta
+    from drawdown.position_strategy import (
+        PortfolioTarget,
+        StrategyInputs,
+        build_price_points_from_series,
+        candle_datetime,
+        fetch_longbridge_daily_candles,
+        build_longbridge_quote_context,
+        simulate_portfolio,
+    )
+    from account_signal.profiles import AccountSignalProfile, strategy_inputs_for_profile
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        symbol = str(payload.get("symbol") or "").strip().upper()
+        if not symbol:
+            return _json_error("缺少 symbol", 400)
+        if not symbol.endswith(".US"):
+            symbol = f"{symbol}.US"
+
+        buy_strategy = str(payload.get("buy_strategy") or "pyramid_3")
+        sell_strategy = str(payload.get("sell_strategy") or "none")
+        parameters = payload.get("parameters") or {}
+
+        profile = AccountSignalProfile(
+            symbol=symbol,
+            enabled=True,
+            buy_strategy=buy_strategy,
+            sell_strategy=sell_strategy,
+            parameters=parameters,
+            source="backtest_probe",
+        )
+        inputs = strategy_inputs_for_profile(profile)
+
+        end_date = datetime.now().date()
+        periods = {
+            "1y": end_date - timedelta(days=365),
+            "3y": end_date - timedelta(days=365 * 3),
+            "5y": end_date - timedelta(days=365 * 5),
+        }
+
+        quote_ctx = build_longbridge_quote_context()
+        candles = fetch_longbridge_daily_candles(quote_ctx, symbol, periods["5y"], end_date)
+        if not candles:
+            return _json_error(f"Longbridge 没有返回 {symbol} 的历史日线", 400)
+
+        series = [(candle_datetime(c).replace(tzinfo=None), float(c.close)) for c in candles]
+        all_points = build_price_points_from_series(series)
+        if not all_points:
+            return _json_error(f"无法构建 {symbol} 的价格序列", 400)
+
+        target = PortfolioTarget(symbol=symbol, weight=1.0, name=symbol)
+        results = {}
+
+        for label, start in periods.items():
+            pts = [p for p in all_points if p.date.date() >= start]
+            if len(pts) < 20:
+                results[label] = {"error": "数据不足"}
+                continue
+
+            sim = simulate_portfolio(
+                {symbol: pts},
+                [target],
+                inputs,
+                strategies=[buy_strategy],
+                sell_strategies=[sell_strategy],
+            )
+
+            strats = sim.get("strategies", [])
+            if not strats:
+                results[label] = {"error": "无策略结果"}
+                continue
+
+            strat = strats[0]
+            metrics = strat.get("metrics", {})
+            trades = strat.get("trades", [])
+            sym_data = strat.get("symbols", {}).get(symbol, {})
+            series_data = sym_data.get("series", {})
+
+            results[label] = {
+                "start": pts[0].date.date().isoformat(),
+                "end": pts[-1].date.date().isoformat(),
+                "trading_days": len(pts),
+                "return_pct": round(metrics.get("return_pct", 0.0), 2),
+                "annualized_return_pct": round(metrics.get("annualized_return_pct", 0.0), 2),
+                "max_drawdown_pct": round(metrics.get("max_drawdown_pct", 0.0), 2),
+                "buy_count": metrics.get("buy_count", 0),
+                "sell_count": metrics.get("sell_count", 0),
+                "trades": [
+                    {
+                        "action": t.get("action"),
+                        "date": t.get("date"),
+                        "price": round(t.get("price", 0), 2),
+                        "drawdown_pct": round(t.get("drawdown_pct", 0), 2),
+                        "gross_amount": round(t.get("gross_amount", 0), 2),
+                        "shares": round(t.get("shares", 0), 4),
+                        "stage": t.get("buy_strategy") or t.get("sell_strategy") or "",
+                    }
+                    for t in trades
+                ],
+                "portfolio_values": [round(v, 2) for v in series_data.get("portfolio_values", [])],
+                "dates": [d.isoformat() if hasattr(d, "isoformat") else str(d) for d in series_data.get("dates", [])],
+            }
+
+        return jsonify({"success": True, "symbol": symbol, "periods": results})
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        app.logger.exception("account signal backtest failed")
+        return _json_error(f"回测失败: {exc}", 500)
 
 
 @app.route('/drawdown')
