@@ -8851,6 +8851,8 @@ ACCOUNT_SIGNAL_TEMPLATE = """
     .assign-row select { width: 100%; min-width: 0; }
     .candidate-note { margin: -2px 0 10px; color: var(--muted); font-size: 12px; line-height: 1.4; }
     .pill { display: inline-flex; align-items: center; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; line-height: 1.25; padding: 3px 7px; border: 1px solid var(--line); background: var(--panel); white-space: nowrap; }
+    .profile-info { display: flex; flex-wrap: wrap; gap: 5px; align-items: baseline; }
+    .profile-pill { display: inline-block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; line-height: 1.3; padding: 2px 6px; border: 1px solid var(--line); background: var(--panel); white-space: normal; overflow-wrap: anywhere; word-break: break-all; min-width: 0; max-width: 100%; }
     #signals table { line-height: 1.45; }
     #signals td { padding: 10px 8px; }
     #signals .pill { margin-top: 5px; }
@@ -9003,7 +9005,7 @@ ACCOUNT_SIGNAL_TEMPLATE = """
           <div class="strategy-summary">
             <div><strong>买入</strong> ${text(summary.buy)}</div>
             <div><strong>卖出</strong> ${text(summary.sell)}</div>
-            <div><strong>PROFILE</strong> ${text(profile?.profile_id)}${profile?.candidate_key ? ` · ${text(profile.candidate_key)}` : ''}${profile?.note ? ` · <em>备注:</em> ${text(profile.note)}` : ''}${profile?.promoted_at ? ` · ${text(profile.promoted_at)}` : ''}</div>
+            <div class="profile-info"><strong>PROFILE</strong> ${profile?.profile_id ? `<span class="profile-pill">${text(profile.profile_id)}</span>` : ''}${profile?.note ? `<span class="profile-pill">${text(profile.note)}</span>` : ''}${profile?.promoted_at ? `<span class="profile-pill">${text(profile.promoted_at)}</span>` : ''}</div>
           </div>
           ${renderCandidateAssign(symbol, target, candidates, profile)}
           <div class="metrics">
