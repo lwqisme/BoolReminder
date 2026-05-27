@@ -7521,7 +7521,15 @@
                 return val;
             }
 
-            for (const field of BUY_PARAMETER_FIELDS) {
+            const buyFields = (paramRanges.buy_fields || {})[child.buy_strategy] || [];
+            const sellFields = (paramRanges.sell_fields || {})[child.sell_strategy] || [];
+            // Common sell fields (mirror Python _relevant_sell_parameter_fields)
+            if (child.sell_strategy !== 'none') {
+                if (sellFields.indexOf('sell_allow_same_day_sell') < 0) sellFields.push('sell_allow_same_day_sell');
+                if (sellFields.indexOf('dca_rearm_drawdown_pct') < 0) sellFields.push('dca_rearm_drawdown_pct');
+                if (sellFields.indexOf('sell_stage_rearm_drawdown_pct') < 0) sellFields.push('sell_stage_rearm_drawdown_pct');
+            }
+            for (const field of buyFields) {
                 if (Math.random() < mutationRate) {
                     if (continuous && bounds[field]) {
                         child[field] = gaussMutate(field, child[field]);
@@ -7532,7 +7540,7 @@
                     }
                 }
             }
-            for (const field of SELL_PARAMETER_FIELDS) {
+            for (const field of sellFields) {
                 if (Math.random() < mutationRate) {
                     if (continuous && bounds[field]) {
                         child[field] = gaussMutate(field, child[field]);
@@ -7579,9 +7587,11 @@
             const sell = ind.sell_strategy || '';
             const parts = [];
 
-            if (buy === 'equal_slice' || buy === 'linear_weighted_slice') {
+            if (buy === 'equal_slice') {
                 if (ind.step_pct !== undefined && ind.step_pct !== null) parts.push('步长' + formatCompact(ind.step_pct) + '%');
                 if (ind.equal_slice_allocation_pct !== undefined && ind.equal_slice_allocation_pct !== null) parts.push('每步' + formatCompact(ind.equal_slice_allocation_pct) + '%');
+            } else if (buy === 'linear_weighted_slice') {
+                if (ind.step_pct !== undefined && ind.step_pct !== null) parts.push('步长' + formatCompact(ind.step_pct) + '%');
             }
             if (buy === 'core_dip_dca') {
                 if (ind.core_dip_start_drawdown_pct !== undefined && ind.core_dip_start_drawdown_pct !== null)
