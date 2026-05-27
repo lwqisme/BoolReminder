@@ -9443,13 +9443,13 @@ def api_account_signal_backtest():
         results = {}
 
         for label, start in periods.items():
-            pts = [p for p in all_points if p.date.date() >= start]
-            if len(pts) < 20:
+            period_points = [p for p in all_points if p.date.date() >= start]
+            if len(period_points) < 20:
                 results[label] = {"error": "数据不足"}
                 continue
 
             sim = simulate_portfolio(
-                {symbol: pts},
+                {symbol: all_points},
                 [target],
                 inputs,
                 strategies=[buy_strategy],
@@ -9466,20 +9466,47 @@ def api_account_signal_backtest():
             trades = strat.get("trades", [])
             series_data = strat.get("series", {})
 
-            return_pct = round(metrics.get("return_pct", 0.0), 2)
-            trading_days = len(pts)
+            start_iso = start.isoformat()
+            filtered_trades = [t for t in trades if t.get("date", "") >= start_iso]
+            all_dates = series_data.get("dates", [])
+            all_values = series_data.get("portfolio_values", [])
+            all_cash = series_data.get("cash_values", [])
+            date_idx = next((i for i, d in enumerate(all_dates) if d >= start_iso), len(all_dates))
+            filtered_dates = all_dates[date_idx:]
+            filtered_values = all_values[date_idx:]
+            filtered_cash = all_cash[date_idx:]
+
+            if not filtered_values:
+                results[label] = {"error": "无目标区间数据"}
+                continue
+
+            first_val = filtered_values[0]
+            last_val = filtered_values[-1]
+            period_return = round((last_val / first_val - 1.0) * 100.0, 2) if first_val > 0 else 0.0
+            peak = filtered_values[0]
+            max_dd = 0.0
+            for v in filtered_values:
+                if v > peak:
+                    peak = v
+                dd = (v / peak - 1.0) * 100.0 if peak > 0 else 0.0
+                if dd < max_dd:
+                    max_dd = dd
+
+            trading_days = len(filtered_dates)
             years = trading_days / 252.0 if trading_days > 0 else 1.0
-            annualized = round(((1.0 + return_pct / 100.0) ** (1.0 / years) - 1.0) * 100.0, 2) if years > 0 else 0.0
+            annualized = round(((1.0 + period_return / 100.0) ** (1.0 / years) - 1.0) * 100.0, 2) if years > 0 else 0.0
+            buy_count = sum(1 for t in filtered_trades if t.get("action") == "buy")
+            sell_count = sum(1 for t in filtered_trades if t.get("action") == "sell")
 
             results[label] = {
-                "start": pts[0].date.date().isoformat(),
-                "end": pts[-1].date.date().isoformat(),
+                "start": filtered_dates[0] if filtered_dates else start_iso,
+                "end": filtered_dates[-1] if filtered_dates else "",
                 "trading_days": trading_days,
-                "return_pct": return_pct,
+                "return_pct": period_return,
                 "annualized_return_pct": annualized,
-                "max_drawdown_pct": round(metrics.get("max_drawdown_pct", 0.0), 2),
-                "buy_count": metrics.get("buy_trade_count", 0),
-                "sell_count": metrics.get("sell_trade_count", 0),
+                "max_drawdown_pct": round(max_dd, 2),
+                "buy_count": buy_count,
+                "sell_count": sell_count,
                 "trades": [
                     {
                         "action": t.get("action"),
@@ -9490,11 +9517,11 @@ def api_account_signal_backtest():
                         "shares": round(t.get("shares", 0), 4),
                         "stage": t.get("buy_strategy") or t.get("sell_strategy") or "",
                     }
-                    for t in trades
+                    for t in filtered_trades
                 ],
-                "portfolio_values": [round(v, 2) for v in series_data.get("portfolio_values", [])],
-                "cash_values": [round(v, 2) for v in series_data.get("cash_values", [])],
-                "dates": list(series_data.get("dates", [])),
+                "portfolio_values": [round(v, 2) for v in filtered_values],
+                "cash_values": [round(v, 2) for v in filtered_cash],
+                "dates": list(filtered_dates),
             }
 
         return jsonify({"success": True, "symbol": symbol, "periods": results})
@@ -11076,29 +11103,27 @@ def api_strategy_lab_parameter_lab_evaluate_batch():
                 series_data = strat.get('series', {})
                 trades = strat.get('trades', [])
 
+                task_start_iso = task['start']
+                filtered_trades = [t for t in trades if t.get('date', '') >= task_start_iso]
+                all_dates = series_data.get('dates', [])
+                date_idx = next((i for i, d in enumerate(all_dates) if d >= task_start_iso), len(all_dates))
+
                 result = {
                     'return_pct': round(float(metrics.get('return_pct', 0.0)), 4),
                     'max_drawdown_pct': round(float(metrics.get('max_drawdown_pct', 0.0)), 4),
-                    'trade_count': int(metrics.get('trade_count', 0)),
-                    'buy_count': int(metrics.get('buy_trade_count', 0)),
-                    'sell_count': int(metrics.get('sell_trade_count', 0)),
-                    'avg_buy_drawdown_pct': round(float(metrics.get('avg_buy_drawdown_pct', 0.0)), 4),
-                    'avg_sell_drawdown_pct': round(float(metrics.get('avg_sell_drawdown_pct', 0.0)), 4),
-                    'avg_sell_profit_pct': round(float(metrics.get('avg_sell_profit_pct', 0.0)), 4),
-                    'cash_reuse_pct': round(float(metrics.get('cash_reuse_pct', 0.0)), 4),
-                    'avg_cash_pct': round(float(metrics.get('avg_cash_pct', 0.0)), 4),
-                    'sell_quality_score': round(float(metrics.get('sell_quality_score', 0.0)), 4),
-                    'contribution_count': int(metrics.get('contribution_count', 0)),
-                    'final_value': round(float(metrics.get('final_value', 0.0)), 2),
-                    'total_contributed': round(float(metrics.get('total_contributed', 0.0)), 2),
+                    'trade_count': len(filtered_trades),
+                    'buy_count': sum(1 for t in filtered_trades if t.get('action') == 'buy'),
+                    'sell_count': sum(1 for t in filtered_trades if t.get('action') == 'sell'),
                 }
                 if include_trades:
-                    result['trade_log'] = trades
+                    result['trade_log'] = filtered_trades
                 if include_series:
+                    all_vals = series_data.get('portfolio_values', [])
+                    all_cash = series_data.get('cash_values', [])
                     result['series'] = {
-                        'dates': list(series_data.get('dates', [])),
-                        'portfolio_values': [round(float(v), 2) for v in series_data.get('portfolio_values', [])],
-                        'cash_values': [round(float(v), 2) for v in series_data.get('cash_values', [])],
+                        'dates': list(all_dates[date_idx:]),
+                        'portfolio_values': [round(float(v), 2) for v in all_vals[date_idx:]],
+                        'cash_values': [round(float(v), 2) for v in all_cash[date_idx:]],
                     }
                 candidate_results.append(result)
 
