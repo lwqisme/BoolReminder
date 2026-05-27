@@ -128,7 +128,7 @@ class TaskScheduler:
                 config_manager=self.config_manager,
                 dry_run=False,
                 send_email=True,
-                symbols=["GOOGL.US", "TSLA.US"],
+                symbols=None,
                 include_debug=False,
             )
             logger.info(
