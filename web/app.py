@@ -9431,18 +9431,22 @@ def api_account_signal_backtest():
             strat = strats[0]
             metrics = strat.get("metrics", {})
             trades = strat.get("trades", [])
-            sym_data = strat.get("symbols", {}).get(symbol, {})
-            series_data = sym_data.get("series", {})
+            series_data = strat.get("series", {})
+
+            return_pct = round(metrics.get("return_pct", 0.0), 2)
+            trading_days = len(pts)
+            years = trading_days / 252.0 if trading_days > 0 else 1.0
+            annualized = round(((1.0 + return_pct / 100.0) ** (1.0 / years) - 1.0) * 100.0, 2) if years > 0 else 0.0
 
             results[label] = {
                 "start": pts[0].date.date().isoformat(),
                 "end": pts[-1].date.date().isoformat(),
-                "trading_days": len(pts),
-                "return_pct": round(metrics.get("return_pct", 0.0), 2),
-                "annualized_return_pct": round(metrics.get("annualized_return_pct", 0.0), 2),
+                "trading_days": trading_days,
+                "return_pct": return_pct,
+                "annualized_return_pct": annualized,
                 "max_drawdown_pct": round(metrics.get("max_drawdown_pct", 0.0), 2),
-                "buy_count": metrics.get("buy_count", 0),
-                "sell_count": metrics.get("sell_count", 0),
+                "buy_count": metrics.get("buy_trade_count", 0),
+                "sell_count": metrics.get("sell_trade_count", 0),
                 "trades": [
                     {
                         "action": t.get("action"),
@@ -9456,7 +9460,7 @@ def api_account_signal_backtest():
                     for t in trades
                 ],
                 "portfolio_values": [round(v, 2) for v in series_data.get("portfolio_values", [])],
-                "dates": [d.isoformat() if hasattr(d, "isoformat") else str(d) for d in series_data.get("dates", [])],
+                "dates": list(series_data.get("dates", [])),
             }
 
         return jsonify({"success": True, "symbol": symbol, "periods": results})
