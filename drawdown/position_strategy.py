@@ -18,8 +18,15 @@ from drawdown.generate_drawdown_report import (
     normalize_longbridge_symbol,
 )
 from drawdown.strategy_rules import (
+    clamp,
+    core_dip_boost_ratio,
+    core_dip_cash_reserve_ratio,
+    core_dip_timing_allows_buy,
     cost_deleverage_cooldown_elapsed,
+    grid_rebound_stages,
+    point_drawdown_pct,
     select_cost_deleverage_stage,
+    sell_stage_rearm_drawdown_pct,
     should_check_sell_after_buy,
 )
 
@@ -2513,10 +2520,10 @@ def _sell_observation_metrics(
     if not sell_trades:
         sell_quality_score = 0.0
     else:
-        profit_component = _clamp(avg_sell_profit / 35.0, 0.0, 1.0)
-        position_component = _clamp((30.0 - avg_sell_drawdown) / 30.0, 0.0, 1.0)
-        reuse_component = _clamp(cash_reuse_pct / 100.0, 0.0, 1.0)
-        idle_component = _clamp((65.0 - avg_cash_pct) / 65.0, 0.0, 1.0)
+        profit_component = clamp(avg_sell_profit / 35.0, 0.0, 1.0)
+        position_component = clamp((30.0 - avg_sell_drawdown) / 30.0, 0.0, 1.0)
+        reuse_component = clamp(cash_reuse_pct / 100.0, 0.0, 1.0)
+        idle_component = clamp((65.0 - avg_cash_pct) / 65.0, 0.0, 1.0)
         sell_quality_score = (
             profit_component * 0.35
             + position_component * 0.30
@@ -2554,10 +2561,6 @@ def _avg_float(values: Iterable[object]) -> float:
     return sum(parsed) / len(parsed) if parsed else 0.0
 
 
-def _clamp(value: float, minimum: float, maximum: float) -> float:
-    return min(maximum, max(minimum, value))
-
-
 def _execute_weekly_dca(
     state: SymbolState,
     point: PricePoint,
@@ -2574,7 +2577,7 @@ def _execute_weekly_dca(
     net_amount = gross_amount - fee
     price_usd = _price_usd(state.symbol, point.close, inputs)
     shares = net_amount / price_usd if net_amount > 0 and price_usd > 0 else 0.0
-    drawdown_pct = _point_drawdown_pct(point, inputs)
+    drawdown_pct = point_drawdown_pct(point, inputs)
 
     state.cash -= gross_amount
     state.dca_pending_cash = max(0.0, state.dca_pending_cash - gross_amount)
@@ -2631,7 +2634,7 @@ def _execute_salary_flow_dca(
 ) -> bool:
     if point.date.date() not in dca_days or inputs.monthly_contribution <= 0:
         return False
-    drawdown_pct = _point_drawdown_pct(point, inputs)
+    drawdown_pct = point_drawdown_pct(point, inputs)
     multiplier = _salary_flow_dca_multiplier(drawdown_pct)
     monthly_amount = inputs.monthly_contribution * state.weight / 100.0
     base_scheduled_amount = monthly_amount / 4.0 * multiplier
@@ -2711,9 +2714,9 @@ def _execute_core_dip_dca(
         return False
     monthly_amount = inputs.monthly_contribution * state.weight / 100.0
     scheduled_amount = monthly_amount / 4.0
-    drawdown_pct = _point_drawdown_pct(point, inputs)
-    boost_ratio = _core_dip_boost_ratio(drawdown_pct, inputs)
-    core_ratio = _clamp(inputs.core_dip_weekly_core_pct / 100.0, 0.0, 1.0)
+    drawdown_pct = point_drawdown_pct(point, inputs)
+    boost_ratio = core_dip_boost_ratio(drawdown_pct, inputs)
+    core_ratio = clamp(inputs.core_dip_weekly_core_pct / 100.0, 0.0, 1.0)
     new_core_amount = scheduled_amount * core_ratio if is_dca_day and inputs.monthly_contribution > 0 else 0.0
     dip_amount = (
         scheduled_amount * max(0.0, 1.0 - core_ratio) * boost_ratio
@@ -2724,7 +2727,7 @@ def _execute_core_dip_dca(
         state.core_dip_pending_cash += new_core_amount
         if state.core_dip_pending_cash > 0:
             state.core_dip_pending_days = state.core_dip_pending_days + 1 if state.core_dip_pending_days else 1
-        core_buy_allowed, timing_reason = _core_dip_timing_allows_buy(
+        core_buy_allowed, timing_reason = core_dip_timing_allows_buy(
             point,
             recent_points,
             drawdown_pct,
@@ -2737,14 +2740,14 @@ def _execute_core_dip_dca(
         core_buy_allowed = True
         timing_reason = "disabled"
         core_amount = new_core_amount
-    reserve_cash = state.budget * _core_dip_cash_reserve_ratio(drawdown_pct, inputs)
+    reserve_cash = state.budget * core_dip_cash_reserve_ratio(drawdown_pct, inputs)
     available_cash = max(0.0, state.cash - reserve_cash)
     extra_cash = max(0.0, available_cash - core_amount - dip_amount)
     initial_core_amount = 0.0
     if not state.buy_trades:
         initial_core_amount = min(
             extra_cash,
-            inputs.initial_cash * state.weight / 100.0 * _clamp(inputs.core_dip_initial_core_pct / 100.0, 0.0, 1.0),
+            inputs.initial_cash * state.weight / 100.0 * clamp(inputs.core_dip_initial_core_pct / 100.0, 0.0, 1.0),
         )
         extra_cash = max(0.0, extra_cash - initial_core_amount)
     idle_cash_sweep = (
@@ -2822,39 +2825,6 @@ def _execute_core_dip_dca(
     return True
 
 
-def _core_dip_timing_allows_buy(
-    point: PricePoint,
-    recent_points: list[PricePoint],
-    drawdown_pct: float,
-    pending_days: int,
-    is_initial_buy: bool,
-    inputs: StrategyInputs,
-) -> tuple[bool, str]:
-    if not inputs.core_dip_timing_enabled:
-        return True, "disabled"
-    if is_initial_buy:
-        return True, "initial_core"
-    if drawdown_pct >= inputs.core_dip_start_drawdown_pct:
-        return True, "drawdown_reached"
-    max_delay_days = int(inputs.core_dip_timing_max_delay_days)
-    if max_delay_days <= 0 or pending_days >= max_delay_days:
-        return True, "delay_expired"
-    closes = [float(item.close) for item in recent_points if item.close > 0]
-    if len(closes) < 2:
-        return True, "insufficient_history"
-    previous_close = closes[-2]
-    day_change_pct = (float(point.close) / previous_close - 1.0) * 100.0 if previous_close > 0 else 0.0
-    recent_low = min(closes)
-    distance_from_low_pct = (float(point.close) / recent_low - 1.0) * 100.0 if recent_low > 0 else 0.0
-    if day_change_pct <= 0:
-        return True, "down_day"
-    if distance_from_low_pct <= inputs.core_dip_timing_near_low_pct:
-        return True, "near_recent_low"
-    if day_change_pct >= inputs.core_dip_timing_rise_threshold_pct:
-        return False, "defer_after_rise"
-    return True, "normal"
-
-
 def _rearm_position_sell_cycle_after_dca_buy(
     state: SymbolState,
     drawdown_pct: float,
@@ -2865,7 +2835,7 @@ def _rearm_position_sell_cycle_after_dca_buy(
         return False
     if not state.sell_marks:
         return False
-    if drawdown_pct + 1e-9 < _sell_stage_rearm_drawdown_pct(inputs):
+    if drawdown_pct + 1e-9 < sell_stage_rearm_drawdown_pct(inputs):
         return False
     state.sell_marks.clear()
     if sell_strategy == "grid_rebound":
@@ -2875,16 +2845,6 @@ def _rearm_position_sell_cycle_after_dca_buy(
 
 def _position_sell_rearm_drawdown_pct(inputs: StrategyInputs) -> float:
     threshold = max(0.0, float(inputs.dca_rearm_drawdown_pct))
-    return min(threshold, float(inputs.max_drawdown_pct))
-
-
-def _sell_stage_rearm_drawdown_pct(inputs: StrategyInputs) -> float:
-    raw_threshold = (
-        inputs.sell_stage_rearm_drawdown_pct
-        if inputs.sell_stage_rearm_drawdown_pct is not None
-        else inputs.dca_rearm_drawdown_pct
-    )
-    threshold = max(0.0, float(raw_threshold))
     return min(threshold, float(inputs.max_drawdown_pct))
 
 
@@ -2900,26 +2860,8 @@ def _salary_flow_dca_multiplier(drawdown_pct: float) -> float:
     return 1.0
 
 
-def _core_dip_boost_ratio(drawdown_pct: float, inputs: StrategyInputs) -> float:
-    start = max(0.0, float(inputs.core_dip_start_drawdown_pct))
-    full = max(start, float(inputs.core_dip_full_drawdown_pct))
-    if drawdown_pct <= start:
-        return 0.0
-    if drawdown_pct >= full:
-        return 1.0
-    if full <= start:
-        return 1.0
-    return (drawdown_pct - start) / (full - start)
-
-
-def _core_dip_cash_reserve_ratio(drawdown_pct: float, inputs: StrategyInputs) -> float:
-    base = _clamp(inputs.core_dip_cash_reserve_pct / 100.0, 0.0, 1.0)
-    boost = _core_dip_boost_ratio(drawdown_pct, inputs)
-    return max(0.01, base * (1.0 - boost * 0.85))
-
-
 def _core_dip_idle_cash_sweep_ratio(drawdown_pct: float, inputs: StrategyInputs) -> float:
-    boost = _core_dip_boost_ratio(drawdown_pct, inputs)
+    boost = core_dip_boost_ratio(drawdown_pct, inputs)
     if boost <= 0:
         return 0.12
     return min(0.90, 0.25 + boost * 0.65)
@@ -2957,7 +2899,7 @@ def _execute_crossed_tranches(
     buy_strategy: str,
     sell_strategy: str,
 ) -> bool:
-    drawdown_pct = _point_drawdown_pct(point, inputs)
+    drawdown_pct = point_drawdown_pct(point, inputs)
     anchor_drawdown_pct = _buy_rearm_anchor_drawdown_pct(state)
     bought = False
     for tranche in tranches:
@@ -3049,7 +2991,7 @@ def _rearm_buy_tranches_after_repair(
     executed_thresholds: dict[float, float],
     inputs: StrategyInputs,
 ) -> None:
-    drawdown_pct = _point_drawdown_pct(point, inputs)
+    drawdown_pct = point_drawdown_pct(point, inputs)
     if drawdown_pct <= 0.50:
         executed_thresholds.clear()
         state.buy_rearm_anchor_drawdown_pct = None
@@ -3063,7 +3005,7 @@ def _rearm_buy_tranches_after_position_sell(
 ) -> None:
     if not executed_thresholds or state.buy_rearm_drawdown_pct is None:
         return
-    drawdown_pct = _point_drawdown_pct(point, inputs)
+    drawdown_pct = point_drawdown_pct(point, inputs)
     if drawdown_pct + 1e-9 >= state.buy_rearm_drawdown_pct:
         executed_thresholds.clear()
         if inputs.buy_rearm_mode == BUY_REARM_MODE_RESTART_FROM_REARM:
@@ -3118,7 +3060,7 @@ def _execute_repair_step_sells(
         and trade_index - state.last_repair_sell_trade_index < inputs.repair_sell_cooldown_days
     ):
         return
-    drawdown_pct = _point_drawdown_pct(point, inputs)
+    drawdown_pct = point_drawdown_pct(point, inputs)
     current_price_usd = _price_usd(state.symbol, point.close, inputs)
     min_profit_multiplier = 1 + inputs.sell_min_profit_pct / 100.0
 
@@ -3172,7 +3114,7 @@ def _execute_position_repair_step_sells(
     current_price_usd = _price_usd(state.symbol, point.close, inputs)
     if current_price_usd < avg_cost * (1 + inputs.sell_min_profit_pct / 100.0):
         return
-    drawdown_pct = _point_drawdown_pct(point, inputs)
+    drawdown_pct = point_drawdown_pct(point, inputs)
     avg_buy_drawdown = _avg_buy_drawdown_pct(state)
     stages = [
         ("repair_50", avg_buy_drawdown * 0.50),
@@ -3198,7 +3140,7 @@ def _execute_grid_rebound_sells(
 ) -> None:
     if not state.lots:
         return
-    drawdown_pct = _point_drawdown_pct(point, inputs)
+    drawdown_pct = point_drawdown_pct(point, inputs)
     current_price_usd = _price_usd(state.symbol, point.close, inputs)
     min_profit_multiplier = 1 + inputs.sell_min_profit_pct / 100.0
 
@@ -3209,7 +3151,7 @@ def _execute_grid_rebound_sells(
             continue
         if lot.grid_sell_marks is None:
             lot.grid_sell_marks = set()
-        for mark, threshold, sell_pct in _grid_rebound_stages(lot.buy_drawdown_pct, inputs):
+        for mark, threshold, sell_pct in grid_rebound_stages(lot.buy_drawdown_pct, inputs):
             if mark in lot.grid_sell_marks or drawdown_pct > threshold + 1e-9:
                 continue
             shares = lot.remaining_shares * sell_pct / 100.0
@@ -3245,9 +3187,9 @@ def _execute_position_grid_rebound_sells(
     current_price_usd = _price_usd(state.symbol, point.close, inputs)
     if current_price_usd < avg_cost * (1 + inputs.sell_min_profit_pct / 100.0):
         return
-    drawdown_pct = _point_drawdown_pct(point, inputs)
+    drawdown_pct = point_drawdown_pct(point, inputs)
     cycle_anchor_drawdown = _grid_rebound_cycle_anchor_drawdown_pct(state)
-    for mark, threshold, sell_pct in _grid_rebound_stages(cycle_anchor_drawdown, inputs):
+    for mark, threshold, sell_pct in grid_rebound_stages(cycle_anchor_drawdown, inputs):
         if mark in state.sell_marks or drawdown_pct > threshold + 1e-9:
             continue
         shares = state.shares * sell_pct / 100.0
@@ -3269,23 +3211,6 @@ def _execute_position_grid_rebound_sells(
                 state.sell_marks.clear()
                 state.grid_rebound_cycle_anchor_drawdown_pct = None
             return
-
-
-def _grid_rebound_stages(
-    anchor_drawdown_pct: float,
-    inputs: StrategyInputs,
-) -> list[tuple[str, float, float]]:
-    if anchor_drawdown_pct <= 0:
-        return []
-    step = max(float(inputs.grid_rebound_step_pct), 1e-9)
-    stages: list[tuple[str, float, float]] = []
-    stage_index = 1
-    while True:
-        threshold = max(0.0, anchor_drawdown_pct - step * stage_index)
-        stages.append((f"grid_{stage_index}", threshold, float(inputs.grid_sell_pct or 0)))
-        if threshold <= 0:
-            return stages
-        stage_index += 1
 
 
 def _grid_rebound_cycle_anchor_drawdown_pct(state: SymbolState) -> float:
@@ -3393,7 +3318,7 @@ def _sell_shares(
 
 
 def _mark_buy_rearm_after_position_sell(state: SymbolState, point: PricePoint, inputs: StrategyInputs) -> None:
-    drawdown_pct = _point_drawdown_pct(point, inputs)
+    drawdown_pct = point_drawdown_pct(point, inputs)
     threshold = min(float(inputs.max_drawdown_pct), drawdown_pct + _position_sell_rearm_drawdown_pct(inputs))
     state.buy_rearm_drawdown_pct = threshold
 
@@ -3448,7 +3373,7 @@ def _record_sell(
         "symbol": state.symbol,
         "sell_strategy": sell_strategy,
         "trigger_value": trigger_value,
-        "drawdown_pct": _point_drawdown_pct(point, inputs),
+        "drawdown_pct": point_drawdown_pct(point, inputs),
         "price": point.close,
         "price_usd": price_usd,
         "gross_amount": gross_amount,
@@ -3560,12 +3485,6 @@ def _price_usd(symbol: str, price: float, inputs: StrategyInputs) -> float:
 
 def _position_value_usd(symbol: str, shares: float, price: float, inputs: StrategyInputs) -> float:
     return shares * _price_usd(symbol, price, inputs)
-
-
-def _point_drawdown_pct(point: PricePoint, inputs: StrategyInputs) -> float:
-    if inputs.drawdown_basis == "rolling_120":
-        return abs(point.drawdown_120 * 100.0)
-    return abs(point.drawdown_ath * 100.0)
 
 
 def _point_peak(point: PricePoint, inputs: StrategyInputs) -> float:
