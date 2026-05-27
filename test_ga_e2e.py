@@ -39,22 +39,7 @@ const context = {
   console: { info() {}, warn() {}, error() {} },
   postMessage(message) { messages.push(message); },
   performance: { now: () => 0 },
-  setTimeout,
-  async fetch(url, opts) {
-    const body = JSON.parse(opts.body);
-    const results = (body.candidates || []).map((c, i) => ({
-      key: c.key || '', variant_key: c.variant_key || '',
-      results: (body.tasks || []).map(t => ({
-        return_pct: 5.0 + i, max_drawdown_pct: -10.0 - i,
-        trade_count: 3, buy_count: 2, sell_count: 1,
-        avg_buy_drawdown_pct: 8.0, avg_sell_drawdown_pct: 5.0,
-        avg_sell_profit_pct: 12.0, cash_reuse_pct: 45.0,
-        avg_cash_pct: 30.0, sell_quality_score: 55.0,
-        contribution_count: 2, final_value: 21000, total_contributed: 20000
-      }))
-    }));
-    return { ok: true, json: async () => ({ success: true, results }) };
-  }
+  setTimeout
 };
 context.self = context;
 vm.createContext(context);
@@ -159,22 +144,7 @@ const context = {
   console: { info() {}, warn() {}, error() {} },
   postMessage(msg) { messages.push(msg); },
   performance: { now: () => 0 },
-  setTimeout,
-  async fetch(url, opts) {
-    const body = JSON.parse(opts.body);
-    const results = (body.candidates || []).map((c, i) => ({
-      key: c.key || '', variant_key: c.variant_key || '',
-      results: (body.tasks || []).map(t => ({
-        return_pct: 5.0 + i, max_drawdown_pct: -10.0 - i,
-        trade_count: 3, buy_count: 2, sell_count: 1,
-        avg_buy_drawdown_pct: 8.0, avg_sell_drawdown_pct: 5.0,
-        avg_sell_profit_pct: 12.0, cash_reuse_pct: 45.0,
-        avg_cash_pct: 30.0, sell_quality_score: 55.0,
-        contribution_count: 2, final_value: 21000, total_contributed: 20000
-      }))
-    }));
-    return { ok: true, json: async () => ({ success: true, results }) };
-  }
+  setTimeout
 };
 context.self = context;
 vm.createContext(context);
@@ -247,22 +217,7 @@ const context = {
   console: { info() {}, warn() {}, error() {} },
   postMessage(msg) { messages.push(msg); },
   performance: { now: () => 0 },
-  setTimeout,
-  async fetch(url, opts) {
-    const body = JSON.parse(opts.body);
-    const results = (body.candidates || []).map((c, i) => ({
-      key: c.key || '', variant_key: c.variant_key || '',
-      results: (body.tasks || []).map(t => ({
-        return_pct: 5.0 + i, max_drawdown_pct: -10.0 - i,
-        trade_count: 3, buy_count: 2, sell_count: 1,
-        avg_buy_drawdown_pct: 8.0, avg_sell_drawdown_pct: 5.0,
-        avg_sell_profit_pct: 12.0, cash_reuse_pct: 45.0,
-        avg_cash_pct: 30.0, sell_quality_score: 55.0,
-        contribution_count: 2, final_value: 21000, total_contributed: 20000
-      }))
-    }));
-    return { ok: true, json: async () => ({ success: true, results }) };
-  }
+  setTimeout
 };
 context.self = context;
 vm.createContext(context);
@@ -337,22 +292,7 @@ const context = {
   console: { info() {}, warn() {}, error() {} },
   postMessage(msg) { messages.push(msg); },
   performance: { now: () => 0 },
-  setTimeout,
-  async fetch(url, opts) {
-    const body = JSON.parse(opts.body);
-    const results = (body.candidates || []).map((c, i) => ({
-      key: c.key || '', variant_key: c.variant_key || '',
-      results: (body.tasks || []).map(t => ({
-        return_pct: 5.0 + i, max_drawdown_pct: -10.0 - i,
-        trade_count: 3, buy_count: 2, sell_count: 1,
-        avg_buy_drawdown_pct: 8.0, avg_sell_drawdown_pct: 5.0,
-        avg_sell_profit_pct: 12.0, cash_reuse_pct: 45.0,
-        avg_cash_pct: 30.0, sell_quality_score: 55.0,
-        contribution_count: 2, final_value: 21000, total_contributed: 20000
-      }))
-    }));
-    return { ok: true, json: async () => ({ success: true, results }) };
-  }
+  setTimeout
 };
 context.self = context;
 vm.createContext(context);
@@ -531,22 +471,7 @@ const workerContext = {
   console: { info() {}, warn() {}, error() {} },
   postMessage(msg) { messages.push(msg); },
   performance: { now: () => 0 },
-  setTimeout,
-  async fetch(url, opts) {
-    const body = JSON.parse(opts.body);
-    const results = (body.candidates || []).map((c, i) => ({
-      key: c.key || '', variant_key: c.variant_key || '',
-      results: (body.tasks || []).map(t => ({
-        return_pct: 5.0 + i, max_drawdown_pct: -10.0 - i,
-        trade_count: 3, buy_count: 2, sell_count: 1,
-        avg_buy_drawdown_pct: 8.0, avg_sell_drawdown_pct: 5.0,
-        avg_sell_profit_pct: 12.0, cash_reuse_pct: 45.0,
-        avg_cash_pct: 30.0, sell_quality_score: 55.0,
-        contribution_count: 2, final_value: 21000, total_contributed: 20000
-      }))
-    }));
-    return { ok: true, json: async () => ({ success: true, results }) };
-  }
+  setTimeout
 };
 workerContext.self = workerContext;
 vm.createContext(workerContext);
