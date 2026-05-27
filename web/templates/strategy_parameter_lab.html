@@ -7096,7 +7096,7 @@
                             return_score: rp * 0.9,
                             drawdown_score: Math.max(0, -dd) * 0.1,
                             topic_rank: ranked ? ranked.topic_rank : 0,
-                            trade_count: 0,
+                            trade_count: Number(obs.trade_count || 0),
                             candidate_id: index  // for matrix lookups
                         };
                     });
@@ -7249,7 +7249,7 @@
                                     if (!isFinite(rp) || !isFinite(dd)) {
                                         console.warn('[GA] NaN observation', {cid, return_pct: o.return_pct, max_drawdown_pct: o.max_drawdown_pct});
                                     }
-                                    return { candidate_id: cid, return_pct: rp, max_drawdown_pct: dd, topic_key: o.topic_key };
+                                    return { candidate_id: cid, return_pct: rp, max_drawdown_pct: dd, topic_key: o.topic_key, trade_count: Number(o.trade_count || 0) };
                                 });
                             }).flat();
                             allRows.push.apply(allRows, obs);
