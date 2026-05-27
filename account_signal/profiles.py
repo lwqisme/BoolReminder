@@ -12,6 +12,7 @@ from typing import Any
 
 from drawdown.position_strategy import SELL_STRATEGY_LABELS, STRATEGY_LABELS, StrategyInputs
 from drawdown.strategy_parameter_registry import (
+    BASELINE_PARAMETER_FIELDS,
     BUY_PARAMETER_FIELDS,
     SELL_PARAMETER_FIELDS,
     STRATEGY_DEFINITION_VERSION,
@@ -25,7 +26,7 @@ PROFILES_PATH = DATA_DIR / "profiles.json"
 PROFILE_CANDIDATES_PATH = DATA_DIR / "profile_candidates.json"
 
 PROFILE_PARAMETER_FIELDS = tuple(field.name for field in fields(StrategyInputs))
-LAB_PARAMETER_FIELDS = tuple(dict.fromkeys((*BUY_PARAMETER_FIELDS, *SELL_PARAMETER_FIELDS)))
+LAB_PARAMETER_FIELDS = tuple(dict.fromkeys((*BASELINE_PARAMETER_FIELDS, *BUY_PARAMETER_FIELDS, *SELL_PARAMETER_FIELDS)))
 ALLOWED_PARAMETER_FIELDS = set(PROFILE_PARAMETER_FIELDS)
 NULLABLE_PARAMETER_FIELDS = {"sell_stage_rearm_drawdown_pct"}
 

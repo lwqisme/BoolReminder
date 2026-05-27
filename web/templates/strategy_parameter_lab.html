@@ -1888,6 +1888,9 @@
             'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct',
             'buy_rearm_mode', 'sell_stage_rearm_drawdown_pct'
         ];
+        const BASELINE_PARAMETER_FIELDS = [
+            'drawdown_basis', 'max_drawdown_pct', 'trade_fee', 'hkd_to_usd', 'reserve_position_pct'
+        ];
         const buyParameterFields = parameterFields.slice(0, 11);
         const sellParameterFields = parameterFields.slice(11);
         const parameterLabScanFieldDefinitions = {
@@ -3740,6 +3743,13 @@
             const sellParams = inflateVariant(sellRow, packet.sell_variant_schema || [], sellParameterFields);
             const buyStrategy = buyRow[2] || '';
             const sellStrategy = sellRow[2] || '';
+            const baselineParams = {};
+            const packetInputs = packet.inputs || {};
+            for (const field of BASELINE_PARAMETER_FIELDS) {
+                if (packetInputs[field] !== undefined && packetInputs[field] !== null) {
+                    baselineParams[field] = packetInputs[field];
+                }
+            }
             const key = buildCandidateKey(buyStrategy, sellStrategy, buyParams, sellParams);
             return {
                 key,
@@ -3751,6 +3761,7 @@
                 buy_variant_key: buyRow[1],
                 sell_variant_key: sellRow[1],
                 strategy_definition_version: packet.registry?.version || strategyRegistry.version || '',
+                ...baselineParams,
                 ...buyParams,
                 ...sellParams
             };
@@ -3816,6 +3827,9 @@
         function candidateDetailPayload(candidate, row = null) {
             const parameters = {};
             parameterFields.forEach((field) => {
+                if (candidate[field] !== null && candidate[field] !== undefined) parameters[field] = candidate[field];
+            });
+            BASELINE_PARAMETER_FIELDS.forEach((field) => {
                 if (candidate[field] !== null && candidate[field] !== undefined) parameters[field] = candidate[field];
             });
             if (row) {

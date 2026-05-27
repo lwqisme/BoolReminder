@@ -52,6 +52,14 @@ BUY_PARAMETER_FIELDS = (
     "core_dip_timing_near_low_pct",
 )
 
+BASELINE_PARAMETER_FIELDS = (
+    "drawdown_basis",
+    "max_drawdown_pct",
+    "trade_fee",
+    "hkd_to_usd",
+    "reserve_position_pct",
+)
+
 SELL_PARAMETER_FIELDS = (
     "sell_min_profit_pct",
     "repair_sell_cooldown_days",
