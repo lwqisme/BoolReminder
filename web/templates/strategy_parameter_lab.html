@@ -2841,7 +2841,7 @@
                 const maxDrawdown = Number(item.max_drawdown_pct || readNumber('maxDrawdown') || 50);
                 return `
                     <div class="universe-row" data-universe="${index}" role="row">
-                        <div class="universe-enable-cell" role="cell"><input data-field="enabled" type="checkbox" ${enabled ? 'checked' : ''} aria-label="启用 ${escapeHtml(symbol)}" onchange="refreshUniverseTopics()"></div>
+                        <div class="universe-enable-cell" role="cell"><input data-field="enabled" type="checkbox" ${enabled ? 'checked' : ''} aria-label="启用 ${escapeHtml(symbol)}" onchange="refreshUniverseTopics();autoSaveParameterLabDefaults()"></div>
                         <div class="universe-symbol-field" role="cell">
                             <input data-field="symbol" value="${escapeHtml(symbol)}" aria-label="股票代码" onblur="normalizeUniverseRowSymbol(this); refreshUniverseTopics()">
                             <span class="universe-warning" data-field="warning">${escapeHtml(normalized.warning || '')}</span>
@@ -2929,11 +2929,13 @@
             if (nameInput) nameInput.value = '';
             if (maxDrawdownInput) maxDrawdownInput.value = '';
             renderUniverseRows(universe);
+            autoSaveParameterLabDefaults();
         }
         function removeUniverseSymbol(index) {
             const universe = universeRowsWithState();
             universe.splice(index, 1);
             renderUniverseRows(universe);
+            autoSaveParameterLabDefaults();
         }
         async function saveUniverseSymbols() {
             const password = window.prompt('请输入配置密码，保存后刷新页面会保留这些默认股票。');
@@ -6848,10 +6850,10 @@
                 if (payload.leapsDrawdownGatePct !== undefined) { const el = document.getElementById('leapsDrawdownGatePct'); if (el) el.value = payload.leapsDrawdownGatePct; }
                 if (Array.isArray(payload.buy_strategies)) { document.querySelectorAll('input[name="buyStrategy"]').forEach((cb) => { cb.checked = payload.buy_strategies.includes(cb.value); }); }
                 if (Array.isArray(payload.sell_strategies)) { document.querySelectorAll('input[name="sellStrategy"]').forEach((cb) => { cb.checked = payload.sell_strategies.includes(cb.value); }); }
-                if (Array.isArray(payload.scorecard_portfolio_keys)) { document.querySelectorAll('input[name="scorecardPortfolio"]').forEach((cb) => { cb.checked = payload.scorecard_portfolio_keys.includes(cb.value); }); }
-                if (Array.isArray(payload.scorecard_periods)) { document.querySelectorAll('input[name="scorecardPeriod"]').forEach((cb) => { const period = payload.scorecard_periods.find((p) => p.key === cb.value); cb.checked = period ? period.enabled !== false : false; }); }
+                if (Array.isArray(payload.scorecard_portfolio_keys)) { document.querySelectorAll('input[name="scoreTopic"]').forEach((cb) => { cb.checked = payload.scorecard_portfolio_keys.includes(cb.value); }); }
+                if (Array.isArray(payload.scorecard_periods)) { payload.scorecard_periods.forEach(function(p) { const cb = document.querySelector('[data-period="' + p.key + '"][data-field="enabled"]'); if (cb) cb.checked = p.enabled !== false; }); }
                 if (Array.isArray(payload.targets)) { const ta = document.getElementById('portfolioText'); if (ta) ta.value = JSON.stringify(payload.targets); }
-                if (Array.isArray(payload.investment_universe)) { const ta = document.getElementById('universeText'); if (ta) ta.value = JSON.stringify(payload.investment_universe); }
+                if (Array.isArray(payload.investment_universe)) { renderUniverseRows(payload.investment_universe); }
                 if (payload.ga_buy_strategy) { const el = document.getElementById('gaBuyStrategy'); if (el) el.value = payload.ga_buy_strategy; }
                 if (payload.ga_sell_strategy) { const el = document.getElementById('gaSellStrategy'); if (el) el.value = payload.ga_sell_strategy; }
                 if (payload.ga_cross_strategy) { const el = document.getElementById('gaCrossStrategy'); if (el) el.value = payload.ga_cross_strategy; }
@@ -6874,11 +6876,11 @@
                 const el = document.getElementById(id);
                 if (el) { el.addEventListener('input', autoSaveParameterLabDefaults); el.addEventListener('change', autoSaveParameterLabDefaults); }
             });
-            document.querySelectorAll('input[name="buyStrategy"], input[name="sellStrategy"], input[name="scorecardPortfolio"], input[name="scorecardPeriod"]').forEach((cb) => { cb.addEventListener('change', autoSaveParameterLabDefaults); });
+            document.querySelectorAll('input[name="buyStrategy"], input[name="sellStrategy"], input[name="scoreTopic"]').forEach((cb) => { cb.addEventListener('change', autoSaveParameterLabDefaults); });
+            document.querySelectorAll('[data-period][data-field="enabled"]').forEach((cb) => { cb.addEventListener('change', autoSaveParameterLabDefaults); });
             const sameDayEl = document.getElementById('sellAllowSameDaySell'); if (sameDayEl) sameDayEl.addEventListener('change', autoSaveParameterLabDefaults);
             const leapsGate = document.getElementById('leapsDrawdownGate'); if (leapsGate) leapsGate.addEventListener('change', autoSaveParameterLabDefaults);
             const pfText = document.getElementById('portfolioText'); if (pfText) pfText.addEventListener('input', autoSaveParameterLabDefaults);
-            const univText = document.getElementById('universeText'); if (univText) univText.addEventListener('input', autoSaveParameterLabDefaults);
             const gaSaveIds = ['gaBuyStrategy', 'gaSellStrategy', 'gaCrossStrategy', 'gaStrategyMutationRate', 'gaPopSize', 'gaGenerations', 'gaMutationRate', 'gaCrossoverRate', 'gaContinuousMutation', 'gaSigmaRatio', 'gaB_dcaRe', 'gaB_dcaReHi', 'gaB_stgRe', 'gaB_stgReHi', 'gaB_step', 'gaB_stepHi', 'gaB_alloc', 'gaB_allocHi', 'gaB_gStp', 'gaB_gStpHi', 'gaB_gSel', 'gaB_gSelHi', 'gaB_mPrf', 'gaB_mPrfHi', 'gaB_rpCd', 'gaB_rpCdHi'];
             gaSaveIds.forEach(function(id) {
                 const el = document.getElementById(id);
