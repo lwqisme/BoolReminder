@@ -3028,7 +3028,18 @@
                 parameter_lab_concurrency: readNumber('workerCount'),
                 parameter_lab_selected_values: selectedParameterValuesPayload(),
                 core_dip_timing_filter: document.getElementById('coreDipTimingFilter').value,
-                leapsDrawdownGatePct: readNumber('leapsDrawdownGatePct')
+                leapsDrawdownGatePct: readNumber('leapsDrawdownGatePct'),
+                ga_buy_strategy: document.getElementById('gaBuyStrategy')?.value || 'equal_slice',
+                ga_sell_strategy: document.getElementById('gaSellStrategy')?.value || 'grid_rebound',
+                ga_cross_strategy: document.getElementById('gaCrossStrategy')?.value || 'false',
+                ga_strategy_mutation_rate: readNumber('gaStrategyMutationRate'),
+                ga_population_size: readNumber('gaPopSize'),
+                ga_generations: readNumber('gaGenerations'),
+                ga_mutation_rate: readNumber('gaMutationRate'),
+                ga_crossover_rate: readNumber('gaCrossoverRate'),
+                ga_continuous_mutation: document.getElementById('gaContinuousMutation')?.value || 'false',
+                ga_sigma_ratio: readNumber('gaSigmaRatio'),
+                ga_custom_bounds: readGaCustomBoundsRaw()
             };
             return payload;
         }
@@ -6841,6 +6852,17 @@
                 if (Array.isArray(payload.scorecard_periods)) { document.querySelectorAll('input[name="scorecardPeriod"]').forEach((cb) => { const period = payload.scorecard_periods.find((p) => p.key === cb.value); cb.checked = period ? period.enabled !== false : false; }); }
                 if (Array.isArray(payload.targets)) { const ta = document.getElementById('portfolioText'); if (ta) ta.value = JSON.stringify(payload.targets); }
                 if (Array.isArray(payload.investment_universe)) { const ta = document.getElementById('universeText'); if (ta) ta.value = JSON.stringify(payload.investment_universe); }
+                if (payload.ga_buy_strategy) { const el = document.getElementById('gaBuyStrategy'); if (el) el.value = payload.ga_buy_strategy; }
+                if (payload.ga_sell_strategy) { const el = document.getElementById('gaSellStrategy'); if (el) el.value = payload.ga_sell_strategy; }
+                if (payload.ga_cross_strategy) { const el = document.getElementById('gaCrossStrategy'); if (el) el.value = payload.ga_cross_strategy; }
+                if (payload.ga_strategy_mutation_rate !== undefined) { const el = document.getElementById('gaStrategyMutationRate'); if (el) el.value = payload.ga_strategy_mutation_rate; }
+                if (payload.ga_population_size !== undefined) { const el = document.getElementById('gaPopSize'); if (el) el.value = payload.ga_population_size; }
+                if (payload.ga_generations !== undefined) { const el = document.getElementById('gaGenerations'); if (el) el.value = payload.ga_generations; }
+                if (payload.ga_mutation_rate !== undefined) { const el = document.getElementById('gaMutationRate'); if (el) el.value = payload.ga_mutation_rate; }
+                if (payload.ga_crossover_rate !== undefined) { const el = document.getElementById('gaCrossoverRate'); if (el) el.value = payload.ga_crossover_rate; }
+                if (payload.ga_continuous_mutation) { const el = document.getElementById('gaContinuousMutation'); if (el) el.value = payload.ga_continuous_mutation; }
+                if (payload.ga_sigma_ratio !== undefined) { const el = document.getElementById('gaSigmaRatio'); if (el) el.value = payload.ga_sigma_ratio; }
+                if (payload.ga_custom_bounds) { restoreGaCustomBounds(payload.ga_custom_bounds); }
                 renderCandidateGridSummary();
                 return true;
             } catch (error) { return false; }
@@ -6857,6 +6879,11 @@
             const leapsGate = document.getElementById('leapsDrawdownGate'); if (leapsGate) leapsGate.addEventListener('change', autoSaveParameterLabDefaults);
             const pfText = document.getElementById('portfolioText'); if (pfText) pfText.addEventListener('input', autoSaveParameterLabDefaults);
             const univText = document.getElementById('universeText'); if (univText) univText.addEventListener('input', autoSaveParameterLabDefaults);
+            const gaSaveIds = ['gaBuyStrategy', 'gaSellStrategy', 'gaCrossStrategy', 'gaStrategyMutationRate', 'gaPopSize', 'gaGenerations', 'gaMutationRate', 'gaCrossoverRate', 'gaContinuousMutation', 'gaSigmaRatio', 'gaB_dcaRe', 'gaB_dcaReHi', 'gaB_stgRe', 'gaB_stgReHi', 'gaB_step', 'gaB_stepHi', 'gaB_alloc', 'gaB_allocHi', 'gaB_gStp', 'gaB_gStpHi', 'gaB_gSel', 'gaB_gSelHi', 'gaB_mPrf', 'gaB_mPrfHi', 'gaB_rpCd', 'gaB_rpCdHi'];
+            gaSaveIds.forEach(function(id) {
+                const el = document.getElementById(id);
+                if (el) { el.addEventListener('input', autoSaveParameterLabDefaults); el.addEventListener('change', autoSaveParameterLabDefaults); }
+            });
         }
 
         initAutoSaveListeners();
@@ -7309,6 +7336,26 @@
                 }
             }
             return out;
+        }
+
+        function readGaCustomBoundsRaw() {
+            const suffixes = ['dcaRe', 'stgRe', 'step', 'alloc', 'gStp', 'gSel', 'mPrf', 'rpCd'];
+            const out = {};
+            suffixes.forEach(function(suffix) {
+                const lo = document.getElementById('gaB_' + suffix);
+                const hi = document.getElementById('gaB_' + suffix + 'Hi');
+                if (lo) out['gaB_' + suffix] = lo.value;
+                if (hi) out['gaB_' + suffix + 'Hi'] = hi.value;
+            });
+            return out;
+        }
+
+        function restoreGaCustomBounds(saved) {
+            if (!saved || typeof saved !== 'object') return;
+            Object.keys(saved).forEach(function(key) {
+                const el = document.getElementById(key);
+                if (el) el.value = String(saved[key] ?? '');
+            });
         }
 
         function applyGaCustomBounds(paramRanges, customBounds = null) {
