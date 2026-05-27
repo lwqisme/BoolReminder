@@ -9427,24 +9427,21 @@ def api_account_signal_backtest():
             "5y": end_date - timedelta(days=365 * 5),
         }
         warmup_days = timedelta(days=365)
-        fetch_start = periods["5y"] - warmup_days
 
         quote_ctx = build_longbridge_quote_context()
-        candles = fetch_longbridge_daily_candles(quote_ctx, symbol, fetch_start, end_date)
-        if not candles:
-            return _json_error(f"Longbridge 没有返回 {symbol} 的历史日线", 400)
-
-        full_series = [(candle_datetime(c).replace(tzinfo=None), float(c.close)) for c in candles]
-        all_points = build_price_points_from_series(full_series)
-        if not all_points:
-            return _json_error(f"无法构建 {symbol} 的价格序列", 400)
-
         target = PortfolioTarget(symbol=symbol, weight=100.0, name=symbol)
         results = {}
 
         for label, start in periods.items():
-            period_points = [p for p in all_points if p.date.date() >= start]
-            if len(period_points) < 20:
+            fetch_start = start - warmup_days
+            candles = fetch_longbridge_daily_candles(quote_ctx, symbol, fetch_start, end_date)
+            if not candles:
+                results[label] = {"error": "无数据"}
+                continue
+
+            full_series = [(candle_datetime(c).replace(tzinfo=None), float(c.close)) for c in candles]
+            all_points = build_price_points_from_series(full_series)
+            if len(all_points) < 20:
                 results[label] = {"error": "数据不足"}
                 continue
 
