@@ -7005,7 +7005,7 @@
 
                         const key = population[i].key || ('ga_' + i);
                         if (!allEvaluated[key] || fitness > allEvaluated[key].fitness) {
-                            allEvaluated[key] = { individual: population[i], fitness: fitness, avg_return: avgReturn, avg_drawdown: -avgDD };
+                            allEvaluated[key] = { individual: population[i], fitness: fitness, avg_return: avgReturn, avg_drawdown: -avgDD, observations: obs };
                         }
                     }
 
@@ -7046,25 +7046,63 @@
                     console.warn('[GA] bestEver was null after evolution, falling back to first candidate');
                 }
 
-                // Display results
+                // Display results — build per-topic cells with ranks
                 const finalRows = Object.values(allEvaluated).sort(function(a, b) { return b.fitness - a.fitness; });
+
+                // Collect per-topic scores for ranking
+                const topicScores = {};  // topic_key -> [{key, return_pct, max_drawdown_pct, topic_score}, ...]
+                for (const item of finalRows) {
+                    for (const obs of (item.observations || [])) {
+                        const tk = obs.topic_key;
+                        if (!topicScores[tk]) topicScores[tk] = [];
+                        const rp = Number(obs.return_pct || 0);
+                        const dd = Number(obs.max_drawdown_pct || 0);
+                        const ts = rp * 0.9 + Math.max(0, -dd) * 0.1;
+                        topicScores[tk].push({ key: item.individual.key, return_pct: rp, max_drawdown_pct: dd, topic_score: ts });
+                    }
+                }
+                // Sort and assign ranks per topic
+                for (const tk of Object.keys(topicScores)) {
+                    topicScores[tk].sort(function(a, b) { return b.topic_score - a.topic_score; });
+                    for (let ri = 0; ri < topicScores[tk].length; ri++) {
+                        topicScores[tk][ri].topic_rank = ri + 1;
+                    }
+                }
+
                 const rows = finalRows.map(function(item, index) {
                     const ind = item.individual;
+                    const indKey = ind.key || ('ga_' + index);
+                    const cells = (item.observations || []).map(function(obs) {
+                        const tk = obs.topic_key;
+                        const ranked = (topicScores[tk] || []).find(function(d) { return d.key === indKey; });
+                        const rp = Number(obs.return_pct || 0);
+                        const dd = Number(obs.max_drawdown_pct || 0);
+                        return {
+                            topic_key: tk,
+                            return_pct: rp,
+                            max_drawdown_pct: dd,
+                            topic_score: rp * 0.9 + Math.max(0, -dd) * 0.1,
+                            return_score: rp * 0.9,
+                            drawdown_score: Math.max(0, -dd) * 0.1,
+                            topic_rank: ranked ? ranked.topic_rank : 0,
+                            trade_count: 0
+                        };
+                    });
                     return {
-                        key: ind.key || ('ga_' + index), combination_key: ind.key || ('ga_' + index),
-                        candidate_key: ind.key || ('ga_' + index),
+                        key: indKey, combination_key: indKey,
+                        candidate_key: indKey,
                         label: ind.label || buildGaStatusLabel(ind),
                         buy_strategy: ind.buy_strategy, sell_strategy: ind.sell_strategy,
                         final_score: item.fitness, final_rank: index + 1,
                         avg_return_pct: item.avg_return || 0, avg_drawdown_pct: item.avg_drawdown || 0,
                         avg_topic_score: item.fitness, topic_count: (packet.tasks || []).length,
-                        cells: [], ga_rank: index + 1,
+                        cells: cells, ga_rank: index + 1,
                         ga_buy_params: extractGaParams(ind, BUY_PARAMETER_FIELDS),
                         ga_sell_params: extractGaParams(ind, SELL_PARAMETER_FIELDS),
                         candidate: {
                             ...ind,
                             label: ind.label || buildGaStatusLabel(ind),
-                            combination_key: ind.key || ('ga_' + index)
+                            combination_key: indKey
                         }
                     };
                 });
