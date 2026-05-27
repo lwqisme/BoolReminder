@@ -9426,14 +9426,16 @@ def api_account_signal_backtest():
             "3y": end_date - timedelta(days=365 * 3),
             "5y": end_date - timedelta(days=365 * 5),
         }
+        warmup_days = timedelta(days=180)
+        fetch_start = periods["5y"] - warmup_days
 
         quote_ctx = build_longbridge_quote_context()
-        candles = fetch_longbridge_daily_candles(quote_ctx, symbol, periods["5y"], end_date)
+        candles = fetch_longbridge_daily_candles(quote_ctx, symbol, fetch_start, end_date)
         if not candles:
             return _json_error(f"Longbridge 没有返回 {symbol} 的历史日线", 400)
 
-        series = [(candle_datetime(c).replace(tzinfo=None), float(c.close)) for c in candles]
-        all_points = build_price_points_from_series(series)
+        full_series = [(candle_datetime(c).replace(tzinfo=None), float(c.close)) for c in candles]
+        all_points = build_price_points_from_series(full_series)
         if not all_points:
             return _json_error(f"无法构建 {symbol} 的价格序列", 400)
 
@@ -11015,20 +11017,24 @@ def api_strategy_lab_parameter_lab_evaluate_batch():
         filtered = {k: v for k, v in base_inputs_dict.items() if k in valid_keys and v is not None}
         base_inputs = StrategyInputs(**filtered)
 
-        # Fetch price data
+        # Fetch price data with warmup for accurate drawdown
         quote_ctx = build_longbridge_quote_context()
         price_points_by_symbol = {}
+        warmup = timedelta(days=180)
         for task in tasks:
             symbol = task['symbol']
             if symbol in price_points_by_symbol:
                 continue
             start_date = date_cls.fromisoformat(task['start'])
             end_date = date_cls.fromisoformat(task['end'])
-            candles = fetch_longbridge_daily_candles(quote_ctx, symbol, start_date, end_date)
+            fetch_start = start_date - warmup
+            candles = fetch_longbridge_daily_candles(quote_ctx, symbol, fetch_start, end_date)
             if not candles:
                 continue
             series = [(candle_datetime(c).replace(tzinfo=None), float(c.close)) for c in candles]
-            price_points_by_symbol[symbol] = build_price_points_from_series(series)
+            full_pts = build_price_points_from_series(series)
+            # Keep full series (with warmup) for accurate drawdown calculation
+            price_points_by_symbol[symbol] = full_pts
 
         results = []
         for candidate in candidates:
