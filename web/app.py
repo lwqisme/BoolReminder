@@ -9040,7 +9040,22 @@ ACCOUNT_SIGNAL_TEMPLATE = """
     function formatDiff(diff) {
       const keys = Object.keys(diff || {});
       if (!keys.length) return '没有配置变化';
-      return keys.slice(0, 8).map(key => `${key}: ${JSON.stringify(diff[key].previous)} -> ${JSON.stringify(diff[key].new)}`).join('\\n');
+      const lines = [];
+      for (const key of keys) {
+        const prev = diff[key].previous;
+        const next = diff[key].new;
+        if (prev && next && typeof prev === 'object' && typeof next === 'object' && !Array.isArray(prev) && !Array.isArray(next)) {
+          const allSubKeys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+          for (const subKey of allSubKeys) {
+            if (JSON.stringify(prev[subKey]) !== JSON.stringify(next[subKey])) {
+              lines.push(`${key}.${subKey}: ${JSON.stringify(prev[subKey])} -> ${JSON.stringify(next[subKey])}`);
+            }
+          }
+        } else {
+          lines.push(`${key}: ${JSON.stringify(prev)} -> ${JSON.stringify(next)}`);
+        }
+      }
+      return lines.slice(0, 20).join('\\n') + (lines.length > 20 ? '\\n...及其他 ' + (lines.length - 20) + ' 项变化' : '');
     }
     async function assignCandidate(symbol) {
       const select = Array.from(symbolsEl.querySelectorAll('select[data-candidate-select]')).find((item) => item.dataset.candidateSelect === symbol);
