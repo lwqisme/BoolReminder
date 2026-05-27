@@ -9437,7 +9437,7 @@ def api_account_signal_backtest():
         if not all_points:
             return _json_error(f"无法构建 {symbol} 的价格序列", 400)
 
-        target = PortfolioTarget(symbol=symbol, weight=1.0, name=symbol)
+        target = PortfolioTarget(symbol=symbol, weight=100.0, name=symbol)
         results = {}
 
         for label, start in periods.items():
