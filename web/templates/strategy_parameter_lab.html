@@ -7069,6 +7069,10 @@
                     }
                 }
 
+                // Build matrix rows AND matching candidate/variant data from evolved individuals
+                const gaBuyVariants = [];
+                const gaSellVariants = [];
+                const gaCandidateRows = [];
                 const rows = finalRows.map(function(item, index) {
                     const ind = item.individual;
                     const indKey = ind.key || ('ga_' + index);
@@ -7085,12 +7089,21 @@
                             return_score: rp * 0.9,
                             drawdown_score: Math.max(0, -dd) * 0.1,
                             topic_rank: ranked ? ranked.topic_rank : 0,
-                            trade_count: 0
+                            trade_count: 0,
+                            candidate_id: index  // for matrix lookups
                         };
                     });
+                    // Build variant rows matching the candidate_schema format
+                    gaBuyVariants.push([index, indKey, ind.buy_strategy || ''].concat(
+                        BUY_PARAMETER_FIELDS.map(function(f) { return ind[f] !== undefined ? ind[f] : null; })
+                    ));
+                    gaSellVariants.push([index, indKey, ind.sell_strategy || ''].concat(
+                        SELL_PARAMETER_FIELDS.map(function(f) { return ind[f] !== undefined ? ind[f] : null; })
+                    ));
+                    gaCandidateRows.push([index, index, index]);
                     return {
                         key: indKey, combination_key: indKey,
-                        candidate_key: indKey,
+                        candidate_key: indKey, candidate_id: index,
                         label: ind.label || buildGaStatusLabel(ind),
                         buy_strategy: ind.buy_strategy, sell_strategy: ind.sell_strategy,
                         final_score: item.fitness, final_rank: index + 1,
@@ -7101,6 +7114,7 @@
                         ga_sell_params: extractGaParams(ind, SELL_PARAMETER_FIELDS),
                         candidate: {
                             ...ind,
+                            candidate_id: index,
                             label: ind.label || buildGaStatusLabel(ind),
                             combination_key: indKey
                         }
@@ -7109,6 +7123,9 @@
                 lastParameterPacket = packet;
                 lastParameterResult = {
                     ...packet,
+                    buy_variants: gaBuyVariants,
+                    sell_variants: gaSellVariants,
+                    candidate_rows: gaCandidateRows,
                     rows: rows, observations: [], observations_compacted: true, observation_count: rows.length * (packet.tasks || []).length,
                     diagnostics: { scale: { observation_count: rows.length * (packet.tasks || []).length } },
                     worker_metrics: { worker_count: workerCount }
