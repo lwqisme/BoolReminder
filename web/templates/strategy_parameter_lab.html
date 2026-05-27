@@ -7097,6 +7097,7 @@
                             drawdown_score: Math.max(0, -dd) * 0.1,
                             topic_rank: ranked ? ranked.topic_rank : 0,
                             trade_count: Number(obs.trade_count || 0),
+                            leaps_signal: obs.leaps_signal || null,
                             candidate_id: index  // for matrix lookups
                         };
                     });
@@ -7127,6 +7128,7 @@
                         }
                     };
                 });
+                rows.forEach(function(row) { row.leaps_signal = aggregateLeapsSignals(row.cells); });
                 lastParameterResult = {
                     ...packet,
                     buy_variants: gaBuyVariants,
@@ -7249,7 +7251,7 @@
                                     if (!isFinite(rp) || !isFinite(dd)) {
                                         console.warn('[GA] NaN observation', {cid, return_pct: o.return_pct, max_drawdown_pct: o.max_drawdown_pct});
                                     }
-                                    return { candidate_id: cid, return_pct: rp, max_drawdown_pct: dd, topic_key: o.topic_key, trade_count: Number(o.trade_count || 0) };
+                                    return { candidate_id: cid, return_pct: rp, max_drawdown_pct: dd, topic_key: o.topic_key, trade_count: Number(o.trade_count || 0), leaps_signal: o.leaps_signal || null };
                                 });
                             }).flat();
                             allRows.push.apply(allRows, obs);
