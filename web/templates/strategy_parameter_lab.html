@@ -3041,7 +3041,16 @@
                 ga_crossover_rate: readNumber('gaCrossoverRate'),
                 ga_continuous_mutation: document.getElementById('gaContinuousMutation')?.value || 'false',
                 ga_sigma_ratio: readNumber('gaSigmaRatio'),
-                ga_custom_bounds: readGaCustomBoundsRaw()
+                ga_custom_bounds: (function() {
+                    var out = {};
+                    ['dcaRe','stgRe','step','alloc','gStp','gSel','mPrf','rpCd'].forEach(function(s) {
+                        var lo = document.getElementById('gaB_' + s);
+                        var hi = document.getElementById('gaB_' + s + 'Hi');
+                        if (lo) out['gaB_' + s] = lo.value;
+                        if (hi) out['gaB_' + s + 'Hi'] = hi.value;
+                    });
+                    return out;
+                })()
             };
             return payload;
         }
