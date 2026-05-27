@@ -9426,7 +9426,7 @@ def api_account_signal_backtest():
             "3y": end_date - timedelta(days=365 * 3),
             "5y": end_date - timedelta(days=365 * 5),
         }
-        warmup_days = timedelta(days=180)
+        warmup_days = timedelta(days=365)
         fetch_start = periods["5y"] - warmup_days
 
         quote_ctx = build_longbridge_quote_context()
@@ -11047,7 +11047,7 @@ def api_strategy_lab_parameter_lab_evaluate_batch():
         # Fetch price data with warmup for accurate drawdown
         quote_ctx = build_longbridge_quote_context()
         price_points_by_symbol = {}
-        warmup = timedelta(days=180)
+        warmup = timedelta(days=365)
         for task in tasks:
             symbol = task['symbol']
             if symbol in price_points_by_symbol:
