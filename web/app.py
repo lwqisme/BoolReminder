@@ -10986,6 +10986,128 @@ def api_strategy_lab_parameter_lab_packet():
         return _json_error(f"准备参数实验室数据失败: {exc}", 500)
 
 
+@app.route('/api/strategy-lab/parameter-lab/evaluate-batch', methods=['POST'])
+def api_strategy_lab_parameter_lab_evaluate_batch():
+    """Evaluate a batch of candidates using Python simulate_portfolio (single source of truth)."""
+    from dataclasses import replace
+    from datetime import date as date_cls
+    from drawdown.position_strategy import (
+        PortfolioTarget,
+        StrategyInputs,
+        build_price_points_from_series,
+        candle_datetime,
+        fetch_longbridge_daily_candles,
+        build_longbridge_quote_context,
+        simulate_portfolio,
+    )
+    from drawdown.strategy_parameter_registry import apply_candidate_to_inputs
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        base_inputs_dict = payload.get('inputs', {})
+        tasks = payload.get('tasks', [])
+        candidates = payload.get('candidates', [])
+        include_trades = bool(payload.get('include_trades', False))
+        include_series = bool(payload.get('include_series', False))
+
+        # Build StrategyInputs from base
+        valid_keys = {f.name for f in __import__('dataclasses').fields(StrategyInputs)}
+        filtered = {k: v for k, v in base_inputs_dict.items() if k in valid_keys and v is not None}
+        base_inputs = StrategyInputs(**filtered)
+
+        # Fetch price data
+        quote_ctx = build_longbridge_quote_context()
+        price_points_by_symbol = {}
+        for task in tasks:
+            symbol = task['symbol']
+            if symbol in price_points_by_symbol:
+                continue
+            start_date = date_cls.fromisoformat(task['start'])
+            end_date = date_cls.fromisoformat(task['end'])
+            candles = fetch_longbridge_daily_candles(quote_ctx, symbol, start_date, end_date)
+            if not candles:
+                continue
+            series = [(candle_datetime(c).replace(tzinfo=None), float(c.close)) for c in candles]
+            price_points_by_symbol[symbol] = build_price_points_from_series(series)
+
+        results = []
+        for candidate in candidates:
+            params = candidate.get('parameters', {})
+            buy_strategy = candidate.get('buy_strategy', 'pyramid_3')
+            sell_strategy = candidate.get('sell_strategy', 'none')
+
+            # Apply candidate overrides to base inputs
+            candidate_inputs = apply_candidate_to_inputs(base_inputs, params) if params else base_inputs
+
+            candidate_results = []
+            for task in tasks:
+                symbol = task['symbol']
+                pts = price_points_by_symbol.get(symbol, [])
+                if len(pts) < 20:
+                    candidate_results.append({'error': 'insufficient_data'})
+                    continue
+
+                target = PortfolioTarget(
+                    symbol=symbol,
+                    weight=float(task.get('weight', 100.0)),
+                    name=symbol,
+                )
+                sim = simulate_portfolio(
+                    {symbol: pts},
+                    [target],
+                    candidate_inputs,
+                    strategies=[buy_strategy],
+                    sell_strategies=[sell_strategy],
+                )
+
+                strats = sim.get('strategies', [])
+                if not strats:
+                    candidate_results.append({'error': 'no_result'})
+                    continue
+
+                strat = strats[0]
+                metrics = strat.get('metrics', {})
+                series_data = strat.get('series', {})
+                trades = strat.get('trades', [])
+
+                result = {
+                    'return_pct': round(float(metrics.get('return_pct', 0.0)), 4),
+                    'max_drawdown_pct': round(float(metrics.get('max_drawdown_pct', 0.0)), 4),
+                    'trade_count': int(metrics.get('trade_count', 0)),
+                    'buy_count': int(metrics.get('buy_trade_count', 0)),
+                    'sell_count': int(metrics.get('sell_trade_count', 0)),
+                    'avg_buy_drawdown_pct': round(float(metrics.get('avg_buy_drawdown_pct', 0.0)), 4),
+                    'avg_sell_drawdown_pct': round(float(metrics.get('avg_sell_drawdown_pct', 0.0)), 4),
+                    'avg_sell_profit_pct': round(float(metrics.get('avg_sell_profit_pct', 0.0)), 4),
+                    'cash_reuse_pct': round(float(metrics.get('cash_reuse_pct', 0.0)), 4),
+                    'avg_cash_pct': round(float(metrics.get('avg_cash_pct', 0.0)), 4),
+                    'sell_quality_score': round(float(metrics.get('sell_quality_score', 0.0)), 4),
+                    'contribution_count': int(metrics.get('contribution_count', 0)),
+                    'final_value': round(float(metrics.get('final_value', 0.0)), 2),
+                    'total_contributed': round(float(metrics.get('total_contributed', 0.0)), 2),
+                }
+                if include_trades:
+                    result['trade_log'] = trades
+                if include_series:
+                    result['series'] = {
+                        'dates': list(series_data.get('dates', [])),
+                        'portfolio_values': [round(float(v), 2) for v in series_data.get('portfolio_values', [])],
+                        'cash_values': [round(float(v), 2) for v in series_data.get('cash_values', [])],
+                    }
+                candidate_results.append(result)
+
+            results.append({
+                'key': candidate.get('key', ''),
+                'variant_key': candidate.get('variant_key', ''),
+                'results': candidate_results,
+            })
+
+        return jsonify({'success': True, 'results': results})
+    except Exception as exc:
+        app.logger.exception("evaluate-batch failed")
+        return jsonify({'success': False, 'message': str(exc)}), 500
+
+
 @app.route('/api/strategy-lab/parameter-lab/client-diagnostics', methods=['POST'])
 def api_strategy_lab_parameter_lab_client_diagnostics():
     payload = request.get_json(silent=True) or {}
