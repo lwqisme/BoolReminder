@@ -7127,7 +7127,6 @@
                         }
                     };
                 });
-                lastParameterPacket = packet;
                 lastParameterResult = {
                     ...packet,
                     buy_variants: gaBuyVariants,
@@ -7137,6 +7136,7 @@
                     diagnostics: { scale: { observation_count: rows.length * (packet.tasks || []).length } },
                     worker_metrics: { worker_count: workerCount }
                 };
+                lastParameterPacket = lastParameterResult;  // must point to evolved data for cell replay
                 document.getElementById('statCandidates').textContent = number(rows.length, 0);
                 document.getElementById('statTopics').textContent = number((packet.tasks || []).length, 0);
                 document.getElementById('statSimulations').textContent = number(gaResults.length, 0) + ' 代';
