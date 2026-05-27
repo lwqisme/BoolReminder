@@ -9034,12 +9034,17 @@ ACCOUNT_SIGNAL_TEMPLATE = """
           </div>
           <button class="bt-toggle" type="button" onclick="toggleBacktest(this, '${symbol}', '${profile?.buy_strategy || ''}', '${profile?.sell_strategy || ''}')">📊 回测 1y/3y/5y</button>
           <div class="bt-panel" id="bt-${symbol.replace(/[^a-zA-Z0-9]/g, '_')}">
+            <div style="display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+              <label style="font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">初始资金 $<input type="number" id="bt-cash-${symbol.replace(/[^a-zA-Z0-9]/g, '_')}" value="${target.target_budget_usd || 50000}" step="1000" style="width:90px;padding:3px 5px;border:1px solid var(--line);font-family:inherit;font-size:12px;"></label>
+              <label style="font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">月注入 $<input type="number" id="bt-monthly-${symbol.replace(/[^a-zA-Z0-9]/g, '_')}" value="${target.monthly_contribution_usd || 0}" step="100" style="width:70px;padding:3px 5px;border:1px solid var(--line);font-family:inherit;font-size:12px;"></label>
+              <button type="button" onclick="runBacktest('${symbol}', '${profile?.buy_strategy || ''}', '${profile?.sell_strategy || ''}')" style="padding:3px 10px;font-size:12px;border:1px solid var(--ink);background:var(--ink);color:var(--panel);cursor:pointer;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">运行</button>
+            </div>
             <div class="bt-tabs">
               <button class="bt-tab active" data-period="1y" onclick="switchBtPeriod(this, '${symbol}')">1年</button>
               <button class="bt-tab" data-period="3y" onclick="switchBtPeriod(this, '${symbol}')">3年</button>
               <button class="bt-tab" data-period="5y" onclick="switchBtPeriod(this, '${symbol}')">5年</button>
             </div>
-            <div class="bt-status" id="bt-status-${symbol.replace(/[^a-zA-Z0-9]/g, '_')}">点击加载回测数据...</div>
+            <div class="bt-status" id="bt-status-${symbol.replace(/[^a-zA-Z0-9]/g, '_')}">调整参数后点击运行...</div>
             <div class="bt-metrics" id="bt-metrics-${symbol.replace(/[^a-zA-Z0-9]/g, '_')}"></div>
             <div class="bt-chart" id="bt-chart-${symbol.replace(/[^a-zA-Z0-9]/g, '_')}"></div>
           </div>
@@ -9154,14 +9159,16 @@ ACCOUNT_SIGNAL_TEMPLATE = """
       const safeId = symbol.replace(/[^a-zA-Z0-9]/g, '_');
       const panel = document.getElementById('bt-' + safeId);
       if (!panel) return;
-      const isOpen = panel.classList.contains('open');
-      if (isOpen) { panel.classList.remove('open'); return; }
-      panel.classList.add('open');
-      if (!btCache[symbol]) {
-        loadBacktest(symbol, buyStrategy, sellStrategy);
-      } else {
-        renderBacktest(symbol);
-      }
+      panel.classList.toggle('open');
+    }
+    function runBacktest(symbol, buyStrategy, sellStrategy) {
+      const safeId = symbol.replace(/[^a-zA-Z0-9]/g, '_');
+      const cashInput = document.getElementById('bt-cash-' + safeId);
+      const monthlyInput = document.getElementById('bt-monthly-' + safeId);
+      const initialCash = cashInput ? parseFloat(cashInput.value) : undefined;
+      const monthlyContribution = monthlyInput ? parseFloat(monthlyInput.value) : undefined;
+      btCache[symbol] = null;
+      loadBacktest(symbol, buyStrategy, sellStrategy, initialCash, monthlyContribution);
     }
     function switchBtPeriod(tab, symbol) {
       const tabs = tab.parentElement.querySelectorAll('.bt-tab');
@@ -9169,21 +9176,20 @@ ACCOUNT_SIGNAL_TEMPLATE = """
       tab.classList.add('active');
       renderBacktest(symbol, tab.dataset.period);
     }
-    async function loadBacktest(symbol, buyStrategy, sellStrategy) {
+    async function loadBacktest(symbol, buyStrategy, sellStrategy, initialCash, monthlyContribution) {
       const safeId = symbol.replace(/[^a-zA-Z0-9]/g, '_');
       const statusEl = document.getElementById('bt-status-' + safeId);
-      statusEl.textContent = '正在加载回测数据...';
+      statusEl.textContent = '正在回测...';
       const activeProfile = (window._lastAccountData?.profiles?.active || {})[symbol] || {};
       const params = activeProfile.parameters || {};
-      const target = (window._lastAccountData?.targets || {})[symbol] || {};
       const payload = {
         symbol,
         buy_strategy: buyStrategy || 'pyramid_3',
         sell_strategy: sellStrategy || 'none',
-        parameters: params,
-        initial_cash: target.target_budget_usd,
-        monthly_contribution: target.monthly_contribution_usd
+        parameters: params
       };
+      if (initialCash !== undefined && !isNaN(initialCash)) payload.initial_cash = initialCash;
+      if (monthlyContribution !== undefined && !isNaN(monthlyContribution)) payload.monthly_contribution = monthlyContribution;
       try {
         const response = await fetch('/api/account-signal/backtest', {
           method: 'POST',
@@ -9224,6 +9230,7 @@ ACCOUNT_SIGNAL_TEMPLATE = """
       if (!data.dates || !data.portfolio_values) { chartEl.innerHTML = '<div class="bt-status">无序列数据</div>'; return; }
       const dates = data.dates;
       const values = data.portfolio_values;
+      const cashValues = data.cash_values || [];
       const trades = data.trades || [];
       const buys = trades.filter(t => t.action === 'buy');
       const sells = trades.filter(t => t.action === 'sell');
@@ -9233,9 +9240,14 @@ ACCOUNT_SIGNAL_TEMPLATE = """
       const sellPrices = dates.map((d, i) => sellDates.has(d) ? values[i] : null);
       const traces = [
         { x: dates, y: values, name: '组合净值', type: 'scatter', mode: 'lines', line: { color: '#1d4ed8', width: 1.5 }, yaxis: 'y2' },
-        { x: dates, y: buyPrices, name: '买入', type: 'scatter', mode: 'markers', marker: { symbol: 'triangle-up', size: 10, color: '#087f5b' }, yaxis: 'y2', hovertemplate: '%{x}<br>净值: %{y:.2f}<extra>买入</extra>' },
-        { x: dates, y: sellPrices, name: '卖出', type: 'scatter', mode: 'markers', marker: { symbol: 'diamond', size: 10, color: '#b42318' }, yaxis: 'y2', hovertemplate: '%{x}<br>净值: %{y:.2f}<extra>卖出</extra>' }
+        { x: dates, y: cashValues.length === dates.length ? cashValues : null, name: '剩余现金', type: 'scatter', mode: 'lines', line: { color: '#b7791f', width: 1, dash: 'dot' }, yaxis: 'y2', visible: cashValues.length === dates.length ? true : 'legendonly' }
       ];
+      if (buyPrices.some(v => v !== null)) {
+        traces.push({ x: dates, y: buyPrices, name: '买入', type: 'scatter', mode: 'markers', marker: { symbol: 'triangle-up', size: 10, color: '#087f5b' }, yaxis: 'y2', hovertemplate: '%{x}<br>净值: %{y:.2f}<extra>买入</extra>' });
+      }
+      if (sellPrices.some(v => v !== null)) {
+        traces.push({ x: dates, y: sellPrices, name: '卖出', type: 'scatter', mode: 'markers', marker: { symbol: 'diamond', size: 10, color: '#b42318' }, yaxis: 'y2', hovertemplate: '%{x}<br>净值: %{y:.2f}<extra>卖出</extra>' });
+      }
       const layout = {
         margin: { l: 45, r: 15, t: 10, b: 30 },
         height: 320,
@@ -9479,6 +9491,7 @@ def api_account_signal_backtest():
                     for t in trades
                 ],
                 "portfolio_values": [round(v, 2) for v in series_data.get("portfolio_values", [])],
+                "cash_values": [round(v, 2) for v in series_data.get("cash_values", [])],
                 "dates": list(series_data.get("dates", [])),
             }
 
