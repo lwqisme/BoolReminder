@@ -1646,6 +1646,7 @@
                     <button type="button" onclick="pauseParameterLab()">暂停</button>
                     <button type="button" onclick="resumeParameterLab()">继续</button>
                     <button class="danger" type="button" onclick="cancelParameterLab()">停止</button>
+                    <button type="button" onclick="compareAlertConsistency()" id="compareAlertBtn" style="margin-left:12px;border-color:rgba(0,133,111,0.3);color:var(--green);">对比 Alert 一致性</button>
                 </div>
             </div>
 
@@ -1661,6 +1662,15 @@
                 <strong>预估</strong>
                 <span id="estimateText">尚未估算。</span>
                 <button type="button" onclick="estimateParameterLabFromButton()">预估</button>
+            </div>
+
+            <div id="compareAlertPanel" style="display:none;margin:12px 0;padding:16px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadow);">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                    <h3 style="margin:0;font-size:14px;">Lab ↔ Alert 一致性对比</h3>
+                    <button type="button" onclick="document.getElementById('compareAlertPanel').style.display='none'" style="padding:2px 8px;min-height:auto;font-size:12px;">关闭</button>
+                </div>
+                <div id="compareAlertStatus" style="font-size:12px;color:var(--muted);margin-bottom:12px;"></div>
+                <div id="compareAlertResults" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;"></div>
             </div>
 
             <div class="toolbar">
@@ -7697,6 +7707,82 @@
         window.cancelGeneticEvolution = cancelGeneticEvolution;
         window.toggleGaStrategyControls = toggleGaStrategyControls;
         window.autoSaveParameterLabDefaults = autoSaveParameterLabDefaults;
+
+        async function compareAlertConsistency() {
+            const panel = document.getElementById('compareAlertPanel');
+            const statusEl = document.getElementById('compareAlertStatus');
+            const resultsEl = document.getElementById('compareAlertResults');
+            panel.style.display = 'block';
+            statusEl.textContent = '正在对比...';
+            statusEl.style.color = 'var(--muted)';
+            resultsEl.innerHTML = '';
+
+            const payload = parameterLabPayload();
+            payload.compare_symbol = 'TSLA.US';
+
+            try {
+                const response = await fetch('/api/strategy-lab/parameter-lab/compare-alert', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) {
+                    statusEl.textContent = '对比失败: ' + (data.message || '未知错误');
+                    statusEl.style.color = 'var(--red)';
+                    return;
+                }
+
+                const allMatch = data.inputs_match && data.all_functions_match;
+                statusEl.textContent = allMatch
+                    ? '✅ 完全一致 — Lab 和 Alert 使用相同的参数映射和计算逻辑'
+                    : '❌ 发现不一致 — 请检查下方详情';
+                statusEl.style.color = allMatch ? 'var(--green)' : 'var(--red)';
+
+                let html = '';
+
+                html += '<div style="border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px;">';
+                html += '<h4 style="margin:0 0 8px;font-size:13px;">参数映射对比</h4>';
+                if (data.inputs_match) {
+                    html += '<div style="color:var(--green);font-size:12px;">✅ 所有 StrategyInputs 字段一致</div>';
+                } else {
+                    html += '<table style="width:100%;font-size:12px;border-collapse:collapse;">';
+                    html += '<tr style="border-bottom:1px solid var(--line);"><th style="text-align:left;padding:4px;">字段</th><th>Lab</th><th>Alert</th></tr>';
+                    for (const diff of data.inputs_diff) {
+                        html += '<tr style="border-bottom:1px solid var(--surface-3);background:rgba(208,68,55,0.04);">';
+                        html += '<td style="padding:4px;font-family:var(--mono);font-size:11px;">' + escapeHtml(diff.field) + '</td>';
+                        html += '<td style="text-align:center;color:var(--red);">' + escapeHtml(String(diff.lab)) + '</td>';
+                        html += '<td style="text-align:center;color:var(--red);">' + escapeHtml(String(diff.alert)) + '</td>';
+                        html += '</tr>';
+                    }
+                    html += '</table>';
+                }
+                html += '</div>';
+
+                html += '<div style="border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px;">';
+                html += '<h4 style="margin:0 0 8px;font-size:13px;">核心函数采样对比</h4>';
+                html += '<table style="width:100%;font-size:12px;border-collapse:collapse;">';
+                html += '<tr style="border-bottom:1px solid var(--line);"><th style="text-align:left;padding:4px;">函数</th><th>Lab</th><th>Alert</th><th>状态</th></tr>';
+                for (const sample of data.function_samples) {
+                    const match = sample.match;
+                    const rowBg = match ? '' : 'background:rgba(208,68,55,0.04);';
+                    html += '<tr style="border-bottom:1px solid var(--surface-3);' + rowBg + '">';
+                    html += '<td style="padding:4px;font-family:var(--mono);font-size:11px;">' + escapeHtml(sample.fn) + '</td>';
+                    html += '<td style="text-align:center;font-family:var(--mono);font-size:11px;">' + escapeHtml(JSON.stringify(sample.lab)) + '</td>';
+                    html += '<td style="text-align:center;font-family:var(--mono);font-size:11px;">' + escapeHtml(JSON.stringify(sample.alert)) + '</td>';
+                    html += '<td style="text-align:center;">' + (match ? '✅' : '❌') + '</td>';
+                    html += '</tr>';
+                }
+                html += '</table>';
+                html += '</div>';
+
+                resultsEl.innerHTML = html;
+            } catch (err) {
+                statusEl.textContent = '请求失败: ' + err.message;
+                statusEl.style.color = 'var(--red)';
+            }
+        }
+        window.compareAlertConsistency = compareAlertConsistency;
         })();
     </script>
 </body>

@@ -10461,6 +10461,150 @@ def api_strategy_lab_parameter_lab_ga_packet():
         return _json_error(f"准备 GA 数据包失败: {exc}", 500)
 
 
+@app.route('/api/strategy-lab/parameter-lab/compare-alert', methods=['POST'])
+def api_strategy_lab_parameter_lab_compare_alert():
+    """Compare Lab vs Alert StrategyInputs and shared function outputs for the same parameters."""
+    from dataclasses import fields as dc_fields
+
+    from drawdown.generate_drawdown_report import PricePoint
+    from drawdown.strategy_rules import (
+        core_dip_boost_ratio,
+        core_dip_cash_reserve_ratio,
+        core_dip_timing_allows_buy,
+        grid_rebound_stages,
+        point_drawdown_pct,
+        sell_stage_rearm_drawdown_pct,
+    )
+    from account_signal.profiles import AccountSignalProfile, strategy_inputs_for_profile
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        lab_config = StrategyLabConfig.from_runtime_payload(payload, _get_position_strategy_config())
+        lab_inputs = lab_config.to_strategy_inputs()
+
+        buy_strategy = payload.get("ga_buy_strategy") or payload.get("buy_strategy") or "pyramid_3"
+        sell_strategy = payload.get("ga_sell_strategy") or payload.get("sell_strategy") or "none"
+        if isinstance(buy_strategy, list):
+            buy_strategy = buy_strategy[0] if buy_strategy else "pyramid_3"
+        if isinstance(sell_strategy, list):
+            sell_strategy = sell_strategy[0] if sell_strategy else "none"
+
+        parameters = {}
+        for field in dc_fields(StrategyInputs):
+            value = getattr(lab_inputs, field.name)
+            parameters[field.name] = value
+
+        symbol = str(payload.get("compare_symbol") or "TSLA.US").strip().upper()
+        if not symbol.endswith(".US"):
+            symbol = f"{symbol}.US"
+
+        profile = AccountSignalProfile(
+            symbol=symbol,
+            enabled=True,
+            buy_strategy=str(buy_strategy),
+            sell_strategy=str(sell_strategy),
+            parameters=parameters,
+            source="compare_test",
+        )
+        alert_inputs = strategy_inputs_for_profile(profile)
+
+        inputs_diff = []
+        inputs_match = True
+        for field in dc_fields(StrategyInputs):
+            lab_val = getattr(lab_inputs, field.name)
+            alert_val = getattr(alert_inputs, field.name)
+            if lab_val != alert_val:
+                inputs_match = False
+                inputs_diff.append({
+                    "field": field.name,
+                    "lab": lab_val,
+                    "alert": alert_val,
+                })
+
+        def _make_point(close: float, dd_ath: float) -> PricePoint:
+            from datetime import datetime
+            return PricePoint(
+                date=datetime(2026, 1, 15),
+                close=close,
+                is_buy=False,
+                is_sell=False,
+                rolling_peak=close / (1.0 - dd_ath) if dd_ath < 1.0 and dd_ath > 0 else close * 1.1,
+                drawdown_ath=-abs(dd_ath),
+                rolling_120_peak=close / (1.0 - abs(dd_ath) * 0.8) if dd_ath != 0 else close,
+                drawdown_120=-abs(dd_ath) * 0.8,
+            )
+
+        test_drawdowns = [0.0, 0.05, 0.15, 0.30]
+        function_samples = []
+
+        for dd in test_drawdowns:
+            pt = _make_point(100.0, dd)
+            dd_pct = point_drawdown_pct(pt, lab_inputs)
+
+            boost_lab = core_dip_boost_ratio(dd_pct, lab_inputs)
+            function_samples.append({
+                "fn": f"core_dip_boost_ratio(drawdown={dd_pct:.1f}%)",
+                "lab": round(boost_lab, 6),
+                "alert": round(core_dip_boost_ratio(dd_pct, alert_inputs), 6),
+                "match": boost_lab == core_dip_boost_ratio(dd_pct, alert_inputs),
+            })
+
+            reserve_lab = core_dip_cash_reserve_ratio(dd_pct, lab_inputs)
+            function_samples.append({
+                "fn": f"core_dip_cash_reserve_ratio(drawdown={dd_pct:.1f}%)",
+                "lab": round(reserve_lab, 6),
+                "alert": round(core_dip_cash_reserve_ratio(dd_pct, alert_inputs), 6),
+                "match": reserve_lab == core_dip_cash_reserve_ratio(dd_pct, alert_inputs),
+            })
+
+        anchor_dd = 12.0
+        stages_lab = grid_rebound_stages(anchor_dd, lab_inputs)
+        stages_alert = grid_rebound_stages(anchor_dd, alert_inputs)
+        function_samples.append({
+            "fn": f"grid_rebound_stages(anchor={anchor_dd}%)",
+            "lab": stages_lab,
+            "alert": stages_alert,
+            "match": stages_lab == stages_alert,
+        })
+
+        rearm_lab = sell_stage_rearm_drawdown_pct(lab_inputs)
+        rearm_alert = sell_stage_rearm_drawdown_pct(alert_inputs)
+        function_samples.append({
+            "fn": "sell_stage_rearm_drawdown_pct()",
+            "lab": round(rearm_lab, 4),
+            "alert": round(rearm_alert, 4),
+            "match": rearm_lab == rearm_alert,
+        })
+
+        points = [_make_point(100.0 + i, 0.10) for i in range(6)]
+        timing_lab = core_dip_timing_allows_buy(points[-1], points, 10.0, 2, False, lab_inputs)
+        timing_alert = core_dip_timing_allows_buy(points[-1], points, 10.0, 2, False, alert_inputs)
+        function_samples.append({
+            "fn": "core_dip_timing_allows_buy(dd=10%, pending=2, initial=False)",
+            "lab": {"allowed": timing_lab[0], "reason": timing_lab[1]},
+            "alert": {"allowed": timing_alert[0], "reason": timing_alert[1]},
+            "match": timing_lab == timing_alert,
+        })
+
+        all_functions_match = all(s["match"] for s in function_samples)
+
+        return jsonify({
+            "success": True,
+            "symbol": symbol,
+            "buy_strategy": str(buy_strategy),
+            "sell_strategy": str(sell_strategy),
+            "inputs_match": inputs_match,
+            "inputs_diff": inputs_diff,
+            "function_samples": function_samples,
+            "all_functions_match": all_functions_match,
+        })
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        app.logger.exception("compare-alert failed")
+        return _json_error(f"对比失败: {exc}", 500)
+
+
 @app.route('/api/strategy-lab/parameter-lab/estimate', methods=['POST'])
 def api_strategy_lab_parameter_lab_estimate():
     payload = request.get_json(silent=True) or {}
