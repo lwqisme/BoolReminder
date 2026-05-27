@@ -9175,11 +9175,20 @@ ACCOUNT_SIGNAL_TEMPLATE = """
       statusEl.textContent = '正在加载回测数据...';
       const activeProfile = (window._lastAccountData?.profiles?.active || {})[symbol] || {};
       const params = activeProfile.parameters || {};
+      const target = (window._lastAccountData?.targets || {})[symbol] || {};
+      const payload = {
+        symbol,
+        buy_strategy: buyStrategy || 'pyramid_3',
+        sell_strategy: sellStrategy || 'none',
+        parameters: params,
+        initial_cash: target.target_budget_usd,
+        monthly_contribution: target.monthly_contribution_usd
+      };
       try {
         const response = await fetch('/api/account-signal/backtest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ symbol, buy_strategy: buyStrategy || 'pyramid_3', sell_strategy: sellStrategy || 'none', parameters: params })
+          body: JSON.stringify(payload)
         });
         const data = await response.json();
         if (!response.ok || !data.success) {
@@ -9388,6 +9397,16 @@ def api_account_signal_backtest():
             source="backtest_probe",
         )
         inputs = strategy_inputs_for_profile(profile)
+
+        initial_cash = payload.get("initial_cash")
+        monthly_contribution = payload.get("monthly_contribution")
+        overrides = {}
+        if initial_cash is not None:
+            overrides["initial_cash"] = float(initial_cash)
+        if monthly_contribution is not None:
+            overrides["monthly_contribution"] = float(monthly_contribution)
+        if overrides:
+            inputs = replace(inputs, **overrides)
 
         end_date = datetime.now().date()
         periods = {
