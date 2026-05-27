@@ -3655,17 +3655,22 @@
         function buildBuyLabel(strategyKey, params) {
             const label = buyStrategyLabels[strategyKey] || strategyKey;
             const bits = [];
-            if (params.step_pct !== null && params.step_pct !== undefined) bits.push(`步长 ${formatCompact(params.step_pct)}%`);
-            if (params.equal_slice_allocation_pct !== null && params.equal_slice_allocation_pct !== undefined) bits.push(`每步 ${formatCompact(params.equal_slice_allocation_pct)}%`);
-            if (params.core_dip_initial_core_pct !== null && params.core_dip_initial_core_pct !== undefined) {
-                bits.push(`初始 ${formatCompact(params.core_dip_initial_core_pct)}%`);
-                bits.push(`周投 ${formatCompact(params.core_dip_weekly_core_pct)}%`);
-                bits.push(`现金垫 ${formatCompact(params.core_dip_cash_reserve_pct)}%`);
-                bits.push(`加仓 ${formatCompact(params.core_dip_start_drawdown_pct)}-${formatCompact(params.core_dip_full_drawdown_pct)}%`);
-                if (params.core_dip_timing_enabled) {
-                    bits.push(`买点优化 延迟${formatCompact(Math.trunc(Number(params.core_dip_timing_max_delay_days || 0)))}日 大涨${formatCompact(params.core_dip_timing_rise_threshold_pct)}% 近低${formatCompact(params.core_dip_timing_near_low_pct)}%`);
-                } else {
-                    bits.push('买点优化 关闭');
+            if (strategyKey === 'equal_slice') {
+                if (params.step_pct !== null && params.step_pct !== undefined) bits.push(`步长 ${formatCompact(params.step_pct)}%`);
+                if (params.equal_slice_allocation_pct !== null && params.equal_slice_allocation_pct !== undefined) bits.push(`每步 ${formatCompact(params.equal_slice_allocation_pct)}%`);
+            } else if (strategyKey === 'linear_weighted_slice') {
+                if (params.step_pct !== null && params.step_pct !== undefined) bits.push(`步长 ${formatCompact(params.step_pct)}%`);
+            } else if (strategyKey === 'core_dip_dca') {
+                if (params.core_dip_initial_core_pct !== null && params.core_dip_initial_core_pct !== undefined) {
+                    bits.push(`初始 ${formatCompact(params.core_dip_initial_core_pct)}%`);
+                    bits.push(`周投 ${formatCompact(params.core_dip_weekly_core_pct)}%`);
+                    bits.push(`现金垫 ${formatCompact(params.core_dip_cash_reserve_pct)}%`);
+                    bits.push(`加仓 ${formatCompact(params.core_dip_start_drawdown_pct)}-${formatCompact(params.core_dip_full_drawdown_pct)}%`);
+                    if (params.core_dip_timing_enabled) {
+                        bits.push(`买点优化 延迟${formatCompact(Math.trunc(Number(params.core_dip_timing_max_delay_days || 0)))}日 大涨${formatCompact(params.core_dip_timing_rise_threshold_pct)}% 近低${formatCompact(params.core_dip_timing_near_low_pct)}%`);
+                    } else {
+                        bits.push('买点优化 关闭');
+                    }
                 }
             }
             return bits.length ? `${label} (${bits.join(' / ')})` : label;
@@ -3683,10 +3688,12 @@
             } else {
                 label = sellStrategyLabels[strategyKey] || strategyKey;
             }
-            if (strategyKey !== 'none' && params.sell_allow_same_day_sell) label = `${label} / 买入日可卖`;
-            if (params.dca_rearm_drawdown_pct !== null && params.dca_rearm_drawdown_pct !== undefined) label = `${label} / 卖后重启 ${formatCompact(params.dca_rearm_drawdown_pct)}%回撤`;
-            if (params.buy_rearm_mode === 'restart_from_rearm') label = `${label} / 重启后从首档`;
-            if (params.sell_stage_rearm_drawdown_pct !== null && params.sell_stage_rearm_drawdown_pct !== undefined) label = `${label} / 卖档重启 ${formatCompact(params.sell_stage_rearm_drawdown_pct)}%回撤`;
+            if (strategyKey !== 'none') {
+                if (params.sell_allow_same_day_sell) label = `${label} / 买入日可卖`;
+                if (params.dca_rearm_drawdown_pct !== null && params.dca_rearm_drawdown_pct !== undefined && Number(params.dca_rearm_drawdown_pct) > 0) label = `${label} / 卖后重启 ${formatCompact(params.dca_rearm_drawdown_pct)}%回撤`;
+                if (params.buy_rearm_mode === 'restart_from_rearm') label = `${label} / 重启后从首档`;
+                if (params.sell_stage_rearm_drawdown_pct !== null && params.sell_stage_rearm_drawdown_pct !== undefined && Number(params.sell_stage_rearm_drawdown_pct) > 0) label = `${label} / 卖档重启 ${formatCompact(params.sell_stage_rearm_drawdown_pct)}%回撤`;
+            }
             return label;
         }
         function inflateCandidate(packet, candidateRow) {
@@ -7142,11 +7149,12 @@
                 const taskLabels = (packet.tasks || []).map(function(t) { return t.portfolio_label + ' / ' + t.period_label; }).join(', ');
                 document.getElementById('gaStatus').title = (activeBoundsLabel ? '生效参数范围: ' + activeBoundsLabel + '\n' : '') + '题目 (' + (packet.tasks || []).length + '): ' + escapeHtml(taskLabels);
                 document.getElementById('statTopics').title = escapeHtml(taskLabels);
-                setStatus('GA Done', '进化完成 — ' + number(rows.length, 0) + ' 个个体，' + number(gaResults.length, 0) + ' 代，最优适应度: ' + number(bestFitnessEver, 1), 100);
+                const modeLabel = gaConfig.continuous_mutation ? '野蛮生长' : '离散候选';
+                setStatus('GA Done', modeLabel + ' · 进化完成 — ' + number(rows.length, 0) + ' 个个体，' + number(gaResults.length, 0) + ' 代，最优适应度: ' + number(bestFitnessEver, 1), 100);
                 const statusLabel = bestEver
                     ? (bestEver.label || buildGaStatusLabel(bestEver))
                     : '—';
-                document.getElementById('gaStatus').textContent = '完成。最优: ' + statusLabel;
+                document.getElementById('gaStatus').textContent = '完成 [' + modeLabel + ']。最优: ' + statusLabel;
                 document.getElementById('gaCancelBtn').style.display = 'none';
                 scheduleProgressFloatAutoHide();
             } catch (error) {
