@@ -8941,8 +8941,9 @@ ACCOUNT_SIGNAL_TEMPLATE = """
       }
       return `${candidate.candidate_key} · ${summary.buy || candidate.buy_strategy} / ${summary.sell || candidate.sell_strategy}${saved}`;
     }
-    function renderCandidateAssign(symbol, target, candidates) {
+    function renderCandidateAssign(symbol, target, candidates, profile) {
       if (!target || !target.enabled) return '';
+      const assignedKey = profile?.candidate_key || '';
       if (!candidates.length) {
         return `
           <div class="assign-row">
@@ -8958,7 +8959,7 @@ ACCOUNT_SIGNAL_TEMPLATE = """
         <div class="assign-row">
           <select data-candidate-select="${escapeHtml(symbol)}" aria-label="选择 ${escapeHtml(symbol)} profile 候选">
             <option value="">选择候选组合...</option>
-            ${candidates.map(candidate => `<option value="${escapeHtml(candidate.candidate_key)}">${escapeHtml(candidateLabel(candidate))}</option>`).join('')}
+            ${candidates.map(candidate => `<option value="${escapeHtml(candidate.candidate_key)}"${candidate.candidate_key === assignedKey ? ' selected' : ''}>${escapeHtml(candidateLabel(candidate))}</option>`).join('')}
           </select>
           <button type="button" data-assign-profile="${escapeHtml(symbol)}">绑定候选</button>
         </div>
@@ -9004,7 +9005,7 @@ ACCOUNT_SIGNAL_TEMPLATE = """
             <div><strong>卖出</strong> ${text(summary.sell)}</div>
             <div><strong>PROFILE</strong> ${text(profile?.profile_id)}${profile?.candidate_key ? ` · ${text(profile.candidate_key)}` : ''}${profile?.note ? ` · <em>备注:</em> ${text(profile.note)}` : ''}${profile?.promoted_at ? ` · ${text(profile.promoted_at)}` : ''}</div>
           </div>
-          ${renderCandidateAssign(symbol, target, candidates)}
+          ${renderCandidateAssign(symbol, target, candidates, profile)}
           <div class="metrics">
             ${metric('持仓股数', number(pos.shares, 4))}
             ${metric('真实均价', money(pos.avg_cost))}
