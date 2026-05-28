@@ -3213,7 +3213,10 @@ def _execute_position_grid_rebound_sells(
         return
 
     # Sell when drawdown has rebounded by at least one step from last sell point.
-    if drawdown_pct > mark - step + 1e-9:
+    target_drawdown = mark - step
+    if target_drawdown < 0 and drawdown_pct <= 1e-9:
+        pass # Rebounded to ATH or higher, allow sell
+    elif drawdown_pct > target_drawdown + 1e-9:
         return
 
     shares = state.shares * float(inputs.grid_sell_pct or 0) / 100.0
