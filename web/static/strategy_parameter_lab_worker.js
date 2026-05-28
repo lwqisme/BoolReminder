@@ -823,7 +823,12 @@ function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog,
 
     const mark = state.grid_rebound_last_sell_drawdown_pct;
     if (mark <= 0) return;
-    if (drawdown > mark - step + 1e-9) return;
+    const targetDrawdown = mark - step;
+    if (targetDrawdown < 0 && drawdown <= 1e-9) {
+      // Rebounded to ATH or higher, allow sell
+    } else if (drawdown > targetDrawdown + 1e-9) {
+      return;
+    }
 
     const sellPct = num(inputs.grid_sell_pct);
     const stage = `grid_rebound_${drawdown.toFixed(2)}`;
