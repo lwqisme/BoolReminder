@@ -171,6 +171,7 @@ class StrategyInputs:
     grid_first_sell_pct: float = 40.0
     grid_second_sell_pct: float = 40.0
     grid_min_sell_amount: float = 200.0
+    grid_rebound_cycle_reset: float = 0.0
     cost_first_profit_pct: float = 8.0
     cost_second_profit_pct: float = 15.0
     cost_third_profit_pct: float = 25.0
@@ -253,6 +254,7 @@ class SymbolState:
     buy_rearm_drawdown_pct: float | None = None
     buy_rearm_anchor_drawdown_pct: float | None = None
     grid_rebound_cycle_anchor_drawdown_pct: float | None = None
+    grid_rebound_last_sell_drawdown_pct: float | None = None
 
 
 def parse_date_range(start_raw: str | None, end_raw: str | None) -> tuple[date, date]:
@@ -380,6 +382,8 @@ def simulate_portfolio(
         raise ValueError("网格每档卖出比例必须在 0 到 100 之间。")
     if inputs.grid_min_sell_amount < 0:
         raise ValueError("网格最小卖出金额不能为负数。")
+    if inputs.grid_rebound_cycle_reset not in (0, 0.0, 1, 1.0):
+        raise ValueError("网格回弹周期重启必须为 0 或 1。")
     cost_profits = [
         inputs.cost_first_profit_pct,
         inputs.cost_second_profit_pct,
@@ -453,6 +457,7 @@ def simulate_portfolio(
             "grid_first_sell_pct": inputs.grid_first_sell_pct,
             "grid_second_sell_pct": inputs.grid_second_sell_pct,
             "grid_min_sell_amount": inputs.grid_min_sell_amount,
+            "grid_rebound_cycle_reset": inputs.grid_rebound_cycle_reset,
             "cost_first_profit_pct": inputs.cost_first_profit_pct,
             "cost_second_profit_pct": inputs.cost_second_profit_pct,
             "cost_third_profit_pct": inputs.cost_third_profit_pct,
@@ -1005,6 +1010,7 @@ def _strategy_inputs_payload(inputs: StrategyInputs) -> dict[str, object]:
         "grid_first_sell_pct": inputs.grid_first_sell_pct,
         "grid_second_sell_pct": inputs.grid_second_sell_pct,
         "grid_min_sell_amount": inputs.grid_min_sell_amount,
+        "grid_rebound_cycle_reset": inputs.grid_rebound_cycle_reset,
         "cost_first_profit_pct": inputs.cost_first_profit_pct,
         "cost_second_profit_pct": inputs.cost_second_profit_pct,
         "cost_third_profit_pct": inputs.cost_third_profit_pct,
@@ -1318,6 +1324,7 @@ def _non_repair_candidates(buy_strategies: Iterable[str]) -> list[dict[str, obje
             "grid_first_sell_pct": None,
             "grid_second_sell_pct": None,
             "grid_min_sell_amount": None,
+            "grid_rebound_cycle_reset": None,
             "cost_first_profit_pct": None,
             "cost_second_profit_pct": None,
             "cost_third_profit_pct": None,
@@ -2840,6 +2847,7 @@ def _rearm_position_sell_cycle_after_dca_buy(
     state.sell_marks.clear()
     if sell_strategy == "grid_rebound":
         state.grid_rebound_cycle_anchor_drawdown_pct = None
+        state.grid_rebound_last_sell_drawdown_pct = None
     return True
 
 
@@ -3179,8 +3187,6 @@ def _execute_position_grid_rebound_sells(
 ) -> None:
     if state.shares <= 0:
         return
-    if state.sell_marks is None:
-        state.sell_marks = set()
     avg_cost = _avg_cost_usd(state)
     if avg_cost <= 0:
         return
@@ -3188,29 +3194,46 @@ def _execute_position_grid_rebound_sells(
     if current_price_usd < avg_cost * (1 + inputs.sell_min_profit_pct / 100.0):
         return
     drawdown_pct = point_drawdown_pct(point, inputs)
-    cycle_anchor_drawdown = _grid_rebound_cycle_anchor_drawdown_pct(state)
-    for mark, threshold, sell_pct in grid_rebound_stages(cycle_anchor_drawdown, inputs):
-        if mark in state.sell_marks or drawdown_pct > threshold + 1e-9:
-            continue
-        shares = state.shares * sell_pct / 100.0
-        if _sell_shares(
-            state,
-            point,
-            shares,
-            inputs,
-            trade_log,
-            "grid_rebound",
-            threshold,
-            min_gross_amount=inputs.grid_min_sell_amount,
-            sell_stage=mark,
-        ):
-            state.sell_marks.add(mark)
-            # Continue grid rebound cycle toward ATH:
-            # when the last stage fires and shares remain, reset for the next cycle.
-            if threshold <= 1e-9 and state.shares > 0:
-                state.sell_marks.clear()
+    step = float(inputs.grid_rebound_step_pct)
+
+    # Initialize mark on first sell opportunity after build or rearm.
+    if state.grid_rebound_last_sell_drawdown_pct is None:
+        state.grid_rebound_last_sell_drawdown_pct = _avg_buy_drawdown_pct(state)
+
+    mark = state.grid_rebound_last_sell_drawdown_pct
+    if mark <= 0:
+        return
+
+    # Sell when drawdown has rebounded by at least one step from last sell point.
+    if drawdown_pct > mark - step + 1e-9:
+        return
+
+    shares = state.shares * float(inputs.grid_sell_pct or 0) / 100.0
+    sell_stage = f"grid_rebound_{drawdown_pct:.2f}"
+    if _sell_shares(
+        state,
+        point,
+        shares,
+        inputs,
+        trade_log,
+        "grid_rebound",
+        drawdown_pct,
+        min_gross_amount=inputs.grid_min_sell_amount,
+        sell_stage=sell_stage,
+    ):
+        # Track mark for rearm compatibility.
+        if state.sell_marks is None:
+            state.sell_marks = set()
+        state.sell_marks.add(sell_stage)
+
+        state.grid_rebound_last_sell_drawdown_pct = drawdown_pct
+
+        # Cycle boundary: when drawdown nears zero, reset or exhaust.
+        if drawdown_pct <= step + 1e-9 and state.shares > 0:
+            if inputs.grid_rebound_cycle_reset:
+                state.grid_rebound_last_sell_drawdown_pct = _avg_buy_drawdown_pct(state)
                 state.grid_rebound_cycle_anchor_drawdown_pct = None
-            return
+            # Off: mark stays small, mark - step < 0, so no further sells until rearm.
 
 
 def _grid_rebound_cycle_anchor_drawdown_pct(state: SymbolState) -> float:

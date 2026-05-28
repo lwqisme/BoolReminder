@@ -1511,6 +1511,7 @@
                         <label>网格步长 %<span class="param-help" data-tooltip="网格回弹卖出的档位间距。以平均买入回撤为基准，价格向上修复一个步长触发第一档，再修复一个步长触发下一档。">?</span><input id="gridReboundStep" type="number" step="0.5" value="{{ default_config.default_grid_rebound_step_pct }}"></label>
                         <label>网格每档 %<span class="param-help" data-tooltip="网格回弹每个档位触发时卖出的当前可卖仓位比例。所有网格档位使用统一的比例。">?</span><input id="gridSellPct" type="number" step="1" value="{{ default_config.default_grid_sell_pct }}"></label>
                         <label>网格最小额<span class="param-help" data-tooltip="单次网格卖出金额低于此 USD 门槛时跳过该笔交易。设为 0 表示不限制最小卖出额。">?</span><input id="gridMinSellAmount" type="number" step="10" value="{{ default_config.default_grid_min_sell_amount }}"></label>
+                        <label>周期重启<span class="param-help" data-tooltip="网格回弹卖到回撤接近 0 时是否自动开启新一轮。0=卖完等下次买入再卖，1=自动重置继续卖。">?</span><input id="gridReboundCycleReset" type="number" step="1" min="0" max="1" value="0"></label>
                         <label>成本一档盈利<span class="param-help" data-tooltip="成本去杠杆第一档盈利阈值，按当前剩余持仓平均成本计算。盈利达到此百分比时触发第一档卖出。">?</span><input id="costFirstProfitPct" type="number" step="0.5" value="{{ default_config.default_cost_first_profit_pct }}"></label>
                         <label>成本二档盈利<span class="param-help" data-tooltip="成本去杠杆第二档盈利阈值，按当前剩余持仓平均成本计算。必须不低于第一档。">?</span><input id="costSecondProfitPct" type="number" step="0.5" value="{{ default_config.default_cost_second_profit_pct }}"></label>
                         <label>成本三档盈利<span class="param-help" data-tooltip="成本去杠杆第三档盈利阈值，按当前剩余持仓平均成本计算。必须不低于第二档。第三档触发后会结束当前卖出周期。">?</span><input id="costThirdProfitPct" type="number" step="0.5" value="{{ default_config.default_cost_third_profit_pct }}"></label>
@@ -1861,6 +1862,7 @@
             'grid_rebound_step_pct',
             'grid_sell_pct',
             'grid_min_sell_amount',
+            'grid_rebound_cycle_reset',
             'cost_first_profit_pct',
             'cost_second_profit_pct',
             'cost_third_profit_pct',
@@ -1883,7 +1885,7 @@
         const SELL_PARAMETER_FIELDS = [
             'sell_min_profit_pct', 'repair_sell_cooldown_days', 'repair_stage_sell_pct',
             'grid_rebound_step_pct', 'grid_sell_pct', 'grid_first_sell_pct', 'grid_second_sell_pct',
-            'grid_min_sell_amount', 'cost_first_profit_pct', 'cost_second_profit_pct', 'cost_third_profit_pct',
+            'grid_min_sell_amount', 'grid_rebound_cycle_reset', 'cost_first_profit_pct', 'cost_second_profit_pct', 'cost_third_profit_pct',
             'cost_first_sell_pct', 'cost_second_sell_pct', 'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
             'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct',
             'buy_rearm_mode', 'sell_stage_rearm_drawdown_pct'
@@ -1910,6 +1912,7 @@
             repair_stage_sell_pct: { label: '单档卖出', input: 'repairStageSellPct', formatter: percentChip, help: '阶梯修复每次触发时卖出的当前可卖仓位百分比。' },
             grid_rebound_step_pct: { label: '网格回弹', input: 'gridReboundStep', formatter: (value) => `${number(value)}%步长`, help: '网格回弹卖出的档位间距。以平均买入回撤为基准，价格向上修复一个步长触发一档。' },
             grid_sell_pct: { label: '网格每档卖出', input: 'gridSellPct', formatter: percentChip, help: '网格回弹每个档位触发时卖出的当前可卖仓位比例，所有档位统一。' },
+            grid_rebound_cycle_reset: { label: '周期重启', input: 'gridReboundCycleReset', formatter: (value) => value ? '开启' : '关闭', help: '网格回弹卖到回撤接近 0 时是否自动开启新一轮。关闭=卖完等下次买入再卖，开启=自动重置继续卖。' },
             cost_first_profit_pct: { label: '成本一档盈利', input: 'costFirstProfitPct', formatter: percentChip, help: '成本去杠杆第一档盈利阈值，按剩余持仓平均成本计算。盈利达到此值时触发第一档卖出。' },
             cost_second_profit_pct: { label: '成本二档盈利', input: 'costSecondProfitPct', formatter: percentChip, help: '成本去杠杆第二档盈利阈值，必须不低于第一档。' },
             cost_third_profit_pct: { label: '成本三档盈利', input: 'costThirdProfitPct', formatter: percentChip, help: '成本去杠杆第三档盈利阈值，必须不低于第二档。第三档触发后结束当前卖出周期。' },
@@ -3009,6 +3012,7 @@
                 grid_rebound_step_pct: readNumber('gridReboundStep'),
                 grid_sell_pct: readNumber('gridSellPct'),
                 grid_min_sell_amount: readNumber('gridMinSellAmount'),
+                grid_rebound_cycle_reset: readNumber('gridReboundCycleReset'),
                 cost_first_profit_pct: readNumber('costFirstProfitPct'),
                 cost_second_profit_pct: readNumber('costSecondProfitPct'),
                 cost_third_profit_pct: readNumber('costThirdProfitPct'),
@@ -3227,6 +3231,7 @@
                 repair_stage_sell_pct: repair.parameter_space?.repair_stage_sell_pct || [],
                 grid_rebound_step_pct: grid.parameter_space?.grid_rebound_step_pct || [],
                 grid_sell_pct: grid.parameter_space?.grid_sell_pct || [],
+                grid_rebound_cycle_reset: grid.parameter_space?.grid_rebound_cycle_reset || [],
                 cost_first_profit_pct: costProfitColumn(0),
                 cost_second_profit_pct: costProfitColumn(1),
                 cost_third_profit_pct: costProfitColumn(2),
@@ -3672,6 +3677,7 @@
                 parts.push(`g${formatCompact(sellParams.grid_rebound_step_pct)}`);
                 parts.push(`gsell${formatCompact(sellParams.grid_sell_pct ?? sellParams.grid_second_sell_pct)}`);
                 parts.push(`gmin${formatCompact(sellParams.grid_min_sell_amount)}`);
+                if (Number(sellParams.grid_rebound_cycle_reset)) parts.push(`greset${formatCompact(sellParams.grid_rebound_cycle_reset)}`);
             }
             if (sellStrategy === 'cost_deleverage') {
                 const profits = [sellParams.cost_first_profit_pct, sellParams.cost_second_profit_pct, sellParams.cost_third_profit_pct];
@@ -3716,6 +3722,7 @@
                 label = `阶梯修复 ${formatCompact(params.sell_min_profit_pct)}%盈利 ${formatCompact(Math.trunc(Number(params.repair_sell_cooldown_days || 0)))}日冷却 ${formatCompact(params.repair_stage_sell_pct)}%单档`;
             } else if (strategyKey === 'grid_rebound') {
                 label = `网格回弹 ${formatCompact(params.grid_rebound_step_pct)}%步长 每档${formatCompact(params.grid_sell_pct ?? params.grid_second_sell_pct)}%卖出 ${formatCompact(params.sell_min_profit_pct ?? baseInputs.sell_min_profit_pct)}%最小盈利`;
+                if (Number(params.grid_rebound_cycle_reset)) label += ` 周期重启${Math.trunc(Number(params.grid_rebound_cycle_reset))}`;
             } else if (strategyKey === 'cost_deleverage') {
                 const profits = [params.cost_first_profit_pct, params.cost_second_profit_pct, params.cost_third_profit_pct];
                 const sells = [params.cost_first_sell_pct, params.cost_second_sell_pct, params.cost_third_sell_pct];
@@ -6853,7 +6860,7 @@
                     repair_stage_sell_pct: 'repairStageSellPct', dca_rearm_drawdown_pct: 'dcaRearmDrawdown',
                     sell_stage_rearm_drawdown_pct: 'sellStageRearmDrawdown',
                     grid_rebound_step_pct: 'gridReboundStep', grid_sell_pct: 'gridSellPct',
-                    grid_min_sell_amount: 'gridMinSellAmount',
+                    grid_min_sell_amount: 'gridMinSellAmount', grid_rebound_cycle_reset: 'gridReboundCycleReset',
                     cost_first_profit_pct: 'costFirstProfitPct', cost_second_profit_pct: 'costSecondProfitPct',
                     cost_third_profit_pct: 'costThirdProfitPct', cost_first_sell_pct: 'costFirstSellPct',
                     cost_second_sell_pct: 'costSecondSellPct', cost_third_sell_pct: 'costThirdSellPct',
@@ -6904,7 +6911,7 @@
         }
 
         function initAutoSaveListeners() {
-            const saveIds = ['start', 'end', 'initialCash', 'monthlyContribution', 'maxDrawdown', 'stepPct', 'equalSliceAllocation', 'tradeFee', 'hkdToUsd', 'reservePosition', 'sellMinProfit', 'repairSellCooldown', 'repairStageSellPct', 'dcaRearmDrawdown', 'sellStageRearmDrawdown', 'gridReboundStep', 'gridSellPct', 'gridMinSellAmount', 'costFirstProfitPct', 'costSecondProfitPct', 'costThirdProfitPct', 'costFirstSellPct', 'costSecondSellPct', 'costThirdSellPct', 'costDeleverageCooldown', 'costMinSellAmount', 'coreDipInitialCorePct', 'coreDipWeeklyCorePct', 'coreDipCashReservePct', 'coreDipStartDrawdownPct', 'coreDipFullDrawdownPct', 'coreDipTimingMaxDelayDays', 'coreDipTimingRiseThresholdPct', 'coreDipTimingNearLowPct', 'leapsLowCashThreshold', 'leapsMinDrawdown', 'leapsPremiumBudgetCap', 'leapsTargetDteLabel', 'leapsDrawdownGatePct', 'workerCount', 'drawdownBasis', 'coreDipTimingEnabled', 'coreDipTimingFilter'];
+            const saveIds = ['start', 'end', 'initialCash', 'monthlyContribution', 'maxDrawdown', 'stepPct', 'equalSliceAllocation', 'tradeFee', 'hkdToUsd', 'reservePosition', 'sellMinProfit', 'repairSellCooldown', 'repairStageSellPct', 'dcaRearmDrawdown', 'sellStageRearmDrawdown', 'gridReboundStep', 'gridSellPct', 'gridMinSellAmount', 'gridReboundCycleReset', 'costFirstProfitPct', 'costSecondProfitPct', 'costThirdProfitPct', 'costFirstSellPct', 'costSecondSellPct', 'costThirdSellPct', 'costDeleverageCooldown', 'costMinSellAmount', 'coreDipInitialCorePct', 'coreDipWeeklyCorePct', 'coreDipCashReservePct', 'coreDipStartDrawdownPct', 'coreDipFullDrawdownPct', 'coreDipTimingMaxDelayDays', 'coreDipTimingRiseThresholdPct', 'coreDipTimingNearLowPct', 'leapsLowCashThreshold', 'leapsMinDrawdown', 'leapsPremiumBudgetCap', 'leapsTargetDteLabel', 'leapsDrawdownGatePct', 'workerCount', 'drawdownBasis', 'coreDipTimingEnabled', 'coreDipTimingFilter'];
             saveIds.forEach((id) => {
                 const el = document.getElementById(id);
                 if (el) { el.addEventListener('input', autoSaveParameterLabDefaults); el.addEventListener('change', autoSaveParameterLabDefaults); }
@@ -7514,6 +7521,7 @@
                 equal_slice_allocation_pct: '每步投入',
                 grid_rebound_step_pct: '回弹步长',
                 grid_sell_pct: '每档卖出',
+                grid_rebound_cycle_reset: '周期重启',
                 sell_min_profit_pct: '最小盈利',
                 repair_sell_cooldown_days: '修复冷却'
             };
@@ -7693,6 +7701,7 @@
                 if (ind.grid_rebound_step_pct !== undefined && ind.grid_rebound_step_pct !== null) parts.push('回弹' + formatCompact(ind.grid_rebound_step_pct) + '%');
                 if (ind.grid_sell_pct !== undefined && ind.grid_sell_pct !== null) parts.push('每档卖' + formatCompact(ind.grid_sell_pct) + '%');
                 if (ind.grid_min_sell_amount !== undefined && ind.grid_min_sell_amount !== null && Number(ind.grid_min_sell_amount) > 0) parts.push('≥$' + formatCompact(ind.grid_min_sell_amount));
+                if (ind.grid_rebound_cycle_reset !== undefined && ind.grid_rebound_cycle_reset !== null && Number(ind.grid_rebound_cycle_reset)) parts.push('周期重启');
             }
             if (sell === 'cost_deleverage') {
                 const profits = [ind.cost_first_profit_pct, ind.cost_second_profit_pct, ind.cost_third_profit_pct];

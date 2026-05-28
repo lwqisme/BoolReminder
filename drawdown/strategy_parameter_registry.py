@@ -69,6 +69,7 @@ SELL_PARAMETER_FIELDS = (
     "grid_first_sell_pct",
     "grid_second_sell_pct",
     "grid_min_sell_amount",
+    "grid_rebound_cycle_reset",
     "cost_first_profit_pct",
     "cost_second_profit_pct",
     "cost_third_profit_pct",
@@ -706,12 +707,14 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
                 "grid_rebound_step_pct": 5.0,
                 "grid_sell_pct": 40.0,
                 "grid_min_sell_amount": 200.0,
+                "grid_rebound_cycle_reset": 0.0,
                 "sell_allow_same_day_sell": False,
                 "buy_rearm_mode": BUY_REARM_MODE_CUMULATIVE,
             },
             {
                 "grid_rebound_step_pct": list(ROBUST_GRID_REBOUND_STEPS),
                 "grid_sell_pct": list(ROBUST_GRID_SELLS),
+                "grid_rebound_cycle_reset": [0.0, 1.0],
                 "sell_allow_same_day_sell": [False, True],
                 "dca_rearm_drawdown_pct": list(ROBUST_DCA_REARM_DRAWDOWN_VALUES),
                 "buy_rearm_mode": list(BUY_REARM_MODES),
@@ -951,6 +954,7 @@ def _sell_param_variants(
         )
         for variant in variants:
             variant["sell_min_profit_pct"] = float(inputs.sell_min_profit_pct)
+        variants = _with_grid_cycle_reset_variants(variants, inputs, value_selection)
         return _with_rearm_variants(
             _with_same_day_sell_variants(variants, inputs, value_selection),
             buy_strategy,
@@ -1066,6 +1070,26 @@ def _with_same_day_sell_variants(
                 continue
             item = dict(params)
             item["sell_allow_same_day_sell"] = bool(allow_same_day_sell)
+            result.append(item)
+    return result
+
+
+def _with_grid_cycle_reset_variants(
+    base_variants: list[dict[str, object]],
+    inputs: StrategyInputs,
+    value_selection: ParameterValueSelection | None,
+) -> list[dict[str, object]]:
+    if _parameter_field_is_fixed(value_selection, "grid_rebound_cycle_reset"):
+        cycle_reset = float(inputs.grid_rebound_cycle_reset)
+        return [{**params, "grid_rebound_cycle_reset": cycle_reset} for params in base_variants]
+    values = _extended_parameter_values(value_selection, "grid_rebound_cycle_reset", [0.0, 1.0])
+    result: list[dict[str, object]] = []
+    for params in base_variants:
+        for cycle_reset in values:
+            if not _parameter_value_is_selected(value_selection, "grid_rebound_cycle_reset", cycle_reset):
+                continue
+            item = dict(params)
+            item["grid_rebound_cycle_reset"] = float(cycle_reset)
             result.append(item)
     return result
 
@@ -1206,6 +1230,7 @@ def _candidate_key(
             ]
         )
     if sell_strategy == "grid_rebound":
+        cycle_reset = sell_params.get("grid_rebound_cycle_reset")
         parts.extend(
             [
                 f"g{float(sell_params.get('grid_rebound_step_pct') or 0):g}",
@@ -1213,6 +1238,8 @@ def _candidate_key(
                 f"gmin{float(sell_params.get('grid_min_sell_amount') or 0):g}",
             ]
         )
+        if cycle_reset:
+            parts.append(f"greset{float(cycle_reset):g}")
     if sell_strategy == "cost_deleverage":
         profits = (
             sell_params.get("cost_first_profit_pct") or 0,
@@ -1279,10 +1306,12 @@ def _sell_label(strategy_key: str, params: Mapping[str, object]) -> str:
         )
     elif strategy_key == "grid_rebound":
         min_profit = params.get("sell_min_profit_pct")
+        cycle_reset = params.get("grid_rebound_cycle_reset")
         label = (
             f"网格回弹 {float(params.get('grid_rebound_step_pct') or 0):g}%步长 "
             f"每档{float(_grid_sell_param(params) or 0):g}%卖出"
             + (f" {float(min_profit):g}%最小盈利" if min_profit is not None else "")
+            + (f" 周期重启{int(float(cycle_reset))}" if cycle_reset else "")
         )
     elif strategy_key == "cost_deleverage":
         profits = [

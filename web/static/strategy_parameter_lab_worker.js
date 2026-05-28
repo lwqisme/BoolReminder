@@ -140,6 +140,7 @@ const SELL_PARAMETER_FIELDS = [
   'grid_first_sell_pct',
   'grid_second_sell_pct',
   'grid_min_sell_amount',
+  'grid_rebound_cycle_reset',
   'cost_first_profit_pct',
   'cost_second_profit_pct',
   'cost_third_profit_pct',
@@ -350,6 +351,7 @@ function buildCandidateKey(buyStrategy, sellStrategy, buyParams, sellParams) {
     parts.push(`g${formatCompact(sellParams.grid_rebound_step_pct)}`);
     parts.push(`gsell${formatCompact(gridSellPct(sellParams))}`);
     parts.push(`gmin${formatCompact(sellParams.grid_min_sell_amount)}`);
+    if (num(sellParams.grid_rebound_cycle_reset)) parts.push(`greset${formatCompact(sellParams.grid_rebound_cycle_reset)}`);
   }
   if (sellStrategy === 'cost_deleverage') {
     const profits = [
@@ -403,6 +405,7 @@ function buildSellLabel(strategyKey, params, labels = {}, baseInputs = {}) {
     label = `阶梯修复 ${formatCompact(params.sell_min_profit_pct)}%盈利 ${formatCompact(Math.trunc(num(params.repair_sell_cooldown_days)))}日冷却 ${formatCompact(params.repair_stage_sell_pct)}%单档`;
   } else if (strategyKey === 'grid_rebound') {
     label = `网格回弹 ${formatCompact(params.grid_rebound_step_pct)}%步长 每档${formatCompact(gridSellPct(params))}%卖出 ${formatCompact(params.sell_min_profit_pct ?? baseInputs.sell_min_profit_pct)}%最小盈利`;
+    if (num(params.grid_rebound_cycle_reset)) label += ` 周期重启${Math.trunc(num(params.grid_rebound_cycle_reset))}`;
   } else if (strategyKey === 'cost_deleverage') {
     const profits = [
       params.cost_first_profit_pct,
@@ -568,7 +571,10 @@ function rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy) {
   const rawThreshold = inputs.sell_stage_rearm_drawdown_pct ?? inputs.dca_rearm_drawdown_pct;
   if (drawdown + 1e-9 < Math.min(Math.max(0, num(rawThreshold)), num(inputs.max_drawdown_pct))) return false;
   state.sell_marks = {};
-  if (sellStrategy === 'grid_rebound') state.grid_rebound_cycle_anchor_drawdown_pct = null;
+  if (sellStrategy === 'grid_rebound') {
+    state.grid_rebound_cycle_anchor_drawdown_pct = null;
+    state.grid_rebound_last_sell_drawdown_pct = null;
+  }
   if (sellStrategy === 'cost_deleverage') state.cost_deleverage_cycle_anchor_price = null;
   return true;
 }
@@ -808,12 +814,27 @@ function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog,
     const cost = avgCost(state);
     if (cost <= 0 || current < cost * (1 + num(inputs.sell_min_profit_pct) / 100)) return;
     const drawdown = drawdownPct(point, inputs);
-    const anchor = gridReboundCycleAnchor(state);
-    for (const [mark, threshold, sellPct] of gridReboundStages(anchor, inputs)) {
-      if (state.sell_marks[mark] || drawdown > threshold + 1e-9) continue;
-      if (sellShares(state, point, state.shares * sellPct / 100, inputs, tradeLog, sellStrategy, threshold, num(inputs.grid_min_sell_amount), mark)) {
-        state.sell_marks[mark] = true;
-        return;
+    const step = num(inputs.grid_rebound_step_pct);
+
+    if (state.grid_rebound_last_sell_drawdown_pct === null || state.grid_rebound_last_sell_drawdown_pct === undefined) {
+      state.grid_rebound_last_sell_drawdown_pct = avgBuyDrawdown(state);
+    }
+
+    const mark = state.grid_rebound_last_sell_drawdown_pct;
+    if (mark <= 0) return;
+    if (drawdown > mark - step + 1e-9) return;
+
+    const sellPct = num(inputs.grid_sell_pct);
+    const stage = `grid_rebound_${drawdown.toFixed(2)}`;
+    if (sellShares(state, point, state.shares * sellPct / 100, inputs, tradeLog, sellStrategy, drawdown, num(inputs.grid_min_sell_amount), stage)) {
+      state.sell_marks[stage] = true;
+      state.grid_rebound_last_sell_drawdown_pct = drawdown;
+
+      if (drawdown <= step + 1e-9 && state.shares > 0) {
+        if (num(inputs.grid_rebound_cycle_reset)) {
+          state.grid_rebound_last_sell_drawdown_pct = avgBuyDrawdown(state);
+          state.grid_rebound_cycle_anchor_drawdown_pct = null;
+        }
       }
     }
   } else if (sellStrategy === 'cost_deleverage') {
@@ -1160,6 +1181,7 @@ function simulate(task, baseInputs, candidate) {
       lots: [],
       sell_marks: {},
       grid_rebound_cycle_anchor_drawdown_pct: null,
+      grid_rebound_last_sell_drawdown_pct: null,
       cost_deleverage_cycle_anchor_price: null,
       last_repair_sell_trade_index: null,
       last_cost_deleverage_sell_trade_index: null,

@@ -245,7 +245,7 @@ const packet = {
   sell_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...sellFields],
   candidate_schema: ['candidate_id', 'buy_variant_id', 'sell_variant_id'],
   buy_variants: [[0, 'buy:equal', 'equal_slice', 10, 100, null, null, null, null, null, null, null, null, null]],
-  sell_variants: [[0, 'sell:grid', 'grid_rebound', 0, null, null, 5, 10, 15, 0, null, null, null, null, null, null, null, false, 0, 0, null]],
+  sell_variants: [[0, 'sell:grid', 'grid_rebound', 0, null, null, 5, 15, 10, 15, 0, 0, null, null, null, null, null, null, null, false, 0, 0, null]],
   candidate_rows: [[0, 0, 0]],
   include_trades: true
 };
@@ -273,11 +273,9 @@ const packet = {
         self.assertEqual(
             json.loads(completed.stdout),
             [
-                ["2025-01-03", "grid_1", 45, 15],
-                ["2025-01-04", "grid_2", 40, 12.75],
-                ["2025-01-05", "grid_3", 35, 10.8375],
-                ["2025-01-06", "grid_4", 30, 9.211875],
-                ["2025-01-07", "grid_5", 25, 7.830094],
+                ["2025-01-03", "grid_rebound_45.00", 44.99999999999999, 10],
+                ["2025-01-04", "grid_rebound_40.00", 40, 9],
+                ["2025-01-05", "grid_rebound_0.00", 0, 8.1],
             ],
         )
 
@@ -622,7 +620,7 @@ const buyFields = [
 const sellFields = [
   'sell_min_profit_pct', 'repair_sell_cooldown_days', 'repair_stage_sell_pct',
   'grid_rebound_step_pct', 'grid_sell_pct', 'grid_first_sell_pct', 'grid_second_sell_pct',
-  'grid_min_sell_amount', 'cost_first_profit_pct', 'cost_second_profit_pct',
+  'grid_min_sell_amount', 'grid_rebound_cycle_reset', 'cost_first_profit_pct', 'cost_second_profit_pct',
   'cost_third_profit_pct', 'cost_first_sell_pct', 'cost_second_sell_pct',
   'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
   'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct',
@@ -707,9 +705,9 @@ const packet = {
         self.assertEqual(
             sells,
             [
-                ("2025-01-03", "grid_1"),
-                ("2025-01-04", "grid_2"),
-                ("2025-01-06", "grid_1"),
+                ("2025-01-03", "grid_rebound_5.00"),
+                ("2025-01-04", "grid_rebound_0.00"),
+                ("2025-01-06", "grid_rebound_5.00"),
             ],
         )
         self.assertEqual([trade["date"] for trade in rearm_buys], ["2025-01-05"])
