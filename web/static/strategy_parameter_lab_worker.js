@@ -817,14 +817,8 @@ function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog,
     const step = num(inputs.grid_rebound_step_pct);
 
     const deepestBuy = Math.max(...state.lots.filter((lot) => lot.remaining_shares > 0).map((lot) => num(lot.buy_drawdown_pct)), 0);
-    const currentLotCount = state.lots.filter((lot) => lot.remaining_shares > 0).length;
-    const lastLotCount = state.grid_rebound_last_sell_lot_count || 0;
     if (state.grid_rebound_last_sell_drawdown_pct === null || state.grid_rebound_last_sell_drawdown_pct === undefined) {
       state.grid_rebound_last_sell_drawdown_pct = deepestBuy;
-      state.grid_rebound_last_sell_lot_count = currentLotCount;
-    } else if (currentLotCount > lastLotCount && deepestBuy > state.grid_rebound_last_sell_drawdown_pct) {
-      state.grid_rebound_last_sell_drawdown_pct = deepestBuy;
-      state.grid_rebound_last_sell_lot_count = currentLotCount;
     }
 
     const mark = state.grid_rebound_last_sell_drawdown_pct;
@@ -836,7 +830,6 @@ function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog,
     if (sellShares(state, point, state.shares * sellPct / 100, inputs, tradeLog, sellStrategy, drawdown, num(inputs.grid_min_sell_amount), stage)) {
       state.sell_marks[stage] = true;
       state.grid_rebound_last_sell_drawdown_pct = drawdown;
-      state.grid_rebound_last_sell_lot_count = state.lots.filter((lot) => lot.remaining_shares > 0).length;
     }
   } else if (sellStrategy === 'cost_deleverage') {
     if (num(inputs.cost_deleverage_cooldown_days) > 0 && state.last_cost_deleverage_sell_trade_index !== null && tradeIndex - state.last_cost_deleverage_sell_trade_index < num(inputs.cost_deleverage_cooldown_days)) return;
