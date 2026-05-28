@@ -255,6 +255,7 @@ class SymbolState:
     buy_rearm_anchor_drawdown_pct: float | None = None
     grid_rebound_cycle_anchor_drawdown_pct: float | None = None
     grid_rebound_last_sell_drawdown_pct: float | None = None
+    grid_rebound_last_sell_lot_count: int = 0
 
 
 def parse_date_range(start_raw: str | None, end_raw: str | None) -> tuple[date, date]:
@@ -3196,10 +3197,16 @@ def _execute_position_grid_rebound_sells(
     drawdown_pct = point_drawdown_pct(point, inputs)
     step = float(inputs.grid_rebound_step_pct)
 
-    # Fix: track highest avgBuyDrawdown so mark rises with deeper buys.
-    current_avg_buy = _avg_buy_drawdown_pct(state)
-    if state.grid_rebound_last_sell_drawdown_pct is None or current_avg_buy > state.grid_rebound_last_sell_drawdown_pct:
-        state.grid_rebound_last_sell_drawdown_pct = current_avg_buy
+    # Fix: track deepest buy drawdown, only update mark when new buys happen.
+    current_deepest = _deepest_buy_drawdown_pct(state)
+    current_lot_count = sum(1 for lot in state.lots if lot.remaining_shares > 0) if state.lots else 0
+    last_lot_count = state.grid_rebound_last_sell_lot_count
+    if state.grid_rebound_last_sell_drawdown_pct is None:
+        state.grid_rebound_last_sell_drawdown_pct = current_deepest
+        state.grid_rebound_last_sell_lot_count = current_lot_count
+    elif current_lot_count > last_lot_count and current_deepest > state.grid_rebound_last_sell_drawdown_pct:
+        state.grid_rebound_last_sell_drawdown_pct = current_deepest
+        state.grid_rebound_last_sell_lot_count = current_lot_count
 
     mark = state.grid_rebound_last_sell_drawdown_pct
     if mark <= 0:
@@ -3228,13 +3235,7 @@ def _execute_position_grid_rebound_sells(
         state.sell_marks.add(sell_stage)
 
         state.grid_rebound_last_sell_drawdown_pct = drawdown_pct
-
-        # Cycle boundary: when drawdown nears zero, reset or exhaust.
-        if drawdown_pct <= step + 1e-9 and state.shares > 0:
-            if inputs.grid_rebound_cycle_reset:
-                state.grid_rebound_last_sell_drawdown_pct = _avg_buy_drawdown_pct(state)
-                state.grid_rebound_cycle_anchor_drawdown_pct = None
-            # Off: mark stays small, mark - step < 0, so no further sells until rearm.
+        state.grid_rebound_last_sell_lot_count = sum(1 for lot in state.lots if lot.remaining_shares > 0) if state.lots else 0
 
 
 def _grid_rebound_cycle_anchor_drawdown_pct(state: SymbolState) -> float:
@@ -3473,6 +3474,11 @@ def _avg_buy_drawdown_pct(state: SymbolState) -> float:
     weighted_drawdown = sum(lot.remaining_shares * lot.buy_drawdown_pct for lot in state.lots)
     total_shares = sum(lot.remaining_shares for lot in state.lots)
     return weighted_drawdown / total_shares if total_shares > 0 else 0.0
+
+
+def _deepest_buy_drawdown_pct(state: SymbolState) -> float:
+    active_lots = [lot for lot in state.lots if lot.remaining_shares > 0]
+    return max((lot.buy_drawdown_pct for lot in active_lots), default=0.0)
 
 
 def _sellable_shares(state: SymbolState, requested_shares: float, inputs: StrategyInputs) -> float:
