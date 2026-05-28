@@ -816,8 +816,9 @@ function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog,
     const drawdown = drawdownPct(point, inputs);
     const step = num(inputs.grid_rebound_step_pct);
 
-    if (state.grid_rebound_last_sell_drawdown_pct === null || state.grid_rebound_last_sell_drawdown_pct === undefined) {
-      state.grid_rebound_last_sell_drawdown_pct = avgBuyDrawdown(state);
+    const currentAvgBuy = avgBuyDrawdown(state);
+    if (state.grid_rebound_last_sell_drawdown_pct === null || state.grid_rebound_last_sell_drawdown_pct === undefined || currentAvgBuy > state.grid_rebound_last_sell_drawdown_pct) {
+      state.grid_rebound_last_sell_drawdown_pct = currentAvgBuy;
     }
 
     const mark = state.grid_rebound_last_sell_drawdown_pct;

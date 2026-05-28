@@ -3196,9 +3196,10 @@ def _execute_position_grid_rebound_sells(
     drawdown_pct = point_drawdown_pct(point, inputs)
     step = float(inputs.grid_rebound_step_pct)
 
-    # Initialize mark on first sell opportunity after build or rearm.
-    if state.grid_rebound_last_sell_drawdown_pct is None:
-        state.grid_rebound_last_sell_drawdown_pct = _avg_buy_drawdown_pct(state)
+    # Fix: track highest avgBuyDrawdown so mark rises with deeper buys.
+    current_avg_buy = _avg_buy_drawdown_pct(state)
+    if state.grid_rebound_last_sell_drawdown_pct is None or current_avg_buy > state.grid_rebound_last_sell_drawdown_pct:
+        state.grid_rebound_last_sell_drawdown_pct = current_avg_buy
 
     mark = state.grid_rebound_last_sell_drawdown_pct
     if mark <= 0:
