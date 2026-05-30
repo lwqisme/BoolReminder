@@ -86,7 +86,7 @@ SELL_PARAMETER_FIELDS = (
 
 PARAMETER_LAB_BUY_VARIANT_SCHEMA = ("variant_id", "variant_key", "strategy_key", *BUY_PARAMETER_FIELDS)
 PARAMETER_LAB_SELL_VARIANT_SCHEMA = ("variant_id", "variant_key", "strategy_key", *SELL_PARAMETER_FIELDS)
-PARAMETER_LAB_CANDIDATE_SCHEMA = ("candidate_id", "buy_variant_id", "sell_variant_id")
+PARAMETER_LAB_CANDIDATE_SCHEMA = ("candidate_id", "buy_variant_id", "sell_variant_id", "candidate_key")
 
 
 @dataclass(frozen=True)
@@ -341,7 +341,7 @@ def strategy_parameter_lab_manifest_payload(
             sell_variant_id = len(sell_variants)
             sell_variant_ids[sell_variant.variant_key] = sell_variant_id
             sell_variants.append(_parameter_lab_sell_variant_row(sell_variant_id, sell_variant))
-        candidate_rows.append([candidate_id, buy_variant_id, sell_variant_id])
+        candidate_rows.append([candidate_id, buy_variant_id, sell_variant_id, combination.combination_key])
     manifest = {
         "buy_variant_schema": list(PARAMETER_LAB_BUY_VARIANT_SCHEMA),
         "sell_variant_schema": list(PARAMETER_LAB_SELL_VARIANT_SCHEMA),

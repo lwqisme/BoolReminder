@@ -229,7 +229,7 @@ class StrategyParameterRegistryTest(unittest.TestCase):
             StrategyInputs(),
         )
 
-        self.assertEqual(manifest["candidate_schema"], ["candidate_id", "buy_variant_id", "sell_variant_id"])
+        self.assertEqual(manifest["candidate_schema"], ["candidate_id", "buy_variant_id", "sell_variant_id", "candidate_key"])
         self.assertEqual(len(manifest["candidate_rows"]), len(candidates))
         self.assertLess(len(manifest["buy_variants"]), len(candidates))
         self.assertLess(len(manifest["sell_variants"]), len(candidates))

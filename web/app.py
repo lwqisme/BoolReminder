@@ -270,7 +270,7 @@ def _parameter_lab_variant_schema(*fields: str) -> list[str]:
 
 PARAMETER_LAB_BUY_VARIANT_SCHEMA = _parameter_lab_variant_schema(*BUY_PARAMETER_FIELDS)
 PARAMETER_LAB_SELL_VARIANT_SCHEMA = _parameter_lab_variant_schema(*SELL_PARAMETER_FIELDS)
-PARAMETER_LAB_CANDIDATE_SCHEMA = ["candidate_id", "buy_variant_id", "sell_variant_id"]
+PARAMETER_LAB_CANDIDATE_SCHEMA = ["candidate_id", "buy_variant_id", "sell_variant_id", "candidate_key"]
 
 
 def _compact_parameter_lab_task(task: dict[str, object]) -> dict[str, object]:
