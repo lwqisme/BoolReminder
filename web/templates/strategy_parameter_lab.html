@@ -1607,6 +1607,7 @@
                             <label>每步投入 % (1~50)<div style="display:flex;gap:3px;"><input id="gaB_alloc" type="number" min="1" max="50" step="1" placeholder="1" style="width:50%;"><span>~</span><input id="gaB_allocHi" type="number" min="1" max="50" step="1" placeholder="50" style="width:50%;"></div></label>
                             <label>回弹步长 % (1~30)<div style="display:flex;gap:3px;"><input id="gaB_gStp" type="number" min="1" max="30" step="0.5" placeholder="1" style="width:50%;"><span>~</span><input id="gaB_gStpHi" type="number" min="1" max="30" step="0.5" placeholder="30" style="width:50%;"></div></label>
                             <label>每档卖出 % (5~80)<div style="display:flex;gap:3px;"><input id="gaB_gSel" type="number" min="5" max="80" step="1" placeholder="5" style="width:50%;"><span>~</span><input id="gaB_gSelHi" type="number" min="5" max="80" step="1" placeholder="80" style="width:50%;"></div></label>
+                            <label>网格最小额 $ (0~1000)<div style="display:flex;gap:3px;"><input id="gaB_gMin" type="number" min="0" max="1000" step="10" placeholder="0" style="width:50%;"><span>~</span><input id="gaB_gMinHi" type="number" min="0" max="1000" step="10" placeholder="1000" style="width:50%;"></div></label>
                             <label>最小盈利 % (1~50)<div style="display:flex;gap:3px;"><input id="gaB_mPrf" type="number" min="1" max="50" step="1" placeholder="1" style="width:50%;"><span>~</span><input id="gaB_mPrfHi" type="number" min="1" max="50" step="1" placeholder="50" style="width:50%;"></div></label>
                             <label>修复冷却 天 (0~120)<div style="display:flex;gap:3px;"><input id="gaB_rpCd" type="number" min="0" max="120" step="1" placeholder="0" style="width:50%;"><span>~</span><input id="gaB_rpCdHi" type="number" min="0" max="120" step="1" placeholder="120" style="width:50%;"></div></label>
                         </div>
@@ -3723,6 +3724,8 @@
             } else if (strategyKey === 'grid_rebound') {
                 label = `网格回弹 ${formatCompact(params.grid_rebound_step_pct)}%步长 每档${formatCompact(params.grid_sell_pct ?? params.grid_second_sell_pct)}%卖出 ${formatCompact(params.sell_min_profit_pct ?? baseInputs.sell_min_profit_pct)}%最小盈利`;
                 if (Number(params.grid_rebound_cycle_reset)) label += ` 周期重启${Math.trunc(Number(params.grid_rebound_cycle_reset))}`;
+            } else if (strategyKey === 'price_rise_grid') {
+                label = `价格上涨网格 ${formatCompact(params.grid_rebound_step_pct)}%步长 每档${formatCompact(params.grid_sell_pct ?? params.grid_second_sell_pct)}%卖出 ${formatCompact(params.sell_min_profit_pct ?? baseInputs.sell_min_profit_pct)}%最小盈利`;
             } else if (strategyKey === 'cost_deleverage') {
                 const profits = [params.cost_first_profit_pct, params.cost_second_profit_pct, params.cost_third_profit_pct];
                 const sells = [params.cost_first_sell_pct, params.cost_second_sell_pct, params.cost_third_sell_pct];
@@ -7376,7 +7379,7 @@
             const map = {
                 dcaRe: 'dca_rearm_drawdown_pct', stgRe: 'sell_stage_rearm_drawdown_pct',
                 step: 'step_pct', alloc: 'equal_slice_allocation_pct',
-                gStp: 'grid_rebound_step_pct', gSel: 'grid_sell_pct',
+                gStp: 'grid_rebound_step_pct', gSel: 'grid_sell_pct', gMin: 'grid_min_sell_amount',
                 mPrf: 'sell_min_profit_pct', rpCd: 'repair_sell_cooldown_days'
             };
             const out = {};
@@ -7538,6 +7541,7 @@
                 grid_rebound_step_pct: '回弹步长',
                 grid_sell_pct: '每档卖出',
                 grid_rebound_cycle_reset: '周期重启',
+                grid_min_sell_amount: '网格最小额',
                 sell_min_profit_pct: '最小盈利',
                 repair_sell_cooldown_days: '修复冷却'
             };
@@ -7712,12 +7716,12 @@
                 if (ind.repair_sell_cooldown_days !== undefined && ind.repair_sell_cooldown_days !== null) parts.push('冷却' + formatCompact(Math.trunc(Number(ind.repair_sell_cooldown_days))) + 'd');
                 if (ind.repair_stage_sell_pct !== undefined && ind.repair_stage_sell_pct !== null) parts.push('卖' + formatCompact(ind.repair_stage_sell_pct) + '%');
             }
-            if (sell === 'grid_rebound') {
+            if (sell === 'grid_rebound' || sell === 'price_rise_grid') {
                 if (ind.sell_min_profit_pct !== undefined && ind.sell_min_profit_pct !== null) parts.push('盈利≥' + formatCompact(ind.sell_min_profit_pct) + '%');
                 if (ind.grid_rebound_step_pct !== undefined && ind.grid_rebound_step_pct !== null) parts.push('回弹' + formatCompact(ind.grid_rebound_step_pct) + '%');
                 if (ind.grid_sell_pct !== undefined && ind.grid_sell_pct !== null) parts.push('每档卖' + formatCompact(ind.grid_sell_pct) + '%');
                 if (ind.grid_min_sell_amount !== undefined && ind.grid_min_sell_amount !== null && Number(ind.grid_min_sell_amount) > 0) parts.push('≥$' + formatCompact(ind.grid_min_sell_amount));
-                if (ind.grid_rebound_cycle_reset !== undefined && ind.grid_rebound_cycle_reset !== null && Number(ind.grid_rebound_cycle_reset)) parts.push('周期重启');
+                if (sell === 'grid_rebound' && ind.grid_rebound_cycle_reset !== undefined && ind.grid_rebound_cycle_reset !== null && Number(ind.grid_rebound_cycle_reset)) parts.push('周期重启');
             }
             if (sell === 'cost_deleverage') {
                 const profits = [ind.cost_first_profit_pct, ind.cost_second_profit_pct, ind.cost_third_profit_pct];
