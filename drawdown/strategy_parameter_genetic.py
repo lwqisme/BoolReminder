@@ -119,6 +119,12 @@ _RELEVANT_SELL_FIELDS: dict[str, list[str]] = {
         "grid_min_sell_amount",
         "sell_min_profit_pct",
     ],
+    "price_rise_grid": [
+        "grid_rebound_step_pct",
+        "grid_sell_pct",
+        "grid_min_sell_amount",
+        "sell_min_profit_pct",
+    ],
     "cost_deleverage": [
         "cost_first_profit_pct",
         "cost_second_profit_pct",
