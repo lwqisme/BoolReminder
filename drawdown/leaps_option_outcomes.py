@@ -623,14 +623,45 @@ def _polygon_retry_get(url: str, params: dict[str, object], timeout: int) -> dic
     return {}
 
 
+OUTCOME_CACHE_MAX_AGE_DAYS = 30
+
+
 class OutcomeCache:
-    def __init__(self, cache_dir: Path | None = None, cache_enabled: bool = True):
+    def __init__(self, cache_dir: Path | None = None, cache_enabled: bool = True, max_age_days: int = OUTCOME_CACHE_MAX_AGE_DAYS):
         self.cache_enabled = cache_enabled
         self.cache_dir = cache_dir or ROOT_DIR / "data" / "leaps_option_cache" / "outcomes"
+        self.max_age_days = max_age_days
         self._memory: dict[str, dict[str, object]] = {}
 
     def _path(self, key: str) -> Path:
         return self.cache_dir / f"{_safe_cache_name(key)}.json"
+
+    def _is_stale_file(self, path: Path) -> bool:
+        if self.max_age_days <= 0:
+            return False
+        try:
+            mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            return (datetime.now(timezone.utc) - mtime).days >= self.max_age_days
+        except OSError:
+            return True
+
+    def _try_read_disk(self, key: str) -> dict[str, object] | None:
+        path = self._path(key)
+        if self._is_stale_file(path):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return None
+        payload = _read_json_file(path)
+        if payload is None:
+            return None
+        query = payload.get("query")
+        outcome = payload.get("outcome")
+        if not isinstance(query, dict) or not isinstance(outcome, dict):
+            logger.info("LEAPS option outcome cache ignored", extra={"key": key, "error": "missing fields"})
+            return None
+        return outcome
 
     def read(
         self,
@@ -654,13 +685,8 @@ class OutcomeCache:
                         date=str(signal.get("date") or ""),
                     )
                     return clone_outcome_for_signal(cached, signal)
-                payload = _read_json_file(self._path(key))
-                if payload is None:
-                    continue
-                query = payload.get("query")
-                outcome = payload.get("outcome")
-                if not isinstance(query, dict) or not isinstance(outcome, dict):
-                    logger.info("LEAPS option outcome cache ignored", extra={"key": key, "error": "missing fields"})
+                outcome = self._try_read_disk(key)
+                if outcome is None:
                     continue
                 self._memory[key] = outcome
                 _increment_cache_stat("outcome", "disk_hit")
@@ -727,12 +753,31 @@ class OutcomeCache:
                     skipped_reason=str(outcome.get("skipped_reason") or ""),
                 )
 
+    def purge_stale(self) -> int:
+        count = 0
+        try:
+            for path in self.cache_dir.glob("*.json"):
+                if self._is_stale_file(path):
+                    try:
+                        path.unlink()
+                        count += 1
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+        if count:
+            logger.info("LEAPS option outcome cache purged stale files", extra={"count": count, "max_age_days": self.max_age_days})
+        return count
+
 
 _OUTCOME_CACHE = OutcomeCache()
 
 
+BARS_CONTRACTS_CACHE_MAX_AGE_DAYS = 90
+
+
 class PolygonMonthlyOptionProvider:
-    def __init__(self, api_key: str, timeout: int = 15, cache_dir: Path | None = None, cache_enabled: bool = True):
+    def __init__(self, api_key: str, timeout: int = 15, cache_dir: Path | None = None, cache_enabled: bool = True, max_age_days: int = BARS_CONTRACTS_CACHE_MAX_AGE_DAYS):
         self.api_key = api_key
         self.provider_name = "polygon"
         self.provider_label = "Polygon"
@@ -745,9 +790,19 @@ class PolygonMonthlyOptionProvider:
         self._bars_cache: dict[tuple[str, str, str], list[OptionBar]] = {}
         self._bars_cache_dates: dict[tuple[str, str, str], str] = {}
         self.cache_enabled = cache_enabled
+        self.max_age_days = max_age_days
         self.cache_dir = cache_dir or ROOT_DIR / "data" / "leaps_option_cache"
         self._contracts_cache_dir = self.cache_dir / "contracts"
         self._bars_cache_dir = self.cache_dir / "bars"
+
+    def _is_cache_file_stale(self, path: Path) -> bool:
+        if self.max_age_days <= 0:
+            return False
+        try:
+            mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            return (datetime.now(timezone.utc) - mtime).days >= self.max_age_days
+        except OSError:
+            return True
 
     def _contracts_cache_path(self, underlying: str, as_of: date, start_expiration: date, end_expiration: date) -> Path:
         filename = _safe_cache_name(
@@ -768,6 +823,12 @@ class PolygonMonthlyOptionProvider:
         if not self.cache_enabled:
             return None
         path = self._contracts_cache_path(underlying, as_of, start_expiration, end_expiration)
+        if self._is_cache_file_stale(path):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return None
         payload = _read_json_file(path)
         today = _utc_today()
         if payload is None or not _is_cache_fresh(as_of, payload.get("cache_date"), today):
@@ -828,6 +889,12 @@ class PolygonMonthlyOptionProvider:
         if not self.cache_enabled:
             return None
         path = self._bars_cache_path(ticker)
+        if self._is_cache_file_stale(path):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return None
         payload = _read_json_file(path)
         today = _utc_today()
         if payload is None:
@@ -859,6 +926,26 @@ class PolygonMonthlyOptionProvider:
         _write_json_file(path, payload)
         _increment_cache_stat("bars", "write")
         logger.debug("LEAPS option bars cache written", extra={"ticker": ticker, "path": str(path), "count": len(unique_by_date)})
+
+    def purge_stale(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for label, directory in (("contracts", self._contracts_cache_dir), ("bars", self._bars_cache_dir)):
+            count = 0
+            try:
+                for path in directory.glob("*.json"):
+                    if self._is_cache_file_stale(path):
+                        try:
+                            path.unlink()
+                            count += 1
+                        except OSError:
+                            pass
+            except OSError:
+                pass
+            counts[label] = count
+        total = sum(counts.values())
+        if total:
+            logger.info("LEAPS option provider cache purged stale files", extra={**counts, "max_age_days": self.max_age_days})
+        return counts
 
     def fetch_contracts(self, underlying: str, as_of: date, start_expiration: date, end_expiration: date) -> list[dict[str, object]]:
         cache_key = (underlying, as_of.isoformat(), start_expiration.isoformat(), end_expiration.isoformat())

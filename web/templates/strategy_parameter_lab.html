@@ -5274,12 +5274,6 @@
                 status.classList.add(cellMetricsMismatch(findSourceCell(row, topicKey), entry.cell) ? 'warn' : 'ok');
                 trades.innerHTML = renderCellTradeRows(entry.cell);
                 renderCellTradeChart(entry.cell, getActiveCellLeapsOutcomes(row));
-                autoLoadLeapsOutcomesForChart(row).then(() => {
-                    const reEntry = cellDetailCache.get(cellDetailCacheKey(row, topicKey));
-                    if (reEntry?.status === 'done') {
-                        renderCellTradeChart(reEntry.cell, getActiveCellLeapsOutcomes(row));
-                    }
-                });
             } else {
                 trades.innerHTML = '<tr><td colspan="8">等待 cell 重放。</td></tr>';
                 renderCellTradeChart(null);
