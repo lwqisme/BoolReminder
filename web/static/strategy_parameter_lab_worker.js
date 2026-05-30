@@ -1286,6 +1286,9 @@ function simulate(task, baseInputs, candidate) {
   if (workerState?.include_trades) result.trade_log = tradeLog;
   if (workerState?.include_trades) {
     result.inputs_snapshot = {
+      buy_strategy: candidate.buy_strategy,
+      sell_strategy: candidate.sell_strategy,
+      candidate_key: candidate.key,
       step_pct: inputs.step_pct,
       equal_slice_allocation_pct: inputs.equal_slice_allocation_pct,
       grid_rebound_step_pct: inputs.grid_rebound_step_pct,
@@ -1300,7 +1303,11 @@ function simulate(task, baseInputs, candidate) {
       reserve_position_pct: inputs.reserve_position_pct,
       drawdown_basis: inputs.drawdown_basis,
       initial_cash: inputs.initial_cash,
-      monthly_contribution: inputs.monthly_contribution
+      monthly_contribution: inputs.monthly_contribution,
+      task_start: task.start,
+      task_end: task.end,
+      first_portfolio_value: portfolioValues[0],
+      last_portfolio_value: portfolioValues[portfolioValues.length - 1]
     };
   }
   if (workerState?.include_series) {
