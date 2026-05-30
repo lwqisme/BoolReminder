@@ -626,6 +626,16 @@ def _polygon_retry_get(url: str, params: dict[str, object], timeout: int) -> dic
 OUTCOME_CACHE_MAX_AGE_DAYS = 30
 
 
+def _file_is_stale(path: Path, max_age_days: int) -> bool:
+    if max_age_days <= 0:
+        return False
+    try:
+        mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+        return (datetime.now(timezone.utc) - mtime).days >= max_age_days
+    except OSError:
+        return True
+
+
 class OutcomeCache:
     def __init__(self, cache_dir: Path | None = None, cache_enabled: bool = True, max_age_days: int = OUTCOME_CACHE_MAX_AGE_DAYS):
         self.cache_enabled = cache_enabled
@@ -636,18 +646,9 @@ class OutcomeCache:
     def _path(self, key: str) -> Path:
         return self.cache_dir / f"{_safe_cache_name(key)}.json"
 
-    def _is_stale_file(self, path: Path) -> bool:
-        if self.max_age_days <= 0:
-            return False
-        try:
-            mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
-            return (datetime.now(timezone.utc) - mtime).days >= self.max_age_days
-        except OSError:
-            return True
-
     def _try_read_disk(self, key: str) -> dict[str, object] | None:
         path = self._path(key)
-        if self._is_stale_file(path):
+        if _file_is_stale(path, self.max_age_days):
             try:
                 path.unlink(missing_ok=True)
             except OSError:
@@ -757,7 +758,7 @@ class OutcomeCache:
         count = 0
         try:
             for path in self.cache_dir.glob("*.json"):
-                if self._is_stale_file(path):
+                if _file_is_stale(path, self.max_age_days):
                     try:
                         path.unlink()
                         count += 1
@@ -795,15 +796,6 @@ class PolygonMonthlyOptionProvider:
         self._contracts_cache_dir = self.cache_dir / "contracts"
         self._bars_cache_dir = self.cache_dir / "bars"
 
-    def _is_cache_file_stale(self, path: Path) -> bool:
-        if self.max_age_days <= 0:
-            return False
-        try:
-            mtime = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
-            return (datetime.now(timezone.utc) - mtime).days >= self.max_age_days
-        except OSError:
-            return True
-
     def _contracts_cache_path(self, underlying: str, as_of: date, start_expiration: date, end_expiration: date) -> Path:
         filename = _safe_cache_name(
             f"{underlying}__asof_{as_of.isoformat()}__exp_{start_expiration.isoformat()}_to_{end_expiration.isoformat()}.json"
@@ -823,7 +815,7 @@ class PolygonMonthlyOptionProvider:
         if not self.cache_enabled:
             return None
         path = self._contracts_cache_path(underlying, as_of, start_expiration, end_expiration)
-        if self._is_cache_file_stale(path):
+        if _file_is_stale(path, self.max_age_days):
             try:
                 path.unlink(missing_ok=True)
             except OSError:
@@ -889,7 +881,7 @@ class PolygonMonthlyOptionProvider:
         if not self.cache_enabled:
             return None
         path = self._bars_cache_path(ticker)
-        if self._is_cache_file_stale(path):
+        if _file_is_stale(path, self.max_age_days):
             try:
                 path.unlink(missing_ok=True)
             except OSError:
@@ -933,7 +925,7 @@ class PolygonMonthlyOptionProvider:
             count = 0
             try:
                 for path in directory.glob("*.json"):
-                    if self._is_cache_file_stale(path):
+                    if _file_is_stale(path, self.max_age_days):
                         try:
                             path.unlink()
                             count += 1

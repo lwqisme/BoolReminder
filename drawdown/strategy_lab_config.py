@@ -209,7 +209,7 @@ class StrategyLabConfig:
             score_sell_strategy=_saved_selector(raw, "default_score_sell_strategy", SELL_STRATEGY_LABELS),
             score_return_weight_pct=SCORECARD_RETURN_WEIGHT * 100,
             score_drawdown_weight_pct=SCORECARD_DRAWDOWN_WEIGHT * 100,
-            sell_quality_weight_pct=_read_float(raw, "default_sell_quality_weight_pct", default=0.0),
+            sell_quality_weight_pct=_read_float(raw, "default_sell_quality_weight_pct", 0.0),
             scorecard_portfolio_keys=_valid_scorecard_keys(raw.get("default_scorecard_portfolio_keys")),
             scorecard_periods=_read_scorecard_periods(raw.get("default_scorecard_periods")),
             scan_buy_strategy=_saved_selector(raw, "default_scan_buy_strategy", STRATEGY_LABELS, allow_all=False),
@@ -539,7 +539,7 @@ class StrategyLabConfig:
 
     @property
     def sell_quality_weight(self) -> float:
-        return float(self.sell_quality_weight_pct) / 100.0 if self.sell_quality_weight_pct else 0.0
+        return self.sell_quality_weight_pct / 100.0
 
     def scorecard_period_payloads(self) -> list[dict[str, object]]:
         return [period.to_payload() for period in self.scorecard_periods]
