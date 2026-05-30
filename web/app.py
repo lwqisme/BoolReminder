@@ -10230,6 +10230,7 @@ def _prepare_ga_client_payload(payload: dict[str, object]) -> dict[str, object]:
     _apply_ga_bounds_to_ranges(ga_ranges, custom_bounds)
     ga_payload["ga_parameter_ranges"] = ga_ranges
     ga_payload["payload_schema"] = "ga_client_packet_v1"
+    ga_payload["sell_quality_weight"] = lab_config.sell_quality_weight
 
     try:
         concurrency = int(float(payload.get("parameter_lab_concurrency") or 4))
