@@ -1,4 +1,4 @@
-"""Shared strategy rule helpers for Python simulations and account signals."""
+"""Shared strategy rule helpers for Python simulations."""
 
 from __future__ import annotations
 

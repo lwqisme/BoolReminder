@@ -88,13 +88,6 @@ class ConfigManager:
                 "raw_keep_count": 400,
                 "drawdown_keep_days": 30,
             },
-            "account_signal": {
-                "enabled": False,
-                "timezone": "Asia/Shanghai",
-                "schedule_hours": ["22:00", "22:30", "23:00", "23:30"],
-                "sync_stale_minutes": 60,
-                "email_min_signals": 1,
-            },
             "position_strategy": strategy_lab_default_dict(),
             "schedule": {
                 "timezone": "Asia/Shanghai",
@@ -177,14 +170,6 @@ class ConfigManager:
             self.config.setdefault("trade_sync_cleanup", {})["drawdown_keep_days"] = int(
                 os.getenv("TRADE_SYNC_DRAWDOWN_KEEP_DAYS")
             )
-        if os.getenv("ACCOUNT_SIGNAL_ENABLED"):
-            self.config.setdefault("account_signal", {})["enabled"] = os.getenv("ACCOUNT_SIGNAL_ENABLED", "").lower() in {
-                "1",
-                "true",
-                "yes",
-                "on",
-            }
-    
     def get(self, key_path: str, default: Any = None) -> Any:
         """
         获取配置值，支持点号分隔的路径

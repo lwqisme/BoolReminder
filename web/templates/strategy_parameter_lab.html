@@ -4776,7 +4776,6 @@
                                 <div class="row-actions">
                                     <button type="button" onclick="openRowDetail('${escapeHtml(row.key)}')">参数</button>
                                     <button type="button" onclick="applyParameterRow('${escapeHtml(row.key)}')">应用到主实验室</button>
-                                    <button type="button" onclick="promoteParameterRowToAccountSignal('${escapeHtml(row.key)}')">晋升到真实账户提醒</button>
                                 </div>
                             </td>
                             ${cellHtml}
@@ -6713,29 +6712,6 @@
                 applied_at: new Date().toISOString()
             }));
             window.location.href = '/strategy-lab?apply_parameter_lab=1';
-        }
-        async function promoteCandidateToAccountSignal(candidate) {
-            if (!candidate || typeof candidate !== 'object') {
-                setStatus('Invalid candidate', '缺少可晋升的候选参数。', 2);
-                return;
-            }
-            const note = window.prompt('备注（可留空）') || '';
-            setStatus('Saving candidate', '正在保存真实账户 profile 候选。', 2);
-            const response = await fetch('/api/account-signal/profile-candidates', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ candidate, note, dry_run: false })
-            });
-            const result = await response.json();
-            if (!response.ok || !result.success) {
-                setStatus('Save failed', result.message || 'profile 候选保存失败。', 2);
-                return;
-            }
-            setStatus('Candidate saved', `已加入真实账户候选库：${result.candidate_key}。可到真实账户页面选择股票并启用。`, 100);
-        }
-        function promoteParameterRowToAccountSignal(key) {
-            const row = findRow(key);
-            promoteCandidateToAccountSignal(parameterRowCandidate(row));
         }
         function openCellInLab(rowKey, topicKey) {
             openRowDetail(rowKey, topicKey);

@@ -13,8 +13,6 @@ import pytz
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from config.config_manager import ConfigManager
-from account_signal.config import get_runtime_config
-from account_signal.engine import run_account_signal
 from watchlist_boll_filter import run_analysis_and_notify
 from scheduler.token_refresher import refresh_longbridge_token
 
@@ -63,32 +61,7 @@ class TaskScheduler:
         )
         
         logger.info(f"定时任务已设置: 每天 {hour:02d}:{minute:02d} ({timezone_str}时区) 执行分析")
-        self._setup_account_signal_jobs()
 
-    def _setup_account_signal_jobs(self):
-        """设置真实账户提醒任务。"""
-        account_config = get_runtime_config(self.config_manager)
-        if not account_config.enabled:
-            logger.info("真实账户提醒定时任务未启用")
-            return
-        tz = pytz.timezone(account_config.timezone)
-        for time_text in account_config.schedule_hours:
-            try:
-                hour_raw, minute_raw = str(time_text).split(":", 1)
-                hour = int(hour_raw)
-                minute = int(minute_raw)
-            except (TypeError, ValueError):
-                logger.warning("跳过无效 account_signal 调度时间: %s", time_text)
-                continue
-            self.scheduler.add_job(
-                func=self._run_account_signal_job,
-                trigger=CronTrigger(hour=hour, minute=minute, timezone=tz),
-                id=f"account_signal_{hour:02d}_{minute:02d}",
-                name=f"真实账户提醒 {hour:02d}:{minute:02d}",
-                replace_existing=True,
-            )
-        logger.info("真实账户提醒定时任务已设置: %s (%s)", ", ".join(account_config.schedule_hours), account_config.timezone)
-    
     def _run_analysis_job(self):
         """执行分析任务"""
         if self.is_active_instance and not self.is_active_instance():
@@ -117,29 +90,6 @@ class TaskScheduler:
         except Exception as e:
             logger.error(f"执行分析任务时出错: {e}", exc_info=True)
 
-    def _run_account_signal_job(self):
-        """执行真实账户提醒任务。"""
-        if self.is_active_instance and not self.is_active_instance():
-            logger.warning(f"跳过真实账户提醒任务: 当前实例不是最新实例 ({self.instance_id})")
-            return
-        logger.info("开始执行真实账户提醒任务...")
-        try:
-            result = run_account_signal(
-                config_manager=self.config_manager,
-                dry_run=False,
-                send_email=True,
-                symbols=None,
-                include_debug=False,
-            )
-            logger.info(
-                "真实账户提醒完成: status=%s new_signals=%s email=%s",
-                result.get("status"),
-                len(result.get("new_signals", []) or []),
-                (result.get("email") or {}).get("sent"),
-            )
-        except Exception as e:
-            logger.error(f"执行真实账户提醒任务时出错: {e}", exc_info=True)
-    
     def start(self):
         """启动调度器"""
         self.scheduler.start()
