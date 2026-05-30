@@ -1430,8 +1430,26 @@ async function processBatch(message, workerIndex, runId) {
           });
         }
         let metrics;
+        let verifyResult = null;
         try {
           metrics = simulate(task, workerState.inputs, candidate);
+          if (workerState.include_trades) {
+            const run2 = simulate(task, workerState.inputs, candidate);
+            const run3 = simulate(task, workerState.inputs, candidate);
+            const sameR2 = Math.abs(Number(metrics.return_pct || 0) - Number(run2.return_pct || 0)) < 0.001
+              && Math.abs(Number(metrics.max_drawdown_pct || 0) - Number(run2.max_drawdown_pct || 0)) < 0.001
+              && Number(metrics.trade_count || 0) === Number(run2.trade_count || 0);
+            const sameR3 = Math.abs(Number(metrics.return_pct || 0) - Number(run3.return_pct || 0)) < 0.001
+              && Math.abs(Number(metrics.max_drawdown_pct || 0) - Number(run3.max_drawdown_pct || 0)) < 0.001
+              && Number(metrics.trade_count || 0) === Number(run3.trade_count || 0);
+            verifyResult = {
+              deterministic: sameR2 && sameR3,
+              run1: { ret: metrics.return_pct, dd: metrics.max_drawdown_pct, trades: metrics.trade_count },
+              run2: { ret: run2.return_pct, dd: run2.max_drawdown_pct, trades: run2.trade_count },
+              run3: { ret: run3.return_pct, dd: run3.max_drawdown_pct, trades: run3.trade_count }
+            };
+            diagnosticLog('verify_runs', verifyResult);
+          }
         } catch (error) {
           const context = {
             stage: 'simulate_error',
@@ -1468,6 +1486,9 @@ async function processBatch(message, workerIndex, runId) {
         };
         if (workerState.include_trades && metrics.trade_log) {
           obs.trade_log = metrics.trade_log;
+        }
+        if (verifyResult) {
+          obs._verify = verifyResult;
         }
         observations.push(obs);
         batchCompleted += 1;
