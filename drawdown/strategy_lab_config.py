@@ -209,6 +209,7 @@ class StrategyLabConfig:
             score_sell_strategy=_saved_selector(raw, "default_score_sell_strategy", SELL_STRATEGY_LABELS),
             score_return_weight_pct=SCORECARD_RETURN_WEIGHT * 100,
             score_drawdown_weight_pct=SCORECARD_DRAWDOWN_WEIGHT * 100,
+            sell_quality_weight_pct=_read_float(raw, "default_sell_quality_weight_pct", default=0.0),
             scorecard_portfolio_keys=_valid_scorecard_keys(raw.get("default_scorecard_portfolio_keys")),
             scorecard_periods=_read_scorecard_periods(raw.get("default_scorecard_periods")),
             scan_buy_strategy=_saved_selector(raw, "default_scan_buy_strategy", STRATEGY_LABELS, allow_all=False),
@@ -411,7 +412,7 @@ class StrategyLabConfig:
             * 100.0,
             sell_quality_weight_pct=_read_float(
                 payload, "sell_quality_weight_pct",
-                fallback=base_config.sell_quality_weight_pct,
+                default=base_config.sell_quality_weight_pct,
             ),
             scorecard_portfolio_keys=_valid_scorecard_keys(
                 payload.get("scorecard_portfolio_keys"),
@@ -598,6 +599,7 @@ class StrategyLabConfig:
             "default_score_sell_strategy": self.score_sell_strategy,
             "default_score_return_weight_pct": SCORECARD_RETURN_WEIGHT * 100,
             "default_score_drawdown_weight_pct": SCORECARD_DRAWDOWN_WEIGHT * 100,
+            "default_sell_quality_weight_pct": self.sell_quality_weight_pct,
             "default_scorecard_portfolio_keys": list(self.scorecard_portfolio_keys),
             "default_scorecard_periods": self.scorecard_period_payloads(),
             "default_scan_buy_strategy": self.scan_buy_strategy,
