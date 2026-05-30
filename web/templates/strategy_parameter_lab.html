@@ -1511,6 +1511,7 @@
                         <label>网格步长 %<span class="param-help" data-tooltip="网格回弹卖出的档位间距。以平均买入回撤为基准，价格向上修复一个步长触发第一档，再修复一个步长触发下一档。">?</span><input id="gridReboundStep" type="number" step="0.5" value="{{ default_config.default_grid_rebound_step_pct }}"></label>
                         <label>网格每档 %<span class="param-help" data-tooltip="网格回弹每个档位触发时卖出的当前可卖仓位比例。所有网格档位使用统一的比例。">?</span><input id="gridSellPct" type="number" step="1" value="{{ default_config.default_grid_sell_pct }}"></label>
                         <label>网格最小额<span class="param-help" data-tooltip="单次网格卖出金额低于此 USD 门槛时跳过该笔交易。设为 0 表示不限制最小卖出额。">?</span><input id="gridMinSellAmount" type="number" step="10" value="{{ default_config.default_grid_min_sell_amount }}"></label>
+                        <label>卖出质量权重 %<span class="param-help" data-tooltip="卖出质量在总评分中的权重百分比。0=纯按收益排序，值越大卖出质量（卖点盈利、卖出回撤、资金复用、现金利用率）影响越大。最大 50%。">?</span><input id="sellQualityWeightPct" type="number" step="5" min="0" max="50" value="{{ default_config.default_sell_quality_weight_pct }}"></label>
                         <label>周期重启<span class="param-help" data-tooltip="网格回弹卖到回撤接近 0 时是否自动开启新一轮。0=卖完等下次买入再卖，1=自动重置继续卖。">?</span><input id="gridReboundCycleReset" type="number" step="1" min="0" max="1" value="0"></label>
                         <label>成本一档盈利<span class="param-help" data-tooltip="成本去杠杆第一档盈利阈值，按当前剩余持仓平均成本计算。盈利达到此百分比时触发第一档卖出。">?</span><input id="costFirstProfitPct" type="number" step="0.5" value="{{ default_config.default_cost_first_profit_pct }}"></label>
                         <label>成本二档盈利<span class="param-help" data-tooltip="成本去杠杆第二档盈利阈值，按当前剩余持仓平均成本计算。必须不低于第一档。">?</span><input id="costSecondProfitPct" type="number" step="0.5" value="{{ default_config.default_cost_second_profit_pct }}"></label>
@@ -3041,6 +3042,7 @@
                 score_sell_strategies: selectedValues('sellStrategy'),
                 return_weight: 0.9,
                 drawdown_weight: 0.1,
+                sell_quality_weight_pct: readNumber('sellQualityWeightPct'),
                 scorecard_portfolio_keys: selectedScorecardPortfolioKeys(),
                 scorecard_periods: scorecardPeriodPayload(),
                 targets: readPortfolio(),
@@ -6930,7 +6932,7 @@
         }
 
         function initAutoSaveListeners() {
-            const saveIds = ['start', 'end', 'initialCash', 'monthlyContribution', 'maxDrawdown', 'stepPct', 'equalSliceAllocation', 'tradeFee', 'hkdToUsd', 'reservePosition', 'sellMinProfit', 'repairSellCooldown', 'repairStageSellPct', 'dcaRearmDrawdown', 'sellStageRearmDrawdown', 'gridReboundStep', 'gridSellPct', 'gridMinSellAmount', 'gridReboundCycleReset', 'costFirstProfitPct', 'costSecondProfitPct', 'costThirdProfitPct', 'costFirstSellPct', 'costSecondSellPct', 'costThirdSellPct', 'costDeleverageCooldown', 'costMinSellAmount', 'coreDipInitialCorePct', 'coreDipWeeklyCorePct', 'coreDipCashReservePct', 'coreDipStartDrawdownPct', 'coreDipFullDrawdownPct', 'coreDipTimingMaxDelayDays', 'coreDipTimingRiseThresholdPct', 'coreDipTimingNearLowPct', 'leapsLowCashThreshold', 'leapsMinDrawdown', 'leapsPremiumBudgetCap', 'leapsTargetDteLabel', 'leapsDrawdownGatePct', 'workerCount', 'drawdownBasis', 'coreDipTimingEnabled', 'coreDipTimingFilter'];
+            const saveIds = ['start', 'end', 'initialCash', 'monthlyContribution', 'maxDrawdown', 'stepPct', 'equalSliceAllocation', 'tradeFee', 'hkdToUsd', 'reservePosition', 'sellMinProfit', 'repairSellCooldown', 'repairStageSellPct', 'dcaRearmDrawdown', 'sellStageRearmDrawdown', 'gridReboundStep', 'gridSellPct', 'gridMinSellAmount', 'gridReboundCycleReset', 'costFirstProfitPct', 'costSecondProfitPct', 'costThirdProfitPct', 'costFirstSellPct', 'costSecondSellPct', 'costThirdSellPct', 'costDeleverageCooldown', 'costMinSellAmount', 'coreDipInitialCorePct', 'coreDipWeeklyCorePct', 'coreDipCashReservePct', 'coreDipStartDrawdownPct', 'coreDipFullDrawdownPct', 'coreDipTimingMaxDelayDays', 'coreDipTimingRiseThresholdPct', 'coreDipTimingNearLowPct', 'leapsLowCashThreshold', 'leapsMinDrawdown', 'leapsPremiumBudgetCap', 'leapsTargetDteLabel', 'leapsDrawdownGatePct', 'workerCount', 'drawdownBasis', 'coreDipTimingEnabled', 'coreDipTimingFilter', 'sellQualityWeightPct'];
             saveIds.forEach((id) => {
                 const el = document.getElementById(id);
                 if (el) { el.addEventListener('input', autoSaveParameterLabDefaults); el.addEventListener('change', autoSaveParameterLabDefaults); }

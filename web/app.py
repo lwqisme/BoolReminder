@@ -9861,6 +9861,7 @@ def _run_strategy_score_payload(payload: dict[str, object]) -> dict[str, object]
         sell_strategies=sell_strategies,
         return_weight=return_weight,
         drawdown_weight=drawdown_weight,
+        sell_quality_weight=lab_config.sell_quality_weight,
     )
 
 
@@ -10006,6 +10007,7 @@ def _run_genetic_evolution_payload(payload: dict[str, object]) -> dict[str, obje
         price_points_by_symbol=price_points_by_symbol,
         targets=portfolio_targets,
         base_inputs=base_inputs,
+        sell_quality_weight=lab_config.sell_quality_weight,
     )
 
     # Run GA evolution
@@ -10256,6 +10258,7 @@ def _prepare_strategy_robust_client_payload(payload: dict[str, object]) -> dict[
         top_n=int(payload.get("top_n") or 10),
         return_weight=lab_config.score_weights()[0],
         drawdown_weight=lab_config.score_weights()[1],
+        sell_quality_weight=lab_config.sell_quality_weight,
         core_dip_timing_filter=str(payload.get("core_dip_timing_filter") or "all"),
     )
     try:

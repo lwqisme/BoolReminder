@@ -29,6 +29,7 @@ from drawdown.strategy_rules import (
     sell_stage_rearm_drawdown_pct,
     should_check_sell_after_buy,
 )
+from drawdown.strategy_lab_scoring import _resolve_weights
 
 
 DEFAULT_PORTFOLIO = [
@@ -565,6 +566,7 @@ def run_longbridge_strategy_scorecard(
     investment_universe: Iterable[dict[str, object]] | None = None,
     return_weight: float = SCORECARD_RETURN_WEIGHT,
     drawdown_weight: float = SCORECARD_DRAWDOWN_WEIGHT,
+    sell_quality_weight: float = 0.0,
 ) -> dict[str, object]:
     return_weight, drawdown_weight = _normalize_score_weights(return_weight, drawdown_weight)
     scorecard_portfolios = _resolve_scorecard_portfolios(core_targets, portfolio_keys, investment_universe)
@@ -612,6 +614,7 @@ def run_longbridge_strategy_scorecard(
                 question_result["strategies"],
                 return_weight=return_weight,
                 drawdown_weight=drawdown_weight,
+                sell_quality_weight=sell_quality_weight,
             )
             question_key = f"{portfolio['key']}__{period['key']}"
             questions.append(
@@ -685,13 +688,14 @@ def run_longbridge_strategy_scorecard(
                 "question_count": count,
             }
         )
-    _score_summary_rows(summary_rows, return_weight, drawdown_weight)
+    _score_summary_rows(summary_rows, return_weight, drawdown_weight, sell_quality_weight)
     summary_rows.sort(key=lambda item: item["score"], reverse=True)
 
     return {
         "weights": {
             "return": return_weight,
             "drawdown": drawdown_weight,
+            "sell_quality": sell_quality_weight,
         },
         "range": {
             "start": start_date.isoformat(),
@@ -845,6 +849,7 @@ def run_longbridge_robust_leaderboard(
     top_n: int = 10,
     return_weight: float = SCORECARD_RETURN_WEIGHT,
     drawdown_weight: float = SCORECARD_DRAWDOWN_WEIGHT,
+    sell_quality_weight: float = 0.0,
     core_dip_timing_filter: str = "all",
     control_checker: Callable[[], None] | None = None,
 ) -> dict[str, object]:
@@ -878,9 +883,10 @@ def run_longbridge_robust_leaderboard(
         candidates,
         return_weight=return_weight,
         drawdown_weight=drawdown_weight,
+        sell_quality_weight=sell_quality_weight,
         control_checker=control_checker,
     )
-    _score_robust_summary_like_scorecard(rows, return_weight, drawdown_weight)
+    _score_robust_summary_like_scorecard(rows, return_weight, drawdown_weight, sell_quality_weight)
     leaderboard = sorted(rows, key=lambda item: item["robust_score"], reverse=True)[: max(1, int(top_n))]
     simulation_counts = {
         "total": len(tasks) * len(candidates),
@@ -897,6 +903,7 @@ def run_longbridge_robust_leaderboard(
             "weights": {
                 "return": return_weight,
                 "drawdown": drawdown_weight,
+                "sell_quality": sell_quality_weight,
             },
             "parameter_grid": _robust_parameter_grid_payload(inputs),
             "score_formula": "90% return + 10% drawdown",
@@ -935,6 +942,7 @@ def prepare_robust_leaderboard_packet(
     top_n: int = 10,
     return_weight: float = SCORECARD_RETURN_WEIGHT,
     drawdown_weight: float = SCORECARD_DRAWDOWN_WEIGHT,
+    sell_quality_weight: float = 0.0,
     core_dip_timing_filter: str = "all",
 ) -> dict[str, object]:
     """Prepare all market data and candidates for browser-side robust scoring."""
@@ -974,6 +982,7 @@ def prepare_robust_leaderboard_packet(
             "weights": {
                 "return": return_weight,
                 "drawdown": drawdown_weight,
+                "sell_quality": sell_quality_weight,
             },
             "parameter_grid": _robust_parameter_grid_payload(inputs),
             "top_n": int(top_n),
@@ -1849,6 +1858,7 @@ def _score_robust_candidates(
     *,
     return_weight: float,
     drawdown_weight: float,
+    sell_quality_weight: float = 0.0,
     control_checker: Callable[[], None] | None = None,
 ) -> list[dict[str, object]]:
     observations_by_key: dict[str, list[dict[str, object]]] = {
@@ -1964,6 +1974,7 @@ def _score_robust_candidates(
             observations,
             return_weight=return_weight,
             drawdown_weight=drawdown_weight,
+            sell_quality_weight=sell_quality_weight,
         )
         for observation in observations:
             observations_by_key[str(observation["candidate"]["key"])].append(observation)
@@ -1972,7 +1983,7 @@ def _score_robust_candidates(
         _aggregate_robust_candidate(candidate, observations_by_key[str(candidate["key"])])
         for candidate in candidates
     ]
-    _score_robust_summary_like_scorecard(rows, return_weight, drawdown_weight)
+    _score_robust_summary_like_scorecard(rows, return_weight, drawdown_weight, sell_quality_weight)
     return rows
 
 
@@ -1995,13 +2006,17 @@ def _score_robust_task_observations(
     *,
     return_weight: float,
     drawdown_weight: float,
+    sell_quality_weight: float = 0.0,
 ) -> None:
+    eff_return, eff_drawdown, eff_sq = _resolve_weights(return_weight, drawdown_weight, sell_quality_weight)
     returns = [float(item["return_pct"]) for item in observations]
     inverse_drawdowns = [-float(item["max_drawdown_pct"]) for item in observations]
+    sell_qualities = [float(item.get("sell_quality_score", 0.0)) for item in observations]
     for item in observations:
         return_score = _normalize_bigger_better(float(item["return_pct"]), returns) * 100.0
         drawdown_score = _normalize_bigger_better(-float(item["max_drawdown_pct"]), inverse_drawdowns) * 100.0
-        item["task_score"] = return_score * return_weight + drawdown_score * drawdown_weight
+        sell_quality_norm = _normalize_bigger_better(float(item.get("sell_quality_score", 0.0)), sell_qualities) * 100.0
+        item["task_score"] = return_score * eff_return + drawdown_score * eff_drawdown + sell_quality_norm * eff_sq
     ranked = sorted(observations, key=lambda item: item["task_score"], reverse=True)
     for index, item in enumerate(ranked, start=1):
         item["task_rank"] = index
@@ -2038,13 +2053,17 @@ def _score_robust_summary_like_scorecard(
     rows: list[dict[str, object]],
     return_weight: float,
     drawdown_weight: float,
+    sell_quality_weight: float = 0.0,
 ) -> None:
+    eff_return, eff_drawdown, eff_sq = _resolve_weights(return_weight, drawdown_weight, sell_quality_weight)
     returns = [float(row["avg_return_pct"]) for row in rows]
     drawdowns = [float(row["avg_drawdown_pct"]) for row in rows]
+    sell_qualities = [float(row.get("avg_sell_quality_score", 0.0)) for row in rows]
     for row in rows:
         return_score = _normalize_bigger_better(float(row["avg_return_pct"]), returns) * 100.0
         drawdown_score = _normalize_bigger_better(float(row["avg_drawdown_pct"]), drawdowns) * 100.0
-        score = return_score * return_weight + drawdown_score * drawdown_weight
+        sell_quality_norm = _normalize_bigger_better(float(row.get("avg_sell_quality_score", 0.0)), sell_qualities) * 100.0
+        score = return_score * eff_return + drawdown_score * eff_drawdown + sell_quality_norm * eff_sq
         row["return_score"] = return_score
         row["drawdown_score"] = drawdown_score
         row["mean_score"] = score
@@ -2329,26 +2348,33 @@ def _score_summary_rows(
     rows: list[dict[str, object]],
     return_weight: float,
     drawdown_weight: float,
+    sell_quality_weight: float = 0.0,
 ) -> None:
     return_weight, drawdown_weight = _normalize_score_weights(return_weight, drawdown_weight)
+    eff_return, eff_drawdown, eff_sq = _resolve_weights(return_weight, drawdown_weight, sell_quality_weight)
     returns = [float(row["avg_return_pct"]) for row in rows]
     drawdowns = [float(row["avg_drawdown_pct"]) for row in rows]
+    sell_qualities = [float(row.get("avg_sell_quality_score", 0.0)) for row in rows]
     for row in rows:
         return_score = _normalize_bigger_better(float(row["avg_return_pct"]), returns)
         drawdown_score = _normalize_bigger_better(float(row["avg_drawdown_pct"]), drawdowns)
+        sell_quality_norm = _normalize_bigger_better(float(row.get("avg_sell_quality_score", 0.0)), sell_qualities)
         row["return_score"] = return_score * 100.0
         row["drawdown_score"] = drawdown_score * 100.0
-        row["score"] = (return_score * return_weight + drawdown_score * drawdown_weight) * 100.0
+        row["score"] = (return_score * eff_return + drawdown_score * eff_drawdown + sell_quality_norm * eff_sq) * 100.0
 
 
 def _score_question_strategies(
     strategies: list[dict[str, object]],
     return_weight: float = SCORECARD_RETURN_WEIGHT,
     drawdown_weight: float = SCORECARD_DRAWDOWN_WEIGHT,
+    sell_quality_weight: float = 0.0,
 ) -> list[dict[str, object]]:
     return_weight, drawdown_weight = _normalize_score_weights(return_weight, drawdown_weight)
+    eff_return, eff_drawdown, eff_sq = _resolve_weights(return_weight, drawdown_weight, sell_quality_weight)
     returns = [float(strategy["metrics"]["return_pct"]) for strategy in strategies]
     drawdowns = [float(strategy["metrics"]["max_drawdown_pct"]) for strategy in strategies]
+    sell_qualities = [float(strategy["metrics"].get("sell_quality_score", 0.0)) for strategy in strategies]
     scored: list[dict[str, object]] = []
     for strategy in strategies:
         metrics = strategy["metrics"]
@@ -2356,7 +2382,8 @@ def _score_question_strategies(
         drawdown_pct = float(metrics["max_drawdown_pct"])
         return_score = _normalize_bigger_better(return_pct, returns)
         drawdown_score = _normalize_bigger_better(drawdown_pct, drawdowns)
-        score = (return_score * return_weight + drawdown_score * drawdown_weight) * 100.0
+        sell_quality_norm = _normalize_bigger_better(float(metrics.get("sell_quality_score", 0.0)), sell_qualities)
+        score = (return_score * eff_return + drawdown_score * eff_drawdown + sell_quality_norm * eff_sq) * 100.0
         scored.append(
             {
                 "key": strategy["key"],

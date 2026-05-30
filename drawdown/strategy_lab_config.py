@@ -70,6 +70,7 @@ DEFAULT_STRATEGY_LAB_DEFAULTS: dict[str, object] = {
     "default_score_sell_strategy": "all",
     "default_score_return_weight_pct": 90,
     "default_score_drawdown_weight_pct": 10,
+    "default_sell_quality_weight_pct": 0,
     "default_scorecard_portfolio_keys": [],
     "default_scorecard_periods": [],
     "default_scan_buy_strategy": "pyramid_3",
@@ -407,6 +408,10 @@ class StrategyLabConfig:
                 base_config.score_drawdown_weight_pct / 100.0,
             )
             * 100.0,
+            sell_quality_weight_pct=_read_float(
+                payload, "sell_quality_weight_pct",
+                fallback=base_config.sell_quality_weight_pct,
+            ),
             scorecard_portfolio_keys=_valid_scorecard_keys(
                 payload.get("scorecard_portfolio_keys"),
                 fallback=base_config.scorecard_portfolio_keys,

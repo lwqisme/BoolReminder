@@ -43,6 +43,7 @@ from drawdown.position_strategy import (
 from drawdown.strategy_lab_scoring import (
     DEFAULT_RETURN_WEIGHT,
     DEFAULT_DRAWDOWN_WEIGHT,
+    _resolve_weights,
 )
 from drawdown.strategy_parameter_registry import (
     BUY_PARAMETER_FIELDS,
@@ -421,15 +422,12 @@ def default_fitness_fn(
     *,
     return_weight: float = DEFAULT_RETURN_WEIGHT,
     drawdown_weight: float = DEFAULT_DRAWDOWN_WEIGHT,
+    sell_quality_weight: float = 0.0,
 ) -> float:
-    """Default fitness: weighted combination of return and drawdown control.
-
-    Requires simulate_portfolio to be imported at the call site to avoid
-    circular imports. This is a pure utility that computes fitness from
-    simulation results already available.
-    """
+    """Default fitness: weighted combination of return, drawdown, and sell quality."""
     from drawdown.position_strategy import simulate_portfolio
 
+    eff_return, eff_drawdown, eff_sq = _resolve_weights(return_weight, drawdown_weight, sell_quality_weight)
     params = individual.to_params_dict()
     individual_inputs = _apply_params_to_inputs(base_inputs, individual.buy_strategy, individual.sell_strategy, params)
     result = simulate_portfolio(
@@ -445,10 +443,8 @@ def default_fitness_fn(
         metrics = strategy_result.get("metrics", {}) if isinstance(strategy_result, dict) else {}
         return_pct = float(metrics.get("return_pct", 0) or 0)
         max_dd = float(metrics.get("max_drawdown_pct", 0) or 0)
-        # Fitness: higher return is better, less drawdown (more negative) is worse
-        # Normalize drawdown to positive: max_drawdown_pct is negative (e.g. -30)
-        # So -max_dd is positive (e.g. 30 means 30% drawdown control)
-        fitness = return_pct * return_weight + max(-max_dd, 0) * drawdown_weight
+        sq = float(metrics.get("sell_quality_score", 0) or 0)
+        fitness = return_pct * eff_return + max(-max_dd, 0) * eff_drawdown + sq * eff_sq
         return fitness
     return 0.0
 
@@ -462,6 +458,7 @@ def make_fitness_fn(
     *,
     return_weight: float = DEFAULT_RETURN_WEIGHT,
     drawdown_weight: float = DEFAULT_DRAWDOWN_WEIGHT,
+    sell_quality_weight: float = 0.0,
 ) -> Callable[[Individual], float]:
     """Create a fitness function closure for the given market data and inputs.
 
@@ -470,6 +467,8 @@ def make_fitness_fn(
     same population by normalized fitness.
     """
     from drawdown.position_strategy import simulate_portfolio
+
+    eff_return, eff_drawdown, eff_sq = _resolve_weights(return_weight, drawdown_weight, sell_quality_weight)
 
     def evaluate(individual: Individual) -> float:
         params = individual.to_params_dict()
@@ -489,7 +488,8 @@ def make_fitness_fn(
             metrics = strategy_result.get("metrics", {}) if isinstance(strategy_result, dict) else {}
             return_pct = float(metrics.get("return_pct", 0) or 0)
             max_dd = float(metrics.get("max_drawdown_pct", 0) or 0)
-            fitness = return_pct * return_weight + max(-max_dd, 0) * drawdown_weight
+            sq = float(metrics.get("sell_quality_score", 0) or 0)
+            fitness = return_pct * eff_return + max(-max_dd, 0) * eff_drawdown + sq * eff_sq
             return fitness
         return 0.0
 
