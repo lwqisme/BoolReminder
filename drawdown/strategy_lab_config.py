@@ -145,6 +145,7 @@ class StrategyLabConfig:
     score_sell_strategy: str = "all"
     score_return_weight_pct: float = 90.0
     score_drawdown_weight_pct: float = 10.0
+    sell_quality_weight_pct: float = 0.0
     scorecard_portfolio_keys: list[str] = field(default_factory=list)
     scorecard_periods: list[ScorecardPeriodConfig] = field(default_factory=list)
     scan_buy_strategy: str = "pyramid_3"
