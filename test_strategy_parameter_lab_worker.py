@@ -2400,5 +2400,92 @@ context.renderTopGroupLeapsOptionControls = () => {};
         self.assertIn("200-300D 月期" + "权收益", html)
 
 
+    def test_worker_price_rise_grid_sells_when_price_exceeds_anchor_plus_step(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required")
+
+        script = r"""
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const messages = [];
+const context = {
+  console: { info() {}, warn() {}, error() {} },
+  postMessage(message) { messages.push(message); },
+  performance: { now: () => 0 },
+  setTimeout
+};
+context.self = context;
+vm.createContext(context);
+vm.runInContext(source, context);
+
+const buyFields = [
+  'step_pct', 'equal_slice_allocation_pct', 'core_dip_initial_core_pct',
+  'core_dip_weekly_core_pct', 'core_dip_cash_reserve_pct',
+  'core_dip_start_drawdown_pct', 'core_dip_full_drawdown_pct',
+  'core_dip_timing_enabled', 'core_dip_timing_max_delay_days',
+  'core_dip_timing_rise_threshold_pct', 'core_dip_timing_near_low_pct'
+];
+const sellFields = [
+  'sell_min_profit_pct', 'repair_sell_cooldown_days', 'repair_stage_sell_pct',
+  'grid_rebound_step_pct', 'grid_sell_pct', 'grid_first_sell_pct',
+  'grid_second_sell_pct', 'grid_min_sell_amount', 'grid_rebound_cycle_reset',
+  'cost_first_profit_pct', 'cost_second_profit_pct', 'cost_third_profit_pct',
+  'cost_first_sell_pct', 'cost_second_sell_pct', 'cost_third_sell_pct',
+  'cost_deleverage_cooldown_days', 'sell_allow_same_day_sell', 'cost_min_sell_amount',
+  'dca_rearm_drawdown_pct', 'buy_rearm_mode', 'sell_stage_rearm_drawdown_pct'
+];
+// Price: buy at 100 (ATH=100), then rises to 110 (+10%), then 121 (+10% again)
+// step=10%, sell_pct=50%, expect sells at 110 and 121
+const packet = {
+  run_id: 'price-rise-grid',
+  inputs: {
+    initial_cash: 10000, monthly_contribution: 0, max_drawdown_pct: 60,
+    drawdown_basis: 'ath', trade_fee: 0, hkd_to_usd: 0.128,
+    reserve_position_pct: 0, sell_min_profit_pct: 0,
+    sell_allow_same_day_sell: true, dca_rearm_drawdown_pct: 0,
+    sell_stage_rearm_drawdown_pct: null
+  },
+  tasks: [{
+    key: 't1', portfolio_key: 'p1', portfolio_label: 'P', period_key: 'k',
+    period_label: 'L', start: '2025-01-01', end: '2025-01-04',
+    symbols: ['TEST.US'],
+    targets: [{ symbol: 'TEST.US', weight: 100, name: 'TEST', max_drawdown_pct: 60 }]
+  }],
+  // ATH=200, drops to 100 (-50% drawdown triggers buy), then rises 10%->110, 10%->121
+  market_data: {
+    symbols: {
+      'TEST.US': {
+        dates: ['2025-01-01', '2025-01-02', '2025-01-03', '2025-01-04'],
+        closes: [200, 100, 110, 121]
+      }
+    }
+  },
+  buy_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...buyFields],
+  sell_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...sellFields],
+  candidate_schema: ['candidate_id', 'buy_variant_id', 'sell_variant_id'],
+  // equal_slice buys all-in on day 1 at price 100
+  buy_variants: [[0, 'buy:equal', 'equal_slice', 10, 100, null, null, null, null, null, null, null, null, null]],
+  // price_rise_grid: step=10%, sell_pct=50%
+  sell_variants: [[0, 'sell:rise', 'price_rise_grid', 0, null, null, 10, 50, null, null, null, null, null, null, null, null, null, null, null, false, 0, 0, null]],
+  candidate_rows: [[0, 0, 0]],
+  include_trades: true
+};
+(async () => {
+  await context.initRun(packet, 0, packet.run_id, 1);
+  await context.processBatch({ run_id: packet.run_id, worker_index: 0, batch_id: 'b1', candidate_rows: packet.candidate_rows }, 0, packet.run_id);
+  const done = messages.find((m) => m.type === 'batch_done');
+  const trades = done.rows[0].observations[0].trade_log;
+  const sells = trades.filter((t) => t.action === 'sell').map((t) => t.date);
+  process.stdout.write(JSON.stringify(sells));
+})().catch((e) => { console.error(e); process.exit(1); });
+"""
+        completed = subprocess.run(
+            ["node", "-e", script, str(WORKER_JS)],
+            check=True, capture_output=True, text=True,
+        )
+        self.assertEqual(json.loads(completed.stdout), ["2025-01-03", "2025-01-04"])
+
+
 if __name__ == "__main__":
     unittest.main()

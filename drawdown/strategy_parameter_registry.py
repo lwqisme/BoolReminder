@@ -722,6 +722,27 @@ def _sell_definitions() -> dict[str, StrategyDefinition]:
             },
             compatible_buy_strategies=all_buys,
         ),
+        "price_rise_grid": StrategyDefinition(
+            "price_rise_grid",
+            SELL_STRATEGY_LABELS["price_rise_grid"],
+            "sell",
+            {
+                "grid_rebound_step_pct": 10.0,
+                "grid_sell_pct": 40.0,
+                "grid_min_sell_amount": 200.0,
+                "sell_allow_same_day_sell": False,
+                "buy_rearm_mode": BUY_REARM_MODE_CUMULATIVE,
+            },
+            {
+                "grid_rebound_step_pct": list(ROBUST_GRID_REBOUND_STEPS),
+                "grid_sell_pct": list(ROBUST_GRID_SELLS),
+                "sell_allow_same_day_sell": [False, True],
+                "dca_rearm_drawdown_pct": list(ROBUST_DCA_REARM_DRAWDOWN_VALUES),
+                "buy_rearm_mode": list(BUY_REARM_MODES),
+                "sell_stage_rearm_drawdown_pct": list(ROBUST_SELL_STAGE_REARM_DRAWDOWN_VALUES),
+            },
+            compatible_buy_strategies=all_buys,
+        ),
         "cost_deleverage": StrategyDefinition(
             "cost_deleverage",
             SELL_STRATEGY_LABELS["cost_deleverage"],
@@ -1312,6 +1333,13 @@ def _sell_label(strategy_key: str, params: Mapping[str, object]) -> str:
             f"每档{float(_grid_sell_param(params) or 0):g}%卖出"
             + (f" {float(min_profit):g}%最小盈利" if min_profit is not None else "")
             + (f" 周期重启{int(float(cycle_reset))}" if cycle_reset else "")
+        )
+    elif strategy_key == "price_rise_grid":
+        min_profit = params.get("sell_min_profit_pct")
+        label = (
+            f"价格上涨网格 {float(params.get('grid_rebound_step_pct') or 0):g}%步长 "
+            f"每档{float(_grid_sell_param(params) or 0):g}%卖出"
+            + (f" {float(min_profit):g}%最小盈利" if min_profit is not None else "")
         )
     elif strategy_key == "cost_deleverage":
         profits = [

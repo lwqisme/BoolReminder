@@ -406,6 +406,8 @@ function buildSellLabel(strategyKey, params, labels = {}, baseInputs = {}) {
   } else if (strategyKey === 'grid_rebound') {
     label = `网格回弹 ${formatCompact(params.grid_rebound_step_pct)}%步长 每档${formatCompact(gridSellPct(params))}%卖出 ${formatCompact(params.sell_min_profit_pct ?? baseInputs.sell_min_profit_pct)}%最小盈利`;
     if (num(params.grid_rebound_cycle_reset)) label += ` 周期重启${Math.trunc(num(params.grid_rebound_cycle_reset))}`;
+  } else if (strategyKey === 'price_rise_grid') {
+    label = `价格上涨网格 ${formatCompact(params.grid_rebound_step_pct)}%步长 每档${formatCompact(gridSellPct(params))}%卖出 ${formatCompact(params.sell_min_profit_pct ?? baseInputs.sell_min_profit_pct)}%最小盈利`;
   } else if (strategyKey === 'cost_deleverage') {
     const profits = [
       params.cost_first_profit_pct,
@@ -566,7 +568,7 @@ function recordBuy(state, point, inputs, tradeLog, buyStrategy, sellStrategy, gr
 }
 
 function rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy) {
-  if (!['repair_step', 'grid_rebound', 'cost_deleverage'].includes(sellStrategy)) return false;
+  if (!['repair_step', 'grid_rebound', 'price_rise_grid', 'cost_deleverage'].includes(sellStrategy)) return false;
   if (!Object.keys(state.sell_marks).length) return false;
   const rawThreshold = inputs.sell_stage_rearm_drawdown_pct ?? inputs.dca_rearm_drawdown_pct;
   if (drawdown + 1e-9 < Math.min(Math.max(0, num(rawThreshold)), num(inputs.max_drawdown_pct))) return false;
@@ -574,6 +576,9 @@ function rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy) {
   if (sellStrategy === 'grid_rebound') {
     state.grid_rebound_cycle_anchor_drawdown_pct = null;
     state.grid_rebound_last_sell_drawdown_pct = null;
+  }
+  if (sellStrategy === 'price_rise_grid') {
+    state.price_rise_grid_anchor_price = null;
   }
   if (sellStrategy === 'cost_deleverage') state.cost_deleverage_cycle_anchor_price = null;
   return true;
@@ -835,6 +840,21 @@ function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog,
     if (sellShares(state, point, state.shares * sellPct / 100, inputs, tradeLog, sellStrategy, drawdown, num(inputs.grid_min_sell_amount), stage)) {
       state.sell_marks[stage] = true;
       state.grid_rebound_last_sell_drawdown_pct = drawdown;
+    }
+  } else if (sellStrategy === 'price_rise_grid') {
+    const cost = avgCost(state);
+    if (cost <= 0 || current < cost * (1 + num(inputs.sell_min_profit_pct) / 100)) return;
+    if (state.price_rise_grid_anchor_price === null || state.price_rise_grid_anchor_price === undefined) {
+      state.price_rise_grid_anchor_price = cost;
+    }
+    const anchor = state.price_rise_grid_anchor_price;
+    const step = num(inputs.grid_rebound_step_pct);
+    if (current < anchor * (1 + step / 100) - 1e-9) return;
+    const sellPct = num(inputs.grid_sell_pct);
+    const stage = `price_rise_${current.toFixed(2)}`;
+    if (sellShares(state, point, state.shares * sellPct / 100, inputs, tradeLog, sellStrategy, current, num(inputs.grid_min_sell_amount), stage)) {
+      state.sell_marks[stage] = true;
+      state.price_rise_grid_anchor_price = current;
     }
   } else if (sellStrategy === 'cost_deleverage') {
     if (num(inputs.cost_deleverage_cooldown_days) > 0 && state.last_cost_deleverage_sell_trade_index !== null && tradeIndex - state.last_cost_deleverage_sell_trade_index < num(inputs.cost_deleverage_cooldown_days)) return;
@@ -1181,6 +1201,7 @@ function simulate(task, baseInputs, candidate) {
       sell_marks: {},
       grid_rebound_cycle_anchor_drawdown_pct: null,
       grid_rebound_last_sell_drawdown_pct: null,
+      price_rise_grid_anchor_price: null,
       cost_deleverage_cycle_anchor_price: null,
       last_repair_sell_trade_index: null,
       last_cost_deleverage_sell_trade_index: null,
