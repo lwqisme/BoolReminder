@@ -1307,7 +1307,9 @@ function simulate(task, baseInputs, candidate) {
       task_start: task.start,
       task_end: task.end,
       first_portfolio_value: portfolioValues[0],
-      last_portfolio_value: portfolioValues[portfolioValues.length - 1]
+      last_portfolio_value: portfolioValues[portfolioValues.length - 1],
+      market_data_hash: workerState?.packet?.market_data_hash || '',
+      price_point_count: (task.price_points && task.price_points[Object.keys(task.price_points || {})[0]] || []).length
     };
   }
   if (workerState?.include_series) {
