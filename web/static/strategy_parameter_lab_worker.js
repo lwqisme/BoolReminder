@@ -347,7 +347,7 @@ function buildCandidateKey(buyStrategy, sellStrategy, buyParams, sellParams) {
     parts.push(`c${formatCompact(Math.trunc(num(sellParams.repair_sell_cooldown_days)))}`);
     parts.push(`s${formatCompact(sellParams.repair_stage_sell_pct)}`);
   }
-  if (sellStrategy === 'grid_rebound') {
+  if (sellStrategy === 'grid_rebound' || sellStrategy === 'price_rise_grid') {
     parts.push(`g${formatCompact(sellParams.grid_rebound_step_pct)}`);
     parts.push(`gsell${formatCompact(gridSellPct(sellParams))}`);
     parts.push(`gmin${formatCompact(sellParams.grid_min_sell_amount)}`);

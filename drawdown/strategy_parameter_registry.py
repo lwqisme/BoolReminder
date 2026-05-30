@@ -1275,7 +1275,7 @@ def _candidate_key(
                 f"s{float(sell_params.get('repair_stage_sell_pct') or 0):g}",
             ]
         )
-    if sell_strategy == "grid_rebound":
+    if sell_strategy in ("grid_rebound", "price_rise_grid"):
         cycle_reset = sell_params.get("grid_rebound_cycle_reset")
         parts.extend(
             [

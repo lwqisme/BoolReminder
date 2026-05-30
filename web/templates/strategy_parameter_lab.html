@@ -3673,7 +3673,7 @@
                 parts.push(`c${formatCompact(Math.trunc(Number(sellParams.repair_sell_cooldown_days || 0)))}`);
                 parts.push(`s${formatCompact(sellParams.repair_stage_sell_pct)}`);
             }
-            if (sellStrategy === 'grid_rebound') {
+            if (sellStrategy === 'grid_rebound' || sellStrategy === 'price_rise_grid') {
                 parts.push(`g${formatCompact(sellParams.grid_rebound_step_pct)}`);
                 parts.push(`gsell${formatCompact(sellParams.grid_sell_pct ?? sellParams.grid_second_sell_pct)}`);
                 parts.push(`gmin${formatCompact(sellParams.grid_min_sell_amount)}`);
