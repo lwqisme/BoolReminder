@@ -1308,8 +1308,16 @@ function simulate(task, baseInputs, candidate) {
       task_end: task.end,
       first_portfolio_value: portfolioValues[0],
       last_portfolio_value: portfolioValues[portfolioValues.length - 1],
-      market_data_hash: workerState?.packet?.market_data_hash || '',
-      price_point_count: (task.price_points && task.price_points[Object.keys(task.price_points || {})[0]] || []).length
+      market_data_hash: (workerState?.packet?.market_data?.hash) || '',
+      price_point_count: (task.price_points && task.price_points[Object.keys(task.price_points || {})[0]] || []).length,
+      price_points_hash: (() => {
+        const sym = Object.keys(task.price_points || {})[0];
+        const pts = sym ? task.price_points[sym] : [];
+        if (!pts.length) return '';
+        const sample = pts.slice(0, 5).map(p => `${p.date}:${Number(p.close).toFixed(2)}:${Number(p.drawdown_120).toFixed(6)}`).join('|');
+        const tailSample = pts.length > 5 ? '|...|' + pts.slice(-3).map(p => `${p.date}:${Number(p.close).toFixed(2)}:${Number(p.drawdown_120).toFixed(6)}`).join('|') : '';
+        return `${pts.length}pts:${sample}${tailSample}`;
+      })()
     };
   }
   if (workerState?.include_series) {
