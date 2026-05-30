@@ -983,6 +983,31 @@ def _sell_param_variants(
             inputs,
             value_selection,
         )
+    if strategy_key == "price_rise_grid":
+        variants = [
+            {
+                "grid_rebound_step_pct": float(step),
+                "grid_sell_pct": float(sell_pct),
+                "grid_min_sell_amount": float(inputs.grid_min_sell_amount),
+            }
+            for step in _extended_parameter_values(value_selection, "grid_rebound_step_pct", ROBUST_GRID_REBOUND_STEPS)
+            for sell_pct in _extended_grid_sell_values(value_selection)
+        ]
+        variants = _filter_and_project_param_variants(
+            variants,
+            ("grid_rebound_step_pct", "grid_sell_pct", "grid_min_sell_amount"),
+            inputs,
+            value_selection,
+        )
+        for variant in variants:
+            variant["sell_min_profit_pct"] = float(inputs.sell_min_profit_pct)
+        return _with_rearm_variants(
+            _with_same_day_sell_variants(variants, inputs, value_selection),
+            buy_strategy,
+            strategy_key,
+            inputs,
+            value_selection,
+        )
     if strategy_key == "cost_deleverage":
         profit_field_defaults = {
             "cost_first_profit_pct": [item[0] for item in ROBUST_COST_PROFIT_SETS],

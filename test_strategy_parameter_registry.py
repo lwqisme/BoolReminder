@@ -635,5 +635,15 @@ class StrategyParameterRegistryTest(unittest.TestCase):
         self.assertIsNone(none_candidates[0]["sell_allow_same_day_sell"])
 
 
+    def test_price_rise_grid_candidates_expand_for_equal_slice(self):
+        candidates = expand_strategy_candidate_payloads(
+            buy_strategies=["equal_slice"],
+            sell_strategies=["price_rise_grid"],
+        )
+        self.assertGreater(len(candidates), 0)
+        self.assertTrue(all(c["sell_strategy"] == "price_rise_grid" for c in candidates))
+        self.assertTrue(all(c["grid_rebound_step_pct"] is not None for c in candidates))
+
+
 if __name__ == "__main__":
     unittest.main()
