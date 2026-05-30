@@ -4885,10 +4885,16 @@
             if (entry?.status !== 'done') return `${escapeHtml(topicLabel)} 等待重放。`;
             const replayCell = entry.cell || null;
             const mismatch = cellMetricsMismatch(sourceCell, replayCell);
+            const replayInputs = entry.inputs_snapshot || null;
+            let inputsLine = '';
+            if (mismatch && replayInputs) {
+                inputsLine = `<br><span style="font-size:10px;color:var(--muted);">重放参数: step=${replayInputs.step_pct} alloc=${replayInputs.equal_slice_allocation_pct} grid_step=${replayInputs.grid_rebound_step_pct} grid_sell=${replayInputs.grid_sell_pct} min_profit=${replayInputs.sell_min_profit_pct} same_day=${replayInputs.sell_allow_same_day_sell} max_dd=${replayInputs.max_drawdown_pct} rearm=${replayInputs.dca_rearm_drawdown_pct} rearm_mode=${replayInputs.buy_rearm_mode} sell_rearm=${replayInputs.sell_stage_rearm_drawdown_pct} basis=${replayInputs.drawdown_basis} cash=${replayInputs.initial_cash} monthly=${replayInputs.monthly_contribution}</span>`;
+            }
             return `
                 ${mismatch ? '<strong>不一致: 原 cell 与详情重放指标不同。</strong><br>' : '<strong>一致: 详情使用同一 worker 重放结果。</strong><br>'}
                 原 cell: 收益 ${pct(sourceCell?.return_pct)} / 回撤 ${pct(sourceCell?.max_drawdown_pct)} / 交易 ${number(sourceCell?.trade_count, 0)}
                 · 重放: 收益 ${pct(replayCell?.return_pct)} / 回撤 ${pct(replayCell?.max_drawdown_pct)} / 交易 ${number(replayCell?.trade_count, 0)}
+                ${inputsLine}
             `;
         }
         function renderCellTradeRows(cell) {
@@ -5333,7 +5339,8 @@
                         }], Number(message.elapsed_ms || 0), buildCandidateIndex(packet));
                         const detailRow = scored.rows[0] || null;
                         const detailCell = findSourceCell(detailRow, topicKey) || detailRow?.cells?.[0] || null;
-                        resolve({ row: detailRow, cell: detailCell });
+                        const replayInputs = detailCell?.inputs_snapshot || null;
+                        resolve({ row: detailRow, cell: detailCell, inputs_snapshot: replayInputs });
                     } else if (message.type === 'error' || message.type === 'cancelled') {
                         settled = true;
                         cleanup();

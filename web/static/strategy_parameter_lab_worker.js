@@ -1284,6 +1284,25 @@ function simulate(task, baseInputs, candidate) {
     ...metrics
   };
   if (workerState?.include_trades) result.trade_log = tradeLog;
+  if (workerState?.include_trades) {
+    result.inputs_snapshot = {
+      step_pct: inputs.step_pct,
+      equal_slice_allocation_pct: inputs.equal_slice_allocation_pct,
+      grid_rebound_step_pct: inputs.grid_rebound_step_pct,
+      grid_sell_pct: inputs.grid_sell_pct,
+      sell_min_profit_pct: inputs.sell_min_profit_pct,
+      sell_allow_same_day_sell: inputs.sell_allow_same_day_sell,
+      grid_min_sell_amount: inputs.grid_min_sell_amount,
+      max_drawdown_pct: inputs.max_drawdown_pct,
+      dca_rearm_drawdown_pct: inputs.dca_rearm_drawdown_pct,
+      buy_rearm_mode: inputs.buy_rearm_mode,
+      sell_stage_rearm_drawdown_pct: inputs.sell_stage_rearm_drawdown_pct,
+      reserve_position_pct: inputs.reserve_position_pct,
+      drawdown_basis: inputs.drawdown_basis,
+      initial_cash: inputs.initial_cash,
+      monthly_contribution: inputs.monthly_contribution
+    };
+  }
   if (workerState?.include_series) {
     result.series = {
       dates: allDays.slice(),
