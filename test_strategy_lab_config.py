@@ -62,6 +62,7 @@ class StrategyLabConfigTest(unittest.TestCase):
                 "core_dip_timing_near_low_pct": 1.5,
                 "return_weight": 0.91,
                 "drawdown_weight": 0.09,
+                "sell_quality_weight_pct": 25,
                 "targets": [{"symbol": "TSM.US", "weight": 100, "name": "TSM"}],
             },
             strategy_lab_default_dict(),
@@ -95,7 +96,42 @@ class StrategyLabConfigTest(unittest.TestCase):
         self.assertEqual(inputs.core_dip_timing_rise_threshold_pct, 2.5)
         self.assertEqual(inputs.core_dip_timing_near_low_pct, 1.5)
         self.assertEqual(config.score_weights(), (0.9, 0.1))
+        self.assertEqual(config.sell_quality_weight_pct, 25.0)
+        self.assertAlmostEqual(config.sell_quality_weight, 0.25)
         self.assertEqual(config.portfolio_or_default()[0]["symbol"], "TSM.US")
+
+    def test_sell_quality_weight_defaults_and_property(self):
+        """E2E: from_runtime_payload → sell_quality_weight property works."""
+        defaults = strategy_lab_default_dict()
+        self.assertIn("default_sell_quality_weight_pct", defaults)
+        self.assertEqual(defaults["default_sell_quality_weight_pct"], 0)
+
+        # default: 0
+        config0 = StrategyLabConfig.from_runtime_payload({}, defaults)
+        self.assertEqual(config0.sell_quality_weight_pct, 0.0)
+        self.assertEqual(config0.sell_quality_weight, 0.0)
+
+        # 25% from payload
+        config25 = StrategyLabConfig.from_runtime_payload(
+            {"sell_quality_weight_pct": 25}, defaults
+        )
+        self.assertEqual(config25.sell_quality_weight_pct, 25.0)
+        self.assertAlmostEqual(config25.sell_quality_weight, 0.25)
+
+        # round-trip through to_legacy_defaults
+        saved = config25.to_legacy_defaults()
+        self.assertEqual(saved["default_sell_quality_weight_pct"], 25.0)
+
+        # restore from saved
+        restored = StrategyLabConfig.from_saved_defaults(saved)
+        self.assertEqual(restored.sell_quality_weight_pct, 25.0)
+        self.assertAlmostEqual(restored.sell_quality_weight, 0.25)
+
+        # 50% edge
+        config50 = StrategyLabConfig.from_runtime_payload(
+            {"sell_quality_weight_pct": 50}, defaults
+        )
+        self.assertAlmostEqual(config50.sell_quality_weight, 0.5)
 
     def test_runtime_optional_sell_stage_rearm_can_be_cleared(self):
         base = strategy_lab_default_dict()

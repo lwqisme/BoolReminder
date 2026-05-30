@@ -537,6 +537,10 @@ class StrategyLabConfig:
     def score_weights(self) -> tuple[float, float]:
         return SCORECARD_RETURN_WEIGHT, SCORECARD_DRAWDOWN_WEIGHT
 
+    @property
+    def sell_quality_weight(self) -> float:
+        return float(self.sell_quality_weight_pct) / 100.0 if self.sell_quality_weight_pct else 0.0
+
     def scorecard_period_payloads(self) -> list[dict[str, object]]:
         return [period.to_payload() for period in self.scorecard_periods]
 
