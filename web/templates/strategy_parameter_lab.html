@@ -7276,7 +7276,7 @@
                 // Dedup by avg stats only: same results → indistinguishable in UI → keep best fitness
                 const dedupedRows = [];
                 const seenSignatures = {};
-                const dupesDropped = [];
+                let dupesDropped = 0;
                 for (let ri = 0; ri < finalRows.length; ri++) {
                     const item = finalRows[ri];
                     const sig = (item.avg_return || 0).toFixed(2) + '|' + (item.avg_drawdown || 0).toFixed(2) + '|' + (item.avg_sell_quality || 0).toFixed(2);
@@ -7284,22 +7284,10 @@
                         seenSignatures[sig] = true;
                         dedupedRows.push(item);
                     } else {
-                        dupesDropped.push({label: buildGaStatusLabel(item.individual), fitness: item.fitness});
+                        dupesDropped++;
                     }
                 }
-                if (dupesDropped.length) {
-                    console.log('[GA] dedup: ' + finalRows.length + ' → ' + dedupedRows.length + ' rows (' + dupesDropped.length + ' duplicates removed by same avg stats)');
-                    console.log('[GA] dropped:', dupesDropped);
-                }
-                for (let ri = 0; ri < Math.min(3, dedupedRows.length); ri++) {
-                    console.log('[GA] row ' + (ri + 1) + ':', {
-                        label: buildGaStatusLabel(dedupedRows[ri].individual),
-                        fitness: dedupedRows[ri].fitness,
-                        avg_return: dedupedRows[ri].avg_return,
-                        avg_drawdown: dedupedRows[ri].avg_drawdown,
-                        avg_sell_quality: dedupedRows[ri].avg_sell_quality
-                    });
-                }
+                if (dupesDropped) console.log('[GA] dedup: ' + finalRows.length + ' → ' + dedupedRows.length + ' rows (' + dupesDropped + ' duplicates removed by same avg stats)');
 
                 // Collect per-topic scores for ranking
                 const topicScores = {};  // topic_key -> [{key, return_pct, max_drawdown_pct, sell_quality_score}, ...]
