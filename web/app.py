@@ -9194,6 +9194,9 @@ def _run_genetic_evolution_payload(payload: dict[str, object]) -> dict[str, obje
         strategy_mutation_rate=float(payload.get("ga_strategy_mutation_rate") or 0.05),
         continuous_mutation=str(payload.get("ga_continuous_mutation", "")).lower() in {"true", "1", "yes", "on"},
         mutation_sigma_ratio=float(payload.get("ga_sigma_ratio") or 0.15),
+        buy_rearm_mode=str(payload.get("ga_buy_rearm_mode") or ""),
+        sell_allow_same_day_sell=str(payload.get("ga_sell_allow_same_day_sell") or ""),
+        core_dip_timing_enabled=str(payload.get("ga_core_dip_timing_enabled") or ""),
     )
 
     # Fetch market data once

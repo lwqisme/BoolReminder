@@ -262,5 +262,50 @@ class RelevantFieldsTest(unittest.TestCase):
         self.assertNotIn("sell_allow_same_day_sell", fields)
 
 
+class GaCategoricalRestrictTest(unittest.TestCase):
+    """Verify GA respects categorical parameter restrictions."""
+
+    def test_random_individual_respects_buy_rearm_restriction(self):
+        from drawdown.strategy_parameter_genetic import _random_individual, _relevant_buy_parameter_fields, _relevant_sell_parameter_fields
+        inputs = StrategyInputs()
+        buy_f = _relevant_buy_parameter_fields("equal_slice")
+        sell_f = _relevant_sell_parameter_fields("price_rise_grid", inputs, "equal_slice")
+        config = EvolutionConfig(buy_rearm_mode="restart_from_rearm")
+        for _ in range(20):
+            ind = _random_individual("equal_slice", "price_rise_grid",
+                buy_f, sell_f, inputs, cat_restrict=config)
+            if "buy_rearm_mode" in ind.sell_params:
+                self.assertEqual(ind.sell_params["buy_rearm_mode"], "restart_from_rearm")
+
+    def test_mutate_respects_buy_rearm_restriction(self):
+        from drawdown.strategy_parameter_genetic import _random_individual, _mutate, _relevant_buy_parameter_fields, _relevant_sell_parameter_fields
+        inputs = StrategyInputs()
+        buy_f = _relevant_buy_parameter_fields("equal_slice")
+        sell_f = _relevant_sell_parameter_fields("price_rise_grid", inputs, "equal_slice")
+        config = EvolutionConfig(buy_rearm_mode="cumulative")
+        ind = _random_individual("equal_slice", "price_rise_grid",
+            buy_f, sell_f, inputs, cat_restrict=config)
+        for _ in range(20):
+            mutated = _mutate(ind, {"equal_slice": buy_f}, {"price_rise_grid": sell_f},
+                inputs, 1.0, cat_restrict=config)
+            if "buy_rearm_mode" in mutated.sell_params:
+                self.assertEqual(mutated.sell_params["buy_rearm_mode"], "cumulative")
+
+    def test_no_restriction_allows_both(self):
+        from drawdown.strategy_parameter_genetic import _random_individual, _relevant_buy_parameter_fields, _relevant_sell_parameter_fields
+        from drawdown.position_strategy import BUY_REARM_MODES
+        inputs = StrategyInputs()
+        buy_f = _relevant_buy_parameter_fields("equal_slice")
+        sell_f = _relevant_sell_parameter_fields("price_rise_grid", inputs, "equal_slice")
+        config = EvolutionConfig()
+        seen = set()
+        for _ in range(50):
+            ind = _random_individual("equal_slice", "price_rise_grid",
+                buy_f, sell_f, inputs, cat_restrict=config)
+            if "buy_rearm_mode" in ind.sell_params:
+                seen.add(ind.sell_params["buy_rearm_mode"])
+        self.assertEqual(seen, set(BUY_REARM_MODES))
+
+
 if __name__ == "__main__":
     unittest.main()
