@@ -23,6 +23,52 @@ const SELL_PARAMETER_FIELDS = [
     'buy_rearm_mode', 'sell_stage_rearm_drawdown_pct'
 ];
 
+function formatCompact(value) {
+    const n = Number(value || 0);
+    if (!Number.isFinite(n)) return '0';
+    return Number.isInteger(n) ? String(n) : String(Number(n.toPrecision(6))).replace(/\.0+$/, '');
+}
+function buildCandidateKey(buyStrategy, sellStrategy, buyParams, sellParams) {
+    const parts = [buyStrategy];
+    if (buyParams.step_pct !== null && buyParams.step_pct !== undefined) parts.push('step' + formatCompact(buyParams.step_pct));
+    if (buyParams.equal_slice_allocation_pct !== null && buyParams.equal_slice_allocation_pct !== undefined) parts.push('alloc' + formatCompact(buyParams.equal_slice_allocation_pct));
+    parts.push(sellStrategy);
+    if (sellStrategy === 'grid_rebound' || sellStrategy === 'price_rise_grid') {
+        if (sellParams.grid_rebound_step_pct !== undefined && sellParams.grid_rebound_step_pct !== null) parts.push('g' + formatCompact(sellParams.grid_rebound_step_pct));
+        parts.push('gsell' + formatCompact(sellParams.grid_sell_pct ?? sellParams.grid_second_sell_pct));
+        parts.push('gmin' + formatCompact(sellParams.grid_min_sell_amount));
+    }
+    if (sellParams.sell_min_profit_pct !== undefined && sellParams.sell_min_profit_pct !== null) parts.push('smp' + formatCompact(sellParams.sell_min_profit_pct));
+    if (sellParams.dca_rearm_drawdown_pct !== undefined && sellParams.dca_rearm_drawdown_pct !== null) parts.push('rearm' + formatCompact(sellParams.dca_rearm_drawdown_pct));
+    if (sellParams.buy_rearm_mode === 'restart_from_rearm') parts.push('rearmmode_restart');
+    if (sellParams.buy_rearm_mode === 'cumulative') parts.push('rearmmode_cum');
+    if (sellParams.sell_stage_rearm_drawdown_pct !== undefined && sellParams.sell_stage_rearm_drawdown_pct !== null) parts.push('sellrearm' + formatCompact(sellParams.sell_stage_rearm_drawdown_pct));
+    if (sellParams.sell_allow_same_day_sell) parts.push('same1');
+    return parts.join('__');
+}
+function gaParamKey(ind) {
+    const bp = {}, sp = {};
+    for (let fi = 0; fi < BUY_PARAMETER_FIELDS.length; fi++) {
+        const f = BUY_PARAMETER_FIELDS[fi];
+        if (ind[f] !== undefined && ind[f] !== null) bp[f] = ind[f];
+    }
+    for (let fi = 0; fi < SELL_PARAMETER_FIELDS.length; fi++) {
+        const f = SELL_PARAMETER_FIELDS[fi];
+        if (ind[f] !== undefined && ind[f] !== null) sp[f] = ind[f];
+    }
+    return buildCandidateKey(ind.buy_strategy || '', ind.sell_strategy || '', bp, sp);
+}
+function gaDedupByDisplayStats(finalRows) {
+    const deduped = [];
+    const seen = {};
+    for (let ri = 0; ri < finalRows.length; ri++) {
+        const item = finalRows[ri];
+        const sig = (item.avg_return || 0).toFixed(2) + '|' + (item.avg_drawdown || 0).toFixed(2) + '|' + (item.avg_sell_quality || 0).toFixed(2);
+        if (!seen[sig]) { seen[sig] = true; deduped.push(item); }
+    }
+    return deduped;
+}
+
 function tournamentSelectGa(ranked, tournamentSize) {
     const size = Math.min(tournamentSize, ranked.length);
     let best = ranked[0];
@@ -401,6 +447,58 @@ function test_custom_bounds_constrain_rearm_params() {
     console.log('PASS: test_custom_bounds_constrain_rearm_params');
 }
 
+// ── gaParamKey & display dedup tests ──
+
+function test_gaParamKey_same_params_same_key() {
+    const ind1 = { buy_strategy: 'equal_slice', sell_strategy: 'price_rise_grid', step_pct: 1, equal_slice_allocation_pct: 20, grid_rebound_step_pct: 10, grid_sell_pct: 10.5, grid_min_sell_amount: 200, sell_min_profit_pct: 30, buy_rearm_mode: 'cumulative' };
+    const ind2 = { buy_strategy: 'equal_slice', sell_strategy: 'price_rise_grid', step_pct: 1, equal_slice_allocation_pct: 20, grid_rebound_step_pct: 10, grid_sell_pct: 10.5, grid_min_sell_amount: 200, sell_min_profit_pct: 30, buy_rearm_mode: 'cumulative' };
+    assert.strictEqual(gaParamKey(ind1), gaParamKey(ind2));
+    console.log('PASS: test_gaParamKey_same_params_same_key');
+}
+
+function test_gaParamKey_diff_params_diff_key() {
+    const ind1 = { buy_strategy: 'equal_slice', sell_strategy: 'price_rise_grid', step_pct: 1, equal_slice_allocation_pct: 20, grid_rebound_step_pct: 10, grid_sell_pct: 10.5, grid_min_sell_amount: 200, sell_min_profit_pct: 30, buy_rearm_mode: 'cumulative' };
+    const ind2 = { buy_strategy: 'equal_slice', sell_strategy: 'price_rise_grid', step_pct: 1, equal_slice_allocation_pct: 20, grid_rebound_step_pct: 10, grid_sell_pct: 10.5, grid_min_sell_amount: 201, sell_min_profit_pct: 30, buy_rearm_mode: 'cumulative' };
+    assert.notStrictEqual(gaParamKey(ind1), gaParamKey(ind2));
+    console.log('PASS: test_gaParamKey_diff_params_diff_key');
+}
+
+function test_gaParamKey_ignores_random_key_field() {
+    const ind1 = { buy_strategy: 'equal_slice', sell_strategy: 'price_rise_grid', step_pct: 1, equal_slice_allocation_pct: 20, grid_rebound_step_pct: 10, grid_sell_pct: 10.5, grid_min_sell_amount: 200, sell_min_profit_pct: 30, key: 'random_abc', label: 'foo' };
+    const ind2 = { buy_strategy: 'equal_slice', sell_strategy: 'price_rise_grid', step_pct: 1, equal_slice_allocation_pct: 20, grid_rebound_step_pct: 10, grid_sell_pct: 10.5, grid_min_sell_amount: 200, sell_min_profit_pct: 30, key: 'random_xyz', label: 'bar' };
+    assert.strictEqual(gaParamKey(ind1), gaParamKey(ind2));
+    console.log('PASS: test_gaParamKey_ignores_random_key_field');
+}
+
+function test_gaDedupByDisplayStats_removes_duplicate_stats() {
+    const rows = [
+        { avg_return: 310.19, avg_drawdown: -36.47, avg_sell_quality: 84.57, fitness: 90, label: 'a' },
+        { avg_return: 310.19, avg_drawdown: -36.47, avg_sell_quality: 84.57, fitness: 85, label: 'b' },
+        { avg_return: 300.00, avg_drawdown: -30.00, avg_sell_quality: 80.00, fitness: 88, label: 'c' },
+    ];
+    const deduped = gaDedupByDisplayStats(rows);
+    assert.strictEqual(deduped.length, 2);
+    assert.strictEqual(deduped[0].fitness, 90);
+    assert.strictEqual(deduped[1].fitness, 88);
+    console.log('PASS: test_gaDedupByDisplayStats_removes_duplicate_stats');
+}
+
+function test_gaDedupByDisplayStats_preserves_unique_entries() {
+    const rows = [
+        { avg_return: 100, avg_drawdown: -10, avg_sell_quality: 50, fitness: 70 },
+        { avg_return: 200, avg_drawdown: -20, avg_sell_quality: 60, fitness: 80 },
+        { avg_return: 300, avg_drawdown: -30, avg_sell_quality: 70, fitness: 90 },
+    ];
+    const deduped = gaDedupByDisplayStats(rows);
+    assert.strictEqual(deduped.length, 3);
+    console.log('PASS: test_gaDedupByDisplayStats_preserves_unique_entries');
+}
+
+function test_gaDedupByDisplayStats_handles_empty() {
+    assert.strictEqual(gaDedupByDisplayStats([]).length, 0);
+    console.log('PASS: test_gaDedupByDisplayStats_handles_empty');
+}
+
 // ── Run ──
 
 const tests = [
@@ -417,6 +515,12 @@ const tests = [
     test_mutate_generates_key,
     test_mutate_clears_label,
     test_custom_bounds_constrain_rearm_params,
+    test_gaParamKey_same_params_same_key,
+    test_gaParamKey_diff_params_diff_key,
+    test_gaParamKey_ignores_random_key_field,
+    test_gaDedupByDisplayStats_removes_duplicate_stats,
+    test_gaDedupByDisplayStats_preserves_unique_entries,
+    test_gaDedupByDisplayStats_handles_empty,
 ];
 
 let passed = 0, failed = 0;

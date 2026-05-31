@@ -22,8 +22,8 @@ This runs:
 - Python: `test_strategy_parameter_genetic` (23 tests) — GA engine logic
 - Python: `test_strategy_parameter_registry` (27 tests) — regression guard
 - Python: `test_ga_e2e` (5 tests) — Worker lifecycle + continuous params + API structure
-- JavaScript: `test_parameter_lab_ga.js` (9 tests) — mutate/crossover/select/NaN handling
+- JavaScript: `test_parameter_lab_ga.js` (19 tests) — mutate/crossover/select/NaN handling, gaParamKey dedup, display-stats dedup
 
-**64 tests total. ALL must pass.** Never commit GA changes with failing or skipped tests.
+**70 tests total. ALL must pass.** Never commit GA changes with failing or skipped tests.
 
 After GA changes: verify the page loads (`curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5000/strategy-lab/parameter-lab` must return 200) AND the GA packet endpoint works (`curl -s -X POST http://127.0.0.1:5000/api/strategy-lab/parameter-lab/ga-packet -H 'Content-Type: application/json' -d '{"ga_buy_strategy":"pyramid_3","ga_sell_strategy":"none","start":"2026-01-01","end":"2026-05-01","ga_population_size":3}' | python3 -c "import json,sys; assert json.load(sys.stdin)['success']"`).
