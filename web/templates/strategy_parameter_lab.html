@@ -8095,11 +8095,21 @@
                             const weekendNote = res.is_weekend ? ' <span style="color:var(--amber);font-size:11px;">(周末预览)</span>' : '';
                             html += '<div style="font-size:11px;color:var(--muted);margin-bottom:4px;">' +
                                 (res.effective_date || res.signal_date) + weekendNote + '</div>';
+                            let totalBuy = 0, totalBuyShares = 0;
                             for (const sig of res.signals) {
                                 html += '<div class="signal-row">' +
                                     (sig.action === 'buy' ? '🟢 买入' : '🔴 卖出') +
                                     ' ' + (sig.shares || '?') + '股 @ $' + (sig.price || '?') +
                                     (sig.reason ? ' <span style="color:var(--muted);">(' + escapeHtml(sig.reason) + ')</span>' : '') +
+                                    '</div>';
+                                if (sig.action === 'buy') {
+                                    totalBuy += (sig.shares || 0) * (sig.price || 0);
+                                    totalBuyShares += sig.shares || 0;
+                                }
+                            }
+                            if (totalBuy > 0) {
+                                html += '<div style="font-size:11px;color:var(--amber);margin-top:2px;">' +
+                                    '💰 买入合计：' + totalBuyShares.toFixed(1) + '股 / $' + totalBuy.toFixed(0) +
                                     '</div>';
                             }
                         } else {
