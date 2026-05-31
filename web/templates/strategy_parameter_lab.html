@@ -7354,7 +7354,7 @@
                 document.getElementById('statWorkers').textContent = 'GPU'; // indicate client-side
                 document.getElementById('statWall').textContent = number((performance.now() - started) / 1000, 1) + 's';
                 renderParameterMatrix();
-                renderGaHistory(gaResults, bestFitnessEver);
+                renderGaHistory(gaResults, bestFitnessEver, gaWeights);
 
                 // Show topics info
                 const taskLabels = (packet.tasks || []).map(function(t) { return t.portfolio_label + ' / ' + t.period_label; }).join(', ');
@@ -7672,7 +7672,8 @@
             }).filter(Boolean).join('；');
         }
 
-        function renderGaHistory(gaResults, bestFitnessEver) {
+        function renderGaHistory(gaResults, bestFitnessEver, gaWeights) {
+            const w = gaWeights || { return: 0.9, drawdown: 0.1, sell_quality: 0 };
             const gaPanel = document.getElementById('gaPanelBody');
             let oldTable = document.getElementById('gaHistoryTable');
             if (oldTable) oldTable.remove();
@@ -7682,7 +7683,7 @@
             html += '<div style="max-height:200px;overflow:auto;margin-top:2px;"><table style="width:100%;font-size:11px;border-collapse:collapse;table-layout:fixed;">';
             html += '<thead><tr style="position:sticky;top:0;background:rgba(248,252,255,0.95);">';
             html += '<th style="text-align:right;padding:2px 4px;width:36px;">代</th>';
-            html += '<th style="text-align:right;padding:2px 4px;width:54px;" title="' + escapeHtml('收益×' + number(gaWeights.return * 100, 0) + '% + 回撤控制×' + number(gaWeights.drawdown * 100, 0) + '%' + (gaWeights.sell_quality > 1e-9 ? ' + 卖出质量×' + number(gaWeights.sell_quality * 100, 0) + '%' : '') + '（跨题目平均）') + '">最优<span class="param-help" style="display:inline-flex;width:12px;height:12px;font-size:9px;" data-tooltip="' + escapeHtml('收益×' + number(gaWeights.return * 100, 0) + '% + 回撤控制×' + number(gaWeights.drawdown * 100, 0) + '%' + (gaWeights.sell_quality > 1e-9 ? ' + 卖出质量×' + number(gaWeights.sell_quality * 100, 0) + '%' : '') + '。收益为所有评分题目的平均 return_pct，回撤控制为 -max_drawdown_pct 取正后的均值。' + (gaWeights.sell_quality > 1e-9 ? '卖出质量为 SQ 公式综合分。' : '') + '分数越高越好。') + '">?</span></th>';
+            html += '<th style="text-align:right;padding:2px 4px;width:54px;" title="' + escapeHtml('收益×' + number(w.return * 100, 0) + '% + 回撤控制×' + number(w.drawdown * 100, 0) + '%' + (w.sell_quality > 1e-9 ? ' + 卖出质量×' + number(w.sell_quality * 100, 0) + '%' : '') + '（跨题目平均）') + '">最优<span class="param-help" style="display:inline-flex;width:12px;height:12px;font-size:9px;" data-tooltip="' + escapeHtml('收益×' + number(w.return * 100, 0) + '% + 回撤控制×' + number(w.drawdown * 100, 0) + '%' + (w.sell_quality > 1e-9 ? ' + 卖出质量×' + number(w.sell_quality * 100, 0) + '%' : '') + '。收益为所有评分题目的平均 return_pct，回撤控制为 -max_drawdown_pct 取正后的均值。' + (w.sell_quality > 1e-9 ? '卖出质量为 SQ 公式综合分。' : '') + '分数越高越好。') + '">?</span></th>';
             html += '<th style="text-align:right;padding:2px 4px;width:54px;" title="种群内所有个体适应度的平均值">均值</th>';
             html += '<th style="text-align:left;padding:2px 4px;width:100px;">策略</th>';
             html += '<th style="text-align:left;padding:2px 4px;">关键参数</th>';
