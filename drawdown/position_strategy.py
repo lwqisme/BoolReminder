@@ -30,6 +30,7 @@ from drawdown.strategy_rules import (
     should_check_sell_after_buy,
 )
 from drawdown.strategy_lab_scoring import _resolve_weights
+from trade_sync.normalize import canonical_symbol
 
 
 DEFAULT_PORTFOLIO = [
@@ -2097,12 +2098,100 @@ def _percentile(values: list[float], percentile: float) -> float:
     return sorted_values[lower] * (1 - ratio) + sorted_values[upper] * ratio
 
 
+def _apply_real_trades(
+    state: SymbolState,
+    events: list[dict[str, object]],
+    point: PricePoint,
+    strategy: str,
+    sell_strategy: str,
+    trade_log: list[dict[str, object]],
+    inputs: StrategyInputs,
+) -> None:
+    """Apply real trade events to the symbol state, logging them as 'is_real'."""
+    for ev in events:
+        side = str(ev.get("side", "")).lower()
+        shares = float(ev.get("shares", 0) or 0)
+        price = float(ev.get("price", 0) or point.close)
+        if shares <= 0 or price <= 0:
+            continue
+
+        if side == "buy":
+            gross_amount = shares * price
+            fee = min(inputs.trade_fee, gross_amount)
+            net_amount = gross_amount + fee
+
+            state.shares += shares
+            state.cash -= net_amount
+            state.invested += gross_amount
+            state.fees += fee
+            state.trades += 1
+            state.buy_trades += 1
+            state.max_shares = max(state.max_shares, state.shares)
+
+            trade_log.append({
+                "action": "buy",
+                "date": point.date.date().isoformat(),
+                "symbol": state.symbol,
+                "buy_strategy": strategy,
+                "sell_strategy": sell_strategy,
+                "threshold_pct": 0.0,
+                "drawdown_pct": None,
+                "price": price,
+                "price_usd": price,
+                "display_price": price,
+                "display_price_usd": price,
+                "gross_amount": gross_amount,
+                "fee": fee,
+                "net_amount": net_amount,
+                "shares": shares,
+                "allocation_pct": 0.0,
+                "is_real": True,
+                "reason": "真实交易",
+                "event": ev,
+            })
+
+        elif side == "sell":
+            gross_amount = shares * price
+            fee = min(inputs.trade_fee, gross_amount)
+            net_amount = gross_amount - fee
+
+            state.shares -= shares
+            state.cash += net_amount
+            state.sold_gross += gross_amount
+            state.fees += fee
+            state.trades += 1
+            state.sell_trades += 1
+
+            trade_log.append({
+                "action": "sell",
+                "date": point.date.date().isoformat(),
+                "symbol": state.symbol,
+                "buy_strategy": strategy,
+                "sell_strategy": sell_strategy,
+                "threshold_pct": 0.0,
+                "drawdown_pct": None,
+                "price": price,
+                "price_usd": price,
+                "display_price": price,
+                "display_price_usd": price,
+                "gross_amount": gross_amount,
+                "fee": fee,
+                "net_amount": net_amount,
+                "shares": shares,
+                "allocation_pct": 0.0,
+                "is_real": True,
+                "reason": "真实交易",
+                "event": ev,
+            })
+
+
 def _simulate_strategy(
     price_points_by_symbol: dict[str, list[PricePoint]],
     targets: list[PortfolioTarget],
     inputs: StrategyInputs,
     strategy: str,
     sell_strategy: str,
+    trade_overrides: dict[date, list[dict[str, object]]] | None = None,
 ) -> dict[str, object]:
     if sell_strategy not in SELL_STRATEGY_LABELS:
         raise ValueError(f"未知卖出策略: {sell_strategy}")
@@ -2150,6 +2239,17 @@ def _simulate_strategy(
     contribution_values: list[float] = []
     trade_log: list[dict[str, object]] = []
 
+    # Normalize override keys: map canonical symbol -> (date -> list of events)
+    _overrides_by_symbol: dict[str, dict[date, list[dict[str, object]]]] = {}
+    if trade_overrides:
+        for dt, events in trade_overrides.items():
+            for ev in events:
+                sym = canonical_symbol(str(ev.get("symbol", "")))
+                # Strip market suffix so "TEST" or "TEST.US" both key to "TEST"
+                base = sym.rsplit(".", 1)[0] if "." in sym else sym
+                bucket = _overrides_by_symbol.setdefault(base, {})
+                bucket.setdefault(dt, []).append(ev)
+
     for current_day in all_days:
         if inputs.monthly_contribution > 0 and current_day in contribution_days:
             contribution_count += 1
@@ -2172,6 +2272,18 @@ def _simulate_strategy(
             state.last_price = point.close
             state.last_value = _position_value_usd(symbol, state.shares, point.close, inputs)
             trade_index = trading_index_by_symbol[symbol][current_day]
+
+            # Apply real trade overrides for this symbol + day, skipping engine logic
+            state_canonical = canonical_symbol(symbol)
+            # Also match without market suffix (e.g. "TEST" matches "TEST.US")
+            state_base = state_canonical.rsplit(".", 1)[0] if "." in state_canonical else state_canonical
+            overrides_today = (
+                _overrides_by_symbol.get(state_canonical) or _overrides_by_symbol.get(state_base, {})
+            ).get(current_day)
+            if overrides_today:
+                _apply_real_trades(state, overrides_today, point, strategy, sell_strategy, trade_log, inputs)
+                continue
+
             if strategy == "weekly_dca":
                 bought_today = _execute_weekly_dca(
                     state,
