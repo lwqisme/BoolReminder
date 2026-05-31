@@ -93,8 +93,9 @@ def generate_signal(
     if not rows:
         return {"symbol": sym, "preset_id": preset_id, "error": "交易记录为空"}
 
-    # 3. Load signal targets for initial_cash
+    # 3. Load signal targets for initial_cash and monthly_contribution
     initial_cash = _load_target_allocation(sym, inputs.initial_cash)
+    monthly_contribution = _load_target_monthly(sym, inputs.monthly_contribution)
 
     # 4. Determine date range
     trade_dates = sorted({
@@ -141,7 +142,7 @@ def generate_signal(
     effective_signal_date = last_price_date if (is_weekend and last_price_date < today) else today
 
     # 7. Run simulation: real trades for history, engine only on effective_signal_date
-    effective_inputs = replace(inputs, initial_cash=initial_cash)
+    effective_inputs = replace(inputs, initial_cash=initial_cash, monthly_contribution=monthly_contribution)
 
     target = PortfolioTarget(
         symbol=longbridge_sym,
@@ -266,6 +267,38 @@ def _load_target_allocation(symbol: str, fallback: float) -> float:
                 continue
     return fallback
 
+
+def _load_target_monthly(symbol: str, fallback: float) -> float:
+    """Parse signal_targets sheet for the symbol's 每月投入 (monthly contribution)."""
+    sym_base = symbol.upper()
+    if not SIGNAL_TARGETS_LATEST_PATH.exists():
+        return fallback
+    try:
+        raw = json.loads(SIGNAL_TARGETS_LATEST_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return fallback
+    rows = raw.get("rows", [])
+    if not isinstance(rows, list):
+        return fallback
+    name_keys = ("标的", "symbol", "ticker")
+    monthly_keys = ("每月投入", "monthly_contribution", "monthly")
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = ""
+        for k in name_keys:
+            name = str(row.get(k, "")).strip().upper()
+            if name:
+                break
+        if name != sym_base:
+            continue
+        for k in monthly_keys:
+            try:
+                val = float(row.get(k, 0) or 0)
+                return val
+            except (TypeError, ValueError):
+                continue
+    return fallback
 
 
 def _param_summary(config) -> str:
