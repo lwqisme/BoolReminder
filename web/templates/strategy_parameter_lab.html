@@ -7273,22 +7273,23 @@
                 const finalRows = Object.values(allEvaluated).sort(function(a, b) { return b.fitness - a.fitness; });
                 console.log('[GA] allEvaluated entries:', finalRows.length, 'unique param keys');
 
-                // Dedup by display identity: same label + same avg stats → keep best fitness
+                // Dedup by avg stats only: same results → indistinguishable in UI → keep best fitness
                 const dedupedRows = [];
                 const seenSignatures = {};
+                const dupesDropped = [];
                 for (let ri = 0; ri < finalRows.length; ri++) {
                     const item = finalRows[ri];
-                    const labelKey = buildGaStatusLabel(item.individual);
-                    const sig = labelKey + '|' + (item.avg_return || 0).toFixed(2) + '|' + (item.avg_drawdown || 0).toFixed(2) + '|' + (item.avg_sell_quality || 0).toFixed(2);
+                    const sig = (item.avg_return || 0).toFixed(2) + '|' + (item.avg_drawdown || 0).toFixed(2) + '|' + (item.avg_sell_quality || 0).toFixed(2);
                     if (!seenSignatures[sig]) {
                         seenSignatures[sig] = true;
                         dedupedRows.push(item);
                     } else {
-                        console.log('[GA] dedup: dropped duplicate', {label: labelKey, fitness: item.fitness, sig: sig.substring(0, 80)});
+                        dupesDropped.push({label: buildGaStatusLabel(item.individual), fitness: item.fitness});
                     }
                 }
-                if (dedupedRows.length < finalRows.length) {
-                    console.log('[GA] dedup: ' + finalRows.length + ' → ' + dedupedRows.length + ' rows (' + (finalRows.length - dedupedRows.length) + ' duplicates removed)');
+                if (dupesDropped.length) {
+                    console.log('[GA] dedup: ' + finalRows.length + ' → ' + dedupedRows.length + ' rows (' + dupesDropped.length + ' duplicates removed by same avg stats)');
+                    console.log('[GA] dropped:', dupesDropped);
                 }
                 for (let ri = 0; ri < Math.min(3, dedupedRows.length); ri++) {
                     console.log('[GA] row ' + (ri + 1) + ':', {

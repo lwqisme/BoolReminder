@@ -58,13 +58,12 @@ function gaParamKey(ind) {
     }
     return buildCandidateKey(ind.buy_strategy || '', ind.sell_strategy || '', bp, sp);
 }
-function gaDedupByDisplayStats(finalRows, getLabel) {
+function gaDedupByDisplayStats(finalRows) {
     const deduped = [];
     const seen = {};
     for (let ri = 0; ri < finalRows.length; ri++) {
         const item = finalRows[ri];
-        const labelKey = getLabel ? getLabel(item.individual) : (item.label || '');
-        const sig = labelKey + '|' + (item.avg_return || 0).toFixed(2) + '|' + (item.avg_drawdown || 0).toFixed(2) + '|' + (item.avg_sell_quality || 0).toFixed(2);
+        const sig = (item.avg_return || 0).toFixed(2) + '|' + (item.avg_drawdown || 0).toFixed(2) + '|' + (item.avg_sell_quality || 0).toFixed(2);
         if (!seen[sig]) { seen[sig] = true; deduped.push(item); }
     }
     return deduped;
@@ -473,11 +472,11 @@ function test_gaParamKey_ignores_random_key_field() {
 
 function test_gaDedupByDisplayStats_removes_duplicate_stats() {
     const rows = [
-        { individual: { buy_strategy: 'eq', sell_strategy: 'prg' }, avg_return: 310.19, avg_drawdown: -36.47, avg_sell_quality: 84.57, fitness: 90, label: 'a' },
-        { individual: { buy_strategy: 'eq', sell_strategy: 'prg' }, avg_return: 310.19, avg_drawdown: -36.47, avg_sell_quality: 84.57, fitness: 85, label: 'a' },
-        { individual: { buy_strategy: 'eq', sell_strategy: 'prg' }, avg_return: 300.00, avg_drawdown: -30.00, avg_sell_quality: 80.00, fitness: 88, label: 'b' },
+        { avg_return: 310.19, avg_drawdown: -36.47, avg_sell_quality: 84.57, fitness: 90, label: 'a' },
+        { avg_return: 310.19, avg_drawdown: -36.47, avg_sell_quality: 84.57, fitness: 85, label: 'b' },
+        { avg_return: 300.00, avg_drawdown: -30.00, avg_sell_quality: 80.00, fitness: 88, label: 'c' },
     ];
-    const deduped = gaDedupByDisplayStats(rows, function(ind) { return ind.buy_strategy + '/' + ind.sell_strategy; });
+    const deduped = gaDedupByDisplayStats(rows);
     assert.strictEqual(deduped.length, 2);
     assert.strictEqual(deduped[0].fitness, 90);
     assert.strictEqual(deduped[1].fitness, 88);
@@ -486,11 +485,11 @@ function test_gaDedupByDisplayStats_removes_duplicate_stats() {
 
 function test_gaDedupByDisplayStats_preserves_unique_entries() {
     const rows = [
-        { individual: { buy_strategy: 'a' }, avg_return: 100, avg_drawdown: -10, avg_sell_quality: 50, fitness: 70, label: 'x' },
-        { individual: { buy_strategy: 'b' }, avg_return: 200, avg_drawdown: -20, avg_sell_quality: 60, fitness: 80, label: 'y' },
-        { individual: { buy_strategy: 'c' }, avg_return: 300, avg_drawdown: -30, avg_sell_quality: 70, fitness: 90, label: 'z' },
+        { avg_return: 100, avg_drawdown: -10, avg_sell_quality: 50, fitness: 70 },
+        { avg_return: 200, avg_drawdown: -20, avg_sell_quality: 60, fitness: 80 },
+        { avg_return: 300, avg_drawdown: -30, avg_sell_quality: 70, fitness: 90 },
     ];
-    const deduped = gaDedupByDisplayStats(rows, function(ind) { return ind.buy_strategy; });
+    const deduped = gaDedupByDisplayStats(rows);
     assert.strictEqual(deduped.length, 3);
     console.log('PASS: test_gaDedupByDisplayStats_preserves_unique_entries');
 }
