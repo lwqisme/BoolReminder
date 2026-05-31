@@ -42,6 +42,7 @@ function makeSellTrade(price, slices, netAmount = 0, grossAmount = 0) {
   return {
     action: 'sell',
     date: '2025-01-10',
+    symbol: 'TEST.US',
     price,
     drawdown_pct: 0,
     estimated_profit_pct: 0,
@@ -57,6 +58,7 @@ function makeBuyTrade(price, drawdownPct = 0, grossAmount = 0) {
   return {
     action: 'buy',
     date: '2025-01-01',
+    symbol: 'TEST.US',
     price,
     drawdown_pct: drawdownPct,
     gross_amount: grossAmount || price * 10,
@@ -261,6 +263,140 @@ function makeBuyTrade(price, drawdownPct = 0, grossAmount = 0) {
     `avg sell_quality across trades should be ~85, got ${result.sell_quality_score}`);
 
   console.log('PASS test_multiple_sell_trades_averaged');
+})();
+
+// ═══════════════════════════════════════════════════════════
+// TEST 9: Global price bounds override per-trade holding period
+// ═══════════════════════════════════════════════════════════
+
+(function test_global_bounds_buy_sell_quality() {
+  // Global: [80, 220]. Per-slice: [100, 200]. Buy 125, sell 175.
+  // Global buyQ = (220-125)/(220-80) = 95/140 ≈ 67.86
+  // Global sellQ = (175-80)/(220-80) = 95/140 ≈ 67.86
+  // Per-slice would give 75 each → must differ!
+  const globalBounds = { 'TEST.US': { high: 220, low: 80 } };
+
+  const tradeLog = [
+    { action: 'buy', date: '2025-01-05', symbol: 'TEST.US', price: 125, drawdown_pct: 5, gross_amount: 1250 },
+    { action: 'sell', date: '2025-01-15', symbol: 'TEST.US', price: 175, drawdown_pct: 2,
+      estimated_profit_pct: 40,
+      price_spread_efficiency: 0.5, sell_timing_efficiency: 0.67,
+      net_amount: 1750, gross_amount: 1750,
+      sold_lot_slices: [{
+        buy_price_usd: 125, shares: 10,
+        holding_period_high_usd: 200, holding_period_low_usd: 100,
+        holding_period_price_point_count: 5,
+        holding_period_had_intermediate_points: true,
+        price_spread_efficiency: 0.5, sell_timing_efficiency: 0.67
+      }]
+    },
+  ];
+  const portfolioValues = [1000, 1750];
+  const cashValues = [0, 1750];
+
+  const result = context.sellMetrics(tradeLog, portfolioValues, cashValues, globalBounds);
+
+  assert.ok(Math.abs(result.buy_quality_score - 67.9) < 0.1,
+    `global buy_quality should be ~67.9, got ${result.buy_quality_score}`);
+  assert.ok(Math.abs(result.sell_quality_score - 67.9) < 0.1,
+    `global sell_quality should be ~67.9, got ${result.sell_quality_score}`);
+
+  console.log('PASS test_global_bounds_buy_sell_quality');
+})();
+
+// ═══════════════════════════════════════════════════════════
+// TEST 10: Global bounds – perfect capture requires global extremes
+// ═══════════════════════════════════════════════════════════
+
+(function test_global_bounds_perfect_capture() {
+  // Bought at global low (100), sold at global high (200)
+  // But per-slice period is narrower [120, 180] → per-slice would give 100/100 too
+  // Global bounds [100, 200] → must give 100/100 only if truly at global extremes
+  const globalBounds = { 'TEST.US': { high: 250, low: 50 } };
+
+  // Buy at 100 (not global low of 50), sell at 200 (not global high of 250)
+  // Global buyQ = (250-100)/(250-50) = 150/200 = 75
+  // Global sellQ = (200-50)/(250-50) = 150/200 = 75
+  const tradeLog = [
+    { action: 'buy', date: '2025-01-01', symbol: 'TEST.US', price: 100, drawdown_pct: 0, gross_amount: 1000 },
+    { action: 'sell', date: '2025-01-20', symbol: 'TEST.US', price: 200, drawdown_pct: 0,
+      estimated_profit_pct: 100,
+      price_spread_efficiency: 1.0, sell_timing_efficiency: 1.0,
+      net_amount: 2000, gross_amount: 2000,
+      sold_lot_slices: [{
+        buy_price_usd: 100, shares: 10,
+        holding_period_high_usd: 200, holding_period_low_usd: 100,
+        holding_period_price_point_count: 5,
+        holding_period_had_intermediate_points: true,
+        price_spread_efficiency: 1.0, sell_timing_efficiency: 1.0
+      }]
+    },
+  ];
+  const portfolioValues = [1000, 2000];
+  const cashValues = [0, 2000];
+
+  const result = context.sellMetrics(tradeLog, portfolioValues, cashValues, globalBounds);
+
+  assert.strictEqual(result.buy_quality_score, 75,
+    `global buy_quality should be 75 (not at global low), got ${result.buy_quality_score}`);
+  assert.strictEqual(result.sell_quality_score, 75,
+    `global sell_quality should be 75 (not at global high), got ${result.sell_quality_score}`);
+
+  console.log('PASS test_global_bounds_perfect_capture');
+})();
+
+// ═══════════════════════════════════════════════════════════
+// TEST 11: Global bounds – multi-symbol, only scored symbols affected
+// ═══════════════════════════════════════════════════════════
+
+(function test_global_bounds_multi_symbol() {
+  const globalBounds = {
+    'A.US': { high: 500, low: 100 },   // wide: 400
+    'B.US': { high: 200, low: 150 },   // narrow: 50
+  };
+
+  const tradeLog = [
+    { action: 'buy', date: '2025-01-05', symbol: 'A.US', price: 200, drawdown_pct: 5, gross_amount: 2000 },
+    { action: 'sell', date: '2025-01-15', symbol: 'A.US', price: 400, drawdown_pct: 2,
+      estimated_profit_pct: 100,
+      price_spread_efficiency: 0.5, sell_timing_efficiency: 0.67,
+      net_amount: 4000, gross_amount: 4000,
+      sold_lot_slices: [{
+        buy_price_usd: 200, shares: 10,
+        holding_period_high_usd: 400, holding_period_low_usd: 200,
+        holding_period_price_point_count: 5,
+        holding_period_had_intermediate_points: true,
+        price_spread_efficiency: 0.5, sell_timing_efficiency: 0.67
+      }]
+    },
+    { action: 'buy', date: '2025-01-05', symbol: 'B.US', price: 160, drawdown_pct: 5, gross_amount: 1600 },
+    { action: 'sell', date: '2025-01-15', symbol: 'B.US', price: 190, drawdown_pct: 2,
+      estimated_profit_pct: 18.75,
+      price_spread_efficiency: 0.6, sell_timing_efficiency: 0.75,
+      net_amount: 1900, gross_amount: 1900,
+      sold_lot_slices: [{
+        buy_price_usd: 160, shares: 10,
+        holding_period_high_usd: 190, holding_period_low_usd: 160,
+        holding_period_price_point_count: 5,
+        holding_period_had_intermediate_points: true,
+        price_spread_efficiency: 0.6, sell_timing_efficiency: 0.75
+      }]
+    },
+  ];
+  const portfolioValues = [1000, 5000];
+  const cashValues = [0, 5000];
+
+  const result = context.sellMetrics(tradeLog, portfolioValues, cashValues, globalBounds);
+
+  // A.US: buyQ = (500-200)/400 = 0.75, sellQ = (400-100)/400 = 0.75
+  // B.US: buyQ = (200-160)/50 = 0.8, sellQ = (190-150)/50 = 0.8
+  // avg buyQ = (75+80)/2 = 77.5, avg sellQ = (75+80)/2 = 77.5
+  assert.strictEqual(result.buy_quality_score, 77.5,
+    `multi-symbol buy_quality should be 77.5, got ${result.buy_quality_score}`);
+  assert.strictEqual(result.sell_quality_score, 77.5,
+    `multi-symbol sell_quality should be 77.5, got ${result.sell_quality_score}`);
+
+  console.log('PASS test_global_bounds_multi_symbol');
 })();
 
 console.log('\nAll sell quality metrics tests passed!');

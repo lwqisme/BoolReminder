@@ -969,7 +969,7 @@ function targetMaxDrawdown(targets, symbol, inputs) {
   return target && target.max_drawdown_pct != null ? num(target.max_drawdown_pct) : num(inputs.max_drawdown_pct);
 }
 
-function sellMetrics(tradeLog, portfolioValues, cashValues) {
+function sellMetrics(tradeLog, portfolioValues, cashValues, globalBounds) {
   const buys = tradeLog.filter((trade) => trade.action === 'buy');
   const sells = tradeLog.filter((trade) => trade.action === 'sell');
   const avgBuy = avg(buys.map((trade) => trade.drawdown_pct));
@@ -978,8 +978,9 @@ function sellMetrics(tradeLog, portfolioValues, cashValues) {
   const avgSpreadEfficiency = avg(sells.map((trade) => trade.price_spread_efficiency));
   const avgSellTimingEfficiency = avg(sells.map((trade) => trade.sell_timing_efficiency));
 
-  // buy_quality = (period_high - buy_price) / amplitude per lot, weighted by shares
-  // sell_quality = (sell_price - period_low) / amplitude per lot, weighted by shares
+  // buy_quality = (global_high - buy_price) / (global_high - global_low), weighted by shares
+  // sell_quality = (sell_price - global_low) / (global_high - global_low), weighted by shares
+  // If globalBounds provided, use task-wide price range per symbol. Otherwise fall back to per-slice period.
   // Averaged across all sell trades. Only completed (sold) lots contribute.
   // Require ≥3 holding-period price points (≥1 intermediate) for reliable scores.
   const MIN_PRICE_POINTS = 3;
@@ -992,19 +993,30 @@ function sellMetrics(tradeLog, portfolioValues, cashValues) {
     for (const trade of sells) {
       const slices = trade.sold_lot_slices || [];
       if (!slices.length) { skipsNoSlices++; continue; }
+
+      // Resolve bounds: globalBounds takes priority, fall back to per-slice period
+      const symBounds = globalBounds && globalBounds[trade.symbol];
+      const globalHigh = symBounds ? symBounds.high : null;
+      const globalLow = symBounds ? symBounds.low : null;
+      const useGlobal = globalHigh != null && globalLow != null && globalHigh - globalLow > 1e-9;
+
       let totalShares = 0;
       for (const sl of slices) totalShares += sl.shares || 0;
       if (totalShares <= 0) continue;
-      // Check if ANY slice in this trade has enough price points for reliable scoring
+
+      // Check if ANY slice has enough price points for reliable scoring
       const minPtCount = Math.min(...slices.map(sl => sl.holding_period_price_point_count || 0));
       if (minPtCount < MIN_PRICE_POINTS) { skipsNarrowPeriod++; continue; }
+
       let tradeBuyQ = 0, tradeSellQ = 0, sharesWithAmplitude = 0;
       for (const sl of slices) {
         const shares = sl.shares || 0;
-        const amplitude = (sl.holding_period_high_usd || 0) - (sl.holding_period_low_usd || 0);
+        const high = useGlobal ? globalHigh : (sl.holding_period_high_usd || 0);
+        const low = useGlobal ? globalLow : (sl.holding_period_low_usd || 0);
+        const amplitude = high - low;
         if (amplitude <= 1e-9) { skipsNoAmplitude++; continue; }
-        const bq = clamp(((sl.holding_period_high_usd || 0) - (sl.buy_price_usd || 0)) / amplitude, 0, 1);
-        const sq = clamp(((trade.price || 0) - (sl.holding_period_low_usd || 0)) / amplitude, 0, 1);
+        const bq = clamp((high - (sl.buy_price_usd || 0)) / amplitude, 0, 1);
+        const sq = clamp(((trade.price || 0) - low) / amplitude, 0, 1);
         tradeBuyQ += bq * shares;
         tradeSellQ += sq * shares;
         sharesWithAmplitude += shares;
@@ -1021,7 +1033,9 @@ function sellMetrics(tradeLog, portfolioValues, cashValues) {
     }
   }
   if (typeof console !== 'undefined' && console.info) {
-    console.info('[sellMetrics] sells=' + sells.length +
+    const mode = globalBounds ? 'global' : 'period';
+    console.info('[sellMetrics] mode=' + mode +
+      ' sells=' + sells.length +
       ' scored=' + tradesScored +
       ' skipped(noSlices=' + skipsNoSlices + ' narrow=' + skipsNarrowPeriod + ' zeroAmp=' + skipsNoAmplitude + ')' +
       ' buyQ=' + Number(buyQuality).toFixed(1) +
@@ -1369,7 +1383,21 @@ function simulate(task, baseInputs, candidate) {
   }
   const finalValue = portfolioValues[portfolioValues.length - 1] || 0;
   const totalContributed = num(inputs.initial_cash) + totalMonthlyContributions;
-  const metrics = sellMetrics(tradeLog, portfolioValues, cashValues);
+  // Global price bounds per symbol from full task price range
+  const globalBounds = {};
+  if (task.price_points) {
+    for (const [symbol, points] of Object.entries(task.price_points)) {
+      if (!Array.isArray(points) || !points.length) continue;
+      let high = -Infinity, low = Infinity;
+      for (const pt of points) {
+        const price = num(pt.close);
+        if (price > high) high = price;
+        if (price < low) low = price;
+      }
+      if (high - low > 1e-9) globalBounds[symbol] = { high, low };
+    }
+  }
+  const metrics = sellMetrics(tradeLog, portfolioValues, cashValues, globalBounds);
   const result = {
     return_pct: totalContributed > 0 ? pct(finalValue / totalContributed - 1) : 0,
     max_drawdown_pct: maxDrawdown(portfolioValues),
