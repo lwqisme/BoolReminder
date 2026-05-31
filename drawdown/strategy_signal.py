@@ -173,10 +173,24 @@ def generate_signal(
         if t.get("date") == effective_signal_date.isoformat() and not t.get("is_real")
     ]
 
-    symbol_state = next(
-        (s for s in result.get("symbols", []) if s["symbol"] == longbridge_sym),
-        {},
+    # Compute actual position from real trades only (before engine signals)
+    real_shares = sum(
+        float(e.get("shares", 0) or 0) * (1 if str(e.get("side", "")).lower() == "buy" else -1)
+        for events in trade_overrides.values()
+        for e in events
     )
+    total_buy = sum(
+        float(e.get("shares", 0) or 0) * float(e.get("price", 0) or 0)
+        for events in trade_overrides.values()
+        for e in events if str(e.get("side", "")).lower() == "buy"
+    )
+    total_sell = sum(
+        float(e.get("shares", 0) or 0) * float(e.get("price", 0) or 0)
+        for events in trade_overrides.values()
+        for e in events if str(e.get("side", "")).lower() == "sell"
+    )
+    real_cash = initial_cash + total_sell - total_buy
+    last_price_val = points[-1].close if points else 0
 
     return {
         "symbol": sym,
@@ -189,12 +203,12 @@ def generate_signal(
         "buy_strategy": config.buy_strategy,
         "sell_strategy": config.sell_strategy,
         "current_state": {
-            "shares": symbol_state.get("shares", 0),
-            "cash": symbol_state.get("cash", 0),
-            "invested": symbol_state.get("invested", 0),
-            "market_value": symbol_state.get("market_value", 0),
-            "last_price": symbol_state.get("last_price", 0),
-            "avg_cost": symbol_state.get("avg_cost_usd", 0),
+            "shares": real_shares,
+            "cash": real_cash,
+            "invested": total_buy,
+            "market_value": real_shares * last_price_val,
+            "last_price": last_price_val,
+            "avg_cost": total_buy / real_shares if real_shares > 0 else 0,
         },
         "signals": [
             {
