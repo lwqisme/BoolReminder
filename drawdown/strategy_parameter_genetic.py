@@ -830,7 +830,7 @@ def _relevant_sell_parameter_fields(
     if sell_strategy != "none":
         fields.extend(["sell_allow_same_day_sell"])
         if buy_strategy in REARM_BUY_STRATEGIES:
-            fields.extend(["dca_rearm_drawdown_pct", "sell_stage_rearm_drawdown_pct"])
+            fields.extend(["dca_rearm_drawdown_pct", "sell_stage_rearm_drawdown_pct", "buy_rearm_mode"])
     return fields
 
 
@@ -853,6 +853,7 @@ def _default_sell_params(
     if buy_strategy in REARM_BUY_STRATEGIES:
         params["dca_rearm_drawdown_pct"] = base_inputs.dca_rearm_drawdown_pct
         params["sell_stage_rearm_drawdown_pct"] = base_inputs.sell_stage_rearm_drawdown_pct
+        params["buy_rearm_mode"] = base_inputs.buy_rearm_mode
     return params
 
 
