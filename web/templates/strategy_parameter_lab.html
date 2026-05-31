@@ -7158,6 +7158,18 @@
                 };
 
                 // GA state
+                function gaParamKey(ind) {
+                    const bp = {}, sp = {};
+                    for (let fi = 0; fi < BUY_PARAMETER_FIELDS.length; fi++) {
+                        const f = BUY_PARAMETER_FIELDS[fi];
+                        if (ind[f] !== undefined && ind[f] !== null) bp[f] = ind[f];
+                    }
+                    for (let fi = 0; fi < SELL_PARAMETER_FIELDS.length; fi++) {
+                        const f = SELL_PARAMETER_FIELDS[fi];
+                        if (ind[f] !== undefined && ind[f] !== null) sp[f] = ind[f];
+                    }
+                    return buildCandidateKey(ind.buy_strategy || '', ind.sell_strategy || '', bp, sp);
+                }
                 let population = candidates.slice();
                 let allEvaluated = {};
                 let bestEver = null;
@@ -7214,9 +7226,9 @@
                         }
                         fitnesses.push(fitness);
 
-                        const key = population[i].key || ('ga_' + i);
-                        if (!allEvaluated[key] || fitness > allEvaluated[key].fitness) {
-                            allEvaluated[key] = { individual: population[i], fitness: fitness, avg_return: avgReturn, avg_drawdown: -avgDD, avg_sell_quality: avgSellQuality, observations: obs };
+                        const paramKey = gaParamKey(population[i]);
+                        if (!allEvaluated[paramKey] || fitness > allEvaluated[paramKey].fitness) {
+                            allEvaluated[paramKey] = { individual: population[i], fitness: fitness, avg_return: avgReturn, avg_drawdown: -avgDD, avg_sell_quality: avgSellQuality, observations: obs };
                         }
                     }
 
@@ -7267,7 +7279,7 @@
                         const tk = obs.topic_key;
                         if (!topicScores[tk]) topicScores[tk] = [];
                         topicScores[tk].push({
-                            key: item.individual.key,
+                            key: gaParamKey(item.individual),
                             return_pct: Number(obs.return_pct || 0),
                             max_drawdown_pct: Number(obs.max_drawdown_pct || 0),
                             sell_quality_score: Number(obs.sell_quality_score || 0),
@@ -7285,7 +7297,7 @@
                 const gaCandidateRows = [];
                 const rows = finalRows.map(function(item, index) {
                     const ind = item.individual;
-                    const indKey = ind.key || ('ga_' + index);
+                    const indKey = gaParamKey(ind);
                     const cells = (item.observations || []).map(function(obs) {
                         const tk = obs.topic_key;
                         const ranked = (topicScores[tk] || []).find(function(d) { return d.key === indKey; });
