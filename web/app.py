@@ -8106,48 +8106,6 @@ function aggregate(candidate, observations) {
   return { candidate, score: robust, robust_score: robust, mean_score: mean, raw_score: avg(returns) * 0.9 + avg(drawdowns) * 0.1, avg_return_pct: avg(returns), avg_drawdown_pct: avg(drawdowns), avg_sell_quality_score: avg(sells), task_count: observations.length, strongest_task: taskSummary(strong), weakest_task: taskSummary(weak) };
 }
 function robustWeights() { return { return: 0.9, drawdown: 0.1 }; }
-function buildCandidateKey(buyStrategy, sellStrategy, buyParams, sellParams) {
-  const parts = [buyStrategy];
-  if (buyParams.step_pct !== null && buyParams.step_pct !== undefined) parts.push(`step${formatCompact(buyParams.step_pct)}`);
-  if (buyParams.equal_slice_allocation_pct !== null && buyParams.equal_slice_allocation_pct !== undefined) parts.push(`alloc${formatCompact(buyParams.equal_slice_allocation_pct)}`);
-  if (buyParams.core_dip_initial_core_pct !== null && buyParams.core_dip_initial_core_pct !== undefined) {
-    parts.push(`ci${formatCompact(buyParams.core_dip_initial_core_pct)}`);
-    parts.push(`cw${formatCompact(buyParams.core_dip_weekly_core_pct)}`);
-    parts.push(`cr${formatCompact(buyParams.core_dip_cash_reserve_pct)}`);
-    parts.push(`csd${formatCompact(buyParams.core_dip_start_drawdown_pct)}`);
-    parts.push(`cfd${formatCompact(buyParams.core_dip_full_drawdown_pct)}`);
-    if (buyParams.core_dip_timing_enabled) {
-      parts.push(`ctd${formatCompact(Math.trunc(Number(buyParams.core_dip_timing_max_delay_days || 0)))}`);
-      parts.push(`ctr${formatCompact(buyParams.core_dip_timing_rise_threshold_pct)}`);
-      parts.push(`ctl${formatCompact(buyParams.core_dip_timing_near_low_pct)}`);
-    }
-  }
-  parts.push(sellStrategy);
-  if (sellStrategy === 'repair_step') {
-    parts.push(`p${formatCompact(sellParams.sell_min_profit_pct)}`);
-    parts.push(`c${formatCompact(Math.trunc(Number(sellParams.repair_sell_cooldown_days || 0)))}`);
-    parts.push(`s${formatCompact(sellParams.repair_stage_sell_pct)}`);
-  }
-  if (sellStrategy === 'grid_rebound' || sellStrategy === 'price_rise_grid') {
-    parts.push(`g${formatCompact(sellParams.grid_rebound_step_pct)}`);
-    parts.push(`gsell${formatCompact(sellParams.grid_sell_pct ?? sellParams.grid_second_sell_pct)}`);
-    parts.push(`gmin${formatCompact(sellParams.grid_min_sell_amount)}`);
-    if (Number(sellParams.grid_rebound_cycle_reset)) parts.push(`greset${formatCompact(sellParams.grid_rebound_cycle_reset)}`);
-  }
-  if (sellStrategy === 'cost_deleverage') {
-    const profits = [sellParams.cost_first_profit_pct, sellParams.cost_second_profit_pct, sellParams.cost_third_profit_pct];
-    const sells = [sellParams.cost_first_sell_pct, sellParams.cost_second_sell_pct, sellParams.cost_third_sell_pct];
-    parts.push(`cp${profits.map(formatCompact).join('-')}`);
-    parts.push(`cs${sells.map(formatCompact).join('-')}`);
-    parts.push(`cc${formatCompact(Math.trunc(Number(sellParams.cost_deleverage_cooldown_days || 0)))}`);
-    parts.push(`cmin${formatCompact(sellParams.cost_min_sell_amount)}`);
-  }
-  if (sellStrategy !== 'none' && sellParams.sell_allow_same_day_sell) parts.push('same1');
-  if (sellParams.dca_rearm_drawdown_pct !== null && sellParams.dca_rearm_drawdown_pct !== undefined) parts.push(`rearm${formatCompact(sellParams.dca_rearm_drawdown_pct)}`);
-  if (sellParams.buy_rearm_mode === 'restart_from_rearm') parts.push('rearmmode_restart');
-  if (sellParams.sell_stage_rearm_drawdown_pct !== null && sellParams.sell_stage_rearm_drawdown_pct !== undefined) parts.push(`sellrearm${formatCompact(sellParams.sell_stage_rearm_drawdown_pct)}`);
-  return parts.join('__');
-}
 function _unused_scoreRowsLikeScorecard(rows) {
   const weights = robustWeights();
   const returns = rows.map((row) => row.avg_return_pct);

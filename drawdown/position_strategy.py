@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Callable, Iterable
 
@@ -260,7 +260,7 @@ class SymbolState:
     grid_rebound_cycle_anchor_drawdown_pct: float | None = None
     grid_rebound_last_sell_drawdown_pct: float | None = None
     grid_rebound_last_sell_lot_count: int = 0
-    price_history: list[PricePoint] | None = None
+    price_history: list[PricePoint] = field(default_factory=list)
 
 
 def parse_date_range(start_raw: str | None, end_raw: str | None) -> tuple[date, date]:
@@ -3707,23 +3707,22 @@ def _reduce_lots_fifo(state: SymbolState, shares: float) -> None:
 
 
 def _holding_period_prices(state: SymbolState, buy_date: date, sell_date: date, inputs: StrategyInputs) -> list[float]:
-    prices = [
+    return [
         _price_usd(state.symbol, point.close, inputs)
-        for point in (state.price_history or [])
+        for point in state.price_history
         if buy_date <= point.date.date() <= sell_date
     ]
-    return prices
 
 
 def _slice_efficiency(
     state: SymbolState,
-    point: PricePoint | None,
-    inputs: StrategyInputs | None,
+    point: PricePoint,
+    inputs: StrategyInputs,
     lot: PositionLot,
     shares: float,
 ) -> dict[str, float | str]:
-    sell_price = _price_usd(state.symbol, point.close, inputs) if point and inputs else lot.buy_price_usd
-    prices = _holding_period_prices(state, lot.buy_date, point.date.date(), inputs) if point and inputs else []
+    sell_price = _price_usd(state.symbol, point.close, inputs)
+    prices = _holding_period_prices(state, lot.buy_date, point.date.date(), inputs)
     if not prices:
         prices = [lot.buy_price_usd, sell_price]
     period_high = max(prices)
@@ -3744,8 +3743,8 @@ def _slice_efficiency(
 
 def _sell_quality_lot_slices(
     state: SymbolState,
-    point: PricePoint | None,
-    inputs: StrategyInputs | None,
+    point: PricePoint,
+    inputs: StrategyInputs,
     shares: float,
     lot: PositionLot | None,
 ) -> list[dict[str, float | str]]:
