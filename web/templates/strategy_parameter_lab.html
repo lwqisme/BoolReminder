@@ -8083,7 +8083,7 @@
                         const hasErr = !!res.error;
                         const hasSig = res.signals && res.signals.length > 0;
                         html += '<div class="signal-result-card' + (hasErr ? ' error' : '') + (hasSig ? ' has-signals' : '') + '">';
-                        html += '<h4>' + escapeHtml(res.symbol) + ' (' + escapeHtml(res.buy_strategy || '?') + ' / ' + escapeHtml(res.sell_strategy || '?') + ')</h4>';
+                        html += '<h4>' + escapeHtml(res.symbol) + ' <span style="font-weight:400;color:var(--muted);">' + escapeHtml(res.preset_name || res.preset_id || '') + '</span> (' + escapeHtml(res.buy_strategy || '?') + ' / ' + escapeHtml(res.sell_strategy || '?') + ')</h4>';
                         if (hasErr) {
                             html += '<div style="color:var(--red);">⚠ ' + escapeHtml(res.error) + '</div>';
                         } else if (hasSig) {

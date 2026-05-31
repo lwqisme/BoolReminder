@@ -180,6 +180,7 @@ def generate_signal(
     return {
         "symbol": sym,
         "preset_id": preset_id,
+        "preset_name": preset.get("name", ""),
         "signal_date": today.isoformat(),
         "effective_date": effective_signal_date.isoformat(),
         "is_weekend": is_weekend,
@@ -271,14 +272,20 @@ def _signal_reason(trade: dict[str, object]) -> str:
     threshold = trade.get("threshold_pct")
 
     if trade.get("sell_stage"):
-        return f"阶梯修复卖出 第{trade['sell_stage']}档"
+        return f"卖出 第{trade['sell_stage']}档"
     if action == "sell" and threshold is not None:
         return f"卖出 {float(threshold):.0f}% 档位"
 
     drawdown = trade.get("drawdown_pct")
+    base_threshold = trade.get("base_threshold_pct")
     if action == "buy":
+        parts = []
         if drawdown is not None:
-            return f"回撤 {float(drawdown):.1f}% 触发买入"
+            parts.append(f"回撤{float(drawdown):.1f}%")
+        if base_threshold is not None:
+            parts.append(f"第{float(base_threshold):.1f}%档触发")
+        if parts:
+            return " ".join(parts) + " 买入"
         return "策略买入"
 
     strategy = trade.get("buy_strategy", "")
