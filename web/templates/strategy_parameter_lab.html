@@ -7898,6 +7898,7 @@
                 const d = await r.json();
                 if (d.success && d.preset) {
                     alert('预设已保存: ' + d.preset.id);
+                    await loadPresetList();
                     renderSignalBindings();
                 } else {
                     alert('保存失败: ' + (d.message || ''));
