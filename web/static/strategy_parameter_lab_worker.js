@@ -974,6 +974,41 @@ function sellMetrics(tradeLog, portfolioValues, cashValues) {
   const avgProfit = avg(sells.map((trade) => trade.estimated_profit_pct));
   const avgSpreadEfficiency = avg(sells.map((trade) => trade.price_spread_efficiency));
   const avgSellTimingEfficiency = avg(sells.map((trade) => trade.sell_timing_efficiency));
+
+  // buy_quality = (period_high - buy_price) / amplitude per lot, weighted by shares
+  // sell_quality = (sell_price - period_low) / amplitude per lot, weighted by shares
+  // Averaged across all sell trades. Only completed (sold) lots contribute.
+  let buyQuality = 0;
+  let sellQuality = 0;
+  if (sells.length) {
+    const buyQualities = [];
+    const sellQualities = [];
+    for (const trade of sells) {
+      const slices = trade.sold_lot_slices || [];
+      if (!slices.length) continue;
+      let totalShares = 0;
+      for (const sl of slices) totalShares += sl.shares || 0;
+      if (totalShares <= 0) continue;
+      let tradeBuyQ = 0, tradeSellQ = 0;
+      for (const sl of slices) {
+        const shares = sl.shares || 0;
+        const amplitude = (sl.holding_period_high_usd || 0) - (sl.holding_period_low_usd || 0);
+        if (amplitude <= 1e-9) continue;
+        const bq = clamp(((sl.holding_period_high_usd || 0) - (sl.buy_price_usd || 0)) / amplitude, 0, 1);
+        const sq = clamp(((trade.price || 0) - (sl.holding_period_low_usd || 0)) / amplitude, 0, 1);
+        tradeBuyQ += bq * shares;
+        tradeSellQ += sq * shares;
+      }
+      buyQualities.push(tradeBuyQ / totalShares);
+      sellQualities.push(tradeSellQ / totalShares);
+    }
+    if (buyQualities.length) {
+      buyQuality = buyQualities.reduce((s, v) => s + v, 0) / buyQualities.length * 100;
+      sellQuality = sellQualities.reduce((s, v) => s + v, 0) / sellQualities.length * 100;
+    }
+  }
+
+  // Cash reuse / idle — kept as raw display metrics, no longer composite into sell_quality
   const totalSellCash = sells.reduce((sum, trade) => sum + num(trade.net_amount), 0);
   let sellPool = 0;
   let reused = 0;
@@ -987,24 +1022,14 @@ function sellMetrics(tradeLog, portfolioValues, cashValues) {
   }
   const cashReuse = totalSellCash > 0 ? pct(reused / totalSellCash) : 0;
   const avgCash = avg(cashValues.map((cash, index) => portfolioValues[index] > 0 ? pct(cash / portfolioValues[index]) : 0));
-  const maxDD = maxDrawdown(portfolioValues);
-  const buyQuality = maxDD < 0 && avgBuy < 0 ? clamp(1 - avgBuy / maxDD, 0, 1) : 0;
-  const sellQuality = sells.length
-    ? (
-      clamp(avgSpreadEfficiency / 0.60, 0, 1) * 0.35
-      + clamp(avgSellTimingEfficiency / 0.75, 0, 1) * 0.25
-      + buyQuality * 0.15
-      + clamp(cashReuse / 100, 0, 1) * 0.15
-      + clamp((65 - avgCash) / 65, 0, 1) * 0.10
-    ) * 100
-    : 0;
+
   return {
     avg_buy_drawdown_pct: avgBuy,
     avg_sell_drawdown_pct: avgSell,
     avg_sell_profit_pct: avgProfit,
     avg_price_spread_efficiency: avgSpreadEfficiency,
     avg_sell_timing_efficiency: avgSellTimingEfficiency,
-    buy_quality_score: buyQuality * 100,
+    buy_quality_score: buyQuality,
     cash_reuse_pct: cashReuse,
     avg_cash_pct: avgCash,
     sell_quality_score: sellQuality

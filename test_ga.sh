@@ -40,6 +40,13 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+echo "--- JavaScript: Sell quality metrics (buy_quality, sell_quality) ---"
+if node test_sell_quality_metrics_js.js 2>&1; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=========================================="
 echo " Results: $PASS passed, $FAIL failed"
