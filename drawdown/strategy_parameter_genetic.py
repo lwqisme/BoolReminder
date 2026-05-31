@@ -542,8 +542,8 @@ def _initialize_population(
                     default_buy["core_dip_timing_enabled"] = cat_restrict.core_dip_timing_enabled == "true"
             default_ind = Individual(
                 buy_strategy=bs, sell_strategy=ss,
-                buy_params=_default_buy_params(bs, base_inputs),
-                sell_params=_default_sell_params(ss, base_inputs, bs),
+                buy_params=default_buy,
+                sell_params=default_sell,
             )
             if default_ind.key not in seen_keys:
                 seen_keys.add(default_ind.key)
@@ -563,6 +563,12 @@ def _initialize_population(
             for seed_params in _generate_seeded_params(bs, ss, base_inputs, buy_fields, sell_fields):
                 if len(population) >= population_size:
                     break
+                # Apply categorical restriction
+                if cat_restrict:
+                    if cat_restrict.buy_rearm_mode and "buy_rearm_mode" in seed_params:
+                        seed_params["buy_rearm_mode"] = cat_restrict.buy_rearm_mode
+                    if cat_restrict.sell_allow_same_day_sell and "sell_allow_same_day_sell" in seed_params:
+                        seed_params["sell_allow_same_day_sell"] = cat_restrict.sell_allow_same_day_sell == "true"
                 ind = Individual(bs, ss,
                     buy_params={k: v for k, v in seed_params.items() if k in buy_fields},
                     sell_params={k: v for k, v in seed_params.items() if k in sell_fields})
