@@ -157,9 +157,16 @@ def generate_signal(
     )
 
     # 8. Extract signals for today
+    # On weekends, use the last available trading day's signals as preview
+    last_price_date = points[-1].date.date() if points else today
+    is_weekend = today.weekday() >= 5
+    effective_signal_date = today
+    if is_weekend and last_price_date < today:
+        effective_signal_date = last_price_date
+
     signal_trades = [
         t for t in result.get("trades", [])
-        if t.get("date") == today.isoformat() and not t.get("is_real")
+        if t.get("date") == effective_signal_date.isoformat() and not t.get("is_real")
     ]
 
     symbol_state = next(
@@ -171,6 +178,8 @@ def generate_signal(
         "symbol": sym,
         "preset_id": preset_id,
         "signal_date": today.isoformat(),
+        "effective_date": effective_signal_date.isoformat(),
+        "is_weekend": is_weekend,
         "buy_strategy": config.buy_strategy,
         "sell_strategy": config.sell_strategy,
         "current_state": {

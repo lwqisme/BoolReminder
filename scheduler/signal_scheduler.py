@@ -27,6 +27,12 @@ class SignalScheduler:
         )
 
     def _run(self):
+        from datetime import date
+        today = date.today()
+        if today.weekday() >= 5:
+            logger.info(f"周末 ({today.isoformat()})，跳过策略信号邮件发送")
+            return
+
         logger.info("开始生成每晚策略信号...")
         try:
             results = generate_all_signals(dry_run=False)
