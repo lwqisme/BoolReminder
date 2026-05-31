@@ -7460,7 +7460,7 @@
                                     if (!isFinite(rp) || !isFinite(dd)) {
                                         console.warn('[GA] NaN observation', {cid, return_pct: o.return_pct, max_drawdown_pct: o.max_drawdown_pct});
                                     }
-                                    return { candidate_id: cid, return_pct: rp, max_drawdown_pct: dd, topic_key: o.topic_key, trade_count: Number(o.trade_count || 0), leaps_signal: o.leaps_signal || null };
+                                    return { candidate_id: cid, return_pct: rp, max_drawdown_pct: dd, sell_quality_score: Number(o.sell_quality_score || 0), topic_key: o.topic_key, trade_count: Number(o.trade_count || 0), leaps_signal: o.leaps_signal || null };
                                 });
                             }).flat();
                             allRows.push.apply(allRows, obs);
