@@ -221,6 +221,7 @@ class PositionLot:
     threshold_pct: float
     buy_drawdown_pct: float
     buy_price_usd: float
+    buy_date: date
     initial_shares: float
     remaining_shares: float
     first_grid_sell_done: bool = False
@@ -259,6 +260,7 @@ class SymbolState:
     grid_rebound_cycle_anchor_drawdown_pct: float | None = None
     grid_rebound_last_sell_drawdown_pct: float | None = None
     grid_rebound_last_sell_lot_count: int = 0
+    price_history: list[PricePoint] | None = None
 
 
 def parse_date_range(start_raw: str | None, end_raw: str | None) -> tuple[date, date]:
@@ -643,6 +645,8 @@ def run_longbridge_strategy_scorecard(
                         "rank_sum": 0.0,
                         "sell_quality_sum": 0.0,
                         "sell_profit_pct_sum": 0.0,
+                        "price_spread_efficiency_sum": 0.0,
+                        "sell_timing_efficiency_sum": 0.0,
                         "sell_drawdown_sum": 0.0,
                         "cash_reuse_sum": 0.0,
                         "buy_drawdown_sum": 0.0,
@@ -657,6 +661,8 @@ def run_longbridge_strategy_scorecard(
                 summary["rank_sum"] += item["rank"]
                 summary["sell_quality_sum"] += item["sell_quality_score"]
                 summary["sell_profit_pct_sum"] += item["avg_sell_profit_pct"]
+                summary["price_spread_efficiency_sum"] += item.get("avg_price_spread_efficiency", 0.0)
+                summary["sell_timing_efficiency_sum"] += item.get("avg_sell_timing_efficiency", 0.0)
                 summary["sell_drawdown_sum"] += item["avg_sell_drawdown_pct"]
                 summary["cash_reuse_sum"] += item["cash_reuse_pct"]
                 summary["buy_drawdown_sum"] += item["avg_buy_drawdown_pct"]
@@ -680,6 +686,8 @@ def run_longbridge_strategy_scorecard(
                 "avg_rank": raw["rank_sum"] / count if count else 0.0,
                 "avg_sell_quality_score": raw["sell_quality_sum"] / count if count else 0.0,
                 "avg_sell_profit_pct": raw["sell_profit_pct_sum"] / count if count else 0.0,
+                "avg_price_spread_efficiency": raw["price_spread_efficiency_sum"] / count if count else 0.0,
+                "avg_sell_timing_efficiency": raw["sell_timing_efficiency_sum"] / count if count else 0.0,
                 "avg_sell_drawdown_pct": raw["sell_drawdown_sum"] / count if count else 0.0,
                 "avg_cash_reuse_pct": raw["cash_reuse_sum"] / count if count else 0.0,
                 "avg_buy_drawdown_pct": raw["buy_drawdown_sum"] / count if count else 0.0,
@@ -795,6 +803,8 @@ def run_longbridge_sell_parameter_scan(
                     "max_drawdown_pct": float(metrics["max_drawdown_pct"]),
                     "sell_quality_score": float(metrics.get("sell_quality_score", 0.0)),
                     "avg_sell_profit_pct": float(metrics.get("avg_sell_profit_pct", 0.0)),
+                    "avg_price_spread_efficiency": float(metrics.get("avg_price_spread_efficiency", 0.0)),
+                    "avg_sell_timing_efficiency": float(metrics.get("avg_sell_timing_efficiency", 0.0)),
                     "avg_sell_drawdown_pct": float(metrics.get("avg_sell_drawdown_pct", 0.0)),
                     "cash_reuse_pct": float(metrics.get("cash_reuse_pct", 0.0)),
                     "sell_trade_count": int(metrics.get("sell_trade_count", 0)),
@@ -2139,6 +2149,7 @@ def _apply_real_trades(
                 threshold_pct=0.0,
                 buy_drawdown_pct=0.0,
                 buy_price_usd=price,
+                buy_date=point.date.date(),
                 initial_shares=shares,
                 remaining_shares=shares,
             ))
@@ -2236,6 +2247,7 @@ def _simulate_strategy(
             lots=[],
             sell_marks=set(),
             dca_pending_cash=inputs.initial_cash * target.weight / 100.0 if strategy == "weekly_dca" else 0.0,
+            price_history=price_points_by_symbol.get(target.symbol, []),
         )
         for target in targets
     }
@@ -2543,6 +2555,8 @@ def _score_question_strategies(
                 "avg_buy_drawdown_pct": float(metrics.get("avg_buy_drawdown_pct", 0.0)),
                 "avg_sell_drawdown_pct": float(metrics.get("avg_sell_drawdown_pct", 0.0)),
                 "avg_sell_profit_pct": float(metrics.get("avg_sell_profit_pct", 0.0)),
+                "avg_price_spread_efficiency": float(metrics.get("avg_price_spread_efficiency", 0.0)),
+                "avg_sell_timing_efficiency": float(metrics.get("avg_sell_timing_efficiency", 0.0)),
                 "sell_profit": float(metrics.get("sell_profit", 0.0)),
                 "cash_reuse_pct": float(metrics.get("cash_reuse_pct", 0.0)),
                 "avg_cash_pct": float(metrics.get("avg_cash_pct", 0.0)),
@@ -2683,6 +2697,8 @@ def _sell_observation_metrics(
     avg_buy_drawdown = _avg_float([trade.get("drawdown_pct", 0.0) for trade in buy_trades])
     avg_sell_drawdown = _avg_float([trade.get("drawdown_pct", 0.0) for trade in sell_trades])
     avg_sell_profit = _avg_float([trade.get("estimated_profit_pct", 0.0) for trade in sell_trades])
+    avg_price_spread_efficiency = _avg_float([trade.get("price_spread_efficiency", 0.0) for trade in sell_trades])
+    avg_sell_timing_efficiency = _avg_float([trade.get("sell_timing_efficiency", 0.0) for trade in sell_trades])
     total_sell_profit = sum(float(trade.get("estimated_profit", 0.0) or 0.0) for trade in sell_trades)
     total_sell_cash = sum(float(trade.get("net_amount", 0.0) or 0.0) for trade in sell_trades)
     reused_cash = _cash_reuse_from_sells(trade_log)
@@ -2697,21 +2713,23 @@ def _sell_observation_metrics(
     if not sell_trades:
         sell_quality_score = 0.0
     else:
-        profit_component = clamp(avg_sell_profit / 35.0, 0.0, 1.0)
-        position_component = clamp((30.0 - avg_sell_drawdown) / 30.0, 0.0, 1.0)
+        spread_component = clamp(avg_price_spread_efficiency / 0.60, 0.0, 1.0)
+        timing_component = clamp(avg_sell_timing_efficiency / 0.75, 0.0, 1.0)
         reuse_component = clamp(cash_reuse_pct / 100.0, 0.0, 1.0)
         idle_component = clamp((65.0 - avg_cash_pct) / 65.0, 0.0, 1.0)
         sell_quality_score = (
-            profit_component * 0.35
-            + position_component * 0.30
-            + reuse_component * 0.20
-            + idle_component * 0.15
+            spread_component * 0.40
+            + timing_component * 0.30
+            + reuse_component * 0.18
+            + idle_component * 0.12
         ) * 100.0
 
     return {
         "avg_buy_drawdown_pct": avg_buy_drawdown,
         "avg_sell_drawdown_pct": avg_sell_drawdown,
         "avg_sell_profit_pct": avg_sell_profit,
+        "avg_price_spread_efficiency": avg_price_spread_efficiency,
+        "avg_sell_timing_efficiency": avg_sell_timing_efficiency,
         "sell_profit": total_sell_profit,
         "cash_reuse_pct": cash_reuse_pct,
         "avg_cash_pct": avg_cash_pct,
@@ -2772,6 +2790,7 @@ def _execute_weekly_dca(
             threshold_pct=0.0,
             buy_drawdown_pct=drawdown_pct,
             buy_price_usd=price_usd,
+            buy_date=point.date.date(),
             initial_shares=shares,
             remaining_shares=shares,
         )
@@ -2843,6 +2862,7 @@ def _execute_salary_flow_dca(
             threshold_pct=0.0,
             buy_drawdown_pct=drawdown_pct,
             buy_price_usd=price_usd,
+            buy_date=point.date.date(),
             initial_shares=shares,
             remaining_shares=shares,
         )
@@ -2963,6 +2983,7 @@ def _execute_core_dip_dca(
             threshold_pct=0.0,
             buy_drawdown_pct=drawdown_pct,
             buy_price_usd=price_usd,
+            buy_date=point.date.date(),
             initial_shares=shares,
             remaining_shares=shares,
         )
@@ -3118,6 +3139,7 @@ def _execute_crossed_tranches(
                 threshold_pct=tranche.threshold_pct,
                 buy_drawdown_pct=drawdown_pct,
                 buy_price_usd=_price_usd(state.symbol, point.close, inputs),
+                buy_date=point.date.date(),
                 initial_shares=shares,
                 remaining_shares=shares,
             )
@@ -3499,6 +3521,7 @@ def _sell_shares(
     if shares <= 0 or not _meets_min_sell_amount(state, point, shares, inputs, min_gross_amount):
         return False
     cost_basis = _avg_cost_usd(state) * shares
+    sold_lot_slices = _sell_quality_lot_slices(state, point, inputs, shares, None)
     _reduce_lots_fifo(state, shares)
     sold = _record_sell(
         state,
@@ -3510,6 +3533,7 @@ def _sell_shares(
         trigger_value,
         cost_basis=cost_basis,
         sell_stage=sell_stage,
+        sold_lot_slices=sold_lot_slices,
     )
     if sold:
         _mark_buy_rearm_after_position_sell(state, point, inputs)
@@ -3545,16 +3569,21 @@ def _record_sell(
     lot: PositionLot | None = None,
     cost_basis: float | None = None,
     sell_stage: str | None = None,
+    sold_lot_slices: list[dict[str, float | str]] | None = None,
 ) -> bool:
     price_usd = _price_usd(state.symbol, point.close, inputs)
     gross_amount = shares * price_usd
     if gross_amount <= 0:
         return False
+    if sold_lot_slices is None:
+        sold_lot_slices = _sell_quality_lot_slices(state, point, inputs, shares, lot)
     if cost_basis is None:
         avg_cost_before_sell = _avg_cost_usd(state)
         cost_basis = lot.buy_price_usd * shares if lot else avg_cost_before_sell * shares
     estimated_profit = gross_amount - cost_basis if cost_basis > 0 else 0.0
     estimated_profit_pct = _pct(gross_amount / cost_basis - 1.0) if cost_basis > 0 else 0.0
+    price_efficiency = _weighted_slice_metric(sold_lot_slices, "price_spread_efficiency")
+    sell_timing = _weighted_slice_metric(sold_lot_slices, "sell_timing_efficiency")
     fee = min(inputs.trade_fee, gross_amount)
     net_amount = gross_amount - fee
     state.cash += net_amount
@@ -3585,6 +3614,10 @@ def _record_sell(
         "lot_threshold_pct": lot.threshold_pct if lot else None,
         "lot_buy_drawdown_pct": lot.buy_drawdown_pct if lot else None,
         "lot_buy_price_usd": lot.buy_price_usd if lot else None,
+        "lot_buy_date": lot.buy_date.isoformat() if lot else None,
+        "price_spread_efficiency": price_efficiency,
+        "sell_timing_efficiency": sell_timing,
+        "sold_lot_slices": sold_lot_slices,
     }
     if sell_stage:
         event["stage"] = sell_stage
@@ -3671,6 +3704,78 @@ def _reduce_lots_fifo(state: SymbolState, shares: float) -> None:
         sold = min(lot.remaining_shares, remaining)
         lot.remaining_shares -= sold
         remaining -= sold
+
+
+def _holding_period_prices(state: SymbolState, buy_date: date, sell_date: date, inputs: StrategyInputs) -> list[float]:
+    prices = [
+        _price_usd(state.symbol, point.close, inputs)
+        for point in (state.price_history or [])
+        if buy_date <= point.date.date() <= sell_date
+    ]
+    return prices
+
+
+def _slice_efficiency(
+    state: SymbolState,
+    point: PricePoint | None,
+    inputs: StrategyInputs | None,
+    lot: PositionLot,
+    shares: float,
+) -> dict[str, float | str]:
+    sell_price = _price_usd(state.symbol, point.close, inputs) if point and inputs else lot.buy_price_usd
+    prices = _holding_period_prices(state, lot.buy_date, point.date.date(), inputs) if point and inputs else []
+    if not prices:
+        prices = [lot.buy_price_usd, sell_price]
+    period_high = max(prices)
+    period_low = min(prices)
+    spread = sell_price - lot.buy_price_usd
+    amplitude = period_high - period_low
+    upside = period_high - lot.buy_price_usd
+    return {
+        "buy_date": lot.buy_date.isoformat(),
+        "buy_price_usd": lot.buy_price_usd,
+        "shares": shares,
+        "holding_period_high_usd": period_high,
+        "holding_period_low_usd": period_low,
+        "price_spread_efficiency": spread / amplitude if amplitude > 1e-9 else 0.0,
+        "sell_timing_efficiency": spread / upside if upside > 1e-9 else 0.0,
+    }
+
+
+def _sell_quality_lot_slices(
+    state: SymbolState,
+    point: PricePoint | None,
+    inputs: StrategyInputs | None,
+    shares: float,
+    lot: PositionLot | None,
+) -> list[dict[str, float | str]]:
+    if shares <= 0:
+        return []
+    if lot is not None:
+        return [_slice_efficiency(state, point, inputs, lot, shares)]
+    if not state.lots:
+        return []
+    remaining = shares
+    slices: list[dict[str, float | str]] = []
+    for item in state.lots:
+        if remaining <= 0:
+            break
+        if item.remaining_shares <= 0:
+            continue
+        sold = min(item.remaining_shares, remaining)
+        slices.append(_slice_efficiency(state, point, inputs, item, sold))
+        remaining -= sold
+    return slices
+
+
+def _weighted_slice_metric(slices: list[dict[str, float | str]], field: str) -> float:
+    total_shares = sum(float(item.get("shares", 0.0) or 0.0) for item in slices)
+    if total_shares <= 0:
+        return 0.0
+    return sum(
+        float(item.get(field, 0.0) or 0.0) * float(item.get("shares", 0.0) or 0.0)
+        for item in slices
+    ) / total_shares
 
 
 def _slice_thresholds(max_dd: float, step: float) -> list[float]:

@@ -319,6 +319,49 @@ function formatCompact(value) {
   return Number.isInteger(n) ? String(n) : String(Number(n.toPrecision(6))).replace(/\.0+$/, '');
 }
 
+function buildCandidateKey(buyStrategy, sellStrategy, buyParams, sellParams) {
+  const parts = [buyStrategy];
+  if (buyParams.step_pct !== null && buyParams.step_pct !== undefined) parts.push(`step${formatCompact(buyParams.step_pct)}`);
+  if (buyParams.equal_slice_allocation_pct !== null && buyParams.equal_slice_allocation_pct !== undefined) parts.push(`alloc${formatCompact(buyParams.equal_slice_allocation_pct)}`);
+  if (buyParams.core_dip_initial_core_pct !== null && buyParams.core_dip_initial_core_pct !== undefined) {
+    parts.push(`ci${formatCompact(buyParams.core_dip_initial_core_pct)}`);
+    parts.push(`cw${formatCompact(buyParams.core_dip_weekly_core_pct)}`);
+    parts.push(`cr${formatCompact(buyParams.core_dip_cash_reserve_pct)}`);
+    parts.push(`csd${formatCompact(buyParams.core_dip_start_drawdown_pct)}`);
+    parts.push(`cfd${formatCompact(buyParams.core_dip_full_drawdown_pct)}`);
+    if (buyParams.core_dip_timing_enabled) {
+      parts.push(`ctd${formatCompact(Math.trunc(Number(buyParams.core_dip_timing_max_delay_days || 0)))}`);
+      parts.push(`ctr${formatCompact(buyParams.core_dip_timing_rise_threshold_pct)}`);
+      parts.push(`ctl${formatCompact(buyParams.core_dip_timing_near_low_pct)}`);
+    }
+  }
+  parts.push(sellStrategy);
+  if (sellStrategy === 'repair_step') {
+    parts.push(`p${formatCompact(sellParams.sell_min_profit_pct)}`);
+    parts.push(`c${formatCompact(Math.trunc(Number(sellParams.repair_sell_cooldown_days || 0)))}`);
+    parts.push(`s${formatCompact(sellParams.repair_stage_sell_pct)}`);
+  }
+  if (sellStrategy === 'grid_rebound' || sellStrategy === 'price_rise_grid') {
+    parts.push(`g${formatCompact(sellParams.grid_rebound_step_pct)}`);
+    parts.push(`gsell${formatCompact(sellParams.grid_sell_pct ?? sellParams.grid_second_sell_pct)}`);
+    parts.push(`gmin${formatCompact(sellParams.grid_min_sell_amount)}`);
+    if (Number(sellParams.grid_rebound_cycle_reset)) parts.push(`greset${formatCompact(sellParams.grid_rebound_cycle_reset)}`);
+  }
+  if (sellStrategy === 'cost_deleverage') {
+    const profits = [sellParams.cost_first_profit_pct, sellParams.cost_second_profit_pct, sellParams.cost_third_profit_pct];
+    const sells = [sellParams.cost_first_sell_pct, sellParams.cost_second_sell_pct, sellParams.cost_third_sell_pct];
+    parts.push(`cp${profits.map(formatCompact).join('-')}`);
+    parts.push(`cs${sells.map(formatCompact).join('-')}`);
+    parts.push(`cc${formatCompact(Math.trunc(Number(sellParams.cost_deleverage_cooldown_days || 0)))}`);
+    parts.push(`cmin${formatCompact(sellParams.cost_min_sell_amount)}`);
+  }
+  if (sellStrategy !== 'none' && sellParams.sell_allow_same_day_sell) parts.push('same1');
+  if (sellParams.dca_rearm_drawdown_pct !== null && sellParams.dca_rearm_drawdown_pct !== undefined) parts.push(`rearm${formatCompact(sellParams.dca_rearm_drawdown_pct)}`);
+  if (sellParams.buy_rearm_mode === 'restart_from_rearm') parts.push('rearmmode_restart');
+  if (sellParams.sell_stage_rearm_drawdown_pct !== null && sellParams.sell_stage_rearm_drawdown_pct !== undefined) parts.push(`sellrearm${formatCompact(sellParams.sell_stage_rearm_drawdown_pct)}`);
+  return parts.join('__');
+}
+
 function gridSellPct(params) {
   if (!params) return 0;
   if (params.grid_sell_pct !== null && params.grid_sell_pct !== undefined) return params.grid_sell_pct;
@@ -459,6 +502,53 @@ function reduceLotsFifo(state, shares) {
   }
 }
 
+function holdingPeriodPrices(state, buyDate, sellDate, inputs) {
+  return (state.price_points || [])
+    .filter((point) => point.date >= buyDate && point.date <= sellDate)
+    .map((point) => priceUsd(state.symbol, num(point.close), inputs))
+    .filter((price) => price > 0);
+}
+
+function sliceEfficiency(state, point, inputs, lot, shares) {
+  const sellPrice = priceUsd(state.symbol, num(point.close), inputs);
+  const prices = holdingPeriodPrices(state, lot.buy_date || point.date, point.date, inputs);
+  if (!prices.length) prices.push(num(lot.buy_price_usd), sellPrice);
+  const high = Math.max(...prices);
+  const low = Math.min(...prices);
+  const spread = sellPrice - num(lot.buy_price_usd);
+  const amplitude = high - low;
+  const upside = high - num(lot.buy_price_usd);
+  return {
+    buy_date: lot.buy_date || point.date,
+    buy_price_usd: num(lot.buy_price_usd),
+    shares,
+    holding_period_high_usd: high,
+    holding_period_low_usd: low,
+    price_spread_efficiency: amplitude > 1e-9 ? spread / amplitude : 0,
+    sell_timing_efficiency: upside > 1e-9 ? spread / upside : 0
+  };
+}
+
+function sellQualityLotSlices(state, point, inputs, shares, lot = null) {
+  if (shares <= 0) return [];
+  if (lot) return [sliceEfficiency(state, point, inputs, lot, shares)];
+  let remaining = shares;
+  const slices = [];
+  for (const item of state.lots) {
+    if (remaining <= 0) break;
+    if (num(item.remaining_shares) <= 0) continue;
+    const sold = Math.min(num(item.remaining_shares), remaining);
+    slices.push(sliceEfficiency(state, point, inputs, item, sold));
+    remaining -= sold;
+  }
+  return slices;
+}
+
+function weightedSliceMetric(slices, field) {
+  const total = slices.reduce((sum, item) => sum + num(item.shares), 0);
+  return total > 0 ? slices.reduce((sum, item) => sum + num(item[field]) * num(item.shares), 0) / total : 0;
+}
+
 function recordBuy(state, point, inputs, tradeLog, buyStrategy, sellStrategy, grossAmount, drawdown, extra = {}) {
   if (grossAmount <= 0) return false;
   const fee = Math.min(num(inputs.trade_fee, 0.35), grossAmount);
@@ -483,6 +573,7 @@ function recordBuy(state, point, inputs, tradeLog, buyStrategy, sellStrategy, gr
     threshold_pct: num(extra.threshold_pct),
     buy_drawdown_pct: drawdown,
     buy_price_usd: px,
+    buy_date: point.date,
     initial_shares: shares,
     remaining_shares: shares,
     first_grid_sell_done: false,
@@ -658,10 +749,11 @@ function executeTranches(state, point, tranches, executed, inputs, tradeLog, buy
   return bought;
 }
 
-function recordSell(state, point, shares, inputs, tradeLog, sellStrategy, trigger, costBasis = null, stage = null) {
+function recordSell(state, point, shares, inputs, tradeLog, sellStrategy, trigger, costBasis = null, stage = null, soldLotSlices = null) {
   const px = priceUsd(state.symbol, point.close, inputs);
   const gross = shares * px;
   if (gross <= 0) return false;
+  const slices = soldLotSlices || sellQualityLotSlices(state, point, inputs, shares, null);
   const basis = costBasis ?? avgCost(state) * shares;
   const fee = Math.min(num(inputs.trade_fee, 0.35), gross);
   state.cash += gross - fee;
@@ -688,7 +780,10 @@ function recordSell(state, point, shares, inputs, tradeLog, sellStrategy, trigge
     cash_pct_after: pct(safeRatio(state.cash, state.cash + state.last_value)),
     position_value_after: state.last_value,
     estimated_profit: basis > 0 ? gross - basis : 0,
-    estimated_profit_pct: basis > 0 ? pct(gross / basis - 1) : 0
+    estimated_profit_pct: basis > 0 ? pct(gross / basis - 1) : 0,
+    price_spread_efficiency: weightedSliceMetric(slices, 'price_spread_efficiency'),
+    sell_timing_efficiency: weightedSliceMetric(slices, 'sell_timing_efficiency'),
+    sold_lot_slices: slices
   };
   if (stage) event.stage = stage;
   tradeLog.push(event);
@@ -705,8 +800,9 @@ function sellShares(state, point, requested, inputs, tradeLog, sellStrategy, tri
   const shares = sellableShares(state, requested, inputs);
   if (shares <= 0 || shares * priceUsd(state.symbol, point.close, inputs) + 1e-9 < minGross) return false;
   const basis = avgCost(state) * shares;
+  const soldLotSlices = sellQualityLotSlices(state, point, inputs, shares, null);
   reduceLotsFifo(state, shares);
-  const sold = recordSell(state, point, shares, inputs, tradeLog, sellStrategy, trigger, basis, stage);
+  const sold = recordSell(state, point, shares, inputs, tradeLog, sellStrategy, trigger, basis, stage, soldLotSlices);
   if (sold) markBuyRearmAfterPositionSell(state, point, inputs);
   return sold;
 }
@@ -876,6 +972,8 @@ function sellMetrics(tradeLog, portfolioValues, cashValues) {
   const avgBuy = avg(buys.map((trade) => trade.drawdown_pct));
   const avgSell = avg(sells.map((trade) => trade.drawdown_pct));
   const avgProfit = avg(sells.map((trade) => trade.estimated_profit_pct));
+  const avgSpreadEfficiency = avg(sells.map((trade) => trade.price_spread_efficiency));
+  const avgSellTimingEfficiency = avg(sells.map((trade) => trade.sell_timing_efficiency));
   const totalSellCash = sells.reduce((sum, trade) => sum + num(trade.net_amount), 0);
   let sellPool = 0;
   let reused = 0;
@@ -891,16 +989,18 @@ function sellMetrics(tradeLog, portfolioValues, cashValues) {
   const avgCash = avg(cashValues.map((cash, index) => portfolioValues[index] > 0 ? pct(cash / portfolioValues[index]) : 0));
   const sellQuality = sells.length
     ? (
-      clamp(avgProfit / 35, 0, 1) * 0.35
-      + clamp((30 - avgSell) / 30, 0, 1) * 0.30
-      + clamp(cashReuse / 100, 0, 1) * 0.20
-      + clamp((65 - avgCash) / 65, 0, 1) * 0.15
+      clamp(avgSpreadEfficiency / 0.60, 0, 1) * 0.40
+      + clamp(avgSellTimingEfficiency / 0.75, 0, 1) * 0.30
+      + clamp(cashReuse / 100, 0, 1) * 0.18
+      + clamp((65 - avgCash) / 65, 0, 1) * 0.12
     ) * 100
     : 0;
   return {
     avg_buy_drawdown_pct: avgBuy,
     avg_sell_drawdown_pct: avgSell,
     avg_sell_profit_pct: avgProfit,
+    avg_price_spread_efficiency: avgSpreadEfficiency,
+    avg_sell_timing_efficiency: avgSellTimingEfficiency,
     cash_reuse_pct: cashReuse,
     avg_cash_pct: avgCash,
     sell_quality_score: sellQuality
@@ -1154,6 +1254,7 @@ function simulate(task, baseInputs, candidate) {
       core_dip_pending_cash: 0,
       core_dip_pending_days: 0,
       recent_points: [],
+      price_points: task.price_points?.[target.symbol] || [],
       buy_rearm_drawdown_pct: null,
       buy_rearm_anchor_drawdown_pct: null
     };

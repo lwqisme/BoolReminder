@@ -1570,7 +1570,7 @@
                         <label>网格步长 %<span class="param-help" data-tooltip="网格回弹卖出的档位间距。以平均买入回撤为基准，价格向上修复一个步长触发第一档，再修复一个步长触发下一档。">?</span><input id="gridReboundStep" type="number" step="0.5" value="{{ default_config.default_grid_rebound_step_pct }}"></label>
                         <label>网格每档 %<span class="param-help" data-tooltip="网格回弹每个档位触发时卖出的当前可卖仓位比例。所有网格档位使用统一的比例。">?</span><input id="gridSellPct" type="number" step="1" value="{{ default_config.default_grid_sell_pct }}"></label>
                         <label>网格最小额<span class="param-help" data-tooltip="单次网格卖出金额低于此 USD 门槛时跳过该笔交易。设为 0 表示不限制最小卖出额。">?</span><input id="gridMinSellAmount" type="number" step="10" value="{{ default_config.default_grid_min_sell_amount }}"></label>
-                        <label>卖出质量权重 %<span class="param-help" data-tooltip="卖出质量在总评分中的权重百分比。0=纯按收益排序，值越大卖出质量（卖点盈利、卖出回撤、资金复用、现金利用率）影响越大。最大 50%。">?</span><input id="sellQualityWeightPct" type="number" step="5" min="0" max="50" value="{{ default_config.default_sell_quality_weight_pct }}"></label>
+                        <label>卖出质量权重 %<span class="param-help" data-tooltip="卖出质量在总评分中的权重百分比。0=纯按收益/回撤排序，值越大卖出质量（价差效率、卖点接近度、资金复用、现金利用率）影响越大。最大 50%。">?</span><input id="sellQualityWeightPct" type="number" step="5" min="0" max="50" value="{{ default_config.default_sell_quality_weight_pct }}"></label>
                         <label>周期重启<span class="param-help" data-tooltip="网格回弹卖到回撤接近 0 时是否自动开启新一轮。0=卖完等下次买入再卖，1=自动重置继续卖。">?</span><input id="gridReboundCycleReset" type="number" step="1" min="0" max="1" value="0"></label>
                         <label>成本一档盈利<span class="param-help" data-tooltip="成本去杠杆第一档盈利阈值，按当前剩余持仓平均成本计算。盈利达到此百分比时触发第一档卖出。">?</span><input id="costFirstProfitPct" type="number" step="0.5" value="{{ default_config.default_cost_first_profit_pct }}"></label>
                         <label>成本二档盈利<span class="param-help" data-tooltip="成本去杠杆第二档盈利阈值，按当前剩余持仓平均成本计算。必须不低于第一档。">?</span><input id="costSecondProfitPct" type="number" step="0.5" value="{{ default_config.default_cost_second_profit_pct }}"></label>
@@ -2031,10 +2031,11 @@
         const nonCustomParameterFields = new Set(['sell_allow_same_day_sell', 'buy_rearm_mode', 'core_dip_timing_enabled']);
         const leapsGradeRank = { '高': 3, '中': 2, '低': 1, '无': 0 };
         function leapsDrawdownGateEnabled() {
+            if (typeof document === 'undefined') return false;
             return document.getElementById('leapsDrawdownGate')?.checked === true;
         }
         function leapsDrawdownGateThreshold() {
-            if (!leapsDrawdownGateEnabled()) return 0;
+            if (!leapsDrawdownGateEnabled() || typeof document === 'undefined') return 0;
             const input = document.getElementById('leapsDrawdownGatePct');
             const pct = Number(input?.value);
             return Number.isFinite(pct) && pct > 0 ? pct : 20;
@@ -2122,14 +2123,17 @@
             return '';
         }
         function betterLeapsSignal(a, b) {
-            const ar = leapsGradeRank[leapsEffectiveGrade(a) || '无'] || 0;
-            const br = leapsGradeRank[leapsEffectiveGrade(b) || '无'] || 0;
+            const ar = leapsGradeRank[effectiveLeapsGrade(a) || '无'] || 0;
+            const br = leapsGradeRank[effectiveLeapsGrade(b) || '无'] || 0;
             if (ar !== br) return ar > br ? a : b;
             const scoreDiff = Number(a?.score || 0) - Number(b?.score || 0);
             if (Math.abs(scoreDiff) > 1e-9) return scoreDiff >= 0 ? a : b;
             const ad = String(a?.best_date || a?.date || '');
             const bd = String(b?.best_date || b?.date || '');
             return ad <= bd ? a : b;
+        }
+        function effectiveLeapsGrade(signal) {
+            return typeof leapsEffectiveGrade === 'function' ? leapsEffectiveGrade(signal) : (signal?.grade || '无');
         }
         function emptyLeapsGradeCounts() {
             return { 高: 0, 中: 0, 低: 0 };
@@ -2153,7 +2157,7 @@
         }
         function sortedLeapsSignals(signals) {
             return [...(signals || [])].sort((a, b) => {
-                const gradeDiff = (leapsGradeRank[leapsEffectiveGrade(b) || '无'] || 0) - (leapsGradeRank[leapsEffectiveGrade(a) || '无'] || 0);
+                const gradeDiff = (leapsGradeRank[effectiveLeapsGrade(b) || '无'] || 0) - (leapsGradeRank[effectiveLeapsGrade(a) || '无'] || 0);
                 if (gradeDiff) return gradeDiff;
                 const scoreDiff = Number(b.score || 0) - Number(a.score || 0);
                 if (Math.abs(scoreDiff) > 1e-9) return scoreDiff;
@@ -2166,12 +2170,12 @@
             ['高', '中', '低'].forEach((grade) => {
                 periodLabelsByGrade[grade] = Array.from(coverage?.[grade] || []).sort();
             });
-            if (leapsDrawdownGateEnabled()) {
+            if (typeof leapsDrawdownGateEnabled === 'function' && leapsDrawdownGateEnabled()) {
                 const allAvailable = topSignals.concat(allSignals);
                 counts = emptyLeapsGradeCounts();
                 const effectiveCoverage = { 高: new Set(), 中: new Set(), 低: new Set() };
                 allAvailable.forEach((signal) => {
-                    const grade = leapsEffectiveGrade(signal);
+                    const grade = effectiveLeapsGrade(signal);
                     if (grade !== '无') {
                         counts[grade] = (counts[grade] || 0) + 1;
                         const label = topicPeriodLabel(signal);
@@ -2183,7 +2187,7 @@
                     periodLabelsByGrade[grade] = Array.from(effectiveCoverage[grade]).sort();
                 });
             }
-            const grade = firstAvailableLeapsGrade(counts, leapsEffectiveGrade(best) || '无');
+            const grade = firstAvailableLeapsGrade(counts, effectiveLeapsGrade(best) || '无');
             const sortedTopSignals = sortedLeapsSignals(topSignals);
             const result = {
                 aggregate: true,
@@ -2242,7 +2246,7 @@
                         if (count > 0) addLeapsGradeCoverage(coverage, grade, sourceLabel);
                     });
                 } else {
-                    const fallbackGrade = leapsEffectiveGrade(summary) || '无';
+                    const fallbackGrade = effectiveLeapsGrade(summary) || '无';
                     const fallbackCount = Number(summary.trigger_count || 0);
                     if (fallbackGrade !== '无' && fallbackCount > 0) {
                         gradeCounts[fallbackGrade] += fallbackCount;
@@ -2282,7 +2286,7 @@
         }
         function renderLeapsBadge(summary, compact = false) {
             const signal = summary || {};
-            const grade = leapsEffectiveGrade(signal) || '无';
+            const grade = effectiveLeapsGrade(signal) || '无';
             if (grade === '无') return '<span class="leaps-badge">LEAPS 无</span>';
             const date = signal.best_date || signal.date || '';
             const count = Number(signal.trigger_count || 0);
@@ -2413,7 +2417,7 @@
         function estimatedLeapsOptionSummary(summary, scope = currentLeapsEstimateScope()) {
             const allSignals = leapsEstimateSignalPool(summary);
             if (!allSignals.length) return null;
-            const signals = scope === 'high' ? allSignals.filter((signal) => leapsEffectiveGrade(signal) === '高') : allSignals;
+            const signals = scope === 'high' ? allSignals.filter((signal) => effectiveLeapsGrade(signal) === '高') : allSignals;
             if (!signals.length) {
                 return { total: 0, success_count: 0, skipped_count: 0, roi_mean_pct: null, roi_median_pct: null, scope };
             }
@@ -2679,7 +2683,10 @@
             return (existingOutcomes || []).filter((outcome) => !signalKeys.has(outcome.signal_key));
         }
         function highGradeLeapsOptionSignals(signals) {
-            return normalizeLeapsOptionSignals(signals || []).filter((signal) => leapsEffectiveGrade(signal) === '高');
+            const gradeForSignal = typeof leapsEffectiveGrade === 'function'
+                ? effectiveLeapsGrade
+                : (signal) => signal?.grade || '无';
+            return normalizeLeapsOptionSignals(signals || []).filter((signal) => gradeForSignal(signal) === '高');
         }
         function currentParameterRankMethod() {
             if (typeof document === 'undefined') return 'normalized';
@@ -2857,7 +2864,7 @@
                 stock_sell_label: formatGroupedStockSell(group.signals),
                 stock_sell_risk: !group.signals.some((signal) => signal.next_stock_sell_date)
             })).sort((a, b) => {
-                const gradeDiff = (leapsGradeRank[leapsEffectiveGrade(b.best_signal) || '无'] || 0) - (leapsGradeRank[leapsEffectiveGrade(a.best_signal) || '无'] || 0);
+                const gradeDiff = (leapsGradeRank[effectiveLeapsGrade(b.best_signal) || '无'] || 0) - (leapsGradeRank[effectiveLeapsGrade(a.best_signal) || '无'] || 0);
                 if (gradeDiff) return gradeDiff;
                 const scoreDiff = Number(b.best_signal?.score || 0) - Number(a.best_signal?.score || 0);
                 if (Math.abs(scoreDiff) > 1e-9) return scoreDiff;

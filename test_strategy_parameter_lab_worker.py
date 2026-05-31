@@ -170,6 +170,13 @@ async function run(flags) {
         self.assertIn("trade_log", result["detailed"])
         self.assertIn("series", result["detailed"])
         self.assertGreater(len(result["detailed"]["trade_log"]), 0)
+        self.assertIn("avg_price_spread_efficiency", result["detailed"])
+        self.assertIn("avg_sell_timing_efficiency", result["detailed"])
+        sells = [trade for trade in result["detailed"]["trade_log"] if trade["action"] == "sell"]
+        self.assertTrue(sells)
+        self.assertIn("price_spread_efficiency", sells[0])
+        self.assertIn("sell_timing_efficiency", sells[0])
+        self.assertIn("sold_lot_slices", sells[0])
         self.assertEqual(result["detailed"]["series"]["dates"][0], "2025-09-01")
 
     def test_worker_grid_rebound_continues_above_grid_two(self):
