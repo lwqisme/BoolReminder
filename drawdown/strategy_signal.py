@@ -181,6 +181,7 @@ def generate_signal(
         "symbol": sym,
         "preset_id": preset_id,
         "preset_name": preset.get("name", ""),
+        "param_summary": _param_summary(config),
         "signal_date": today.isoformat(),
         "effective_date": effective_signal_date.isoformat(),
         "is_weekend": is_weekend,
@@ -265,6 +266,36 @@ def _load_target_allocation(symbol: str, fallback: float) -> float:
                 continue
     return fallback
 
+
+
+def _param_summary(config) -> str:
+    """Compact one-line parameter summary for display."""
+    from drawdown.position_strategy import STRATEGY_LABELS, SELL_STRATEGY_LABELS
+
+    buy_name = STRATEGY_LABELS.get(config.buy_strategy, config.buy_strategy)
+    sell_name = SELL_STRATEGY_LABELS.get(config.sell_strategy, config.sell_strategy)
+
+    parts = [buy_name]
+    if config.buy_strategy in ("equal_slice", "linear_weighted_slice"):
+        parts.append(f"(步长{config.slice_step_pct:.1f}%/每步{config.equal_slice_allocation_pct:.1f}%)")
+    elif config.buy_strategy == "pyramid_3":
+        parts.append(f"(步长{config.slice_step_pct:.1f}%)")
+    elif config.buy_strategy == "core_dip_dca":
+        parts.append(f"(核心{config.core_dip_initial_core_pct:.0f}%/周{config.core_dip_weekly_core_pct:.0f}%)")
+
+    parts.append(" / ")
+    parts.append(sell_name)
+
+    if config.sell_strategy == "price_rise_grid":
+        parts.append(f"(步长{config.grid_rebound_step_pct:.1f}% 卖{config.grid_sell_pct:.0f}% 盈≥{config.sell_min_profit_pct:.1f}%)")
+    elif config.sell_strategy == "grid_rebound":
+        parts.append(f"(步长{config.grid_rebound_step_pct:.1f}% 卖{config.grid_sell_pct:.0f}%)")
+    elif config.sell_strategy == "repair_step":
+        parts.append(f"(卖{config.repair_stage_sell_pct:.0f}% 盈≥{config.sell_min_profit_pct:.0f}% 冷却{config.repair_sell_cooldown_days}d)")
+    elif config.sell_strategy == "cost_deleverage":
+        parts.append(f"(盈{config.cost_first_profit_pct:.0f}/{config.cost_second_profit_pct:.0f}/{config.cost_third_profit_pct:.0f}%)")
+
+    return "".join(parts)
 
 def _signal_reason(trade: dict[str, object]) -> str:
     """Human-readable reason for a signal trade."""
