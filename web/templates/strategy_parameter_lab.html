@@ -4532,11 +4532,9 @@
             return parameterSellQualityWeight(packet) > 1e-9;
         }
         function renderSellQualityScoreSummary(row, packet = lastParameterResult || lastParameterPacket || {}) {
-            if (!parameterUsesSellQualityScore(packet)) return '';
             return ` / Avg SellQ ${number(row.avg_sell_quality_score)}`;
         }
         function renderSellQualityCellSummary(cell, packet = lastParameterResult || lastParameterPacket || {}) {
-            if (!parameterUsesSellQualityScore(packet)) return '';
             return `<div class="strategy-meta">SQ ${number(cell.sell_quality_score)} · R ${number(cell.return_score)} / DD ${number(cell.drawdown_score)}</div>`;
         }
         function strategyGroupLabel(candidate) {
@@ -4884,10 +4882,8 @@
                             `drawdown ${pct(cell.max_drawdown_pct)}`,
                             `return score ${number(cell.return_score)}`,
                             `drawdown score ${number(cell.drawdown_score)}`,
-                            ...(parameterUsesSellQualityScore(data) ? [
-                                `sell quality ${number(cell.sell_quality_score)}`,
-                                `sell quality raw ${number(cell.raw_sell_quality_score)}`
-                            ] : []),
+                            `sell quality ${number(cell.sell_quality_score)}`,
+                            `sell quality raw ${number(cell.raw_sell_quality_score)}`,
                             `trades ${number(cell.trade_count, 0)}`,
                             `LEAPS ${leapsEffectiveGrade(cell.leaps_signal) || '无'} ${cell.leaps_signal?.best_date || ''}`
                         ].join('\n');
@@ -6813,13 +6809,12 @@
                 <div class="stat"><span>Final</span><strong>${number(row.final_score)}</strong></div>
                 <div class="stat"><span>Avg Return</span><strong>${pct(row.avg_return_pct)}</strong></div>
                 <div class="stat"><span>Avg DD</span><strong>${pct(row.avg_drawdown_pct)}</strong></div>
-                ${parameterUsesSellQualityScore() ? `<div class="stat"><span>Avg SellQ</span><strong>${number(row.avg_sell_quality_score)}</strong></div>` : ''}
+                <div class="stat"><span>Avg SellQ</span><strong>${number(row.avg_sell_quality_score)}</strong></div>
             `;
             document.getElementById('detailJson').textContent = JSON.stringify(candidateDetailPayload(candidate, row), null, 2);
             renderDetailLeapsIntoDrawer(row);
-            const showSellQualityDetail = parameterUsesSellQualityScore();
             const detailCellsHead = document.getElementById('detailCellsHead');
-            if (detailCellsHead) detailCellsHead.innerHTML = `<tr><th>题目</th><th>Rank</th><th>Score</th><th>收益</th><th>回撤</th>${showSellQualityDetail ? '<th>卖出质量 / 各项分</th>' : ''}</tr>`;
+            if (detailCellsHead) detailCellsHead.innerHTML = `<tr><th>题目</th><th>Rank</th><th>Score</th><th>收益</th><th>回撤</th><th>卖出质量 / 各项分</th></tr>`;
             document.getElementById('detailCells').innerHTML = row.cells.map((cell) => `
                 <tr>
                     <td>${escapeHtml(cell.portfolio_label)} / ${escapeHtml(cell.period_label)}</td>
@@ -6827,7 +6822,7 @@
                     <td>${number(cell.topic_score)}</td>
                     <td>${pct(cell.return_pct)}</td>
                     <td>${pct(cell.max_drawdown_pct)}</td>
-                    ${showSellQualityDetail ? `<td>SQ ${number(cell.sell_quality_score)} / R ${number(cell.return_score)} / DD ${number(cell.drawdown_score)}</td>` : ''}
+                    <td>SQ ${number(cell.sell_quality_score)} / R ${number(cell.return_score)} / DD ${number(cell.drawdown_score)}</td>
                 </tr>
             `).join('');
             document.getElementById('detailDrawer').classList.add('show');
