@@ -530,6 +530,16 @@ def _initialize_population(
         for ss in sell_strategies:
             if not cross_strategy and (bs != buy_strategies[0] or ss != sell_strategies[0]):
                 continue
+            default_buy = _default_buy_params(bs, base_inputs)
+            default_sell = _default_sell_params(ss, base_inputs, bs)
+            # Apply categorical restriction to default params
+            if cat_restrict:
+                if cat_restrict.buy_rearm_mode and "buy_rearm_mode" in default_sell:
+                    default_sell["buy_rearm_mode"] = cat_restrict.buy_rearm_mode
+                if cat_restrict.sell_allow_same_day_sell:
+                    default_sell["sell_allow_same_day_sell"] = cat_restrict.sell_allow_same_day_sell == "true"
+                if cat_restrict.core_dip_timing_enabled and "core_dip_timing_enabled" in default_buy:
+                    default_buy["core_dip_timing_enabled"] = cat_restrict.core_dip_timing_enabled == "true"
             default_ind = Individual(
                 buy_strategy=bs, sell_strategy=ss,
                 buy_params=_default_buy_params(bs, base_inputs),
