@@ -512,6 +512,7 @@ function holdingPeriodPrices(state, buyDate, sellDate, inputs) {
 function sliceEfficiency(state, point, inputs, lot, shares) {
   const sellPrice = priceUsd(state.symbol, num(point.close), inputs);
   const prices = holdingPeriodPrices(state, lot.buy_date || point.date, point.date, inputs);
+  const hadIntermediatePoints = prices.length > 0;
   if (!prices.length) prices.push(num(lot.buy_price_usd), sellPrice);
   const high = Math.max(...prices);
   const low = Math.min(...prices);
@@ -524,6 +525,8 @@ function sliceEfficiency(state, point, inputs, lot, shares) {
     shares,
     holding_period_high_usd: high,
     holding_period_low_usd: low,
+    holding_period_price_point_count: prices.length,
+    holding_period_had_intermediate_points: hadIntermediatePoints,
     price_spread_efficiency: amplitude > 1e-9 ? spread / amplitude : 0,
     sell_timing_efficiency: upside > 1e-9 ? spread / upside : 0
   };
@@ -978,6 +981,9 @@ function sellMetrics(tradeLog, portfolioValues, cashValues) {
   // buy_quality = (period_high - buy_price) / amplitude per lot, weighted by shares
   // sell_quality = (sell_price - period_low) / amplitude per lot, weighted by shares
   // Averaged across all sell trades. Only completed (sold) lots contribute.
+  // Require ≥3 holding-period price points (≥1 intermediate) for reliable scores.
+  const MIN_PRICE_POINTS = 3;
+  let skipsNoSlices = 0, skipsNarrowPeriod = 0, skipsNoAmplitude = 0, tradesScored = 0;
   let buyQuality = 0;
   let sellQuality = 0;
   if (sells.length) {
@@ -985,27 +991,41 @@ function sellMetrics(tradeLog, portfolioValues, cashValues) {
     const sellQualities = [];
     for (const trade of sells) {
       const slices = trade.sold_lot_slices || [];
-      if (!slices.length) continue;
+      if (!slices.length) { skipsNoSlices++; continue; }
       let totalShares = 0;
       for (const sl of slices) totalShares += sl.shares || 0;
       if (totalShares <= 0) continue;
-      let tradeBuyQ = 0, tradeSellQ = 0;
+      // Check if ANY slice in this trade has enough price points for reliable scoring
+      const minPtCount = Math.min(...slices.map(sl => sl.holding_period_price_point_count || 0));
+      if (minPtCount < MIN_PRICE_POINTS) { skipsNarrowPeriod++; continue; }
+      let tradeBuyQ = 0, tradeSellQ = 0, sharesWithAmplitude = 0;
       for (const sl of slices) {
         const shares = sl.shares || 0;
         const amplitude = (sl.holding_period_high_usd || 0) - (sl.holding_period_low_usd || 0);
-        if (amplitude <= 1e-9) continue;
+        if (amplitude <= 1e-9) { skipsNoAmplitude++; continue; }
         const bq = clamp(((sl.holding_period_high_usd || 0) - (sl.buy_price_usd || 0)) / amplitude, 0, 1);
         const sq = clamp(((trade.price || 0) - (sl.holding_period_low_usd || 0)) / amplitude, 0, 1);
         tradeBuyQ += bq * shares;
         tradeSellQ += sq * shares;
+        sharesWithAmplitude += shares;
       }
-      buyQualities.push(tradeBuyQ / totalShares);
-      sellQualities.push(tradeSellQ / totalShares);
+      if (sharesWithAmplitude > 0) {
+        buyQualities.push(tradeBuyQ / sharesWithAmplitude);
+        sellQualities.push(tradeSellQ / sharesWithAmplitude);
+        tradesScored++;
+      }
     }
     if (buyQualities.length) {
       buyQuality = buyQualities.reduce((s, v) => s + v, 0) / buyQualities.length * 100;
       sellQuality = sellQualities.reduce((s, v) => s + v, 0) / sellQualities.length * 100;
     }
+  }
+  if (typeof console !== 'undefined' && console.info) {
+    console.info('[sellMetrics] sells=' + sells.length +
+      ' scored=' + tradesScored +
+      ' skipped(noSlices=' + skipsNoSlices + ' narrow=' + skipsNarrowPeriod + ' zeroAmp=' + skipsNoAmplitude + ')' +
+      ' buyQ=' + Number(buyQuality).toFixed(1) +
+      ' sellQ=' + Number(sellQuality).toFixed(1));
   }
 
   // Cash reuse / idle — kept as raw display metrics, no longer composite into sell_quality

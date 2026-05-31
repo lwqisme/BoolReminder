@@ -22,14 +22,16 @@ const context = vm.createContext(globals);
 vm.runInContext(source, context);
 
 // ── Helpers to construct test data ──
-function makeSlice(buyPrice, shares, periodLow, periodHigh) {
+function makeSlice(buyPrice, shares, periodLow, periodHigh, pricePointCount) {
   const amplitude = periodHigh - periodLow;
-  const spread = periodHigh - buyPrice; // sell at high → spread
+  const spread = periodHigh - buyPrice;
   return {
     buy_price_usd: buyPrice,
     shares,
     holding_period_high_usd: periodHigh,
     holding_period_low_usd: periodLow,
+    holding_period_price_point_count: pricePointCount != null ? pricePointCount : 5,
+    holding_period_had_intermediate_points: true,
     price_spread_efficiency: amplitude > 1e-9 ? (periodHigh - buyPrice) / amplitude : 0,
     sell_timing_efficiency: amplitude > 1e-9 ? (periodHigh - buyPrice) / (periodHigh - buyPrice > 1e-9 ? periodHigh - buyPrice : 1) : 0,
   };
@@ -193,7 +195,7 @@ function makeBuyTrade(price, drawdownPct = 0, grossAmount = 0) {
 (function test_flat_price_zero_amplitude() {
   const tradeLog = [
     makeBuyTrade(100),
-    makeSellTrade(100, [makeSlice(100, 10, 100, 100)]),
+    makeSellTrade(100, [makeSlice(100, 10, 100, 100, 5)]),  // 5 price points but zero amplitude
   ];
   const portfolioValues = [1000, 1000];
   const cashValues = [0, 1000];
@@ -209,10 +211,33 @@ function makeBuyTrade(price, drawdownPct = 0, grossAmount = 0) {
 })();
 
 // ═══════════════════════════════════════════════════════════
-// TEST 7: Multiple sell trades – average across trades
+// TEST 7: Narrow holding period (<3 price points) → skipped → both 0
 // ═══════════════════════════════════════════════════════════
 
-(function test_multiple_sell_trades_averaged() {
+(function test_narrow_holding_period_skipped() {
+  // Only 2 price points in holding period → unreliable score → excluded
+  const tradeLog = [
+    makeBuyTrade(100),
+    makeSellTrade(200, [makeSlice(100, 10, 100, 200, 2)]),
+  ];
+  const portfolioValues = [1000, 2000];
+  const cashValues = [0, 2000];
+
+  const result = context.sellMetrics(tradeLog, portfolioValues, cashValues);
+
+  assert.strictEqual(result.buy_quality_score, 0,
+    `buy_quality should be 0 (narrow period skipped), got ${result.buy_quality_score}`);
+  assert.strictEqual(result.sell_quality_score, 0,
+    `sell_quality should be 0 (narrow period skipped), got ${result.sell_quality_score}`);
+
+  console.log('PASS test_narrow_holding_period_skipped');
+})();
+
+// ═══════════════════════════════════════════════════════════
+// TEST 8: Multiple sell trades – average across trades
+// ═══════════════════════════════════════════════════════════
+
+(function test_multiple_sell_trades_averaged_enough_points() {
   const tradeLog = [
     makeBuyTrade(100),
     makeBuyTrade(120),
