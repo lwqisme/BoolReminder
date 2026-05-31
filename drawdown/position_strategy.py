@@ -3192,7 +3192,26 @@ def _execute_sell_strategy(
     trade_log: list[dict[str, object]],
     trade_index: int,
 ) -> None:
-    pass
+    if sell_strategy == "none" or state.shares <= 0:
+        return
+
+    if sell_strategy == "repair_step":
+        if _uses_lot_level_sells(buy_strategy):
+            _execute_repair_step_sells(state, point, inputs, trade_log, trade_index)
+        else:
+            _execute_position_repair_step_sells(state, point, inputs, trade_log, trade_index)
+    elif sell_strategy == "grid_rebound":
+        if _uses_lot_level_sells(buy_strategy):
+            _execute_grid_rebound_sells(state, point, inputs, trade_log)
+        else:
+            _execute_position_grid_rebound_sells(state, point, inputs, trade_log)
+    elif sell_strategy == "grid_rebound" or sell_strategy == "price_rise_grid":
+        if _uses_lot_level_sells(buy_strategy):
+            _execute_grid_rebound_sells(state, point, inputs, trade_log)
+        else:
+            _execute_position_grid_rebound_sells(state, point, inputs, trade_log)
+    elif sell_strategy == "cost_deleverage":
+        _execute_cost_deleverage_sells(state, point, inputs, trade_log, trade_index)
 
 
 def _uses_lot_level_sells(buy_strategy: str) -> bool:
@@ -3206,7 +3225,35 @@ def _execute_repair_step_sells(
     trade_log: list[dict[str, object]],
     trade_index: int,
 ) -> None:
-    pass
+    if not state.lots:
+        return
+    if (
+        inputs.repair_sell_cooldown_days > 0
+        and state.last_repair_sell_trade_index is not None
+        and trade_index - state.last_repair_sell_trade_index < inputs.repair_sell_cooldown_days
+    ):
+        return
+    drawdown_pct = point_drawdown_pct(point, inputs)
+    current_price_usd = _price_usd(state.symbol, point.close, inputs)
+    min_profit_multiplier = 1 + inputs.sell_min_profit_pct / 100.0
+
+    for lot in list(state.lots):
+        if lot.remaining_shares <= 0:
+            continue
+        if current_price_usd < lot.buy_price_usd * min_profit_multiplier:
+            continue
+        if lot.repair_sell_marks is None:
+            lot.repair_sell_marks = set()
+        for mark, threshold, sell_pct in _repair_stages_for_lot(lot):
+            if mark in lot.repair_sell_marks or drawdown_pct > threshold + 1e-9:
+                continue
+            stage_sell_pct = inputs.repair_stage_sell_pct
+            shares = min(lot.initial_shares * stage_sell_pct / 100.0, lot.remaining_shares)
+            if _sell_lot_shares(state, lot, point, shares, inputs, trade_log, "repair_step", threshold, sell_stage=mark):
+                lot.repair_sell_marks.add(mark)
+                state.last_repair_sell_date = point.date.date()
+                state.last_repair_sell_trade_index = trade_index
+                return
 
 
 def _repair_stages_for_lot(lot: PositionLot) -> list[tuple[str, float, float]]:
@@ -3224,7 +3271,38 @@ def _execute_position_repair_step_sells(
     trade_log: list[dict[str, object]],
     trade_index: int,
 ) -> None:
-    pass
+    if state.shares <= 0:
+        return
+    if state.sell_marks is None:
+        state.sell_marks = set()
+    if (
+        inputs.repair_sell_cooldown_days > 0
+        and state.last_repair_sell_trade_index is not None
+        and trade_index - state.last_repair_sell_trade_index < inputs.repair_sell_cooldown_days
+    ):
+        return
+    avg_cost = _avg_cost_usd(state)
+    if avg_cost <= 0:
+        return
+    current_price_usd = _price_usd(state.symbol, point.close, inputs)
+    if current_price_usd < avg_cost * (1 + inputs.sell_min_profit_pct / 100.0):
+        return
+    drawdown_pct = point_drawdown_pct(point, inputs)
+    avg_buy_drawdown = _avg_buy_drawdown_pct(state)
+    stages = [
+        ("repair_50", avg_buy_drawdown * 0.50),
+        ("repair_20", avg_buy_drawdown * 0.20),
+        ("repair_ath", 0.50),
+    ]
+    for mark, threshold in stages:
+        if mark in state.sell_marks or drawdown_pct > threshold + 1e-9:
+            continue
+        shares = state.shares * inputs.repair_stage_sell_pct / 100.0
+        if _sell_shares(state, point, shares, inputs, trade_log, "repair_step", threshold, sell_stage=mark):
+            state.sell_marks.add(mark)
+            state.last_repair_sell_date = point.date.date()
+            state.last_repair_sell_trade_index = trade_index
+            return
 
 
 def _execute_grid_rebound_sells(
@@ -3233,7 +3311,37 @@ def _execute_grid_rebound_sells(
     inputs: StrategyInputs,
     trade_log: list[dict[str, object]],
 ) -> None:
-    pass
+    if not state.lots:
+        return
+    drawdown_pct = point_drawdown_pct(point, inputs)
+    current_price_usd = _price_usd(state.symbol, point.close, inputs)
+    min_profit_multiplier = 1 + inputs.sell_min_profit_pct / 100.0
+
+    for lot in list(state.lots):
+        if lot.remaining_shares <= 0:
+            continue
+        if current_price_usd < lot.buy_price_usd * min_profit_multiplier:
+            continue
+        if lot.grid_sell_marks is None:
+            lot.grid_sell_marks = set()
+        for mark, threshold, sell_pct in grid_rebound_stages(lot.buy_drawdown_pct, inputs):
+            if mark in lot.grid_sell_marks or drawdown_pct > threshold + 1e-9:
+                continue
+            shares = lot.remaining_shares * sell_pct / 100.0
+            if _sell_lot_shares(
+                state,
+                lot,
+                point,
+                shares,
+                inputs,
+                trade_log,
+                "grid_rebound",
+                threshold,
+                min_gross_amount=inputs.grid_min_sell_amount,
+                sell_stage=mark,
+            ):
+                lot.grid_sell_marks.add(mark)
+                return
 
 
 def _execute_position_grid_rebound_sells(
@@ -3242,7 +3350,56 @@ def _execute_position_grid_rebound_sells(
     inputs: StrategyInputs,
     trade_log: list[dict[str, object]],
 ) -> None:
-    pass
+    if state.shares <= 0:
+        return
+    avg_cost = _avg_cost_usd(state)
+    if avg_cost <= 0:
+        return
+    current_price_usd = _price_usd(state.symbol, point.close, inputs)
+    if current_price_usd < avg_cost * (1 + inputs.sell_min_profit_pct / 100.0):
+        return
+    drawdown_pct = point_drawdown_pct(point, inputs)
+    step = float(inputs.grid_rebound_step_pct)
+
+    # Fix: track deepest buy drawdown, only update mark when new buys happen.
+    current_deepest = _deepest_buy_drawdown_pct(state)
+    current_lot_count = sum(1 for lot in state.lots if lot.remaining_shares > 0) if state.lots else 0
+    last_lot_count = state.grid_rebound_last_sell_lot_count
+    if state.grid_rebound_last_sell_drawdown_pct is None:
+        state.grid_rebound_last_sell_drawdown_pct = current_deepest
+        state.grid_rebound_last_sell_lot_count = current_lot_count
+    elif current_lot_count > last_lot_count and current_deepest > state.grid_rebound_last_sell_drawdown_pct:
+        state.grid_rebound_last_sell_drawdown_pct = current_deepest
+        state.grid_rebound_last_sell_lot_count = current_lot_count
+
+    mark = state.grid_rebound_last_sell_drawdown_pct
+    if mark <= 0:
+        return
+
+    # Sell when drawdown has rebounded by at least one step from last sell point.
+    if drawdown_pct > mark - step + 1e-9:
+        return
+
+    shares = state.shares * float(inputs.grid_sell_pct or 0) / 100.0
+    sell_stage = f"grid_rebound_{drawdown_pct:.2f}"
+    if _sell_shares(
+        state,
+        point,
+        shares,
+        inputs,
+        trade_log,
+        "grid_rebound",
+        drawdown_pct,
+        min_gross_amount=inputs.grid_min_sell_amount,
+        sell_stage=sell_stage,
+    ):
+        # Track mark for rearm compatibility.
+        if state.sell_marks is None:
+            state.sell_marks = set()
+        state.sell_marks.add(sell_stage)
+
+        state.grid_rebound_last_sell_drawdown_pct = drawdown_pct
+        state.grid_rebound_last_sell_lot_count = sum(1 for lot in state.lots if lot.remaining_shares > 0) if state.lots else 0
 
 
 def _grid_rebound_cycle_anchor_drawdown_pct(state: SymbolState) -> float:
@@ -3260,7 +3417,38 @@ def _execute_cost_deleverage_sells(
     trade_log: list[dict[str, object]],
     trade_index: int,
 ) -> None:
-    pass
+    if state.shares <= 0:
+        return
+    if state.sell_marks is None:
+        state.sell_marks = set()
+    if not cost_deleverage_cooldown_elapsed(
+        last_sell_trade_index=state.last_cost_deleverage_sell_trade_index,
+        current_trade_index=trade_index,
+        cooldown_days=inputs.cost_deleverage_cooldown_days,
+    ):
+        return
+    avg_cost = _avg_cost_usd(state)
+    current_price_usd = _price_usd(state.symbol, point.close, inputs)
+    if avg_cost <= 0:
+        return
+    profit_pct = current_price_usd / avg_cost * 100.0 - 100.0
+    stage = select_cost_deleverage_stage(inputs=inputs, active_marks=state.sell_marks, profit_pct=profit_pct)
+    if stage is None:
+        return
+    shares = state.shares * stage.sell_pct / 100.0
+    if _sell_shares(
+        state,
+        point,
+        shares,
+        inputs,
+        trade_log,
+        "cost_deleverage",
+        stage.profit_pct,
+        min_gross_amount=inputs.cost_min_sell_amount,
+        sell_stage=stage.mark,
+    ):
+        state.sell_marks.add(stage.mark)
+        state.last_cost_deleverage_sell_trade_index = trade_index
 
 
 def _sell_lot_shares(
