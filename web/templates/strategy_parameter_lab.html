@@ -7886,10 +7886,8 @@
             const label = (buyStrategyLabels[buy] || buy) + ' / ' + (sellStrategyLabels[sell] || sell);
             const name = prompt('预设名称', label + ' (' + new Date().toISOString().slice(0, 10) + ')');
             if (!name) return;
-
             const payload = buildPresetPayloadFromCandidate(candidate);
             if (!payload || Object.keys(payload).length === 0) { alert('无法从参数行提取预设数据'); return; }
-
             try {
                 const r = await fetch('/api/strategy-lab/presets', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -7898,14 +7896,11 @@
                 const d = await r.json();
                 if (d.success && d.preset) {
                     alert('预设已保存: ' + d.preset.id);
-                    await loadPresetList();
-                    renderSignalBindings();
-                } else {
-                    alert('保存失败: ' + (d.message || ''));
-                }
+                    if (typeof loadPresetList === 'function') { await loadPresetList(); }
+                    if (typeof renderSignalBindings === 'function') { renderSignalBindings(); }
+                } else { alert('保存失败: ' + (d.message || '')); }
             } catch (e) { alert('请求失败: ' + e.message); }
         }
-
         function buildPresetPayloadFromCandidate(candidate) {
             const p = {};
             const map = {
@@ -7950,10 +7945,12 @@
             return p;
         }
         window.saveRowAsPreset = saveRowAsPreset;
-
-        // ── Signal Config ────────────────────────────────────────────
-        let signalBindings = {};
-        let presetList = [];
+        })();
+    </script>
+    <script>
+        // ── Signal Config (separate script for global scope) ──────────
+        var signalBindings = {};
+        var presetList = [];
 
         async function loadSignalBindings() {
             try {
@@ -8128,7 +8125,6 @@
         window.addSignalBinding = addSignalBinding;
 
         // ── End Signal Config ────────────────────────────────────────
-        })();
     </script>
 </body>
 </html>
