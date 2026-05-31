@@ -7271,17 +7271,33 @@
 
                 // Display results — build per-topic cells with ranks
                 const finalRows = Object.values(allEvaluated).sort(function(a, b) { return b.fitness - a.fitness; });
+                console.log('[GA] allEvaluated entries:', finalRows.length, 'unique param keys');
 
                 // Dedup by display identity: same label + same avg stats → keep best fitness
                 const dedupedRows = [];
                 const seenSignatures = {};
                 for (let ri = 0; ri < finalRows.length; ri++) {
                     const item = finalRows[ri];
-                    const sig = (item.avg_return || 0).toFixed(2) + '|' + (item.avg_drawdown || 0).toFixed(2) + '|' + (item.avg_sell_quality || 0).toFixed(2);
+                    const labelKey = buildGaStatusLabel(item.individual);
+                    const sig = labelKey + '|' + (item.avg_return || 0).toFixed(2) + '|' + (item.avg_drawdown || 0).toFixed(2) + '|' + (item.avg_sell_quality || 0).toFixed(2);
                     if (!seenSignatures[sig]) {
                         seenSignatures[sig] = true;
                         dedupedRows.push(item);
+                    } else {
+                        console.log('[GA] dedup: dropped duplicate', {label: labelKey, fitness: item.fitness, sig: sig.substring(0, 80)});
                     }
+                }
+                if (dedupedRows.length < finalRows.length) {
+                    console.log('[GA] dedup: ' + finalRows.length + ' → ' + dedupedRows.length + ' rows (' + (finalRows.length - dedupedRows.length) + ' duplicates removed)');
+                }
+                for (let ri = 0; ri < Math.min(3, dedupedRows.length); ri++) {
+                    console.log('[GA] row ' + (ri + 1) + ':', {
+                        label: buildGaStatusLabel(dedupedRows[ri].individual),
+                        fitness: dedupedRows[ri].fitness,
+                        avg_return: dedupedRows[ri].avg_return,
+                        avg_drawdown: dedupedRows[ri].avg_drawdown,
+                        avg_sell_quality: dedupedRows[ri].avg_sell_quality
+                    });
                 }
 
                 // Collect per-topic scores for ranking
