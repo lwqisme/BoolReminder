@@ -275,7 +275,7 @@ def _signal_reason(trade: dict[str, object]) -> str:
     drawdown = trade.get("drawdown_pct")
     if action == "buy":
         if drawdown is not None:
-            return f"回撤 {float(drawdown)*100:.1f}% 触发买入"
+            return f"回撤 {float(drawdown):.1f}% 触发买入"
         return "策略买入"
 
     strategy = trade.get("buy_strategy", "")
