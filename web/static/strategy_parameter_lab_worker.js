@@ -987,12 +987,15 @@ function sellMetrics(tradeLog, portfolioValues, cashValues) {
   }
   const cashReuse = totalSellCash > 0 ? pct(reused / totalSellCash) : 0;
   const avgCash = avg(cashValues.map((cash, index) => portfolioValues[index] > 0 ? pct(cash / portfolioValues[index]) : 0));
+  const maxDD = maxDrawdown(portfolioValues);
+  const buyQuality = maxDD < 0 && avgBuy < 0 ? clamp(1 - avgBuy / maxDD, 0, 1) : 0;
   const sellQuality = sells.length
     ? (
-      clamp(avgSpreadEfficiency / 0.60, 0, 1) * 0.40
-      + clamp(avgSellTimingEfficiency / 0.75, 0, 1) * 0.30
-      + clamp(cashReuse / 100, 0, 1) * 0.18
-      + clamp((65 - avgCash) / 65, 0, 1) * 0.12
+      clamp(avgSpreadEfficiency / 0.60, 0, 1) * 0.35
+      + clamp(avgSellTimingEfficiency / 0.75, 0, 1) * 0.25
+      + buyQuality * 0.15
+      + clamp(cashReuse / 100, 0, 1) * 0.15
+      + clamp((65 - avgCash) / 65, 0, 1) * 0.10
     ) * 100
     : 0;
   return {
@@ -1001,6 +1004,7 @@ function sellMetrics(tradeLog, portfolioValues, cashValues) {
     avg_sell_profit_pct: avgProfit,
     avg_price_spread_efficiency: avgSpreadEfficiency,
     avg_sell_timing_efficiency: avgSellTimingEfficiency,
+    buy_quality_score: buyQuality * 100,
     cash_reuse_pct: cashReuse,
     avg_cash_pct: avgCash,
     sell_quality_score: sellQuality
