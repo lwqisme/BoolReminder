@@ -1570,7 +1570,7 @@
                         <label>网格步长 %<span class="param-help" data-tooltip="网格回弹卖出的档位间距。以平均买入回撤为基准，价格向上修复一个步长触发第一档，再修复一个步长触发下一档。">?</span><input id="gridReboundStep" type="number" step="0.5" value="{{ default_config.default_grid_rebound_step_pct }}"></label>
                         <label>网格每档 %<span class="param-help" data-tooltip="网格回弹每个档位触发时卖出的当前可卖仓位比例。所有网格档位使用统一的比例。">?</span><input id="gridSellPct" type="number" step="1" value="{{ default_config.default_grid_sell_pct }}"></label>
                         <label>网格最小额<span class="param-help" data-tooltip="单次网格卖出金额低于此 USD 门槛时跳过该笔交易。设为 0 表示不限制最小卖出额。">?</span><input id="gridMinSellAmount" type="number" step="10" value="{{ default_config.default_grid_min_sell_amount }}"></label>
-                        <label>卖出质量权重 %<span class="param-help" data-tooltip="卖出质量在总评分中的权重百分比。0=纯按收益/回撤排序，值越大卖出质量（价差效率、卖点接近度、资金复用、现金利用率）影响越大。最大 50%。">?</span><input id="sellQualityWeightPct" type="number" step="5" min="0" max="50" value="{{ default_config.default_sell_quality_weight_pct }}"></label>
+                        <label>买卖质量权重 %<span class="param-help" data-tooltip="买卖质量在总评分中的权重百分比。0=纯按收益/回撤排序，值越大买卖质量（买入接近底部、卖出接近顶部）影响越大。权重平分给买入和卖出质量。最大 50%。">?</span><input id="sellQualityWeightPct" type="number" step="5" min="0" max="50" value="{{ default_config.default_sell_quality_weight_pct }}"></label>
                         <label>周期重启<span class="param-help" data-tooltip="网格回弹卖到回撤接近 0 时是否自动开启新一轮。0=卖完等下次买入再卖，1=自动重置继续卖。">?</span><input id="gridReboundCycleReset" type="number" step="1" min="0" max="1" value="0"></label>
                         <label>成本一档盈利<span class="param-help" data-tooltip="成本去杠杆第一档盈利阈值，按当前剩余持仓平均成本计算。盈利达到此百分比时触发第一档卖出。">?</span><input id="costFirstProfitPct" type="number" step="0.5" value="{{ default_config.default_cost_first_profit_pct }}"></label>
                         <label>成本二档盈利<span class="param-help" data-tooltip="成本去杠杆第二档盈利阈值，按当前剩余持仓平均成本计算。必须不低于第一档。">?</span><input id="costSecondProfitPct" type="number" step="0.5" value="{{ default_config.default_cost_second_profit_pct }}"></label>
@@ -4492,22 +4492,26 @@
             return (Number(value || 0) - min) / (max - min);
         }
         function scoreTopicCells(cells, weights) {
-            // Save raw sell quality before normalizing (sim output uses sell_quality_score as raw)
+            // Save raw quality scores before normalizing (sim output uses quality scores as raw)
             for (let i = 0; i < cells.length; i++) {
                 cells[i].raw_sell_quality_score = Number(cells[i].sell_quality_score || 0);
+                cells[i].raw_buy_quality_score = Number(cells[i].buy_quality_score || 0);
             }
             const returns = cells.map(function(c) { return Number(c.return_pct || 0); });
             const drawdowns = cells.map(function(c) { return Number(c.max_drawdown_pct || 0); });
             const sellQualities = cells.map(function(c) { return Number(c.raw_sell_quality_score || 0); });
+            const buyQualities = cells.map(function(c) { return Number(c.raw_buy_quality_score || 0); });
             for (let i = 0; i < cells.length; i++) {
                 const cell = cells[i];
                 cell.return_score = normalize(cell.return_pct, returns) * 100;
                 cell.drawdown_score = normalize(cell.max_drawdown_pct, drawdowns) * 100;
                 cell.sell_quality_score = normalize(cell.raw_sell_quality_score, sellQualities) * 100;
+                cell.buy_quality_score = normalize(cell.raw_buy_quality_score, buyQualities) * 100;
                 cell.return_component_score = cell.return_score * weights.return;
                 cell.drawdown_component_score = cell.drawdown_score * weights.drawdown;
                 cell.sell_quality_component_score = cell.sell_quality_score * weights.sell_quality;
-                cell.topic_score = cell.return_component_score + cell.drawdown_component_score + cell.sell_quality_component_score;
+                cell.buy_quality_component_score = cell.buy_quality_score * weights.buy_quality;
+                cell.topic_score = cell.return_component_score + cell.drawdown_component_score + cell.sell_quality_component_score + cell.buy_quality_component_score;
             }
             cells.sort(function(a, b) { return b.topic_score - a.topic_score; });
             for (let i = 0; i < cells.length; i++) cells[i].topic_rank = i + 1;
@@ -4525,17 +4529,19 @@
             const sq = parameterSellQualityWeight(packet);
             const baseReturn = Number(packet?.return_weight ?? packet?.inputs?.return_weight ?? 0.9);
             const baseDrawdown = Number(packet?.drawdown_weight ?? packet?.inputs?.drawdown_weight ?? 0.1);
-            if (sq <= 0) return { return: baseReturn, drawdown: baseDrawdown, sell_quality: 0 };
-            return { return: baseReturn * (1 - sq), drawdown: baseDrawdown * (1 - sq), sell_quality: sq };
+            if (sq <= 0) return { return: baseReturn, drawdown: baseDrawdown, sell_quality: 0, buy_quality: 0 };
+            // Sell quality takes full sq weight; buy quality shares the same sq pool (50/50 split)
+            const halfSq = sq / 2;
+            return { return: baseReturn * (1 - sq), drawdown: baseDrawdown * (1 - sq), sell_quality: halfSq, buy_quality: halfSq };
         }
         function parameterUsesSellQualityScore(packet = lastParameterResult || lastParameterPacket || {}) {
             return parameterSellQualityWeight(packet) > 1e-9;
         }
         function renderSellQualityScoreSummary(row, packet = lastParameterResult || lastParameterPacket || {}) {
-            return ` / Avg SellQ ${number(row.avg_sell_quality_score)}`;
+            return ` · BuyQ ${number(row.avg_buy_quality_score)} · SellQ ${number(row.avg_sell_quality_score)}`;
         }
         function renderSellQualityCellSummary(cell, packet = lastParameterResult || lastParameterPacket || {}) {
-            return `<div class="strategy-meta">SQ ${number(cell.sell_quality_score)} · R ${number(cell.return_score)} / DD ${number(cell.drawdown_score)}</div>`;
+            return `<div class="strategy-meta">BQ ${number(cell.buy_quality_score)} · SQ ${number(cell.sell_quality_score)} · R ${number(cell.return_score)} / DD ${number(cell.drawdown_score)}</div>`;
         }
         function strategyGroupLabel(candidate) {
             const buyKey = candidate?.buy_strategy || candidate?.candidate?.buy_strategy || '';
@@ -4750,7 +4756,7 @@
                 if (row) row.cells.push(cell);
             });
             const rows = Array.from(byCandidate.values()).map((row) => {
-                let sumReturn = 0, sumDrawdown = 0, sumScore = 0, sumSellQuality = 0;
+                let sumReturn = 0, sumDrawdown = 0, sumScore = 0, sumSellQuality = 0, sumBuyQuality = 0;
                 const n = row.cells.length;
                 for (let i = 0; i < n; i++) {
                     const cell = row.cells[i];
@@ -4758,12 +4764,14 @@
                     sumDrawdown += Number(cell.max_drawdown_pct || 0);
                     sumScore += Number(cell.topic_score || 0);
                     sumSellQuality += Number(cell.sell_quality_score || 0);
+                    sumBuyQuality += Number(cell.buy_quality_score || 0);
                 }
                 row.avg_return_pct = n ? sumReturn / n : 0;
                 row.avg_drawdown_pct = n ? sumDrawdown / n : 0;
                 row.avg_sell_quality_score = n ? sumSellQuality / n : 0;
+                row.avg_buy_quality_score = n ? sumBuyQuality / n : 0;
                 row.avg_topic_score = n ? sumScore / n : 0;
-                row.raw_score = row.avg_return_pct * weights.return + row.avg_drawdown_pct * weights.drawdown + row.avg_sell_quality_score * weights.sell_quality;
+                row.raw_score = row.avg_return_pct * weights.return + row.avg_drawdown_pct * weights.drawdown + row.avg_sell_quality_score * weights.sell_quality + row.avg_buy_quality_score * weights.buy_quality;
                 row.final_score = row.avg_topic_score;
                 row.leaps_signal = aggregateLeapsSignals(row.cells);
                 return row;
@@ -4884,6 +4892,8 @@
                             `drawdown score ${number(cell.drawdown_score)}`,
                             `sell quality ${number(cell.sell_quality_score)}`,
                             `sell quality raw ${number(cell.raw_sell_quality_score)}`,
+                            `buy quality ${number(cell.buy_quality_score)}`,
+                            `buy quality raw ${number(cell.raw_buy_quality_score)}`,
                             `trades ${number(cell.trade_count, 0)}`,
                             `LEAPS ${leapsEffectiveGrade(cell.leaps_signal) || '无'} ${cell.leaps_signal?.best_date || ''}`
                         ].join('\n');
@@ -6809,6 +6819,7 @@
                 <div class="stat"><span>Final</span><strong>${number(row.final_score)}</strong></div>
                 <div class="stat"><span>Avg Return</span><strong>${pct(row.avg_return_pct)}</strong></div>
                 <div class="stat"><span>Avg DD</span><strong>${pct(row.avg_drawdown_pct)}</strong></div>
+                <div class="stat"><span>Avg BuyQ</span><strong>${number(row.avg_buy_quality_score)}</strong></div>
                 <div class="stat"><span>Avg SellQ</span><strong>${number(row.avg_sell_quality_score)}</strong></div>
             `;
             document.getElementById('detailJson').textContent = JSON.stringify(candidateDetailPayload(candidate, row), null, 2);
@@ -6822,7 +6833,7 @@
                     <td>${number(cell.topic_score)}</td>
                     <td>${pct(cell.return_pct)}</td>
                     <td>${pct(cell.max_drawdown_pct)}</td>
-                    <td>SQ ${number(cell.sell_quality_score)} / R ${number(cell.return_score)} / DD ${number(cell.drawdown_score)}</td>
+                    <td>BQ ${number(cell.buy_quality_score)} · SQ ${number(cell.sell_quality_score)} / R ${number(cell.return_score)} / DD ${number(cell.drawdown_score)}</td>
                 </tr>
             `).join('');
             document.getElementById('detailDrawer').classList.add('show');
@@ -7216,19 +7227,21 @@
                         const returns = obs.map(function(o) { return Number(o.return_pct || 0); });
                         const drawdowns = obs.map(function(o) { return Number(o.max_drawdown_pct || 0); });
                         const sellQualities = obs.map(function(o) { return Number(o.sell_quality_score || 0); });
+                        const buyQualities = obs.map(function(o) { return Number(o.buy_quality_score || 0); });
                         const avgReturn = returns.length ? returns.reduce(function(a, b) { return a + b; }, 0) / returns.length : 0;
                         const avgDD = drawdowns.length ? drawdowns.reduce(function(a, b) { return a + Math.max(0, -(b || 0)); }, 0) / drawdowns.length : 0;
                         const avgSellQuality = sellQualities.length ? sellQualities.reduce(function(a, b) { return a + b; }, 0) / sellQualities.length : 0;
-                        let fitness = avgReturn * gaWeights.return + avgDD * gaWeights.drawdown + avgSellQuality * gaWeights.sell_quality;
+                        const avgBuyQuality = buyQualities.length ? buyQualities.reduce(function(a, b) { return a + b; }, 0) / buyQualities.length : 0;
+                        let fitness = avgReturn * gaWeights.return + avgDD * gaWeights.drawdown + avgSellQuality * gaWeights.sell_quality + avgBuyQuality * gaWeights.buy_quality;
                         if (!isFinite(fitness)) {
-                            console.warn('[GA] NaN fitness', {i, avgReturn, avgDD, avgSellQuality, returns, drawdowns, sellQualities, key: population[i].key});
+                            console.warn('[GA] NaN fitness', {i, avgReturn, avgDD, avgSellQuality, avgBuyQuality, returns, drawdowns, sellQualities, buyQualities, key: population[i].key});
                             fitness = 0;
                         }
                         fitnesses.push(fitness);
 
                         const paramKey = gaParamKey(population[i]);
                         if (!allEvaluated[paramKey] || fitness > allEvaluated[paramKey].fitness) {
-                            allEvaluated[paramKey] = { individual: population[i], fitness: fitness, avg_return: avgReturn, avg_drawdown: -avgDD, avg_sell_quality: avgSellQuality, observations: obs };
+                            allEvaluated[paramKey] = { individual: population[i], fitness: fitness, avg_return: avgReturn, avg_drawdown: -avgDD, avg_sell_quality: avgSellQuality, avg_buy_quality: avgBuyQuality, observations: obs };
                         }
                     }
 
@@ -7279,7 +7292,7 @@
                 let dupesDropped = 0;
                 for (let ri = 0; ri < finalRows.length; ri++) {
                     const item = finalRows[ri];
-                    const sig = (item.avg_return || 0).toFixed(1) + '|' + (item.avg_drawdown || 0).toFixed(1) + '|' + (item.avg_sell_quality || 0).toFixed(1);
+                    const sig = (item.avg_return || 0).toFixed(1) + '|' + (item.avg_drawdown || 0).toFixed(1) + '|' + (item.avg_sell_quality || 0).toFixed(1) + '|' + (item.avg_buy_quality || 0).toFixed(1);
                     if (!seenSignatures[sig]) {
                         seenSignatures[sig] = true;
                         dedupedRows.push(item);
@@ -7300,6 +7313,7 @@
                             return_pct: Number(obs.return_pct || 0),
                             max_drawdown_pct: Number(obs.max_drawdown_pct || 0),
                             sell_quality_score: Number(obs.sell_quality_score || 0),
+                            buy_quality_score: Number(obs.buy_quality_score || 0),
                             observation: obs
                         });
                     }
@@ -7326,12 +7340,15 @@
                             max_drawdown_pct: dd,
                             raw_sell_quality_score: ranked ? ranked.raw_sell_quality_score : Number(obs.sell_quality_score || 0),
                             sell_quality_score: ranked ? ranked.sell_quality_score : 0,
+                            raw_buy_quality_score: ranked ? ranked.raw_buy_quality_score : Number(obs.buy_quality_score || 0),
+                            buy_quality_score: ranked ? ranked.buy_quality_score : 0,
                             topic_score: ranked ? ranked.topic_score : 0,
                             return_score: ranked ? ranked.return_score : 0,
                             drawdown_score: ranked ? ranked.drawdown_score : 0,
                             return_component_score: ranked ? ranked.return_component_score : 0,
                             drawdown_component_score: ranked ? ranked.drawdown_component_score : 0,
                             sell_quality_component_score: ranked ? ranked.sell_quality_component_score : 0,
+                            buy_quality_component_score: ranked ? ranked.buy_quality_component_score : 0,
                             topic_rank: ranked ? ranked.topic_rank : 0,
                             trade_count: Number(obs.trade_count || 0),
                             leaps_signal: obs.leaps_signal || null,
@@ -7354,6 +7371,7 @@
                         final_score: item.fitness, final_rank: index + 1,
                         avg_return_pct: item.avg_return || 0, avg_drawdown_pct: item.avg_drawdown || 0,
                         avg_sell_quality_score: item.avg_sell_quality || 0,
+                        avg_buy_quality_score: item.avg_buy_quality || 0,
                         avg_topic_score: item.fitness, topic_count: (packet.tasks || []).length,
                         cells: cells, ga_rank: index + 1,
                         ga_buy_params: extractGaParams(ind, BUY_PARAMETER_FIELDS),
@@ -7489,7 +7507,7 @@
                                     if (!isFinite(rp) || !isFinite(dd)) {
                                         console.warn('[GA] NaN observation', {cid, return_pct: o.return_pct, max_drawdown_pct: o.max_drawdown_pct});
                                     }
-                                    return { candidate_id: cid, return_pct: rp, max_drawdown_pct: dd, sell_quality_score: Number(o.sell_quality_score || 0), topic_key: o.topic_key, trade_count: Number(o.trade_count || 0), leaps_signal: o.leaps_signal || null };
+                                    return { candidate_id: cid, return_pct: rp, max_drawdown_pct: dd, sell_quality_score: Number(o.sell_quality_score || 0), buy_quality_score: Number(o.buy_quality_score || 0), topic_key: o.topic_key, trade_count: Number(o.trade_count || 0), leaps_signal: o.leaps_signal || null };
                                 });
                             }).flat();
                             allRows.push.apply(allRows, obs);
@@ -7702,7 +7720,7 @@
         }
 
         function renderGaHistory(gaResults, bestFitnessEver, gaWeights) {
-            const w = gaWeights || { return: 0.9, drawdown: 0.1, sell_quality: 0 };
+            const w = gaWeights || { return: 0.9, drawdown: 0.1, sell_quality: 0, buy_quality: 0 };
             const gaPanel = document.getElementById('gaPanelBody');
             let oldTable = document.getElementById('gaHistoryTable');
             if (oldTable) oldTable.remove();
@@ -7712,7 +7730,9 @@
             html += '<div style="max-height:200px;overflow:auto;margin-top:2px;"><table style="width:100%;font-size:11px;border-collapse:collapse;table-layout:fixed;">';
             html += '<thead><tr style="position:sticky;top:0;background:rgba(248,252,255,0.95);">';
             html += '<th style="text-align:right;padding:2px 4px;width:36px;">代</th>';
-            html += '<th style="text-align:right;padding:2px 4px;width:54px;" title="' + escapeHtml('收益×' + number(w.return * 100, 0) + '% + 回撤控制×' + number(w.drawdown * 100, 0) + '%' + (w.sell_quality > 1e-9 ? ' + 卖出质量×' + number(w.sell_quality * 100, 0) + '%' : '') + '（跨题目平均）') + '">最优<span class="param-help" style="display:inline-flex;width:12px;height:12px;font-size:9px;" data-tooltip="' + escapeHtml('收益×' + number(w.return * 100, 0) + '% + 回撤控制×' + number(w.drawdown * 100, 0) + '%' + (w.sell_quality > 1e-9 ? ' + 卖出质量×' + number(w.sell_quality * 100, 0) + '%' : '') + '。收益为所有评分题目的平均 return_pct，回撤控制为 -max_drawdown_pct 取正后的均值。' + (w.sell_quality > 1e-9 ? '卖出质量为 SQ 公式综合分。' : '') + '分数越高越好。') + '">?</span></th>';
+            const qualityTooltip = (w.sell_quality > 1e-9 || w.buy_quality > 1e-9) ? ' + 买入质量×' + number(w.buy_quality * 100, 0) + '% + 卖出质量×' + number(w.sell_quality * 100, 0) + '%' : '';
+            const qualityTooltipLong = (w.sell_quality > 1e-9 || w.buy_quality > 1e-9) ? '买入质量为 BQ 公式综合分，卖出质量为 SQ 公式综合分。' : '';
+            html += '<th style="text-align:right;padding:2px 4px;width:54px;" title="' + escapeHtml('收益×' + number(w.return * 100, 0) + '% + 回撤控制×' + number(w.drawdown * 100, 0) + '%' + qualityTooltip + '（跨题目平均）') + '">最优<span class="param-help" style="display:inline-flex;width:12px;height:12px;font-size:9px;" data-tooltip="' + escapeHtml('收益×' + number(w.return * 100, 0) + '% + 回撤控制×' + number(w.drawdown * 100, 0) + '%' + qualityTooltip + '。收益为所有评分题目的平均 return_pct，回撤控制为 -max_drawdown_pct 取正后的均值。' + qualityTooltipLong + '分数越高越好。') + '">?</span></th>';
             html += '<th style="text-align:right;padding:2px 4px;width:54px;" title="种群内所有个体适应度的平均值">均值</th>';
             html += '<th style="text-align:left;padding:2px 4px;width:100px;">策略</th>';
             html += '<th style="text-align:left;padding:2px 4px;">关键参数</th>';
