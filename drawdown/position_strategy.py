@@ -1756,6 +1756,7 @@ def _candidate_label(
     *,
     dca_rearm_drawdown_pct: float | None = None,
     sell_stage_rearm_drawdown_pct: float | None = None,
+    buy_rearm_mode: str | None = None,
     grid_step: float | None = None,
     grid_sell: float | None = None,
     grid_min: float | None = None,
@@ -1817,6 +1818,10 @@ def _candidate_label(
         sell_label = f"{sell_label} / 卖后重启 {float(dca_rearm_drawdown_pct):g}%回撤"
     if sell_stage_rearm_drawdown_pct is not None:
         sell_label = f"{sell_label} / 卖档重启 {float(sell_stage_rearm_drawdown_pct):g}%回撤"
+    if buy_rearm_mode == "restart_from_rearm":
+        sell_label = f"{sell_label} / 重启从首档"
+    elif buy_rearm_mode == "cumulative":
+        sell_label = f"{sell_label} / 重启累计补齐"
     return f"{buy_label} / {sell_label}"
 
 

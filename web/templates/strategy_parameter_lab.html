@@ -7786,6 +7786,8 @@
             if (sell !== 'none') {
                 if (ind.dca_rearm_drawdown_pct !== undefined && ind.dca_rearm_drawdown_pct !== null && Number(ind.dca_rearm_drawdown_pct) > 0) parts.push('卖后重启' + formatCompact(ind.dca_rearm_drawdown_pct) + '%');
                 if (ind.sell_stage_rearm_drawdown_pct !== undefined && ind.sell_stage_rearm_drawdown_pct !== null && Number(ind.sell_stage_rearm_drawdown_pct) > 0) parts.push('卖档重启' + formatCompact(ind.sell_stage_rearm_drawdown_pct) + '%');
+                if (ind.buy_rearm_mode === 'restart_from_rearm') parts.push('重启从首档');
+                if (ind.buy_rearm_mode === 'cumulative') parts.push('重启累计补齐');
                 if (ind.sell_allow_same_day_sell) parts.push('买入日可卖');
             }
             return parts.join(' / ') || '-';
