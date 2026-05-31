@@ -135,7 +135,12 @@ def generate_signal(
             continue
         trade_overrides[td].append(dict(row))
 
-    # 7. Run simulation (use effective initial_cash from signal targets)
+    # Determine effective signal date (weekend → use last trading day)
+    last_price_date = points[-1].date.date() if points else today
+    is_weekend = today.weekday() >= 5
+    effective_signal_date = last_price_date if (is_weekend and last_price_date < today) else today
+
+    # 7. Run simulation: real trades for history, engine only on effective_signal_date
     effective_inputs = replace(inputs, initial_cash=initial_cash)
 
     target = PortfolioTarget(
@@ -147,6 +152,9 @@ def generate_signal(
 
     price_points_by_symbol = {longbridge_sym: points}
 
+    # Engine skips all days ≤ engine_start, runs only on effective_signal_date
+    engine_start = effective_signal_date - timedelta(days=1)
+
     result = _simulate_strategy(
         price_points_by_symbol,
         [target],
@@ -154,15 +162,10 @@ def generate_signal(
         strategy=config.buy_strategy,
         sell_strategy=config.sell_strategy,
         trade_overrides=dict(trade_overrides),
+        last_trade_date=engine_start,
     )
 
-    # 8. Extract signals for today
-    # On weekends, use the last available trading day's signals as preview
-    last_price_date = points[-1].date.date() if points else today
-    is_weekend = today.weekday() >= 5
-    effective_signal_date = today
-    if is_weekend and last_price_date < today:
-        effective_signal_date = last_price_date
+    # 8. Extract signals for effective_signal_date
 
     signal_trades = [
         t for t in result.get("trades", [])

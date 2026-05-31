@@ -2211,6 +2211,7 @@ def _simulate_strategy(
     strategy: str,
     sell_strategy: str,
     trade_overrides: dict[date, list[dict[str, object]]] | None = None,
+    last_trade_date: date | None = None,
 ) -> dict[str, object]:
     if sell_strategy not in SELL_STRATEGY_LABELS:
         raise ValueError(f"未知卖出策略: {sell_strategy}")
@@ -2301,6 +2302,10 @@ def _simulate_strategy(
             ).get(current_day)
             if overrides_today:
                 _apply_real_trades(state, overrides_today, point, strategy, sell_strategy, trade_log, inputs)
+                continue
+
+            # Skip engine logic on historical non-trade days
+            if last_trade_date is not None and current_day <= last_trade_date:
                 continue
 
             if strategy == "weekly_dca":

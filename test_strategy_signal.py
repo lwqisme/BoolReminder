@@ -221,6 +221,54 @@ class StrategySignalPlaybackTest(unittest.TestCase):
         self.assertGreaterEqual(len(real_trades), 1)
         self.assertEqual(real_trades[0]["shares"], 10.0)
 
+    def test_engine_skips_historical_non_trade_days(self):
+        """After last real trade date, engine resumes. Before that, no engine buys on non-trade days."""
+        symbol = "TEST"
+        start = date(2026, 1, 5)
+        days = 20
+        # Declining price: engine would buy on drawdown
+        prices = _make_price_series(start, days, start_price=100.0, daily_change=-0.5)
+        price_points_by_symbol = {f"{symbol}.US": prices}
+
+        inputs = StrategyInputs(
+            initial_cash=5000.0, monthly_contribution=0.0,
+            step_pct=5.0, sell_min_profit_pct=10.0, repair_stage_sell_pct=10.0,
+        )
+        target = PortfolioTarget(symbol=f"{symbol}.US", weight=100.0, name=symbol)
+
+        # Only one real trade: buy on day 5. No trades after.
+        last_trade_date = start + timedelta(days=5)
+        trade_overrides = {
+            last_trade_date: [
+                _make_trade_event(symbol, last_trade_date.isoformat(), "buy", shares=10.0, price=95.0),
+            ],
+        }
+
+        result = _simulate_strategy(
+            price_points_by_symbol, [target], inputs,
+            strategy="pyramid_3", sell_strategy="repair_step",
+            trade_overrides=trade_overrides,
+            last_trade_date=last_trade_date,
+        )
+
+        # After the real buy day (day 6-19), engine should NOT buy on historical non-trade days
+        # because they are still in the past relative to the last trade date
+        engine_buys_historical = [
+            t for t in result["trades"]
+            if t.get("action") == "buy" and not t.get("is_real")
+            and t.get("date") <= last_trade_date.isoformat()
+        ]
+        self.assertEqual(len(engine_buys_historical), 0,
+            f"Engine should not buy on historical non-trade days, got {len(engine_buys_historical)}")
+
+        # After last trade date, engine MAY buy (forward-looking)
+        engine_buys_forward = [
+            t for t in result["trades"]
+            if t.get("action") == "buy" and not t.get("is_real")
+            and t.get("date") > last_trade_date.isoformat()
+        ]
+        # There may or may not be forward buys depending on price action
+
 
 if __name__ == "__main__":
     unittest.main()
