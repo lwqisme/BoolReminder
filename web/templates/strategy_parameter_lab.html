@@ -4491,6 +4491,27 @@
             if (Math.abs(max - min) < 1e-9) return 1;
             return (Number(value || 0) - min) / (max - min);
         }
+        function scoreTopicCells(cells, weights) {
+            // Save raw sell quality before normalizing (sim output uses sell_quality_score as raw)
+            for (let i = 0; i < cells.length; i++) {
+                cells[i].raw_sell_quality_score = Number(cells[i].sell_quality_score || 0);
+            }
+            const returns = cells.map(function(c) { return Number(c.return_pct || 0); });
+            const drawdowns = cells.map(function(c) { return Number(c.max_drawdown_pct || 0); });
+            const sellQualities = cells.map(function(c) { return Number(c.raw_sell_quality_score || 0); });
+            for (let i = 0; i < cells.length; i++) {
+                const cell = cells[i];
+                cell.return_score = normalize(cell.return_pct, returns) * 100;
+                cell.drawdown_score = normalize(cell.max_drawdown_pct, drawdowns) * 100;
+                cell.sell_quality_score = normalize(cell.raw_sell_quality_score, sellQualities) * 100;
+                cell.return_component_score = cell.return_score * weights.return;
+                cell.drawdown_component_score = cell.drawdown_score * weights.drawdown;
+                cell.sell_quality_component_score = cell.sell_quality_score * weights.sell_quality;
+                cell.topic_score = cell.return_component_score + cell.drawdown_component_score + cell.sell_quality_component_score;
+            }
+            cells.sort(function(a, b) { return b.topic_score - a.topic_score; });
+            for (let i = 0; i < cells.length; i++) cells[i].topic_rank = i + 1;
+        }
         function strategyGroupKey(candidate) {
             const buyKey = candidate?.buy_strategy || candidate?.candidate?.buy_strategy || '';
             const sellKey = candidate?.sell_strategy || candidate?.candidate?.sell_strategy || '';
@@ -4712,39 +4733,7 @@
                 byTopic.get(key).push(cell);
             });
             byTopic.forEach((cells) => {
-                let minReturn = Infinity, maxReturn = -Infinity;
-                let minDD = Infinity, maxDD = -Infinity;
-                let minSQ = Infinity, maxSQ = -Infinity;
-                for (let i = 0; i < cells.length; i++) {
-                    const r = Number(cells[i].return_pct || 0);
-                    const d = Number(cells[i].max_drawdown_pct || 0);
-                    const sq = Number(cells[i].sell_quality_score || 0);
-                    cells[i].raw_sell_quality_score = sq;
-                    if (r < minReturn) minReturn = r;
-                    if (r > maxReturn) maxReturn = r;
-                    if (d < minDD) minDD = d;
-                    if (d > maxDD) maxDD = d;
-                    if (sq < minSQ) minSQ = sq;
-                    if (sq > maxSQ) maxSQ = sq;
-                }
-                const rangeReturn = maxReturn - minReturn;
-                const rangeDD = maxDD - minDD;
-                const rangeSQ = maxSQ - minSQ;
-                for (let i = 0; i < cells.length; i++) {
-                    const cell = cells[i];
-                    const r = Number(cell.return_pct || 0);
-                    const d = Number(cell.max_drawdown_pct || 0);
-                    const sq = Number(cell.raw_sell_quality_score || 0);
-                    cell.return_score = rangeReturn > 1e-9 ? (r - minReturn) / rangeReturn * 100 : 100;
-                    cell.drawdown_score = rangeDD > 1e-9 ? (d - minDD) / rangeDD * 100 : 100;
-                    cell.sell_quality_score = rangeSQ > 1e-9 ? (sq - minSQ) / rangeSQ * 100 : 100;
-                    cell.return_component_score = cell.return_score * weights.return;
-                    cell.drawdown_component_score = cell.drawdown_score * weights.drawdown;
-                    cell.sell_quality_component_score = cell.sell_quality_score * weights.sell_quality;
-                    cell.topic_score = cell.return_component_score + cell.drawdown_component_score + cell.sell_quality_component_score;
-                }
-                cells.sort((a, b) => b.topic_score - a.topic_score);
-                for (let i = 0; i < cells.length; i++) cells[i].topic_rank = i + 1;
+                scoreTopicCells(cells, weights);
             });
             const byCandidate = new Map();
             index.candidates.forEach((candidate) => {
@@ -7277,7 +7266,7 @@
                 const finalRows = Object.values(allEvaluated).sort(function(a, b) { return b.fitness - a.fitness; });
 
                 // Collect per-topic scores for ranking
-                const topicScores = {};  // topic_key -> [{key, return_pct, max_drawdown_pct, sell_quality_score, topic_score}, ...]
+                const topicScores = {};  // topic_key -> [{key, return_pct, max_drawdown_pct, sell_quality_score}, ...]
                 for (const item of finalRows) {
                     for (const obs of (item.observations || [])) {
                         const tk = obs.topic_key;
@@ -7286,30 +7275,13 @@
                             key: item.individual.key,
                             return_pct: Number(obs.return_pct || 0),
                             max_drawdown_pct: Number(obs.max_drawdown_pct || 0),
-                            raw_sell_quality_score: Number(obs.sell_quality_score || 0),
+                            sell_quality_score: Number(obs.sell_quality_score || 0),
                             observation: obs
                         });
                     }
                 }
-                // Score, sort, and assign ranks per topic
                 for (const tk of Object.keys(topicScores)) {
-                    const topicRows = topicScores[tk];
-                    const returns = topicRows.map(function(row) { return row.return_pct; });
-                    const drawdowns = topicRows.map(function(row) { return row.max_drawdown_pct; });
-                    const sellQualities = topicRows.map(function(row) { return row.raw_sell_quality_score; });
-                    for (const row of topicRows) {
-                        row.return_score = normalize(row.return_pct, returns) * 100;
-                        row.drawdown_score = normalize(row.max_drawdown_pct, drawdowns) * 100;
-                        row.sell_quality_score = normalize(row.raw_sell_quality_score, sellQualities) * 100;
-                        row.return_component_score = row.return_score * gaWeights.return;
-                        row.drawdown_component_score = row.drawdown_score * gaWeights.drawdown;
-                        row.sell_quality_component_score = row.sell_quality_score * gaWeights.sell_quality;
-                        row.topic_score = row.return_component_score + row.drawdown_component_score + row.sell_quality_component_score;
-                    }
-                    topicRows.sort(function(a, b) { return b.topic_score - a.topic_score; });
-                    for (let ri = 0; ri < topicRows.length; ri++) {
-                        topicRows[ri].topic_rank = ri + 1;
-                    }
+                    scoreTopicCells(topicScores[tk], gaWeights);
                 }
 
                 // Build matrix rows AND matching candidate/variant data from evolved individuals

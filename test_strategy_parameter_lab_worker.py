@@ -1312,7 +1312,9 @@ process.stdout.write(JSON.stringify({
         self.assertIn("const gaWeights = parameterScoreWeights(packet);", html)
         self.assertIn("avg_sell_quality: avgSellQuality", html)
         self.assertIn("avg_sell_quality_score: item.avg_sell_quality || 0", html)
-        self.assertIn("row.sell_quality_component_score = row.sell_quality_score * gaWeights.sell_quality", html)
+        self.assertIn("function scoreTopicCells(cells, weights)", html)
+        self.assertIn("scoreTopicCells(cells, weights)", html)
+        self.assertIn("scoreTopicCells(topicScores[tk], gaWeights)", html)
         self.assertNotIn("let fitness = avgReturn * 0.9 + avgDD * 0.1", html)
         self.assertNotIn("const ts = rp * 0.9 + Math.max(0, -dd) * 0.1", html)
 
