@@ -4852,6 +4852,7 @@
                                 <div class="row-actions">
                                     <button type="button" onclick="openRowDetail('${escapeHtml(row.key)}')">参数</button>
                                     <button type="button" onclick="applyParameterRow('${escapeHtml(row.key)}')">应用到主实验室</button>
+                                    <button type="button" class="primary" onclick="saveRowAsPreset('${escapeHtml(row.key)}')">💾 存为预设</button>
                                 </div>
                             </td>
                             ${cellHtml}
@@ -7875,8 +7876,83 @@
         }
         window.compareAlertConsistency = compareAlertConsistency;
 
+        // ── Save Row as Preset ───────────────────────────────────────
+        async function saveRowAsPreset(rowKey) {
+            const row = findRow(rowKey);
+            if (!row) return;
+            const candidate = row.candidate || {};
+            const buy = candidate.buy_strategy || row.buy_strategy || '';
+            const sell = candidate.sell_strategy || row.sell_strategy || '';
+            const label = (buyStrategyLabels[buy] || buy) + ' / ' + (sellStrategyLabels[sell] || sell);
+            const name = prompt('预设名称', label + ' (' + new Date().toISOString().slice(0, 10) + ')');
+            if (!name) return;
+
+            const payload = buildPresetPayloadFromCandidate(candidate);
+            if (!payload || Object.keys(payload).length === 0) { alert('无法从参数行提取预设数据'); return; }
+
+            try {
+                const r = await fetch('/api/strategy-lab/presets', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name, payload: payload }),
+                });
+                const d = await r.json();
+                if (d.success && d.preset) {
+                    alert('预设已保存: ' + d.preset.id);
+                    renderSignalBindings();
+                } else {
+                    alert('保存失败: ' + (d.message || ''));
+                }
+            } catch (e) { alert('请求失败: ' + e.message); }
+        }
+
+        function buildPresetPayloadFromCandidate(candidate) {
+            const p = {};
+            const map = {
+                buy_strategy: 'default_buy_strategy', sell_strategy: 'default_sell_strategy',
+                step_pct: 'default_slice_step_pct', equal_slice_allocation_pct: 'default_equal_slice_allocation_pct',
+                dca_rearm_drawdown_pct: 'default_dca_rearm_drawdown_pct',
+                sell_stage_rearm_drawdown_pct: 'default_sell_stage_rearm_drawdown_pct',
+                sell_min_profit_pct: 'default_sell_min_profit_pct',
+                repair_sell_cooldown_days: 'default_repair_sell_cooldown_days',
+                repair_stage_sell_pct: 'default_repair_stage_sell_pct',
+                grid_rebound_step_pct: 'default_grid_rebound_step_pct',
+                grid_sell_pct: 'default_grid_sell_pct', grid_first_sell_pct: 'default_grid_first_sell_pct',
+                grid_second_sell_pct: 'default_grid_second_sell_pct',
+                grid_min_sell_amount: 'default_grid_min_sell_amount',
+                cost_first_profit_pct: 'default_cost_first_profit_pct',
+                cost_second_profit_pct: 'default_cost_second_profit_pct',
+                cost_third_profit_pct: 'default_cost_third_profit_pct',
+                cost_first_sell_pct: 'default_cost_first_sell_pct',
+                cost_second_sell_pct: 'default_cost_second_sell_pct',
+                cost_third_sell_pct: 'default_cost_third_sell_pct',
+                cost_deleverage_cooldown_days: 'default_cost_deleverage_cooldown_days',
+                sell_allow_same_day_sell: 'default_sell_allow_same_day_sell',
+                cost_min_sell_amount: 'default_cost_min_sell_amount',
+                core_dip_initial_core_pct: 'default_core_dip_initial_core_pct',
+                core_dip_weekly_core_pct: 'default_core_dip_weekly_core_pct',
+                core_dip_cash_reserve_pct: 'default_core_dip_cash_reserve_pct',
+                core_dip_start_drawdown_pct: 'default_core_dip_start_drawdown_pct',
+                core_dip_full_drawdown_pct: 'default_core_dip_full_drawdown_pct',
+                core_dip_timing_enabled: 'default_core_dip_timing_enabled',
+                core_dip_timing_max_delay_days: 'default_core_dip_timing_max_delay_days',
+                core_dip_timing_rise_threshold_pct: 'default_core_dip_timing_rise_threshold_pct',
+                core_dip_timing_near_low_pct: 'default_core_dip_timing_near_low_pct',
+            };
+            for (const [cKey, dKey] of Object.entries(map)) {
+                if (candidate[cKey] !== undefined && candidate[cKey] !== null) p[dKey] = candidate[cKey];
+            }
+            const defaultConfig = {{ default_config|tojson }};
+            for (const k of ['default_initial_cash', 'default_monthly_contribution', 'default_drawdown_basis',
+                'default_reserve_position_pct', 'default_trade_fee', 'default_hkd_to_usd']) {
+                if (defaultConfig[k] !== undefined && p[k] === undefined) p[k] = defaultConfig[k];
+            }
+            return p;
+        }
+        window.saveRowAsPreset = saveRowAsPreset;
+
         // ── Signal Config ────────────────────────────────────────────
         let signalBindings = {};
+        let presetList = [];
 
         async function loadSignalBindings() {
             try {
@@ -7900,9 +7976,29 @@
             try {
                 const r = await fetch('/api/strategy-lab/presets?limit=50');
                 const d = await r.json();
-                if (d.success && d.presets) return d.presets;
+                if (d.success && d.presets) { presetList = d.presets; return d.presets; }
             } catch (e) { console.error('loadPresetList', e); }
             return [];
+        }
+
+        function presetSelectHtml(currentId) {
+            let html = '<select onchange="selectPresetForBinding(this)" style="min-width:200px;">';
+            html += '<option value="">-- 选择预设 --</option>';
+            for (const p of presetList) {
+                const selected = p.id === currentId ? ' selected' : '';
+                const label = (p.name || p.id) + ' (' + (p.config_summary?.buy_strategy || '?') + ')';
+                html += '<option value="' + escapeHtml(p.id) + '"' + selected + '>' + escapeHtml(label) + '</option>';
+            }
+            html += '</select>';
+            return html;
+        }
+        // Track which binding row's select is being changed
+        let currentBindingSymbol = null;
+        function selectPresetForBinding(sel) {
+            if (currentBindingSymbol) {
+                signalBindings[currentBindingSymbol] = sel.value;
+                saveSignalBindings();
+            }
         }
 
         const SYNCD_SYMBOLS = {{ synced_symbols|default([])|tojson }};
@@ -7920,26 +8016,31 @@
                     '<select onchange="signalBindings[\'' + escapeHtml(sym) + '\'] = this.value; saveSignalBindings();">' +
                     symbols.map(s => '<option value="' + s + '"' + (s === sym ? ' selected' : '') + '>' + s + '</option>').join('') +
                     '</select>' +
-                    '<span style="font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap;">→</span>' +
-                    '<input type="text" placeholder="输入预设 ID..." value="' + escapeHtml(presetId) + '" onchange="signalBindings[\'' + escapeHtml(sym) + '\'] = this.value; saveSignalBindings();">' +
+                    '<span style="font-family:var(--mono);font-size:11px;color:var(--muted);">→</span>' +
+                    presetSelectHtml(presetId) +
                     '<button type="button" class="danger" style="min-height:28px;font-size:12px;padding:2px 8px;" onclick="delete signalBindings[\'' + escapeHtml(sym) + '\']; saveSignalBindings(); renderSignalBindings();">×</button>' +
                     '</div>';
             }
             const boundSymbols = new Set(Object.keys(signalBindings));
             const remaining = symbols.filter(s => !boundSymbols.has(s));
-            html += '<div class="signal-binding-row" style="opacity:0.6;">' +
-                '<select id="newBindingSymbol" style="max-width:140px;">' +
-                remaining.map(s => '<option value="' + s + '">' + s + '</option>').join('') +
-                '</select>' +
-                '<input type="text" id="newBindingPreset" placeholder="预设 ID...">' +
-                '<button type="button" style="min-height:28px;font-size:12px;padding:2px 8px;" onclick="addSignalBinding()">添加</button>' +
-                '</div>';
+            if (remaining.length > 0 && presetList.length > 0) {
+                html += '<div class="signal-binding-row" style="opacity:0.8;">' +
+                    '<select id="newBindingSymbol" style="max-width:140px;">' +
+                    remaining.map(s => '<option value="' + s + '">' + s + '</option>').join('') +
+                    '</select>' +
+                    presetSelectHtml('') +
+                    '<button type="button" style="min-height:28px;font-size:12px;padding:2px 8px;" onclick="addSignalBinding()">添加</button>' +
+                    '</div>';
+            }
             list.innerHTML = html;
         }
 
         function addSignalBinding() {
             const sym = document.getElementById('newBindingSymbol')?.value;
-            const pid = document.getElementById('newBindingPreset')?.value?.trim();
+            // Find the preset select in the new binding row
+            const row = document.getElementById('newBindingSymbol')?.closest('.signal-binding-row');
+            const presetSelect = row?.querySelectorAll('select')[1];
+            const pid = presetSelect?.value;
             if (!sym || !pid) return;
             signalBindings[sym] = pid;
             saveSignalBindings().then(() => renderSignalBindings());
@@ -7951,7 +8052,7 @@
             const isOpen = document.getElementById('signalConfigSection').classList.contains('open');
             toggle.textContent = isOpen ? '收起 ▾' : '展开 ▸';
             if (isOpen) {
-                loadSignalBindings().then(() => renderSignalBindings());
+                Promise.all([loadSignalBindings(), loadPresetList()]).then(() => renderSignalBindings());
             }
         }
 
