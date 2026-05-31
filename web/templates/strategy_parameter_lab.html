@@ -1672,6 +1672,29 @@
                             <label>修复冷却 天 (0~120)<div style="display:flex;gap:3px;"><input id="gaB_rpCd" type="number" min="0" max="120" step="1" placeholder="0" style="width:50%;"><span>~</span><input id="gaB_rpCdHi" type="number" min="0" max="120" step="1" placeholder="120" style="width:50%;"></div></label>
                         </div>
                     </details>
+                    <div style="margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;font-size:12px;">
+                        <label style="display:flex;align-items:center;gap:4px;">重启模式
+                            <select id="gaBuyRearmMode" style="font-size:12px;padding:2px 4px;">
+                                <option value="" selected>Both</option>
+                                <option value="cumulative">累计补齐</option>
+                                <option value="restart_from_rearm">从首档</option>
+                            </select>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:4px;">买入日可卖
+                            <select id="gaSameDaySell" style="font-size:12px;padding:2px 4px;">
+                                <option value="" selected>Both</option>
+                                <option value="false">关闭</option>
+                                <option value="true">开启</option>
+                            </select>
+                        </label>
+                        <label style="display:flex;align-items:center;gap:4px;">买点优化
+                            <select id="gaCoreDipTiming" style="font-size:12px;padding:2px 4px;">
+                                <option value="" selected>Both</option>
+                                <option value="false">关闭</option>
+                                <option value="true">开启</option>
+                            </select>
+                        </label>
+                    </div>
                     <div id="gaStatus" style="margin-top:8px;font-size:12px;color:var(--muted);min-height:20px;">就绪。</div>
                     <div class="progress" id="gaProgress" style="display:none;">
                         <span id="gaProgressBar" style="width:0%;"></span>
@@ -7042,6 +7065,9 @@
             payload.ga_continuous_mutation = document.getElementById('gaContinuousMutation').value;
             payload.ga_sigma_ratio = parseFloat(document.getElementById('gaSigmaRatio').value) || 0.15;
             payload.ga_parameter_bounds = readGaCustomBounds();
+            payload.ga_buy_rearm_mode = document.getElementById('gaBuyRearmMode')?.value || '';
+            payload.ga_sell_allow_same_day_sell = document.getElementById('gaSameDaySell')?.value || '';
+            payload.ga_core_dip_timing_enabled = document.getElementById('gaCoreDipTiming')?.value || '';
             payload.parameter_lab_concurrency = readNumber('workerCount');
 
             try {

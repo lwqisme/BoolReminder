@@ -237,6 +237,10 @@ class EvolutionConfig:
     strategy_mutation_rate: float = 0.05
     continuous_mutation: bool = False
     mutation_sigma_ratio: float = 0.15
+    # Categorical restrictions: empty string = both, otherwise single value
+    buy_rearm_mode: str = ""
+    sell_allow_same_day_sell: str = ""
+    core_dip_timing_enabled: str = ""
 
     def __post_init__(self):
         if self.elitism_count >= self.population_size:
@@ -301,6 +305,7 @@ def evolve_parameters(
     population = _initialize_population(
         buy_strategies, sell_strategies, all_buy_fields, all_sell_fields,
         base_inputs, config.population_size, cross_strategy=config.cross_strategy,
+        cat_restrict=config,
     )
 
     fitnesses = _evaluate_population(population, fitness_fn, cancel_checker)
@@ -368,7 +373,8 @@ def evolve_parameters(
                 config.mutation_rate,
                 buy_strategies=buy_strategies, sell_strategies=sell_strategies,
                 cross_strategy=config.cross_strategy, strategy_mutation_rate=config.strategy_mutation_rate,
-                continuous_mutation=config.continuous_mutation, mutation_sigma_ratio=config.mutation_sigma_ratio)
+                continuous_mutation=config.continuous_mutation, mutation_sigma_ratio=config.mutation_sigma_ratio,
+                cat_restrict=config)
             next_population.append(child)
 
         population = next_population[:config.population_size]
@@ -508,6 +514,7 @@ def _initialize_population(
     population_size: int,
     *,
     cross_strategy: bool = False,
+    cat_restrict: EvolutionConfig | None = None,
 ) -> list[Individual]:
     """Create initial population with heuristic seeding."""
     population: list[Individual] = []
@@ -561,7 +568,8 @@ def _initialize_population(
         bs, ss = _pick_strategies()
         ind = _random_individual(bs, ss,
             all_buy_fields.get(bs, []), all_sell_fields.get(ss, []), base_inputs,
-            continuous_mutation=cross_strategy and False)  # initial pop always discrete for seeding diversity
+            continuous_mutation=cross_strategy and False,
+            cat_restrict=cat_restrict)
         if ind.key not in seen_keys:
             seen_keys.add(ind.key)
             population.append(ind)
@@ -571,7 +579,8 @@ def _initialize_population(
         suffix += 1
         bs, ss = _pick_strategies()
         ind = _random_individual(bs, ss,
-            all_buy_fields.get(bs, []), all_sell_fields.get(ss, []), base_inputs)
+            all_buy_fields.get(bs, []), all_sell_fields.get(ss, []), base_inputs,
+            cat_restrict=cat_restrict)
         unique_key = f"{ind.key}__pad{suffix}"
         object.__setattr__(ind, "key", unique_key)
         population.append(ind)
@@ -587,6 +596,7 @@ def _random_individual(
     base_inputs: StrategyInputs,
     *,
     continuous_mutation: bool = False,
+    cat_restrict: EvolutionConfig | None = None,
 ) -> Individual:
     buy_params: dict[str, object] = {}
     for field in buy_fields:
@@ -606,7 +616,10 @@ def _random_individual(
         elif field == "sell_allow_same_day_sell":
             sell_params[field] = random.choice([False, True])
         elif field == "buy_rearm_mode":
-            sell_params[field] = random.choice(list(BUY_REARM_MODES))
+            modes = list(BUY_REARM_MODES)
+            if cat_restrict and cat_restrict.buy_rearm_mode:
+                modes = [cat_restrict.buy_rearm_mode]
+            sell_params[field] = random.choice(modes)
         else:
             sell_params[field] = _get_default_for_field(base_inputs, field)
 
@@ -765,10 +778,11 @@ def _mutate(
     *,
     buy_strategies: list[str] | None = None,
     sell_strategies: list[str] | None = None,
-    cross_strategy: bool = False,
-    strategy_mutation_rate: float = 0.05,
     continuous_mutation: bool = False,
     mutation_sigma_ratio: float = 0.15,
+    strategy_mutation_rate: float = 0.0,
+    cross_strategy: bool = False,
+    cat_restrict: EvolutionConfig | None = None,
 ) -> Individual:
     buy_strategy = individual.buy_strategy
     sell_strategy = individual.sell_strategy
@@ -799,9 +813,15 @@ def _mutate(
             elif field in _SELL_PARAM_RANGES:
                 sell_params[field] = _random_param_value(field, _SELL_PARAM_RANGES[field])
             elif field == "sell_allow_same_day_sell":
-                sell_params[field] = random.choice([False, True])
+                opts = [False, True]
+                if cat_restrict and cat_restrict.sell_allow_same_day_sell:
+                    opts = [cat_restrict.sell_allow_same_day_sell == "true"]
+                sell_params[field] = random.choice(opts)
             elif field == "buy_rearm_mode":
-                sell_params[field] = random.choice(list(BUY_REARM_MODES))
+                modes = list(BUY_REARM_MODES)
+                if cat_restrict and cat_restrict.buy_rearm_mode:
+                    modes = [cat_restrict.buy_rearm_mode]
+                sell_params[field] = random.choice(modes)
 
     _enforce_core_dip_constraints(buy_params)
 
@@ -1031,6 +1051,7 @@ def build_ga_client_manifest(
     population = _initialize_population(
         buy_strategies, sell_strategies, all_buy_fields, all_sell_fields,
         base_inputs, config.population_size, cross_strategy=config.cross_strategy,
+        cat_restrict=config,
     )
 
     buy_variants: list[list[object]] = []
