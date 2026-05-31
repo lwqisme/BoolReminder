@@ -8908,6 +8908,7 @@ def _strategy_lab_page_context() -> dict[str, object]:
         "default_scorecard_portfolio_keys": default_scorecard_portfolio_keys,
         "default_start": start_date.isoformat(),
         "default_end": end_date.isoformat(),
+        "synced_symbols": list_synced_symbols(),
         "strategy_registry": strategy_registry_payload(),
         "parameter_lab_worker_url": f"/static/strategy_parameter_lab_worker.js?v={parameter_lab_worker_version}",
     }

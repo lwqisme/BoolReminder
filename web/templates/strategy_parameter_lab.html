@@ -1293,6 +1293,65 @@
             box-shadow: inset 0 0 0 1px rgba(174, 185, 200, 0.42);
         }
         .hidden { display: none !important; }
+        .signal-config-section {
+            margin: 16px 0;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: var(--radius-sm);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+        .signal-config-head {
+            padding: 12px 16px;
+            background: var(--surface-2);
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            user-select: none;
+        }
+        .signal-config-head h3 { margin: 0; font-size: 14px; }
+        .signal-config-body { padding: 16px; display: none; }
+        .signal-config-section.open .signal-config-body { display: block; }
+        .signal-binding-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 0;
+            border-bottom: 1px solid var(--surface-3);
+        }
+        .signal-binding-row:last-child { border-bottom: none; }
+        .signal-binding-row select, .signal-binding-row input {
+            flex: 1;
+            min-width: 0;
+            padding: 5px 8px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            font-size: 13px;
+            background: var(--surface);
+        }
+        .signal-binding-row select { max-width: 140px; }
+        .signal-results {
+            margin-top: 12px;
+            padding: 12px;
+            background: var(--surface-2);
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .signal-result-card {
+            padding: 8px 12px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            border: 1px solid var(--line);
+            background: var(--surface);
+        }
+        .signal-result-card.has-signals { border-left: 3px solid var(--amber); }
+        .signal-result-card.error { border-left: 3px solid var(--red); }
+        .signal-result-card h4 { margin: 0 0 4px; font-size: 13px; }
+        .signal-row { font-family: var(--mono); font-size: 12px; padding: 2px 0; }
         @media (max-width: 980px) {
             .shell { grid-template-columns: 1fr; }
             .side { position: static; height: auto; }
@@ -1732,6 +1791,23 @@
                     <div class="cost-note">运行后显示耗时、worker 分布、规模和内存估算。</div>
                 </div>
             </details>
+
+            <div class="signal-config-section" id="signalConfigSection">
+                <div class="signal-config-head" onclick="toggleSignalConfig()">
+                    <h3>🔔 策略信号配置</h3>
+                    <span id="signalConfigToggle" style="font-size:12px;color:var(--muted);">展开 ▸</span>
+                </div>
+                <div class="signal-config-body" id="signalConfigBody">
+                    <p style="margin:0 0 8px;color:var(--muted);font-size:12px;">绑定标的到预设参数组合，每晚 23:00 自动生成交易信号并通过邮件提醒。支持手动 dry-run。</p>
+                    <div id="signalBindingsList"></div>
+                    <div style="margin-top:8px;display:flex;gap:8px;">
+                        <button type="button" onclick="addSignalBinding()">+ 添加绑定</button>
+                        <button class="primary" type="button" onclick="runSignalDryRun()" id="signalRunBtn">▶ Dry-Run</button>
+                        <span id="signalRunStatus" style="font-size:12px;color:var(--muted);align-self:center;"></span>
+                    </div>
+                    <div id="signalResults" class="signal-results hidden"></div>
+                </div>
+            </div>
 
             <div class="matrix-wrap">
                 <table id="matrixTable">
@@ -7798,6 +7874,153 @@
             }
         }
         window.compareAlertConsistency = compareAlertConsistency;
+
+        // ── Signal Config ────────────────────────────────────────────
+        let signalBindings = {};
+
+        async function loadSignalBindings() {
+            try {
+                const r = await fetch('/api/strategy-lab/signals/bindings');
+                const d = await r.json();
+                if (d.success) signalBindings = d.bindings || {};
+            } catch (e) { console.error('loadSignalBindings', e); }
+        }
+
+        async function saveSignalBindings() {
+            try {
+                await fetch('/api/strategy-lab/signals/bindings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ bindings: signalBindings }),
+                });
+            } catch (e) { console.error('saveSignalBindings', e); }
+        }
+
+        async function loadPresetList() {
+            try {
+                const r = await fetch('/api/strategy-lab/presets?limit=50');
+                const d = await r.json();
+                if (d.success && d.presets) return d.presets;
+            } catch (e) { console.error('loadPresetList', e); }
+            return [];
+        }
+
+        const SYNCD_SYMBOLS = {{ synced_symbols|default([])|tojson }};
+
+        function renderSignalBindings() {
+            const list = document.getElementById('signalBindingsList');
+            const symbols = [...SYNCD_SYMBOLS];
+            if (symbols.length === 0) {
+                list.innerHTML = '<p style="color:var(--muted);font-size:12px;">暂无已同步的标的。请先在 Google Sheets 中同步交易数据。</p>';
+                return;
+            }
+            let html = '';
+            for (const [sym, presetId] of Object.entries(signalBindings)) {
+                html += '<div class="signal-binding-row">' +
+                    '<select onchange="signalBindings[\'' + escapeHtml(sym) + '\'] = this.value; saveSignalBindings();">' +
+                    symbols.map(s => '<option value="' + s + '"' + (s === sym ? ' selected' : '') + '>' + s + '</option>').join('') +
+                    '</select>' +
+                    '<span style="font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap;">→</span>' +
+                    '<input type="text" placeholder="输入预设 ID..." value="' + escapeHtml(presetId) + '" onchange="signalBindings[\'' + escapeHtml(sym) + '\'] = this.value; saveSignalBindings();">' +
+                    '<button type="button" class="danger" style="min-height:28px;font-size:12px;padding:2px 8px;" onclick="delete signalBindings[\'' + escapeHtml(sym) + '\']; saveSignalBindings(); renderSignalBindings();">×</button>' +
+                    '</div>';
+            }
+            const boundSymbols = new Set(Object.keys(signalBindings));
+            const remaining = symbols.filter(s => !boundSymbols.has(s));
+            html += '<div class="signal-binding-row" style="opacity:0.6;">' +
+                '<select id="newBindingSymbol" style="max-width:140px;">' +
+                remaining.map(s => '<option value="' + s + '">' + s + '</option>').join('') +
+                '</select>' +
+                '<input type="text" id="newBindingPreset" placeholder="预设 ID...">' +
+                '<button type="button" style="min-height:28px;font-size:12px;padding:2px 8px;" onclick="addSignalBinding()">添加</button>' +
+                '</div>';
+            list.innerHTML = html;
+        }
+
+        function addSignalBinding() {
+            const sym = document.getElementById('newBindingSymbol')?.value;
+            const pid = document.getElementById('newBindingPreset')?.value?.trim();
+            if (!sym || !pid) return;
+            signalBindings[sym] = pid;
+            saveSignalBindings().then(() => renderSignalBindings());
+        }
+
+        function toggleSignalConfig() {
+            document.getElementById('signalConfigSection').classList.toggle('open');
+            const toggle = document.getElementById('signalConfigToggle');
+            const isOpen = document.getElementById('signalConfigSection').classList.contains('open');
+            toggle.textContent = isOpen ? '收起 ▾' : '展开 ▸';
+            if (isOpen) {
+                loadSignalBindings().then(() => renderSignalBindings());
+            }
+        }
+
+        async function runSignalDryRun() {
+            const btn = document.getElementById('signalRunBtn');
+            const status = document.getElementById('signalRunStatus');
+            const results = document.getElementById('signalResults');
+            btn.disabled = true;
+            status.textContent = '运行中...';
+            results.classList.remove('hidden');
+            results.innerHTML = '<p style="color:var(--muted);">正在生成信号...</p>';
+
+            try {
+                const r = await fetch('/api/strategy-lab/signals/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dry_run: true }),
+                });
+                const d = await r.json();
+                status.textContent = d.success ? '✅ 完成' : '❌ 失败';
+                if (d.results && d.results.length) {
+                    let html = '';
+                    for (const res of d.results) {
+                        const hasErr = !!res.error;
+                        const hasSig = res.signals && res.signals.length > 0;
+                        html += '<div class="signal-result-card' + (hasErr ? ' error' : '') + (hasSig ? ' has-signals' : '') + '">';
+                        html += '<h4>' + escapeHtml(res.symbol) + ' (' + escapeHtml(res.buy_strategy || '?') + ' / ' + escapeHtml(res.sell_strategy || '?') + ')</h4>';
+                        if (hasErr) {
+                            html += '<div style="color:var(--red);">⚠ ' + escapeHtml(res.error) + '</div>';
+                        } else if (hasSig) {
+                            for (const sig of res.signals) {
+                                html += '<div class="signal-row">' +
+                                    (sig.action === 'buy' ? '🟢 买入' : '🔴 卖出') +
+                                    ' ' + (sig.shares || '?') + '股 @ $' + (sig.price || '?') +
+                                    (sig.reason ? ' <span style="color:var(--muted);">(' + escapeHtml(sig.reason) + ')</span>' : '') +
+                                    '</div>';
+                            }
+                        } else {
+                            html += '<div style="color:var(--muted);">无信号</div>';
+                        }
+                        if (res.current_state) {
+                            const s = res.current_state;
+                            html += '<div style="font-size:11px;color:var(--muted);margin-top:4px;">' +
+                                '持仓 ' + (s.shares || 0) + '股 | 现金 $' + (s.cash || 0).toFixed(0) +
+                                ' | 市值 $' + (s.market_value || 0).toFixed(0) +
+                                ' | 均价 $' + (s.avg_cost || 0).toFixed(2) +
+                                '</div>';
+                        }
+                        html += '</div>';
+                    }
+                    results.innerHTML = html;
+                } else {
+                    results.innerHTML = '<p style="color:var(--muted);">无结果返回。</p>';
+                }
+            } catch (e) {
+                status.textContent = '❌ 请求失败';
+                results.innerHTML = '<p style="color:var(--red);">' + escapeHtml(e.message) + '</p>';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // ── End Signal Config ────────────────────────────────────────
         })();
     </script>
 </body>
