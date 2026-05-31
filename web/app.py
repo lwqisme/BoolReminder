@@ -9459,6 +9459,9 @@ def _prepare_ga_client_payload(payload: dict[str, object]) -> dict[str, object]:
         "strategy_mutation_rate": ga_config.strategy_mutation_rate,
         "continuous_mutation": ga_config.continuous_mutation,
         "mutation_sigma_ratio": ga_config.mutation_sigma_ratio,
+        "buy_rearm_mode": ga_config.buy_rearm_mode,
+        "sell_allow_same_day_sell": ga_config.sell_allow_same_day_sell,
+        "core_dip_timing_enabled": ga_config.core_dip_timing_enabled,
     }
     ga_ranges = ga_parameter_ranges_payload()
     _apply_ga_bounds_to_ranges(ga_ranges, custom_bounds)

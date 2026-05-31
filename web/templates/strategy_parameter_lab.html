@@ -7716,6 +7716,7 @@
                 if (sellFields.indexOf('sell_allow_same_day_sell') < 0) sellFields.push('sell_allow_same_day_sell');
                 if (sellFields.indexOf('dca_rearm_drawdown_pct') < 0) sellFields.push('dca_rearm_drawdown_pct');
                 if (sellFields.indexOf('sell_stage_rearm_drawdown_pct') < 0) sellFields.push('sell_stage_rearm_drawdown_pct');
+                if (sellFields.indexOf('buy_rearm_mode') < 0) sellFields.push('buy_rearm_mode');
             }
             for (const field of buyFields) {
                 if (Math.random() < mutationRate) {
@@ -7732,6 +7733,13 @@
                 if (Math.random() < mutationRate) {
                     if (continuous && bounds[field]) {
                         child[field] = gaussMutate(field, child[field]);
+                    } else if (field === 'buy_rearm_mode') {
+                        const modes = (paramRanges.sell_ranges || {})[field] || ['cumulative', 'restart_from_rearm'];
+                        if (gaConfig.buy_rearm_mode && modes.includes(gaConfig.buy_rearm_mode)) {
+                            child[field] = gaConfig.buy_rearm_mode;
+                        } else {
+                            child[field] = modes[Math.floor(Math.random() * modes.length)];
+                        }
                     } else if (sellRanges[field]) {
                         const vals = gaDiscreteValuesWithinBounds(field, sellRanges[field], paramRanges);
                         child[field] = vals[Math.floor(Math.random() * vals.length)];
