@@ -109,5 +109,59 @@ class GenerateSignalTest(unittest.TestCase):
         self.assertTrue(result.get("dry_run"))
 
 
+class SignalBindingsTest(unittest.TestCase):
+    """Test that bindings save/load round-trips correctly, and generate_all_signals uses them."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.tmp = Path(self.tmpdir.name)
+
+    def test_bindings_save_and_load(self):
+        from drawdown.strategy_signal import load_signal_bindings, save_signal_bindings, _signal_bindings_path
+
+        with patch("drawdown.strategy_signal._signal_bindings_path", return_value=self.tmp / "signal_bindings.json"):
+            save_signal_bindings({"GOOGL": "preset_aaa", "TSLA": "preset_bbb"})
+            loaded = load_signal_bindings()
+            self.assertEqual(loaded, {"GOOGL": "preset_aaa", "TSLA": "preset_bbb"})
+
+    def test_bindings_empty_by_default(self):
+        from drawdown.strategy_signal import load_signal_bindings, _signal_bindings_path
+
+        with patch("drawdown.strategy_signal._signal_bindings_path", return_value=self.tmp / "nonexistent.json"):
+            loaded = load_signal_bindings()
+            self.assertEqual(loaded, {})
+
+    def test_generate_all_signals_uses_bindings(self):
+        from drawdown.strategy_signal import generate_all_signals, save_signal_bindings, _signal_bindings_path
+
+        with patch("drawdown.strategy_signal._signal_bindings_path", return_value=self.tmp / "signal_bindings.json"):
+            save_signal_bindings({"GOOGL": "preset_test"})
+            with patch("drawdown.strategy_signal.generate_signal") as mock_gen:
+                mock_gen.return_value = {"symbol": "GOOGL", "signals": [], "dry_run": True}
+                results = generate_all_signals(dry_run=True)
+                mock_gen.assert_called_once_with("GOOGL", "preset_test", signal_date=None, dry_run=True)
+                self.assertEqual(len(results), 1)
+                self.assertEqual(results[0]["symbol"], "GOOGL")
+
+    def test_generate_all_signals_empty_bindings(self):
+        from drawdown.strategy_signal import generate_all_signals, _signal_bindings_path
+
+        with patch("drawdown.strategy_signal._signal_bindings_path", return_value=self.tmp / "nonexistent.json"):
+            results = generate_all_signals()
+            self.assertEqual(results, [])
+
+    def test_generate_all_signals_catches_errors(self):
+        from drawdown.strategy_signal import generate_all_signals, save_signal_bindings, _signal_bindings_path
+
+        with patch("drawdown.strategy_signal._signal_bindings_path", return_value=self.tmp / "signal_bindings.json"):
+            save_signal_bindings({"BAD": "bad_preset"})
+            with patch("drawdown.strategy_signal.generate_signal", side_effect=RuntimeError("boom")):
+                results = generate_all_signals(dry_run=True)
+                self.assertEqual(len(results), 1)
+                self.assertEqual(results[0]["symbol"], "BAD")
+                self.assertIn("boom", results[0]["error"])
+
+
 if __name__ == "__main__":
     unittest.main()

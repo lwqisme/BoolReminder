@@ -7982,8 +7982,8 @@
             return [];
         }
 
-        function presetSelectHtml(currentId) {
-            let html = '<select onchange="selectPresetForBinding(this)" style="min-width:200px;">';
+        function presetSelectHtml(sym, currentId) {
+            let html = '<select onchange="signalBindings[\'' + escapeHtml(sym) + '\'] = this.value; saveSignalBindings();" style="min-width:200px;">';
             html += '<option value="">-- 选择预设 --</option>';
             for (const p of presetList) {
                 const selected = p.id === currentId ? ' selected' : '';
@@ -7992,14 +7992,6 @@
             }
             html += '</select>';
             return html;
-        }
-        // Track which binding row's select is being changed
-        let currentBindingSymbol = null;
-        function selectPresetForBinding(sel) {
-            if (currentBindingSymbol) {
-                signalBindings[currentBindingSymbol] = sel.value;
-                saveSignalBindings();
-            }
         }
 
         const SYNCD_SYMBOLS = {{ synced_symbols|default([])|tojson }};
@@ -8018,7 +8010,7 @@
                     symbols.map(s => '<option value="' + s + '"' + (s === sym ? ' selected' : '') + '>' + s + '</option>').join('') +
                     '</select>' +
                     '<span style="font-family:var(--mono);font-size:11px;color:var(--muted);">→</span>' +
-                    presetSelectHtml(presetId) +
+                    presetSelectHtml(sym, presetId) +
                     '<button type="button" class="danger" style="min-height:28px;font-size:12px;padding:2px 8px;" onclick="delete signalBindings[\'' + escapeHtml(sym) + '\']; saveSignalBindings(); renderSignalBindings();">×</button>' +
                     '</div>';
             }
@@ -8029,19 +8021,28 @@
                     '<select id="newBindingSymbol" style="max-width:140px;">' +
                     remaining.map(s => '<option value="' + s + '">' + s + '</option>').join('') +
                     '</select>' +
-                    presetSelectHtml('') +
+                    '<span style="font-family:var(--mono);font-size:11px;color:var(--muted);">→</span>' +
+                    newBindingPresetHtml() +
                     '<button type="button" style="min-height:28px;font-size:12px;padding:2px 8px;" onclick="addSignalBinding()">添加</button>' +
                     '</div>';
             }
             list.innerHTML = html;
         }
 
+        function newBindingPresetHtml() {
+            let html = '<select id="newBindingPreset" style="min-width:200px;">';
+            html += '<option value="">-- 选择预设 --</option>';
+            for (const p of presetList) {
+                const label = (p.name || p.id) + ' (' + (p.config_summary?.buy_strategy || '?') + ')';
+                html += '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(label) + '</option>';
+            }
+            html += '</select>';
+            return html;
+        }
+
         function addSignalBinding() {
             const sym = document.getElementById('newBindingSymbol')?.value;
-            // Find the preset select in the new binding row
-            const row = document.getElementById('newBindingSymbol')?.closest('.signal-binding-row');
-            const presetSelect = row?.querySelectorAll('select')[1];
-            const pid = presetSelect?.value;
+            const pid = document.getElementById('newBindingPreset')?.value;
             if (!sym || !pid) return;
             signalBindings[sym] = pid;
             saveSignalBindings().then(() => renderSignalBindings());
