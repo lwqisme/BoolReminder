@@ -236,7 +236,7 @@ class EvolutionConfig:
     cross_strategy: bool = False
     strategy_mutation_rate: float = 0.05
     continuous_mutation: bool = False
-    mutation_sigma_ratio: float = 0.15
+    mutation_sigma_ratio: float = 0.25
     # Categorical restrictions: empty string = both, otherwise single value
     buy_rearm_mode: str = ""
     sell_allow_same_day_sell: str = ""
@@ -795,7 +795,7 @@ def _mutate(
     buy_strategies: list[str] | None = None,
     sell_strategies: list[str] | None = None,
     continuous_mutation: bool = False,
-    mutation_sigma_ratio: float = 0.15,
+    mutation_sigma_ratio: float = 0.25,
     strategy_mutation_rate: float = 0.0,
     cross_strategy: bool = False,
     cat_restrict: EvolutionConfig | None = None,

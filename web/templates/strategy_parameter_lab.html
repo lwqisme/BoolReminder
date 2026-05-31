@@ -1655,7 +1655,7 @@
                             </select>
                         </label>
                         <label>变异幅度 σ<span class="param-help" data-tooltip="连续变异的高斯噪声标准差与当前值的比例。如 0.15 表示 σ = 当前值×15%，值越大变异幅度越猛。仅连续变异模式下生效。">?</span>
-                            <input id="gaSigmaRatio" type="number" min="0.01" max="1" step="0.01" value="0.15">
+                            <input id="gaSigmaRatio" type="number" min="0.01" max="1" step="0.01" value="0.25">
                         </label>
                     </div>
                     <details style="margin-top:4px;border:1px solid rgba(174,185,200,0.3);border-radius:var(--radius-sm);padding:6px 8px;">
@@ -7279,7 +7279,7 @@
                 let dupesDropped = 0;
                 for (let ri = 0; ri < finalRows.length; ri++) {
                     const item = finalRows[ri];
-                    const sig = (item.avg_return || 0).toFixed(2) + '|' + (item.avg_drawdown || 0).toFixed(2) + '|' + (item.avg_sell_quality || 0).toFixed(2);
+                    const sig = (item.avg_return || 0).toFixed(1) + '|' + (item.avg_drawdown || 0).toFixed(1) + '|' + (item.avg_sell_quality || 0).toFixed(1);
                     if (!seenSignatures[sig]) {
                         seenSignatures[sig] = true;
                         dedupedRows.push(item);
@@ -7768,7 +7768,7 @@
             const precision = paramRanges.precision || {};
             const intFields = new Set(paramRanges.int_fields || []);
             const continuous = gaConfig.continuous_mutation || false;
-            const sigmaRatio = gaConfig.mutation_sigma_ratio || 0.15;
+            const sigmaRatio = gaConfig.mutation_sigma_ratio || 0.25;
 
             function gaussMutate(field, currentVal) {
                 const b = bounds[field];

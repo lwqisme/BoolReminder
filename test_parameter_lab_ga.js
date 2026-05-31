@@ -63,7 +63,7 @@ function gaDedupByDisplayStats(finalRows) {
     const seen = {};
     for (let ri = 0; ri < finalRows.length; ri++) {
         const item = finalRows[ri];
-        const sig = (item.avg_return || 0).toFixed(2) + '|' + (item.avg_drawdown || 0).toFixed(2) + '|' + (item.avg_sell_quality || 0).toFixed(2);
+        const sig = (item.avg_return || 0).toFixed(1) + '|' + (item.avg_drawdown || 0).toFixed(1) + '|' + (item.avg_sell_quality || 0).toFixed(1);
         if (!seen[sig]) { seen[sig] = true; deduped.push(item); }
     }
     return deduped;
@@ -97,7 +97,7 @@ function mutateGa(ind, mutationRate, paramRanges, gaConfig, crossEnabled) {
     const precision = paramRanges.precision || {};
     const intFields = new Set(paramRanges.int_fields || []);
     const continuous = gaConfig.continuous_mutation || false;
-    const sigmaRatio = gaConfig.mutation_sigma_ratio || 0.15;
+    const sigmaRatio = gaConfig.mutation_sigma_ratio || 0.25;
 
     function gaNumericBounds(field) {
         const b = bounds[field];
