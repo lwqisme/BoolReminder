@@ -68,6 +68,11 @@ from drawdown.strategy_lab_history import (
     save_experiment_preset,
     save_run_snapshot,
 )
+from drawdown.strategy_signal import (
+    generate_all_signals,
+    load_signal_bindings,
+    save_signal_bindings,
+)
 from drawdown.leaps_option_outcomes import (
     POLYGON_PERMISSION_DENIED,
     AlpacaMonthlyOptionProvider,
@@ -10504,6 +10509,36 @@ def api_strategy_lab_delete_preset(preset_id: str):
     if not delete_experiment_preset(preset_id):
         return _json_error("参数预设不存在", 404)
     return jsonify({"success": True})
+
+
+# ── Signal Bindings ────────────────────────────────────────────────────
+
+@app.route('/api/strategy-lab/signals/bindings', methods=['GET'])
+def api_strategy_signal_bindings_get():
+    bindings = load_signal_bindings()
+    return jsonify({"success": True, "bindings": bindings})
+
+
+@app.route('/api/strategy-lab/signals/bindings', methods=['POST'])
+def api_strategy_signal_bindings_save():
+    payload = request.get_json(silent=True) or {}
+    bindings = payload.get("bindings")
+    if not isinstance(bindings, dict):
+        return _json_error("bindings 必须是字典", 400)
+    save_signal_bindings({str(k): str(v) for k, v in bindings.items()})
+    return jsonify({"success": True})
+
+
+@app.route('/api/strategy-lab/signals/run', methods=['POST'])
+def api_strategy_signal_run():
+    """Run signal generation for all bound symbols."""
+    payload = request.get_json(silent=True) or {}
+    dry_run = bool(payload.get("dry_run", True))
+    signal_date_raw = payload.get("signal_date")
+    signal_date = date.fromisoformat(signal_date_raw) if signal_date_raw else None
+
+    results = generate_all_signals(signal_date=signal_date, dry_run=dry_run)
+    return jsonify({"success": True, "results": results, "dry_run": dry_run})
 
 
 @app.route('/api/strategy-lab/run', methods=['POST'])

@@ -17,7 +17,8 @@ from pathlib import Path
 from config.config_manager import ConfigManager
 from web.app import app, init_app
 from scheduler.task_scheduler import TaskScheduler
-from scheduler import set_scheduler
+from scheduler.signal_scheduler import SignalScheduler
+from scheduler import set_scheduler, set_signal_scheduler
 
 # 配置日志
 logging.basicConfig(
@@ -120,11 +121,37 @@ def main():
     # 标记当前进程为最新实例，防止旧容器/旧进程继续发送重复邮件
     register_active_instance()
     
+    from notify.email_sender import EmailSender
+    
     # 启动定时任务调度器
     scheduler = TaskScheduler(config_manager, instance_id=INSTANCE_ID, is_active_instance=is_active_instance)
     scheduler.start()
     # 设置全局scheduler实例，供web应用使用
     set_scheduler(scheduler)
+
+    # 启动策略信号调度器 (每晚 23:00)
+    email_config = config_manager.get_email_config()
+    smtp_host = email_config.get("smtp_host", "")
+    if smtp_host:
+        from_email = email_config.get("from_email", "")
+        email_sender_instance = EmailSender(
+            smtp_host=smtp_host,
+            smtp_port=int(email_config.get("smtp_port", 587)),
+            smtp_user=email_config.get("smtp_user", ""),
+            smtp_password=email_config.get("smtp_password", ""),
+            from_email=from_email,
+        )
+        signal_scheduler = SignalScheduler(
+            email_sender=email_sender_instance,
+            to_emails=email_config.get("to_emails", []),
+            hour=23,
+            minute=0,
+        )
+        signal_scheduler.start()
+        set_signal_scheduler(signal_scheduler)
+        logger.info("策略信号调度器已启动 (每晚 23:00)")
+    else:
+        logger.warning("SMTP未配置，策略信号调度器未启动")
     
     next_run = scheduler.get_next_run_time()
     if next_run:

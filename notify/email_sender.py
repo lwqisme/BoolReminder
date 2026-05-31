@@ -149,3 +149,43 @@ class EmailSender:
         except Exception as e:
             print(f"SMTP连接测试失败: {e}")
             return False
+
+    def send_report_simple(self, subject: str, body: str, to_emails: list[str]) -> bool:
+        """Send a simple plain-text email."""
+        return self.send_text_email(subject, body, to_emails)
+
+    def send_text_email(self, subject: str, body: str, to_emails: list[str]) -> bool:
+        """Send a plain-text email to the given recipients."""
+        if not to_emails:
+            print("警告: 没有收件人邮箱")
+            return False
+        try:
+            msg = MIMEText(body, "plain", "utf-8")
+            msg["From"] = self.from_email
+            msg["To"] = ", ".join(to_emails)
+            msg["Subject"] = subject
+
+            if self.smtp_port == 465:
+                context = ssl.create_default_context()
+                server = smtplib.SMTP_SSL(self.smtp_host, self.smtp_port, context=context)
+                try:
+                    server.login(self.smtp_user, self.smtp_password)
+                    server.sendmail(self.from_email, to_emails, msg.as_string())
+                finally:
+                    server.quit()
+            else:
+                context = ssl.create_default_context()
+                server = smtplib.SMTP(self.smtp_host, self.smtp_port)
+                try:
+                    server.starttls(context=context)
+                    server.login(self.smtp_user, self.smtp_password)
+                    server.sendmail(self.from_email, to_emails, msg.as_string())
+                finally:
+                    server.quit()
+            print(f"邮件已成功发送到: {', '.join(to_emails)}")
+            return True
+        except Exception as e:
+            print(f"错误: 发送邮件时发生异常: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
