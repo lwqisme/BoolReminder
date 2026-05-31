@@ -7905,6 +7905,8 @@
             const p = {};
             const map = {
                 buy_strategy: 'default_buy_strategy', sell_strategy: 'default_sell_strategy',
+                sell_quality_weight_pct: 'default_sell_quality_weight_pct',
+                initial_cash: 'default_initial_cash', monthly_contribution: 'default_monthly_contribution',
                 step_pct: 'default_slice_step_pct', equal_slice_allocation_pct: 'default_equal_slice_allocation_pct',
                 dca_rearm_drawdown_pct: 'default_dca_rearm_drawdown_pct',
                 sell_stage_rearm_drawdown_pct: 'default_sell_stage_rearm_drawdown_pct',
@@ -7915,6 +7917,7 @@
                 grid_sell_pct: 'default_grid_sell_pct', grid_first_sell_pct: 'default_grid_first_sell_pct',
                 grid_second_sell_pct: 'default_grid_second_sell_pct',
                 grid_min_sell_amount: 'default_grid_min_sell_amount',
+                grid_rebound_cycle_reset: 'default_grid_rebound_cycle_reset',
                 cost_first_profit_pct: 'default_cost_first_profit_pct',
                 cost_second_profit_pct: 'default_cost_second_profit_pct',
                 cost_third_profit_pct: 'default_cost_third_profit_pct',
@@ -7939,7 +7942,8 @@
             }
             const defaultConfig = {{ default_config|tojson }};
             for (const k of ['default_initial_cash', 'default_monthly_contribution', 'default_drawdown_basis',
-                'default_reserve_position_pct', 'default_trade_fee', 'default_hkd_to_usd']) {
+                'default_reserve_position_pct', 'default_trade_fee', 'default_hkd_to_usd',
+                'default_grid_rebound_cycle_reset', 'default_buy_rearm_mode']) {
                 if (defaultConfig[k] !== undefined && p[k] === undefined) p[k] = defaultConfig[k];
             }
             return p;
