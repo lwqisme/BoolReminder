@@ -177,9 +177,9 @@ def generate_signal(
             "shares": symbol_state.get("shares", 0),
             "cash": symbol_state.get("cash", 0),
             "invested": symbol_state.get("invested", 0),
-            "market_value": symbol_state.get("last_value", 0),
+            "market_value": symbol_state.get("market_value", 0),
             "last_price": symbol_state.get("last_price", 0),
-            "avg_cost": symbol_state.get("avg_cost", 0),
+            "avg_cost": symbol_state.get("avg_cost_usd", 0),
         },
         "signals": [
             {

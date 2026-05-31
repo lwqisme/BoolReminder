@@ -2128,6 +2128,16 @@ def _apply_real_trades(
             state.buy_trades += 1
             state.max_shares = max(state.max_shares, state.shares)
 
+            if state.lots is None:
+                state.lots = []
+            state.lots.append(PositionLot(
+                threshold_pct=0.0,
+                buy_drawdown_pct=0.0,
+                buy_price_usd=price,
+                initial_shares=shares,
+                remaining_shares=shares,
+            ))
+
             trade_log.append({
                 "action": "buy",
                 "date": point.date.date().isoformat(),
@@ -2161,6 +2171,15 @@ def _apply_real_trades(
             state.fees += fee
             state.trades += 1
             state.sell_trades += 1
+
+            if state.lots:
+                remaining = shares
+                for lot in state.lots:
+                    if remaining <= 0:
+                        break
+                    sold = min(lot.remaining_shares, remaining)
+                    lot.remaining_shares -= sold
+                    remaining -= sold
 
             trade_log.append({
                 "action": "sell",
