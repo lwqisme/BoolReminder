@@ -1183,6 +1183,139 @@ process.stdout.write(JSON.stringify({
         self.assertGreaterEqual(result["first_global_rank"], 1)
         self.assertEqual(sorted(result["topic_ranks"]), [1, 1])
 
+    def test_score_parameter_results_keeps_sell_quality_score_components_when_weighted(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript score helper check")
+
+        html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
+        setup_match = re.search(r"const parameterFields = \[.*?\n        async function runParameterLab", html, re.S)
+        score_match = re.search(r"function normalize\(value, values\) \{.*?\n        function heatStyle", html, re.S)
+        self.assertIsNotNone(setup_match)
+        self.assertIsNotNone(score_match)
+        helpers = (
+            setup_match.group(0).rsplit("\n        async function runParameterLab", 1)[0]
+            + "\n"
+            + score_match.group(0).rsplit("\n        function heatStyle", 1)[0]
+        )
+        script = """
+const fs = require('fs');
+const vm = require('vm');
+const helpers = fs.readFileSync(process.argv[1], 'utf8');
+const packet = JSON.parse(process.argv[2]);
+const partialRows = JSON.parse(process.argv[3]);
+const context = {
+  performance: { now: () => 10 },
+  navigator: {},
+  buyStrategyLabels: { buy_a: '买A', buy_b: '买B' },
+  sellStrategyLabels: { sell_x: '卖X' },
+  strategyRegistry: { version: 'test', definitions: {} },
+  console
+};
+vm.createContext(context);
+vm.runInContext(helpers, context);
+const result = context.scoreParameterResults(packet, partialRows, [{
+  worker_index: 0,
+  chunk_size: 2,
+  batch_count: 1,
+  completed_simulations: 2,
+  elapsed_ms: 8
+}], 9);
+const rowsByKey = Object.fromEntries(result.rows.map((row) => [row.key, row]));
+const highQuality = rowsByKey.buy_a__step1__alloc10__sell_x;
+const lowQuality = rowsByKey.buy_b__step2__alloc20__sell_x;
+process.stdout.write(JSON.stringify({
+  high_row_sell_quality: highQuality.avg_sell_quality_score,
+  high_cell_sell_quality: highQuality.cells[0].sell_quality_score,
+  high_cell_raw_sell_quality: highQuality.cells[0].raw_sell_quality_score,
+  high_components: {
+    return_score: highQuality.cells[0].return_score,
+    drawdown_score: highQuality.cells[0].drawdown_score,
+    sell_quality_score: highQuality.cells[0].sell_quality_score,
+    sell_quality_component_score: highQuality.cells[0].sell_quality_component_score,
+    topic_score: highQuality.cells[0].topic_score
+  },
+  low_components: {
+    return_score: lowQuality.cells[0].return_score,
+    drawdown_score: lowQuality.cells[0].drawdown_score,
+    sell_quality_score: lowQuality.cells[0].sell_quality_score,
+    sell_quality_component_score: lowQuality.cells[0].sell_quality_component_score,
+    topic_score: lowQuality.cells[0].topic_score
+  },
+  weighted_rank_first: result.rows[0].key
+}));
+"""
+        packet = {
+            "candidate_schema": ["candidate_id", "buy_variant_id", "sell_variant_id"],
+            "buy_variant_schema": ["variant_id", "variant_key", "strategy", "step_pct", "equal_slice_allocation_pct"],
+            "sell_variant_schema": ["variant_id", "variant_key", "strategy", "sell_min_profit_pct"],
+            "buy_variants": [
+                [0, "buy_a_1", "buy_a", 1, 10],
+                [1, "buy_b_1", "buy_b", 2, 20],
+            ],
+            "sell_variants": [[0, "sell_x_1", "sell_x", 5]],
+            "candidate_rows": [[101, 0, 0], [102, 1, 0]],
+            "tasks": [{"key": "topic_a"}],
+            "market_data": {"symbols": {}},
+            "return_weight": 0.9,
+            "drawdown_weight": 0.1,
+            "sell_quality_weight_pct": 50,
+        }
+        partial_rows = [
+            {
+                "candidate_id": 101,
+                "candidate_key": "buy_a__step1__alloc10__sell_x",
+                "observations": [
+                    {"topic_key": "topic_a", "return_pct": 9.8, "max_drawdown_pct": -9, "sell_quality_score": 95},
+                ],
+            },
+            {
+                "candidate_id": 102,
+                "candidate_key": "buy_b__step2__alloc20__sell_x",
+                "observations": [
+                    {"topic_key": "topic_a", "return_pct": 10, "max_drawdown_pct": -10, "sell_quality_score": 5},
+                ],
+            },
+        ]
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".js") as helper_file:
+            helper_file.write(helpers)
+            helper_file.flush()
+            completed = subprocess.run(
+                ["node", "-e", script, helper_file.name, json.dumps(packet), json.dumps(partial_rows)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        result = json.loads(completed.stdout)
+
+        self.assertEqual(result["weighted_rank_first"], "buy_a__step1__alloc10__sell_x")
+        self.assertEqual(result["high_cell_raw_sell_quality"], 95)
+        self.assertAlmostEqual(result["high_cell_sell_quality"], 100.0)
+        self.assertAlmostEqual(result["high_row_sell_quality"], 100.0)
+        self.assertAlmostEqual(result["high_components"]["return_score"], 0.0)
+        self.assertAlmostEqual(result["high_components"]["drawdown_score"], 100.0)
+        self.assertAlmostEqual(result["high_components"]["sell_quality_score"], 100.0)
+        self.assertAlmostEqual(result["high_components"]["sell_quality_component_score"], 50.0)
+        self.assertGreater(result["high_components"]["topic_score"], result["low_components"]["topic_score"])
+
+    def test_parameter_lab_result_lists_show_sell_quality_scores_when_weighted(self):
+        html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
+
+        self.assertIn("function parameterScoreWeights(packet = lastParameterResult || lastParameterPacket || {})", html)
+        self.assertIn("function parameterUsesSellQualityScore(packet = lastParameterResult || lastParameterPacket || {})", html)
+        self.assertIn("renderSellQualityScoreSummary(row, data)", html)
+        self.assertIn("renderSellQualityCellSummary(cell, data)", html)
+        self.assertIn("sell quality ${number(cell.sell_quality_score)}", html)
+        self.assertIn("sell quality raw ${number(cell.raw_sell_quality_score)}", html)
+        self.assertIn("Avg SellQ", html)
+        self.assertIn("row.avg_sell_quality_score = n ? sumSellQuality / n : 0", html)
+        self.assertIn("cell.sell_quality_component_score = cell.sell_quality_score * weights.sell_quality", html)
+        self.assertIn("const gaWeights = parameterScoreWeights(packet);", html)
+        self.assertIn("avg_sell_quality: avgSellQuality", html)
+        self.assertIn("avg_sell_quality_score: item.avg_sell_quality || 0", html)
+        self.assertIn("row.sell_quality_component_score = row.sell_quality_score * gaWeights.sell_quality", html)
+        self.assertNotIn("let fitness = avgReturn * 0.9 + avgDD * 0.1", html)
+        self.assertNotIn("const ts = rp * 0.9 + Math.max(0, -dd) * 0.1", html)
+
     def test_parameter_lab_page_exposes_leaps_signal_layer_without_option_scan(self):
         html = PARAMETER_LAB_HTML.read_text(encoding="utf-8")
 
