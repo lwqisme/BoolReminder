@@ -1829,6 +1829,7 @@ async function handleLeapsGa(message) {
     const [key, [ind, fit]] = rankedFinal[rank];
     finalPop.push({
       rank: rank + 1, key, fitness: fit,
+      total_roi: leapsGaEngine.leapsTotalRoi(ind, parsed),
       drawdown_threshold_pct: ind.drawdown_threshold_pct, entry_mode: ind.entry_mode,
       stage1_days: ind.stage1_days, stage1_profit: ind.stage1_profit, stage1_sell: ind.stage1_sell,
       stage2_days: ind.stage2_days, stage2_profit: ind.stage2_profit, stage2_sell: ind.stage2_sell,

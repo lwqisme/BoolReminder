@@ -348,7 +348,8 @@ function leapsMutate(ind, mutationRate, ranges) {
 
 // ── Fitness ───────────────────────────────────────────────────────────────
 
-function leapsFitnessFn(individual, priceSeriesBySymbol) {
+// Shared trade evaluation: returns raw ROI list and date list
+function _leapsEvalTrades(individual, priceSeriesBySymbol) {
   const allRois = [];
   const allDates = [];
 
@@ -363,6 +364,17 @@ function leapsFitnessFn(individual, priceSeriesBySymbol) {
       allDates.push(entry.date);
     }
   }
+  return { allRois, allDates };
+}
+
+function leapsTotalRoi(individual, priceSeriesBySymbol) {
+  const { allRois } = _leapsEvalTrades(individual, priceSeriesBySymbol);
+  if (!allRois.length) return 0;
+  return allRois.reduce((a, b) => a + b, 0);
+}
+
+function leapsFitnessFn(individual, priceSeriesBySymbol) {
+  const { allRois, allDates } = _leapsEvalTrades(individual, priceSeriesBySymbol);
 
   if (!allRois.length) return 0;
 
@@ -421,6 +433,7 @@ const leapsGaEngine = {
   leapsCrossover,
   leapsMutate,
   leapsFitnessFn,
+  leapsTotalRoi,
   tournamentsSelect: tournamentSelect,
   randomIndividual,
   ddOptions,

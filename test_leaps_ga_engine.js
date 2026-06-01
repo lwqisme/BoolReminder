@@ -298,6 +298,25 @@ function testMergeRanges() {
   assertEqual(r9.stage2_days[1], 90, 'mergeRanges fresh object each call');
 }
 
+function testTotalRoi() {
+  const ind = leaps.makeIndividual(15, 'touch', 5, 10, 100, 60, 60, 100);
+  // No data → 0
+  assertEqual(leaps.leapsTotalRoi(ind, {}), 0, 'totalRoi empty -> 0');
+
+  // Positive returns
+  const vals = [...Array(122).fill(100), 95, 90, 87, 85, 83, 80, 78, 85, 90, 95, 100, 110, 120, ...Array(200).fill(120)];
+  const prices = [];
+  const d = new Date('2024-01-01');
+  for (let i = 0; i < vals.length; i++) {
+    const date = new Date(d); date.setDate(date.getDate() + i);
+    prices.push([date.getTime(), vals[i], date.toISOString().slice(0, 10)]);
+  }
+  const roi = leaps.leapsTotalRoi(ind, { TEST: prices });
+  assertGreater(roi, 0, 'totalRoi positive');
+  // totalRoi is raw sum; fitness is annualized × density, can differ in either direction
+  assertEqual(typeof roi, 'number', 'totalRoi is number');
+}
+
 // ── Run all ───────────────────────────────────────────────────────────────
 
 testDelta();
@@ -311,6 +330,7 @@ testCrossover();
 testMutation();
 testFitness();
 testMergeRanges();
+testTotalRoi();
 testPerformance();
 
 console.log(`\n${passed} passed, ${failed} failed`);

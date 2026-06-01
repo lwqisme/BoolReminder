@@ -8618,7 +8618,7 @@
             // Population table
             var pop = result.final_population || [];
             var popDiv = document.getElementById('leapsGaPopulation');
-            var headerCells = ['', '排名', '适应度', '回撤%', '模式', 'S1天', 'S1利%', 'S1卖%', 'S2天', 'S2利%', 'S2卖%'];
+            var headerCells = ['', '排名', '适应度', '总收益%', '回撤%', '模式', 'S1天', 'S1利%', 'S1卖%', 'S2天', 'S2利%', 'S2卖%'];
             var headerHtml = headerCells.map(function(c) { return '<th>' + c + '</th>'; }).join('');
             var bodyHtml = '';
             for (var i = 0; i < pop.length && i < 20; i++) {
@@ -8629,6 +8629,7 @@
                     '<td>' + (hasTrades ? '<button onclick="toggleLeapsTradeChart(\'' + rowId + '\', ' + i + ')" style="font-size:10px;padding:1px 4px;">▶</button>' : '') + '</td>' +
                     '<td>' + r.rank + '</td>' +
                     '<td style="font-family:var(--mono);">' + (r.fitness != null ? r.fitness.toFixed(2) : '-') + '</td>' +
+                    '<td style="font-family:var(--mono);">' + (r.total_roi != null ? (r.total_roi > 0 ? '+' : '') + r.total_roi.toFixed(1) + '%' : '-') + '</td>' +
                     '<td>' + r.drawdown_threshold_pct + '</td>' +
                     '<td>' + r.entry_mode + '</td>' +
                     '<td>' + r.stage1_days + '</td>' +
@@ -8639,7 +8640,7 @@
                     '<td>' + r.stage2_sell + '</td>' +
                     '</tr>';
                 if (hasTrades) {
-                    bodyHtml += '<tr id="' + rowId + 'Chart" style="display:none;"><td colspan="11" style="padding:8px;">' +
+                    bodyHtml += '<tr id="' + rowId + 'Chart" style="display:none;"><td colspan="12" style="padding:8px;">' +
                         '<div id="' + rowId + 'Plot" style="width:100%;height:280px;"></div>' +
                         '<div id="' + rowId + 'Detail" style="font-size:11px;margin-top:4px;"></div></td></tr>';
                 }

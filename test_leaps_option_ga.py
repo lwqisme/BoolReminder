@@ -451,6 +451,28 @@ class LeapsGATest(unittest.TestCase):
         self.assertGreater(fit3, fit1,
             f"3-trade fitness ({fit3:.1f}) should beat 1-trade ({fit1:.1f})")
 
+    def test_total_roi_empty_returns_zero(self):
+        """No trades → total_roi = 0."""
+        from drawdown.leaps_option_ga import leaps_total_roi
+        ind = self._make_individual()
+        self.assertEqual(leaps_total_roi(ind, {}), 0.0)
+
+    def test_total_roi_positive(self):
+        """Positive trades → positive total_roi."""
+        from drawdown.leaps_option_ga import leaps_total_roi
+        ind = self._make_individual(
+            drawdown_threshold_pct=12.0, entry_mode="touch",
+            stage1_days=3, stage1_profit=5.0, stage1_sell=100.0,
+            stage2_days=60, stage2_profit=60.0, stage2_sell=100.0,
+        )
+        values1 = [100.0] * 122 + [93.0, 88.0, 84.0, 80.0, 78.0]
+        values1 += [85.0, 95.0, 105.0, 115.0]
+        values1 += [115.0] * 200
+        prices1 = [(date(2024, 1, 1) + timedelta(days=i), v) for i, v in enumerate(values1)]
+        roi = leaps_total_roi(ind, {"A": prices1})
+        self.assertGreater(roi, 0.0)
+        self.assertIsInstance(roi, float)
+
 
 class LeapsFullEvolutionTest(unittest.TestCase):
     """Full GA evolution end-to-end."""
@@ -487,6 +509,12 @@ class LeapsFullEvolutionTest(unittest.TestCase):
         self.assertEqual(len(result["snapshots"]), 5)
         self.assertIsNotNone(result["best"])
         self.assertGreaterEqual(result["best"]["fitness"], 0.0)
+        # total_roi should be present in best and population entries
+        self.assertIn("total_roi", result["best"])
+        self.assertIsInstance(result["best"]["total_roi"], float)
+        for row in result["final_population"]:
+            self.assertIn("total_roi", row)
+            self.assertIsInstance(row["total_roi"], float)
 
 
 if __name__ == "__main__":

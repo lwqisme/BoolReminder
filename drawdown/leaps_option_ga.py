@@ -659,6 +659,38 @@ def leaps_mutate(
     )
 
 
+def _eval_trades(
+    individual: LeapsIndividual,
+    price_series_by_symbol: dict[str, list[tuple[date, float]]],
+) -> tuple[list[float], list[date]]:
+    """Simulate all trades for an individual, return (rois, dates)."""
+    all_rois: list[float] = []
+    all_dates: list[date] = []
+
+    for symbol, prices in price_series_by_symbol.items():
+        entries = detect_leaps_entries(
+            prices, individual.drawdown_threshold_pct, individual.entry_mode,
+        )
+        stages = individual.to_stages()
+        for entry in entries:
+            trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
+                                         strike_price=entry.price * 1.10)
+            all_rois.append(trade.total_roi_pct)
+            all_dates.append(entry.date)
+    return all_rois, all_dates
+
+
+def leaps_total_roi(
+    individual: LeapsIndividual,
+    price_series_by_symbol: dict[str, list[tuple[date, float]]],
+) -> float:
+    """Raw sum of all trade ROIs (not annualized, no density bonus)."""
+    all_rois, _ = _eval_trades(individual, price_series_by_symbol)
+    if not all_rois:
+        return 0.0
+    return float(sum(all_rois))
+
+
 def leaps_fitness_fn(
     individual: LeapsIndividual,
     price_series_by_symbol: dict[str, list[tuple[date, float]]],
@@ -674,19 +706,7 @@ def leaps_fitness_fn(
     collect all ROIs and dates, compute annualized total return
     scaled by trade frequency.
     """
-    all_rois: list[float] = []
-    all_dates: list[date] = []
-
-    for symbol, prices in price_series_by_symbol.items():
-        entries = detect_leaps_entries(
-            prices, individual.drawdown_threshold_pct, individual.entry_mode,
-        )
-        stages = individual.to_stages()
-        for entry in entries:
-            trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
-                                         strike_price=entry.price * 1.10)
-            all_rois.append(trade.total_roi_pct)
-            all_dates.append(entry.date)
+    all_rois, all_dates = _eval_trades(individual, price_series_by_symbol)
 
     if not all_rois:
         return 0.0
@@ -911,6 +931,7 @@ def evolve_leaps_parameters(
             "rank": rank,
             "key": ind.key,
             "fitness": fit,
+            "total_roi": leaps_total_roi(ind, price_series_by_symbol),
             **ind.to_params_dict(),
         }
         if rank <= 10:
