@@ -15,7 +15,8 @@ const globals = {
   console: { info() {}, warn() {}, error() {} },
   postMessage() {},
   performance: { now: () => 0 },
-  setTimeout
+  setTimeout,
+  importScripts() {},  // no-op for Node.js
 };
 globals.self = globals;
 const context = vm.createContext(globals);

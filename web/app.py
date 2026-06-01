@@ -10501,6 +10501,19 @@ def api_strategy_lab_parameter_lab_leaps_ga_evolve():
         if not price_series_by_symbol:
             return _json_error("所有标的都无数据", 400)
 
+        # Price-only mode: return raw price data for client-side GA
+        price_only = str(payload.get("price_only", "")).lower() in {"true", "1", "yes"}
+        if price_only:
+            price_data = {
+                symbol: [[d.isoformat() if hasattr(d, 'isoformat') else str(d), float(p)] for d, p in pts]
+                for symbol, pts in price_series_by_symbol.items()
+            }
+            return _json_response_with_optional_gzip({
+                "success": True,
+                "price_series_by_symbol": price_data,
+                "failed_symbols": failed_symbols,
+            })
+
         # Run evolution
         _parameter_lab_log(
             "leaps_ga_evolve_start",

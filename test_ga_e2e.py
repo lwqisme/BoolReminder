@@ -39,7 +39,8 @@ const context = {
   console: { info() {}, warn() {}, error() {} },
   postMessage(message) { messages.push(message); },
   performance: { now: () => 0 },
-  setTimeout
+  setTimeout,
+  importScripts() {},
 };
 context.self = context;
 vm.createContext(context);
@@ -144,7 +145,8 @@ const context = {
   console: { info() {}, warn() {}, error() {} },
   postMessage(msg) { messages.push(msg); },
   performance: { now: () => 0 },
-  setTimeout
+  setTimeout,
+  importScripts() {},
 };
 context.self = context;
 vm.createContext(context);
@@ -217,7 +219,8 @@ const context = {
   console: { info() {}, warn() {}, error() {} },
   postMessage(msg) { messages.push(msg); },
   performance: { now: () => 0 },
-  setTimeout
+  setTimeout,
+  importScripts() {},
 };
 context.self = context;
 vm.createContext(context);
@@ -292,7 +295,8 @@ const context = {
   console: { info() {}, warn() {}, error() {} },
   postMessage(msg) { messages.push(msg); },
   performance: { now: () => 0 },
-  setTimeout
+  setTimeout,
+  importScripts() {},
 };
 context.self = context;
 vm.createContext(context);
@@ -471,7 +475,8 @@ const workerContext = {
   console: { info() {}, warn() {}, error() {} },
   postMessage(msg) { messages.push(msg); },
   performance: { now: () => 0 },
-  setTimeout
+  setTimeout,
+  importScripts() {},
 };
 workerContext.self = workerContext;
 vm.createContext(workerContext);
