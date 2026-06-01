@@ -267,6 +267,13 @@ function enforceProfitOrder(p1, p2, ranges) {
       p2 = p1 - Math.random() * 20 - 10;
     }
   }
+  // Clamp to ranges
+  p1 = Math.max(ranges.stage1_profit[0], Math.min(ranges.stage1_profit[1], p1));
+  p2 = Math.max(ranges.stage2_profit[0], Math.min(ranges.stage2_profit[1], p2));
+  if (p1 <= p2) {
+    p1 = Math.min(ranges.stage1_profit[1], p2 + Math.random() * 10 + 5);
+    p2 = Math.max(ranges.stage2_profit[0], p1 - Math.random() * 10 - 5);
+  }
   return [p1, p2];
 }
 

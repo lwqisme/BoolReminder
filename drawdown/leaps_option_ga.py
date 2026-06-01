@@ -777,12 +777,20 @@ def _enforce_day_order(d1: int, d2: int, ranges: LeapsParamRanges | None = None)
 def _enforce_profit_order(p1: float, p2: float, ranges: LeapsParamRanges | None = None) -> tuple[float, float]:
     """Ensure stage1_profit > stage2_profit within ranges."""
     r = ranges or LeapsParamRanges()
-    s1_hi = r.stage1_profit[1]
+    s1_lo, s1_hi = r.stage1_profit
+    s2_lo, s2_hi = r.stage2_profit
     if p1 <= p2:
         p1 = p2 + random.uniform(10.0, 30.0)
         if p1 > s1_hi:
             p1 = s1_hi
             p2 = p1 - random.uniform(10.0, 30.0)
+    # Clamp to ranges
+    p1 = max(s1_lo, min(s1_hi, p1))
+    p2 = max(s2_lo, min(s2_hi, p2))
+    # Final check: must still satisfy p1 > p2
+    if p1 <= p2:
+        p1 = min(s1_hi, p2 + random.uniform(5.0, 15.0))
+        p2 = max(s2_lo, p1 - random.uniform(5.0, 15.0))
     return p1, p2
 
 
