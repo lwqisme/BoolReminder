@@ -3,49 +3,68 @@
  * Run: node test_leaps_ga_plotly_tooltip.js
  */
 
+// Simulate bollinger computation matching engine (for testing)
+function computeBollingerLower(prices, period, stdMult) {
+  // prices: [[dateStr, price], ...]
+  const result = [];
+  const window = [];
+  for (let i = 0; i < prices.length; i++) {
+    window.push(prices[i][1]);
+    if (i >= period) window.shift();
+    if (i >= period - 1) {
+      const mean = window.reduce((a, b) => a + b, 0) / window.length;
+      const variance = window.reduce((s, v) => s + (v - mean) ** 2, 0) / window.length;
+      const std = Math.sqrt(variance);
+      result.push({ date: prices[i][0], band: mean - stdMult * std });
+    } else {
+      result.push({ date: prices[i][0], band: null });
+    }
+  }
+  return result;
+}
+
 // Simulate the trace-building logic (extracted from drawLeapsTradePlotly)
-function buildTradeTraces(trades) {
+function buildTradeTraces(trades, fullPriceSeries) {
   const traces = [];
   const entryX = [], entryY = [], entryText = [];
   const sellX = [], sellY = [], sellText = [], sellSizes = [];
 
-  for (const tr of trades) {
-    const series = tr.price_series || [];
+  // ── Full price line (single continuous trace) ──
+  if (fullPriceSeries && fullPriceSeries.length) {
+    const px = fullPriceSeries.map(pt => pt[0]);
+    const py = fullPriceSeries.map(pt => pt[1]);
+    const hoverText = fullPriceSeries.map(pt => `${pt[0]}<br>价格: ${pt[1].toFixed(2)}`);
+    traces.push({
+      x: px, y: py, type: 'scatter', mode: 'lines',
+      name: 'TSLA.US 价格',
+      text: hoverText, hoverinfo: 'text',
+      line: { color: '#6b7280', width: 1.5 },
+      showlegend: true,
+    });
 
-    if (series.length) {
-      const px = series.map(pt => pt.date);
-      const py = series.map(pt => pt.price);
-      const hoverText = series.map(pt => `${pt.date}<br>价格: ${pt.price.toFixed(2)}` +
-        (pt.bollinger_lower != null ? `<br>布林下轨: ${pt.bollinger_lower.toFixed(2)}` : ''));
-      
-      traces.push({
-        x: px, y: py, type: 'scatter', mode: 'lines',
-        name: tr.symbol + ' 价格',
-        text: hoverText, hoverinfo: 'text',
-        line: { color: '#6b7280', width: 1.5 },
-        showlegend: false,
-      });
-
-      // Bollinger band with hover
-      const bbX = [], bbY = [], bbText = [];
-      for (const pt of series) {
-        if (pt.bollinger_lower != null) {
-          bbX.push(pt.date);
-          bbY.push(pt.bollinger_lower);
-          bbText.push(`${pt.date}<br>布林下轨: ${pt.bollinger_lower.toFixed(2)}`);
-        }
-      }
-      if (bbX.length) {
-        traces.push({
-          x: bbX, y: bbY, type: 'scatter', mode: 'lines',
-          name: tr.symbol + ' 布林下轨',
-          text: bbText, hoverinfo: 'text',
-          line: { color: '#3b82f6', width: 1, dash: 'dash' },
-          showlegend: false,
-        });
+    // Full bollinger lower band (solid, not dashed)
+    const bb = computeBollingerLower(fullPriceSeries, 22, 2.0);
+    const bbX = [], bbY = [], bbText = [];
+    for (const b of bb) {
+      if (b.band != null) {
+        bbX.push(b.date);
+        bbY.push(b.band);
+        bbText.push(`${b.date}<br>布林下轨: ${b.band.toFixed(2)}`);
       }
     }
+    if (bbX.length) {
+      traces.push({
+        x: bbX, y: bbY, type: 'scatter', mode: 'lines',
+        name: '布林下轨',
+        text: bbText, hoverinfo: 'text',
+        line: { color: '#3b82f6', width: 1.5 },
+        showlegend: true,
+      });
+    }
+  }
 
+  // ── Entry/sell markers from trades ──
+  for (const tr of trades) {
     entryX.push(tr.entry_date);
     entryY.push(tr.entry_price);
     entryText.push(tr.entry_date + '<br>' + tr.symbol + ' 买入<br>回撤: ' + tr.drawdown_pct.toFixed(1) + '%<br>价格: ' + tr.entry_price.toFixed(2));
@@ -79,8 +98,19 @@ function buildTradeTraces(trades) {
 let passed = 0, failed = 0;
 function assert(cond, msg) { if (cond) passed++; else { failed++; console.error('FAIL:', msg); } }
 
+const sampleFullPriceSeries = [
+  ['2024-01-15', 180], ['2024-02-01', 175], ['2024-02-15', 165],
+  ['2024-03-01', 155], ['2024-03-15', 150], ['2024-04-01', 170],
+  ['2024-04-15', 185], ['2024-05-01', 200], ['2024-05-15', 210],
+  ['2024-06-01', 220], ['2024-06-15', 230], ['2024-07-01', 250],
+  ['2024-07-15', 240], ['2024-08-01', 235], ['2024-08-15', 245],
+  ['2024-09-01', 255], ['2024-09-15', 260], ['2024-10-01', 250],
+  ['2024-10-15', 245], ['2024-11-01', 265], ['2024-11-15', 280],
+  ['2024-12-01', 290], ['2024-12-15', 300],
+];
+
 const sampleTrades = [{
-  symbol: 'AAPL',
+  symbol: 'TSLA.US',
   entry_date: '2024-03-15', entry_price: 150, drawdown_pct: 22,
   price_series: [
     { date: '2024-01-15', price: 180, bollinger_lower: 175 },
@@ -92,25 +122,41 @@ const sampleTrades = [{
     { date: '2024-05-01', price: 200, pct_sold: 50, roi_pct: 80 },
     { date: '2024-07-01', price: 250, pct_sold: 50, roi_pct: 120 },
   ],
+}, {
+  symbol: 'TSLA.US',
+  entry_date: '2024-11-01', entry_price: 265, drawdown_pct: 15,
+  price_series: [
+    { date: '2024-09-01', price: 255, bollinger_lower: 250 },
+    { date: '2024-11-01', price: 265, bollinger_lower: 260 },
+    { date: '2024-12-15', price: 300, bollinger_lower: 270 },
+  ],
+  sell_events: [
+    { date: '2024-12-15', price: 300, pct_sold: 100, roi_pct: 50 },
+  ],
 }];
 
-const traces = buildTradeTraces(sampleTrades);
+const traces = buildTradeTraces(sampleTrades, sampleFullPriceSeries);
 
-// Test 1: Price line trace has hover text for every point
-const priceTrace = traces.find(t => t.name && t.name.includes('价格'));
-assert(priceTrace != null, 'Price line trace exists');
+// Test 1: Single continuous price line (not per-trade slices)
+const priceTraces = traces.filter(t => t.name && t.name.includes('价格'));
+assert(priceTraces.length === 1, 'Exactly one price trace (full continuous line)');
+const priceTrace = priceTraces[0];
+assert(priceTrace.x.length === sampleFullPriceSeries.length, 'Price line covers all data points');
 assert(priceTrace.text.length === priceTrace.x.length, 'Price hover text matches point count');
 assert(priceTrace.hoverinfo === 'text', 'Price trace uses text hoverinfo');
-// Check first hover text contains date and price
 assert(priceTrace.text[0].includes('2024-01-15'), 'Hover text contains date');
 assert(priceTrace.text[0].includes('180.00'), 'Hover text contains price');
-assert(priceTrace.text[0].includes('布林下轨'), 'Hover text contains bollinger when available');
 
-// Test 2: Bollinger trace has hover text
-const bbTrace = traces.find(t => t.name && t.name.includes('布林'));
-assert(bbTrace != null, 'Bollinger trace exists');
+// Test 2: Single bollinger trace, solid line (NOT dashed)
+const bbTraces = traces.filter(t => t.name && t.name.includes('布林'));
+assert(bbTraces.length === 1, 'Exactly one bollinger trace');
+const bbTrace = bbTraces[0];
+assert(!bbTrace.line.dash, 'Bollinger line is solid (no dash property)');
+assert(bbTrace.line.width === 1.5, 'Bollinger line width matches price line');
 assert(bbTrace.text.length === bbTrace.x.length, 'BB hover text matches point count');
 assert(bbTrace.hoverinfo === 'text', 'BB trace uses text hoverinfo');
+// First 21 points (period-1) should have no band, so BB starts at index 21
+assert(bbTrace.x[0] === '2024-12-01', 'Bollinger starts at index 21 (22-1 warmup)');
 
 // Test 3: Entry markers have hover text
 const entryTrace = traces.find(t => t.name === '买入点');
