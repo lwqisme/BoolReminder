@@ -1895,6 +1895,9 @@
                         </div>
                     </details>
                     <div style="margin-top:10px;display:flex;gap:8px;align-items:center;">
+                        <span style="font-size:12px;color:var(--muted);">引擎:</span>
+                        <label style="font-size:12px;"><input type="radio" name="leapsGaEngine" value="worker" checked onchange="saveLeapsGaEngine()"> Worker</label>
+                        <label style="font-size:12px;"><input type="radio" name="leapsGaEngine" value="python" onchange="saveLeapsGaEngine()"> Python</label>
                         <button id="leapsGaRunBtn" onclick="runLeapsGa()" class="primary">🚀 开始进化</button>
                         <span id="leapsGaStatus" style="color:var(--muted);font-size:13px;"></span>
                         <span id="leapsGaTimer" style="color:var(--muted);font-size:12px;font-family:var(--mono);"></span>
@@ -8385,6 +8388,19 @@
         var leapsGaTimerStart = 0;
         var leapsGaTimerInterval = null;
 
+        function saveLeapsGaEngine() {
+            var val = document.querySelector('input[name="leapsGaEngine"]:checked').value;
+            try { localStorage.setItem('leapsGaEngine', val); } catch(e) {}
+        }
+        // Restore on load
+        (function() {
+            var saved = localStorage.getItem('leapsGaEngine');
+            if (saved) {
+                var el = document.querySelector('input[name="leapsGaEngine"][value="' + saved + '"]');
+                if (el) el.checked = true;
+            }
+        })();
+
         function updateLeapsGaTimer() {
             var elapsed = Math.round((Date.now() - leapsGaTimerStart) / 100) / 10;
             document.getElementById('leapsGaTimer').textContent = elapsed + 's';
@@ -8442,7 +8458,9 @@
             }, 100);
 
             try {
-                // Step 1: Fetch price data from server (no GA computation)
+                var useWorker = document.querySelector('input[name="leapsGaEngine"]:checked').value === 'worker';
+
+                if (useWorker) {
                 statusEl.textContent = '获取价格数据...';
                 var resp = await fetch('/api/strategy-lab/parameter-lab/leaps-ga-evolve', {
                     method: 'POST',
@@ -8497,6 +8515,33 @@
                         paramRanges: Object.keys(paramRanges).length ? paramRanges : undefined,
                     },
                 });
+
+                } else {
+                    // Python backend mode
+                    statusEl.textContent = '服务端计算中...';
+                    var resp2 = await fetch('/api/strategy-lab/parameter-lab/leaps-ga-evolve', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            run_id: 'leaps-ga-py-' + Date.now(),
+                            symbols: symbols,
+                            start: document.getElementById('leapsGaStart').value,
+                            end: document.getElementById('leapsGaEnd').value,
+                            population_size: config.population_size,
+                            generations: config.generations,
+                            mutation_rate: config.mutation_rate,
+                            crossover_rate: config.crossover_rate,
+                            seed: config.seed,
+                            param_ranges: Object.keys(paramRanges).length ? paramRanges : undefined,
+                        }),
+                    });
+                    var data2 = await resp2.json();
+                    if (!data2.success) throw new Error(data2.message || '服务端错误');
+                    clearInterval(leapsGaTimerInterval);
+                    renderLeapsGaResults(data2.result);
+                    statusEl.textContent = '✅ 完成 (Python)';
+                    btn.disabled = false; btn.textContent = '🚀 开始进化'; leapsGaRunning = false;
+                }
 
             } catch (e) {
                 clearInterval(leapsGaTimerInterval);
