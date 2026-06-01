@@ -1,5 +1,15 @@
 # Agent Development Notes
 
+## Skills
+
+Before starting any task, always read the full SKILL.md of this skill:
+
+- Caveman: `/home/ubuntu/.pi/agent/skills/caveman/SKILL.md` — ultra-compressed communication mode (~75% fewer tokens)
+
+Use the `read` tool to load it at the beginning of each conversation.
+
+---
+
 This project values convergent, reuse-first development.
 
 - Prefer reusing existing modules, helpers, workers, routes, templates, styles, and tests before adding new paths.
