@@ -8512,7 +8512,7 @@
                 ctx.fillText('平均适应度', pad + 130, 12);
             }
 
-            // Best params
+            // Best params with trade stats
             var best = result.best || {};
             var bestDiv = document.getElementById('leapsGaBest');
             var labelMap = {
@@ -8525,10 +8525,31 @@
                 rows += '<tr><td style="font-weight:600;padding:2px 12px 2px 0;">' + labelMap[key] +
                     '</td><td style="font-family:var(--mono);">' + (best[key] != null ? best[key] : '-') + '</td></tr>';
             }
+
+            // Trade stats from best's trade_details
+            var tradeStats = '';
+            if (best.trade_details && best.trade_details.length) {
+                var totalROI = 0, tDates = [];
+                for (var t = 0; t < best.trade_details.length; t++) {
+                    totalROI += best.trade_details[t].total_roi_pct;
+                    tDates.push(best.trade_details[t].entry_date);
+                }
+                tDates.sort();
+                var years = Math.max((new Date(tDates[tDates.length-1]) - new Date(tDates[0])) / (365*86400000), 0.5);
+                var tpy = best.trade_details.length / years;
+                var density = Math.min(tpy / 3, 2.0);
+                tradeStats = '<div style="margin-top:4px;font-size:11px;color:var(--muted);">' +
+                    '总交易: ' + best.trade_details.length + '笔 | ' +
+                    '跨时: ' + years.toFixed(1) + '年 | ' +
+                    '年化笔数: ' + tpy.toFixed(1) + '笔/年 | ' +
+                    '密度加成: ×' + density.toFixed(2) +
+                    '<br>公式: <b>年化总收益 × min(年化笔数/3, 2.0)</b></div>';
+            }
+
             bestDiv.innerHTML = '<h3 style="margin:0 0 8px;font-size:13px;">🏆 最优参数 (适应度: ' +
                 (best.fitness != null ? best.fitness.toFixed(2) : '-') +
                 ', 评估: ' + (result.total_evaluated || 0) + '次)</h3>' +
-                '<table style="font-size:12px;">' + rows + '</table>';
+                '<table style="font-size:12px;">' + rows + '</table>' + tradeStats;
 
             // Population table
             var pop = result.final_population || [];
