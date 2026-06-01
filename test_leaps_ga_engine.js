@@ -203,6 +203,52 @@ function testFitness() {
   assertGreater(fit, 0, 'Positive trades -> positive fitness');
 }
 
+// ── Performance regression test ───────────────────────────────────────────
+
+function testPerformance() {
+  // 30 pop, 10 gens should complete in < 3 seconds
+  const vals = [...Array(122).fill(100), ...Array(100).fill(95), 90, 85, 80, 78, 85, 90, 100, 110, ...Array(200).fill(120)];
+  const prices = [];
+  const d = new Date('2024-01-01');
+  for (let i = 0; i < vals.length; i++) {
+    const date = new Date(d);
+    date.setDate(date.getDate() + i);
+    prices.push([date.toISOString().slice(0, 10), vals[i]]);
+  }
+  const priceData = { TEST: prices };
+
+  const ranges = leaps.DEFAULT_RANGES;
+  const popSize = 20;
+  const generations = 5;
+  const seenKeys = new Set();
+  const population = [];
+  while (population.length < popSize) {
+    const ind = leaps.randomIndividual(ranges);
+    if (!seenKeys.has(ind.key)) { seenKeys.add(ind.key); population.push(ind); }
+  }
+
+  const start = Date.now();
+  let fitnesses = population.map(ind => leaps.leapsFitnessFn(ind, priceData));
+  for (let gen = 0; gen < generations; gen++) {
+    const ranked = population.map((ind, i) => [ind, fitnesses[i]]).sort((a, b) => b[1] - a[1]);
+    const elites = ranked.slice(0, 3).map(r => r[0]);
+    const nextPop = [...elites];
+    while (nextPop.length < popSize) {
+      const p1 = leaps.tournamentsSelect(population, fitnesses, 4);
+      const p2 = leaps.tournamentsSelect(population, fitnesses, 4);
+      let child = Math.random() < 0.8 ? leaps.leapsCrossover(p1, p2, ranges) : p1;
+      child = leaps.leapsMutate(child, 0.15, ranges);
+      nextPop.push(child);
+    }
+    population.length = 0;
+    for (const ind of nextPop.slice(0, popSize)) population.push(ind);
+    fitnesses = population.map(ind => leaps.leapsFitnessFn(ind, priceData));
+  }
+  const elapsed = Date.now() - start;
+  assertLess(elapsed, 8000, `Pop ${popSize} × Gen ${generations} should finish in <8s`);
+  console.log(`  Performance: ${popSize}×${generations} = ${elapsed}ms`);
+}
+
 // ── Run all ───────────────────────────────────────────────────────────────
 
 testDelta();
@@ -215,6 +261,7 @@ testIndividualKey();
 testCrossover();
 testMutation();
 testFitness();
+testPerformance();
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

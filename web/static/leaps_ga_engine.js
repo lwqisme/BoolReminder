@@ -358,13 +358,11 @@ function leapsFitnessFn(individual, priceSeriesBySymbol) {
 // ── Evolution ─────────────────────────────────────────────────────────────
 
 function tournamentSelect(population, fitnesses, tournamentSize) {
-  const indices = [];
-  while (indices.length < Math.min(tournamentSize, population.length)) {
-    const idx = Math.floor(Math.random() * population.length);
-    if (!indices.includes(idx)) indices.push(idx);
-  }
-  let bestIdx = indices[0];
-  for (const idx of indices) {
+  const n = population.length;
+  const k = Math.min(tournamentSize, n);
+  let bestIdx = Math.floor(Math.random() * n);
+  for (let i = 1; i < k; i++) {
+    const idx = Math.floor(Math.random() * n);
     if (fitnesses[idx] > fitnesses[bestIdx]) bestIdx = idx;
   }
   return population[bestIdx];
