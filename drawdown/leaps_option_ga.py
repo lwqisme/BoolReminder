@@ -663,14 +663,19 @@ def leaps_fitness_fn(
     individual: LeapsIndividual,
     price_series_by_symbol: dict[str, list[tuple[date, float]]],
 ) -> float:
-    """Evaluate fitness: D-weighted ROI percentiles.
+    """Evaluate fitness: annualized total ROI × trade density bonus.
 
-    Fitness = 0.5 * median_roi + 0.3 * p25_roi + 0.2 * p75_roi
+    Fitness = (total_sum_roi / years) × min(trades_per_year / 3.0, 2.0)
+
+    Penalizes single-lucky-trade strategies. Rewards consistent,
+    frequent trading with high cumulative return.
 
     For each symbol's price series: detect entries, simulate trades,
-    collect all ROIs, compute weighted percentile score.
+    collect all ROIs and dates, compute annualized total return
+    scaled by trade frequency.
     """
     all_rois: list[float] = []
+    all_dates: list[date] = []
 
     for symbol, prices in price_series_by_symbol.items():
         entries = detect_leaps_entries(
@@ -681,26 +686,24 @@ def leaps_fitness_fn(
             trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
                                          strike_price=entry.price * 1.10)
             all_rois.append(trade.total_roi_pct)
+            all_dates.append(entry.date)
 
     if not all_rois:
         return 0.0
 
-    sorted_rois = sorted(all_rois)
-    n = len(sorted_rois)
+    total_roi = sum(all_rois)
+    num_trades = len(all_rois)
 
-    def percentile(pct: float) -> float:
-        k = (n - 1) * pct / 100.0
-        f = math.floor(k)
-        c = math.ceil(k)
-        if f == c:
-            return sorted_rois[int(k)]
-        return sorted_rois[int(f)] * (c - k) + sorted_rois[int(c)] * (k - f)
+    # Time span
+    min_date = min(all_dates)
+    max_date = max(all_dates)
+    years = max((max_date - min_date).days / 365.0, 0.5)
 
-    median = percentile(50.0)
-    p25 = percentile(25.0)
-    p75 = percentile(75.0)
+    trades_per_year = num_trades / years
+    density_bonus = min(trades_per_year / 3.0, 2.0)
 
-    return 0.5 * median + 0.3 * p25 + 0.2 * p75
+    annualized_roi = total_roi / years
+    return annualized_roi * density_bonus
 
 
 def _collect_trade_details(

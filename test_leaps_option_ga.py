@@ -419,32 +419,37 @@ class LeapsGATest(unittest.TestCase):
         self.assertLess(mutant.stage1_days, mutant.stage2_days)
         self.assertGreater(mutant.stage1_profit, mutant.stage2_profit)
 
-    def test_fitness_d_weighted_formula(self):
-        """Fitness = 0.5*median + 0.3*p25 + 0.2*p75."""
-        # Mock prices and individual
+    def test_zero_trades_gives_zero_fitness(self):
+        """No trades → fitness = 0."""
         ind = self._make_individual()
-        # All zero returns → fitness = 0
-        prices = {date(2025, 1, 1): [(date(2025, 1, 1), 100.0)] * 200}
-        # Empty price data → trades return 0, all ROI = 0
         fitness = leaps_fitness_fn(ind, {})
         self.assertEqual(fitness, 0.0)
 
-    def test_fitness_positive_returns_give_positive(self):
-        """Positive ROI trades yield positive fitness."""
+    def test_more_trades_beats_single_trade_same_total_roi(self):
+        """Similar total ROI but more trades → higher fitness (density bonus)."""
         ind = self._make_individual(
-            drawdown_threshold_pct=15.0, entry_mode="touch",
-            stage1_days=5, stage1_profit=10.0, stage1_sell=100.0,
+            drawdown_threshold_pct=12.0, entry_mode="touch",
+            stage1_days=3, stage1_profit=5.0, stage1_sell=100.0,
             stage2_days=60, stage2_profit=60.0, stage2_sell=100.0,
         )
-        # Create price data that goes up after touch entry
-        values = [100.0] * 122 + [95.0, 90.0, 87.0, 85.0, 83.0, 80.0, 78.0]
-        values += [85.0, 90.0, 95.0, 100.0, 110.0, 120.0]  # recovery
-        values += [120.0] * 200
-        prices_list = [(date(2025, 1, 1) + timedelta(days=i), v) for i, v in enumerate(values)]
-        price_data = {"TEST": prices_list}
+        # 1 trade: single deep V, total ROI ~high
+        values1 = [100.0] * 122 + [93.0, 88.0, 84.0, 80.0, 78.0]
+        values1 += [85.0, 95.0, 105.0, 115.0]
+        values1 += [115.0] * 200
+        prices1 = [(date(2024, 1, 1) + timedelta(days=i), v) for i, v in enumerate(values1)]
 
-        fitness = leaps_fitness_fn(ind, price_data)
-        self.assertGreater(fitness, 0.0)
+        # 3 trades: three shallow Vs, total ROI similar but spread over more trades
+        values3 = [100.0] * 122
+        for _ in range(3):
+            values3 += [94.0, 89.0, 85.0, 82.0, 88.0, 94.0, 100.0, 105.0]
+            values3 += [105.0] * 20
+        values3 += [105.0] * 50
+        prices3 = [(date(2024, 1, 1) + timedelta(days=i), v) for i, v in enumerate(values3)]
+
+        fit1 = leaps_fitness_fn(ind, {"A": prices1})
+        fit3 = leaps_fitness_fn(ind, {"B": prices3})
+        self.assertGreater(fit3, fit1,
+            f"3-trade fitness ({fit3:.1f}) should beat 1-trade ({fit1:.1f})")
 
 
 class LeapsFullEvolutionTest(unittest.TestCase):
