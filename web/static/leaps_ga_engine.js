@@ -204,10 +204,20 @@ function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePr
 
   // Force-sell if expired without triggering
   let expired = remainingPct > 0;
-  if (expired && pricePoints.length) {
-    const lastPt = pricePoints[pricePoints.length - 1];
-    const roi = proxyOptionRoi(entry.price, lastPt.price, entryTs, cutoffTs, expTs, strikePrice, r, sigma);
-    sellEvents.push({ date: new Date(cutoffTs).toISOString().slice(0, 10), price: lastPt.price, pct_sold: remainingPct, roi_pct: Math.round(roi * 100) / 100 });
+  if (expired) {
+    // Find price at or nearest to cutoff date
+    let cutoffPrice = entry.price;
+    let cutoffDate = new Date(cutoffTs).toISOString().slice(0, 10);
+    for (const pt of pricePoints) {
+      if (pt.ts <= cutoffTs) {
+        cutoffPrice = pt.price;
+        cutoffDate = pt.date;
+      } else {
+        break;
+      }
+    }
+    const roi = proxyOptionRoi(entry.price, cutoffPrice, entryTs, cutoffTs, expTs, strikePrice, r, sigma);
+    sellEvents.push({ date: cutoffDate, price: cutoffPrice, pct_sold: remainingPct, roi_pct: Math.round(roi * 100) / 100 });
   }
 
   let totalRoi = 0;
