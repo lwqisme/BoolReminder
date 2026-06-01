@@ -1748,6 +1748,12 @@ async function handleLeapsGa(message) {
 
   const ranges = leapsGaEngine.mergeRanges(paramRanges);
 
+  // Pre-parse dates once: [dateStr, price] -> [ts, price, dateStr]
+  const parsed = {};
+  for (const [sym, pts] of Object.entries(priceSeriesBySymbol)) {
+    parsed[sym] = pts.map(([d, p]) => [new Date(d).getTime(), p, d]);
+  }
+
   // Use native Math.random (seeded PRNG is unreliable cross-browser)
   // Seed is stored in config for reproducibility metadata only
 
@@ -1759,7 +1765,7 @@ async function handleLeapsGa(message) {
   }
 
   const fit0Start = performance.now();
-  let fitnesses = population.map(ind => leapsGaEngine.leapsFitnessFn(ind, priceSeriesBySymbol));
+  let fitnesses = population.map(ind => leapsGaEngine.leapsFitnessFn(ind, parsed));
   console.log('[leaps-ga] init_pop:', population.length, 'first_fitness:', Math.round(performance.now() - fit0Start) + 'ms');
   const snapshots = [];
   let bestIndividual = population[0];
@@ -1813,7 +1819,7 @@ async function handleLeapsGa(message) {
     const breedMs = Math.round(performance.now() - breedStart);
 
     const fitStart = performance.now();
-    fitnesses = population.map(ind => leapsGaEngine.leapsFitnessFn(ind, priceSeriesBySymbol));
+    fitnesses = population.map(ind => leapsGaEngine.leapsFitnessFn(ind, parsed));
     const fitMs = Math.round(performance.now() - fitStart);
     console.log('[leaps-ga] gen', gen + 1, 'breed:', breedMs + 'ms', 'fit:', fitMs + 'ms', 'best:', genBest.toFixed(1));
   }
@@ -1827,7 +1833,7 @@ async function handleLeapsGa(message) {
       drawdown_threshold_pct: ind.drawdown_threshold_pct, entry_mode: ind.entry_mode,
       stage1_days: ind.stage1_days, stage1_profit: ind.stage1_profit, stage1_sell: ind.stage1_sell,
       stage2_days: ind.stage2_days, stage2_profit: ind.stage2_profit, stage2_sell: ind.stage2_sell,
-      trade_details: rank < 10 ? collectLeapsTradeDetails(ind, priceSeriesBySymbol) : undefined,
+      trade_details: rank < 10 ? collectLeapsTradeDetails(ind, parsed) : undefined,
     });
   }
 
@@ -1838,9 +1844,10 @@ async function handleLeapsGa(message) {
   });
 }
 
-function collectLeapsTradeDetails(individual, priceSeriesBySymbol) {
+function collectLeapsTradeDetails(individual, parsedPriceData) {
   const trades = [];
-  for (const [symbol, prices] of Object.entries(priceSeriesBySymbol)) {
+  for (const [symbol, prices] of Object.entries(parsedPriceData)) {
+    // prices is [ts, price, dateStr]
     const bbFull = leapsGaEngine.bollingerLowerBand(prices, 22, 2.0);
     const bbByDate = {};
     for (const b of bbFull) bbByDate[b.date] = b.band;
@@ -1851,9 +1858,10 @@ function collectLeapsTradeDetails(individual, priceSeriesBySymbol) {
       const allDates = [entry.date, ...trade.sell_events.map(se => se.date)].sort();
       const ss = new Date(allDates[0]); ss.setDate(ss.getDate() - 60);
       const se = new Date(allDates[allDates.length - 1]); se.setDate(se.getDate() + 30);
+      const ssTs = ss.getTime(), seTs = se.getTime();
       const ps = [];
-      for (const [d, p] of prices) {
-        if (d >= ss.toISOString().slice(0,10) && d <= se.toISOString().slice(0,10)) {
+      for (const [ts, p, d] of prices) {
+        if (ts >= ssTs && ts <= seTs) {
           const pt = { date: d, price: p };
           if (bbByDate[d] != null) pt.bollinger_lower = bbByDate[d];
           ps.push(pt);

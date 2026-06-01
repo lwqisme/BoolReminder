@@ -64,21 +64,23 @@ function proxyOptionRoi(entryPrice, exitPrice, entryDate, exitDate, expiration, 
 // ── Technical indicators ──────────────────────────────────────────────────
 
 function rolling120dHigh(prices) {
+  // prices: [timestamp, price, dateString]
   const result = [];
   const window = [];
   for (let i = 0; i < prices.length; i++) {
     window.push(prices[i][1]);
     if (i >= 120) window.shift();
     if (i >= 119) {
-      result.push([prices[i][0], Math.max(...window)]);
+      result.push([prices[i][2], Math.max(...window)]);
     } else {
-      result.push([prices[i][0], null]);
+      result.push([prices[i][2], null]);
     }
   }
   return result;
 }
 
 function bollingerLowerBand(prices, period = 22, stdMult = 2.0) {
+  // prices: [timestamp, price, dateString]
   const result = [];
   const window = [];
   for (let i = 0; i < prices.length; i++) {
@@ -88,9 +90,9 @@ function bollingerLowerBand(prices, period = 22, stdMult = 2.0) {
       const mean = window.reduce((a, b) => a + b, 0) / window.length;
       const variance = window.reduce((s, v) => s + (v - mean) ** 2, 0) / window.length;
       const std = Math.sqrt(variance);
-      result.push({ date: prices[i][0], ma: mean, band: mean - stdMult * std });
+      result.push({ date: prices[i][2], ma: mean, band: mean - stdMult * std });
     } else {
-      result.push({ date: prices[i][0], ma: null, band: null });
+      result.push({ date: prices[i][2], ma: null, band: null });
     }
   }
   return result;
@@ -106,7 +108,7 @@ function detectLeapsEntries(prices, drawdownThresholdPct = 20, entryMode = 'both
   const entries = [];
 
   for (let i = 121; i < prices.length; i++) {
-    const [d, p] = prices[i];
+    const [ts, p, d] = prices[i];
     const high = highs[i][1];
     const { ma, band } = bbData[i];
     if (high == null || ma == null || band == null || high <= 0 || ma <= 0) continue;
@@ -153,13 +155,13 @@ function detectLeapsEntries(prices, drawdownThresholdPct = 20, entryMode = 'both
 function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePrice = null, r = 0.05, sigma = 0.40) {
   if (strikePrice == null) strikePrice = entry.price * 1.1;
 
-  // Use timestamps for fast date comparison
+  // Use timestamps for fast date comparison (prices are [ts, price, dateStr])
   const entryTs = new Date(entry.date).getTime();
   const expTs = entryTs + expirationDays * 86400000;
   const cutoffTs = expTs - 60 * 86400000;
 
-  // Build price points with timestamps
-  const pricePoints = prices.map(([d, p]) => ({ ts: new Date(d).getTime(), date: d, price: p }));
+  // Build price points with timestamps (already pre-parsed: [ts, price, dateStr])
+  const pricePoints = prices.map(([ts, p, d]) => ({ ts, date: d, price: p }));
 
   const effectiveStages = [...stages];
   while (effectiveStages.length < 3) effectiveStages.push([9999, 0, 100]);
@@ -333,7 +335,9 @@ function leapsFitnessFn(individual, priceSeriesBySymbol) {
   const allRois = [];
   const allDates = [];
 
-  for (const [symbol, prices] of Object.entries(priceSeriesBySymbol)) {
+  for (const [symbol, rawPrices] of Object.entries(priceSeriesBySymbol)) {
+    // Pre-parse dates ONCE per symbol per fitness eval
+    const prices = rawPrices.map(([d, p]) => [new Date(d).getTime(), p, d]);
     const entries = detectLeapsEntries(prices, individual.drawdown_threshold_pct, individual.entry_mode);
     const stages = individual.toStages();
     for (const entry of entries) {

@@ -58,7 +58,8 @@ function makePrices(values, startDate) {
   return values.map((v, i) => {
     const date = new Date(d);
     date.setDate(date.getDate() + i);
-    return [date.toISOString().slice(0, 10), v];
+    const ds = date.toISOString().slice(0, 10);
+    return [date.getTime(), v, ds];
   });
 }
 
@@ -211,9 +212,8 @@ function testPerformance() {
   const prices = [];
   const d = new Date('2024-01-01');
   for (let i = 0; i < vals.length; i++) {
-    const date = new Date(d);
-    date.setDate(date.getDate() + i);
-    prices.push([date.toISOString().slice(0, 10), vals[i]]);
+    const date = new Date(d); date.setDate(date.getDate() + i);
+    prices.push([date.getTime(), vals[i], date.toISOString().slice(0, 10)]);
   }
   const priceData = { TEST: prices };
 
