@@ -1544,6 +1544,51 @@
             </div>
 
             <div class="panel">
+                <div class="panel-head"><h2>🧬 LEAPS GA 进化</h2></div>
+                <div class="panel-body">
+                    <div class="field-grid">
+                        <label>标的 (逗号分隔)
+                            <input id="leapsGaSymbols" value="AAPL.US" style="width:200px;">
+                        </label>
+                        <label>开始日期
+                            <input id="leapsGaStart" type="date" value="2024-01-01">
+                        </label>
+                        <label>结束日期
+                            <input id="leapsGaEnd" type="date" value="2025-06-01">
+                        </label>
+                        <label>种群大小
+                            <input id="leapsGaPopSize" type="number" min="5" max="200" step="5" value="30">
+                        </label>
+                        <label>进化代数
+                            <input id="leapsGaGenerations" type="number" min="3" max="100" step="1" value="15">
+                        </label>
+                        <label>变异率
+                            <input id="leapsGaMutationRate" type="number" min="0.01" max="0.5" step="0.01" value="0.15">
+                        </label>
+                        <label>交叉率
+                            <input id="leapsGaCrossoverRate" type="number" min="0.5" max="1.0" step="0.01" value="0.80">
+                        </label>
+                        <label>随机种子 (空=随机)
+                            <input id="leapsGaSeed" type="number" step="1" placeholder="空=随机" style="width:100px;">
+                        </label>
+                    </div>
+                    <div style="margin-top:10px;display:flex;gap:8px;align-items:center;">
+                        <button id="leapsGaRunBtn" onclick="runLeapsGa()">🚀 开始进化</button>
+                        <span id="leapsGaStatus" style="color:var(--muted);font-size:13px;"></span>
+                        <span id="leapsGaTimer" style="color:var(--muted);font-size:12px;font-family:var(--mono);"></span>
+                    </div>
+                </div>
+                <div id="leapsGaResults" style="display:none;">
+                    <div style="padding:12px;border-top:1px solid var(--border);">
+                        <h3 style="margin:0 0 8px;font-size:13px;">📈 适应度曲线</h3>
+                        <canvas id="leapsGaChart" width="600" height="150" style="width:100%;max-width:600px;"></canvas>
+                    </div>
+                    <div id="leapsGaBest" style="padding:12px;border-top:1px solid var(--border);"></div>
+                    <div id="leapsGaPopulation" style="padding:12px;border-top:1px solid var(--border);"></div>
+                </div>
+            </div>
+
+            <div class="panel">
                 <div class="panel-head"><h2>当前组合</h2></div>
                 <div class="panel-body">
                     <label>当前组合
@@ -8277,6 +8322,193 @@
         window.addSignalBinding = addSignalBinding;
 
         // ── End Signal Config ────────────────────────────────────────
+
+        // ── LEAPS GA ─────────────────────────────────────────────
+        var leapsGaRunning = false;
+        var leapsGaTimerStart = 0;
+        var leapsGaTimerInterval = null;
+
+        function updateLeapsGaTimer() {
+            var elapsed = Math.round((Date.now() - leapsGaTimerStart) / 100) / 10;
+            document.getElementById('leapsGaTimer').textContent = elapsed + 's';
+        }
+
+        window.runLeapsGa = async function() {
+            if (leapsGaRunning) return;
+            leapsGaRunning = true;
+            var btn = document.getElementById('leapsGaRunBtn');
+            var statusEl = document.getElementById('leapsGaStatus');
+            var resultsDiv = document.getElementById('leapsGaResults');
+
+            btn.disabled = true;
+            btn.textContent = '⏳ 进化中...';
+            statusEl.textContent = '';
+            resultsDiv.style.display = 'none';
+
+            var symbolsStr = document.getElementById('leapsGaSymbols').value.trim();
+            var symbols = symbolsStr.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+            if (!symbols.length) {
+                statusEl.textContent = '请输入标的';
+                btn.disabled = false;
+                btn.textContent = '🚀 开始进化';
+                leapsGaRunning = false;
+                return;
+            }
+
+            var seedVal = document.getElementById('leapsGaSeed').value.trim();
+            var payload = {
+                run_id: 'leaps-ga-' + Date.now(),
+                symbols: symbols,
+                start: document.getElementById('leapsGaStart').value,
+                end: document.getElementById('leapsGaEnd').value,
+                population_size: parseInt(document.getElementById('leapsGaPopSize').value) || 30,
+                generations: parseInt(document.getElementById('leapsGaGenerations').value) || 15,
+                mutation_rate: parseFloat(document.getElementById('leapsGaMutationRate').value) || 0.15,
+                crossover_rate: parseFloat(document.getElementById('leapsGaCrossoverRate').value) || 0.80,
+                seed: seedVal ? parseInt(seedVal) : null,
+            };
+
+            leapsGaTimerStart = Date.now();
+            leapsGaTimerInterval = setInterval(updateLeapsGaTimer, 100);
+            statusEl.textContent = '获取价格数据并进化中...';
+
+            try {
+                var resp = await fetch('/api/strategy-lab/parameter-lab/leaps-ga-evolve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                var data = await resp.json();
+                clearInterval(leapsGaTimerInterval);
+
+                if (!data.success) {
+                    statusEl.textContent = '错误: ' + (data.message || '未知错误');
+                    btn.disabled = false;
+                    btn.textContent = '🚀 开始进化';
+                    leapsGaRunning = false;
+                    return;
+                }
+
+                renderLeapsGaResults(data.result, data.elapsed_ms);
+                statusEl.textContent = '✅ 完成';
+            } catch (e) {
+                clearInterval(leapsGaTimerInterval);
+                statusEl.textContent = '网络错误: ' + e.message;
+            }
+
+            btn.disabled = false;
+            btn.textContent = '🚀 开始进化';
+            leapsGaRunning = false;
+        };
+
+        function renderLeapsGaResults(result, elapsedMs) {
+            var resultsDiv = document.getElementById('leapsGaResults');
+            resultsDiv.style.display = 'block';
+
+            // Chart
+            var snapshots = result.snapshots || [];
+            var canvas = document.getElementById('leapsGaChart');
+            if (canvas && snapshots.length) {
+                var ctx = canvas.getContext('2d');
+                var w = canvas.width, h = canvas.height;
+                ctx.clearRect(0, 0, w, h);
+
+                var gens = snapshots.map(function(s) { return s.generation; });
+                var bests = snapshots.map(function(s) { return s.best_fitness; });
+                var avgs = snapshots.map(function(s) { return s.avg_fitness; });
+
+                var allVals = bests.concat(avgs);
+                var minVal = Math.min.apply(null, allVals);
+                var maxVal = Math.max.apply(null, allVals);
+                var range = Math.max(maxVal - minVal, 0.1);
+                var pad = 20;
+
+                function x(g) { return pad + (g - 1) / (gens.length - 1) * (w - pad * 2); }
+                function y(v) { return h - pad - (v - minVal) / range * (h - pad * 2); }
+
+                // Grid
+                ctx.strokeStyle = '#e5e7eb';
+                ctx.lineWidth = 0.5;
+                for (var i = 0; i <= 5; i++) {
+                    var gy = pad + i * (h - pad * 2) / 5;
+                    ctx.beginPath(); ctx.moveTo(pad, gy); ctx.lineTo(w - pad, gy); ctx.stroke();
+                }
+
+                // Best line
+                ctx.strokeStyle = '#059669';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                for (var j = 0; j < gens.length; j++) {
+                    var px = x(gens[j]), py = y(bests[j]);
+                    j === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+                }
+                ctx.stroke();
+
+                // Avg line (dashed)
+                ctx.strokeStyle = '#9ca3af';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([4, 3]);
+                ctx.beginPath();
+                for (var k = 0; k < gens.length; k++) {
+                    var ax = x(gens[k]), ay = y(avgs[k]);
+                    k === 0 ? ctx.moveTo(ax, ay) : ctx.lineTo(ax, ay);
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // Labels
+                ctx.fillStyle = '#374151';
+                ctx.font = '10px monospace';
+                ctx.textAlign = 'left';
+                ctx.fillText('每代最佳适应度', pad, 12);
+                ctx.fillStyle = '#9ca3af';
+                ctx.fillText('平均适应度', pad + 130, 12);
+            }
+
+            // Best params
+            var best = result.best || {};
+            var bestDiv = document.getElementById('leapsGaBest');
+            var labelMap = {
+                drawdown_threshold_pct: '回撤阈值%', entry_mode: '入场模式',
+                stage1_days: 'S1持有天数', stage1_profit: 'S1涨幅%', stage1_sell: 'S1卖仓%',
+                stage2_days: 'S2持有天数', stage2_profit: 'S2涨幅%', stage2_sell: 'S2卖仓%',
+            };
+            var rows = '';
+            for (var key in labelMap) {
+                rows += '<tr><td style="font-weight:600;padding:2px 12px 2px 0;">' + labelMap[key] +
+                    '</td><td style="font-family:var(--mono);">' + (best[key] != null ? best[key] : '-') + '</td></tr>';
+            }
+            bestDiv.innerHTML = '<h3 style="margin:0 0 8px;font-size:13px;">🏆 最优参数 (适应度: ' +
+                (best.fitness != null ? best.fitness.toFixed(2) : '-') +
+                ', 评估: ' + (result.total_evaluated || 0) + '次)</h3>' +
+                '<table style="font-size:12px;">' + rows + '</table>';
+
+            // Population table
+            var pop = result.final_population || [];
+            var popDiv = document.getElementById('leapsGaPopulation');
+            var headerCells = ['排名', '适应度', '回撤%', '模式', 'S1天', 'S1利%', 'S1卖%', 'S2天', 'S2利%', 'S2卖%'];
+            var headerHtml = headerCells.map(function(c) { return '<th>' + c + '</th>'; }).join('');
+            var bodyHtml = '';
+            for (var i = 0; i < pop.length && i < 20; i++) {
+                var r = pop[i];
+                bodyHtml += '<tr>' +
+                    '<td>' + r.rank + '</td>' +
+                    '<td style="font-family:var(--mono);">' + (r.fitness != null ? r.fitness.toFixed(2) : '-') + '</td>' +
+                    '<td>' + r.drawdown_threshold_pct + '</td>' +
+                    '<td>' + r.entry_mode + '</td>' +
+                    '<td>' + r.stage1_days + '</td>' +
+                    '<td>' + r.stage1_profit + '</td>' +
+                    '<td>' + r.stage1_sell + '</td>' +
+                    '<td>' + r.stage2_days + '</td>' +
+                    '<td>' + r.stage2_profit + '</td>' +
+                    '<td>' + r.stage2_sell + '</td>' +
+                    '</tr>';
+            }
+            popDiv.innerHTML = '<h3 style="margin:0 0 8px;font-size:13px;">📋 种群排名 (前20)</h3>' +
+                '<table class="mini-table" style="font-size:11px;"><thead><tr>' + headerHtml + '</tr></thead><tbody>' + bodyHtml + '</tbody></table>';
+        }
+
+        // ── End LEAPS GA ──────────────────────────────────────────
     </script>
 </body>
 </html>
