@@ -397,8 +397,15 @@ const DEFAULT_RANGES = {
 };
 
 function mergeRanges(custom) {
-  // deep clone defaults, then override with custom
-  return custom || JSON.parse(JSON.stringify(DEFAULT_RANGES));
+  // Deep clone defaults, then override with any provided custom keys
+  if (!custom) return JSON.parse(JSON.stringify(DEFAULT_RANGES));
+  const merged = JSON.parse(JSON.stringify(DEFAULT_RANGES));
+  for (const key of Object.keys(custom)) {
+    if (custom[key] !== undefined && custom[key] !== null) {
+      merged[key] = custom[key];
+    }
+  }
+  return merged;
 }
 
 // Make engine exportable for both Node.js tests and browser worker

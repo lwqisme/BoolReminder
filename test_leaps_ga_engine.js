@@ -249,6 +249,55 @@ function testPerformance() {
   console.log(`  Performance: ${popSize}×${generations} = ${elapsed}ms`);
 }
 
+// ── mergeRanges Tests ────────────────────────────────────────────────────
+
+function testMergeRanges() {
+  // null → returns defaults
+  const r1 = leaps.mergeRanges(null);
+  assertEqual(r1.drawdown_threshold_pct[0], 10, 'mergeRanges(null) dd lo=10');
+  assertEqual(r1.stage1_days[1], 30, 'mergeRanges(null) s1d hi=30');
+  assertEqual(r1.stage2_profit[0], 40, 'mergeRanges(null) s2p lo=40');
+
+  // undefined → returns defaults
+  const r2 = leaps.mergeRanges(undefined);
+  assertEqual(r2.stage1_sell[0], 30, 'mergeRanges(undefined) s1s lo=30');
+
+  // empty object {} → should return defaults (BUG FIX: was returning {})
+  const r3 = leaps.mergeRanges({});
+  assertEqual(r3.drawdown_threshold_pct[1], 30, 'mergeRanges({}) dd hi=30');
+  assertEqual(r3.stage1_days[0], 10, 'mergeRanges({}) s1d lo=10');
+  assertEqual(r3.stage2_sell[1], 70, 'mergeRanges({}) s2s hi=70');
+
+  // partial override → merge custom into defaults
+  const r4 = leaps.mergeRanges({ drawdown_threshold_pct: [15, 25] });
+  assertEqual(r4.drawdown_threshold_pct[0], 15, 'mergeRanges(partial) dd custom lo=15');
+  assertEqual(r4.drawdown_threshold_pct[1], 25, 'mergeRanges(partial) dd custom hi=25');
+  assertEqual(r4.stage1_days[1], 30, 'mergeRanges(partial) s1d default hi=30');
+
+  // full override
+  const custom = {
+    drawdown_threshold_pct: [12, 28],
+    stage1_days: [5, 20], stage2_days: [25, 60],
+    stage1_profit: [50, 100], stage2_profit: [30, 80],
+    stage1_sell: [20, 60], stage2_sell: [20, 60],
+  };
+  const r5 = leaps.mergeRanges(custom);
+  assertEqual(r5.stage1_days[0], 5, 'mergeRanges(full) s1d lo=5');
+  assertEqual(r5.stage2_profit[1], 80, 'mergeRanges(full) s2p hi=80');
+
+  // immutable: mutating result doesn't affect defaults
+  const r6 = leaps.mergeRanges(null);
+  r6.stage1_days[0] = 999;
+  const r7 = leaps.mergeRanges(null);
+  assertEqual(r7.stage1_days[0], 10, 'mergeRanges immutable defaultValue');
+
+  // each call returns a fresh object
+  const r8 = leaps.mergeRanges({ drawdown_threshold_pct: [20, 30] });
+  r8.stage2_days[1] = 777;
+  const r9 = leaps.mergeRanges({ drawdown_threshold_pct: [20, 30] });
+  assertEqual(r9.stage2_days[1], 90, 'mergeRanges fresh object each call');
+}
+
 // ── Run all ───────────────────────────────────────────────────────────────
 
 testDelta();
@@ -261,6 +310,7 @@ testIndividualKey();
 testCrossover();
 testMutation();
 testFitness();
+testMergeRanges();
 testPerformance();
 
 console.log(`\n${passed} passed, ${failed} failed`);
