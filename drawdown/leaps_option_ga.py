@@ -713,6 +713,12 @@ def _collect_trade_details(
     """Collect all trades for an individual across all symbols."""
     trades: list[dict[str, object]] = []
     for symbol, prices in price_series_by_symbol.items():
+        # Pre-compute bollinger for entire series
+        bb_full = bollinger_lower_band(prices, period=22, std_mult=2.0)
+        bb_by_date: dict[str, float | None] = {}
+        for d, band in bb_full:
+            bb_by_date[d.isoformat()] = band
+
         entries = detect_leaps_entries(
             prices, individual.drawdown_threshold_pct, individual.entry_mode,
         )
@@ -725,11 +731,14 @@ def _collect_trade_details(
             if all_dates:
                 price_slice_start = min(all_dates) - timedelta(days=60)
                 price_slice_end = max(all_dates) + timedelta(days=30)
-                price_series = [
-                    {"date": d.isoformat(), "price": p}
-                    for d, p in prices
-                    if price_slice_start <= d <= price_slice_end
-                ]
+                price_series = []
+                for d, p in prices:
+                    if price_slice_start <= d <= price_slice_end:
+                        bb = bb_by_date.get(d.isoformat())
+                        pt: dict[str, object] = {"date": d.isoformat(), "price": p}
+                        if bb is not None:
+                            pt["bollinger_lower"] = bb
+                        price_series.append(pt)
             else:
                 price_series = []
             trades.append({

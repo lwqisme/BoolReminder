@@ -1903,7 +1903,7 @@
                 <div id="leapsGaResults" style="display:none;">
                     <div style="padding:12px;border-top:1px solid var(--border);">
                         <h3 style="margin:0 0 8px;font-size:13px;">📈 适应度曲线</h3>
-                        <canvas id="leapsGaChart" width="600" height="150" style="width:100%;max-width:600px;"></canvas>
+                        <div id="leapsGaChart" style="width:100%;height:180px;"></div>
                     </div>
                     <div id="leapsGaBest" style="padding:12px;border-top:1px solid var(--border);"></div>
                     <div id="leapsGaPopulation" style="padding:12px;border-top:1px solid var(--border);"></div>
@@ -8452,64 +8452,26 @@
             var resultsDiv = document.getElementById('leapsGaResults');
             resultsDiv.style.display = 'block';
 
-            // Chart
+            // Chart - Plotly
             var snapshots = result.snapshots || [];
-            var canvas = document.getElementById('leapsGaChart');
-            if (canvas && snapshots.length) {
-                var ctx = canvas.getContext('2d');
-                var w = canvas.width, h = canvas.height;
-                ctx.clearRect(0, 0, w, h);
-
+            var chartDiv = document.getElementById('leapsGaChart');
+            if (chartDiv && snapshots.length) {
                 var gens = snapshots.map(function(s) { return s.generation; });
                 var bests = snapshots.map(function(s) { return s.best_fitness; });
                 var avgs = snapshots.map(function(s) { return s.avg_fitness; });
-
-                var allVals = bests.concat(avgs);
-                var minVal = Math.min.apply(null, allVals);
-                var maxVal = Math.max.apply(null, allVals);
-                var range = Math.max(maxVal - minVal, 0.1);
-                var pad = 20;
-
-                function x(g) { return pad + (g - 1) / (gens.length - 1) * (w - pad * 2); }
-                function y(v) { return h - pad - (v - minVal) / range * (h - pad * 2); }
-
-                // Grid
-                ctx.strokeStyle = '#e5e7eb';
-                ctx.lineWidth = 0.5;
-                for (var i = 0; i <= 5; i++) {
-                    var gy = pad + i * (h - pad * 2) / 5;
-                    ctx.beginPath(); ctx.moveTo(pad, gy); ctx.lineTo(w - pad, gy); ctx.stroke();
-                }
-
-                // Best line
-                ctx.strokeStyle = '#059669';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                for (var j = 0; j < gens.length; j++) {
-                    var px = x(gens[j]), py = y(bests[j]);
-                    j === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-                }
-                ctx.stroke();
-
-                // Avg line (dashed)
-                ctx.strokeStyle = '#9ca3af';
-                ctx.lineWidth = 1.5;
-                ctx.setLineDash([4, 3]);
-                ctx.beginPath();
-                for (var k = 0; k < gens.length; k++) {
-                    var ax = x(gens[k]), ay = y(avgs[k]);
-                    k === 0 ? ctx.moveTo(ax, ay) : ctx.lineTo(ax, ay);
-                }
-                ctx.stroke();
-                ctx.setLineDash([]);
-
-                // Labels
-                ctx.fillStyle = '#374151';
-                ctx.font = '10px monospace';
-                ctx.textAlign = 'left';
-                ctx.fillText('每代最佳适应度', pad, 12);
-                ctx.fillStyle = '#9ca3af';
-                ctx.fillText('平均适应度', pad + 130, 12);
+                Plotly.newPlot(chartDiv, [
+                    { x: gens, y: bests, type: 'scatter', mode: 'lines+markers',
+                      name: '最佳适应度', line: { color: '#059669', width: 2 },
+                      marker: { size: 4 } },
+                    { x: gens, y: avgs, type: 'scatter', mode: 'lines',
+                      name: '平均适应度', line: { color: '#9ca3af', width: 1.5, dash: 'dash' } },
+                ], {
+                    margin: { l: 50, r: 20, t: 10, b: 30 },
+                    legend: { x: 0, y: 1.15, orientation: 'h', font: { size: 10 } },
+                    xaxis: { title: '世代', dtick: 1 },
+                    yaxis: { title: '适应度' },
+                    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+                }, { responsive: true, displayModeBar: false });
             }
 
             // Best params with trade stats
@@ -8576,7 +8538,7 @@
                     '</tr>';
                 if (hasTrades) {
                     bodyHtml += '<tr id="' + rowId + 'Chart" style="display:none;"><td colspan="11" style="padding:8px;">' +
-                        '<canvas id="' + rowId + 'Canvas" width="500" height="120" style="width:100%;max-width:500px;"></canvas>' +
+                        '<div id="' + rowId + 'Plot" style="width:100%;height:280px;"></div>' +
                         '<div id="' + rowId + 'Detail" style="font-size:11px;margin-top:4px;"></div></td></tr>';
                 }
             }
@@ -8595,133 +8557,116 @@
             if (chartRow.style.display === 'none') {
                 chartRow.style.display = '';
                 btn.textContent = '▼';
-                drawLeapsTradeChart(rowId + 'Canvas', index);
+                drawLeapsTradePlotly(rowId + 'Plot', index);
             } else {
                 chartRow.style.display = 'none';
                 btn.textContent = '▶';
             }
         };
 
-        function drawLeapsTradeChart(canvasId, index) {
+        function drawLeapsTradePlotly(divId, index) {
             var pop = window._leapsGaPop;
             if (!pop || !pop[index]) return;
             var trades = pop[index].trade_details;
             if (!trades || !trades.length) return;
 
-            var canvas = document.getElementById(canvasId);
-            if (!canvas) return;
-            var ctx = canvas.getContext('2d');
-            var w = canvas.width, h = canvas.height;
-            ctx.clearRect(0, 0, w, h);
-            // Light bg
-            ctx.fillStyle = '#fafafa';
-            ctx.fillRect(0, 0, w, h);
+            var div = document.getElementById(divId);
+            if (!div) return;
 
-            var entries = [];
-            var sells = [];
-            var allPricePoints = [];  // all (date, price) for bounds
+            var traces = [];
+            var entryX = [], entryY = [], entryText = [];
+            var sellX = [], sellY = [], sellText = [], sellSizes = [];
+            var detailHtml = '';
 
             for (var t = 0; t < trades.length; t++) {
                 var tr = trades[t];
-                entries.push({date: tr.entry_date, price: tr.entry_price, roi: tr.total_roi_pct, symbol: tr.symbol, series: tr.price_series || []});
-                for (var s = 0; s < tr.sell_events.length; s++) {
-                    var se = tr.sell_events[s];
-                    sells.push({date: se.date, price: se.price, roi: se.roi_pct, pct: se.pct_sold});
-                }
-                var ps = tr.price_series || [];
-                for (var p = 0; p < ps.length; p++) {
-                    allPricePoints.push({date: ps[p].date, price: ps[p].price});
-                }
-            }
+                var series = tr.price_series || [];
 
-            if (!allPricePoints.length) return;
-            allPricePoints.sort(function(a, b) { return new Date(a.date) - new Date(b.date); });
-            var minDate = allPricePoints[0].date, maxDate = allPricePoints[allPricePoints.length - 1].date;
-            var minP = Infinity, maxP = -Infinity;
-            for (var pp = 0; pp < allPricePoints.length; pp++) {
-                if (allPricePoints[pp].price < minP) minP = allPricePoints[pp].price;
-                if (allPricePoints[pp].price > maxP) maxP = allPricePoints[pp].price;
-            }
-            var range = Math.max(maxP - minP, 1);
-            minP -= range * 0.05; maxP += range * 0.05;
-            range = maxP - minP;
-            var pad = 30;
-
-            function x(d) { return pad + ((new Date(d) - new Date(minDate)) / (new Date(maxDate) - new Date(minDate))) * (w - pad * 2); }
-            function y(p) { return h - pad - ((p - minP) / range) * (h - pad * 2); }
-
-            // Grid
-            ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 0.5;
-            for (var g = 0; g <= 4; g++) {
-                var gy = pad + g * (h - pad * 2) / 4;
-                ctx.beginPath(); ctx.moveTo(pad, gy); ctx.lineTo(w - pad, gy); ctx.stroke();
-            }
-
-            // Price line per trade (different colors)
-            var colors = ['#6b7280', '#9ca3af', '#d1d5db'];
-            for (var t2 = 0; t2 < entries.length; t2++) {
-                var series = entries[t2].series;
-                if (!series || series.length < 2) continue;
-                ctx.strokeStyle = colors[t2 % colors.length];
-                ctx.lineWidth = 1.5;
-                ctx.beginPath();
-                for (var ps2 = 0; ps2 < series.length; ps2++) {
-                    var px = x(series[ps2].date), py = y(series[ps2].price);
-                    ps2 === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-                }
-                ctx.stroke();
-
-                // Symbol label on line
+                // Price line
                 if (series.length) {
-                    var mid = series[Math.floor(series.length / 2)];
-                    ctx.fillStyle = colors[t2 % colors.length];
-                    ctx.font = '9px monospace';
-                    ctx.fillText(entries[t2].symbol, x(mid.date) + 3, y(mid.price) - 5);
-                }
-            }
+                    var px = series.map(function(pt) { return pt.date; });
+                    var py = series.map(function(pt) { return pt.price; });
+                    traces.push({
+                        x: px, y: py, type: 'scatter', mode: 'lines',
+                        name: tr.symbol + ' 价格',
+                        line: { color: '#6b7280', width: 1.5 },
+                        showlegend: t === 0,
+                    });
 
-            // Entry points (green)
-            for (var e = 0; e < entries.length; e++) {
-                var ex = x(entries[e].date), ey = y(entries[e].price);
-                ctx.fillStyle = '#059669';
-                ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-                ctx.beginPath(); ctx.arc(ex, ey, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-            }
-
-            // Sell points (red, size by pct)
-            for (var s2 = 0; s2 < sells.length; s2++) {
-                var sx = x(sells[s2].date), sy = y(sells[s2].price);
-                var r2 = 3 + (sells[s2].pct / 33) * 5;
-                ctx.fillStyle = 'rgba(220,38,38,0.85)';
-                ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
-                ctx.beginPath(); ctx.arc(sx, sy, r2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-                ctx.fillStyle = '#dc2626'; ctx.font = '8px monospace';
-                ctx.fillText('+' + Math.round(sells[s2].roi) + '%', sx + r2 + 2, sy + 3);
-            }
-
-            // Legend
-            ctx.fillStyle = '#059669'; ctx.font = '10px sans-serif'; ctx.fillText('● 买入', pad, 14);
-            ctx.fillStyle = '#dc2626'; ctx.fillText('● 卖出(+ROI%)', pad + 55, 14);
-
-            // Trade detail text
-            var detailDiv = document.getElementById(canvasId.replace('Canvas', 'Detail'));
-            if (detailDiv) {
-                var detailHtml = '';
-                for (var t3 = 0; t3 < trades.length; t3++) {
-                    var tr2 = trades[t3];
-                    detailHtml += '<span style="color:var(--green);">●</span> ' + tr2.symbol + ' ' + tr2.entry_date +
-                        ' 买入@' + tr2.entry_price.toFixed(1) + ' | ';
-                    for (var s3 = 0; s3 < tr2.sell_events.length; s3++) {
-                        var se2 = tr2.sell_events[s3];
-                        detailHtml += '<span style="color:var(--red);">●</span> ' + se2.date +
-                            ' 卖' + se2.pct_sold + '%' +
-                            ' @' + se2.price.toFixed(1) +
-                            ' ROI+' + Math.round(se2.roi_pct) + '% ';
+                    // Bollinger band
+                    var bbX = [], bbY = [];
+                    for (var s = 0; s < series.length; s++) {
+                        if (series[s].bollinger_lower != null) {
+                            bbX.push(series[s].date);
+                            bbY.push(series[s].bollinger_lower);
+                        }
                     }
-                    detailHtml += ' | 总ROI: ' + (tr2.total_roi_pct > 0 ? '+' : '') + Math.round(tr2.total_roi_pct) + '%<br>';
+                    if (bbX.length) {
+                        traces.push({
+                            x: bbX, y: bbY, type: 'scatter', mode: 'lines',
+                            name: tr.symbol + ' 布林下轨',
+                            line: { color: '#3b82f6', width: 1, dash: 'dash' },
+                            showlegend: t === 0,
+                        });
+                    }
                 }
-                detailDiv.innerHTML = detailHtml;
+
+                // Entry point
+                entryX.push(tr.entry_date);
+                entryY.push(tr.entry_price);
+                entryText.push(tr.symbol + ' 买入<br>回撤: ' + tr.drawdown_pct.toFixed(1) + '%<br>价格: ' + tr.entry_price.toFixed(2));
+
+                // Sell points
+                for (var s2 = 0; s2 < tr.sell_events.length; s2++) {
+                    var se = tr.sell_events[s2];
+                    sellX.push(se.date);
+                    sellY.push(se.price);
+                    sellText.push('卖' + se.pct_sold + '% ROI: +' + Math.round(se.roi_pct) + '%');
+                    sellSizes.push(Math.max(6, (se.pct_sold / 50) * 14));
+                }
+
+                // Detail text
+                detailHtml += '<span style="color:var(--green);">●</span> ' + tr.symbol + ' ' + tr.entry_date +
+                    ' 买入@' + tr.entry_price.toFixed(1) + ' | ';
+                for (var s3 = 0; s3 < tr.sell_events.length; s3++) {
+                    var se2 = tr.sell_events[s3];
+                    detailHtml += '<span style="color:var(--red);">●</span> ' + se2.date +
+                        ' 卖' + se2.pct_sold + '% @' + se2.price.toFixed(1) +
+                        ' ROI+' + Math.round(se2.roi_pct) + '% ';
+                }
+                detailHtml += ' | 总ROI: ' + (tr.total_roi_pct > 0 ? '+' : '') + Math.round(tr.total_roi_pct) + '%<br>';
             }
+
+            // Entry markers
+            traces.push({
+                x: entryX, y: entryY, type: 'scatter', mode: 'markers',
+                name: '买入点',
+                marker: { color: '#059669', size: 12, symbol: 'circle',
+                          line: { color: '#fff', width: 2 } },
+                text: entryText, hoverinfo: 'text',
+            });
+
+            // Sell markers
+            traces.push({
+                x: sellX, y: sellY, type: 'scatter', mode: 'markers',
+                name: '卖出点',
+                marker: { color: '#dc2626', size: sellSizes, symbol: 'circle',
+                          line: { color: '#fff', width: 2 } },
+                text: sellText, hoverinfo: 'text',
+            });
+
+            Plotly.newPlot(div, traces, {
+                margin: { l: 50, r: 20, t: 10, b: 30 },
+                legend: { x: 0, y: 1.15, orientation: 'h', font: { size: 10 } },
+                xaxis: { title: '' },
+                yaxis: { title: '价格' },
+                paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+                hovermode: 'closest',
+            }, { responsive: true, displayModeBar: false });
+
+            // Detail text
+            var detailDiv = document.getElementById(divId.replace('Plot', 'Detail'));
+            if (detailDiv) detailDiv.innerHTML = detailHtml;
         }
 
         // ── End LEAPS GA ──────────────────────────────────────────
