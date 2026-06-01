@@ -178,6 +178,7 @@ function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePr
     if (pt.ts > cutoffTs) {
       const roi = proxyOptionRoi(entry.price, pt.price, entryTs, pt.ts, expTs, strikePrice, r, sigma);
       sellEvents.push({ date: pt.date, price: pt.price, pct_sold: remainingPct, roi_pct: Math.round(roi * 100) / 100 });
+      remainingPct = 0;
       break;
     }
 

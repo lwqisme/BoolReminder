@@ -303,9 +303,9 @@ class LeapsSellLadderTest(unittest.TestCase):
         stages = [(20, 50.0, 100.0)]  # hold 20, profit>50%, sell all
         trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
                                      strike_price=110.0)
-        self.assertTrue(trade.expired)
-        # Trade should have at least one sell event (expiration force-sell)
-        self.assertGreaterEqual(len(trade.sell_events), 1)
+        self.assertFalse(trade.expired, 'Sold at hard cutoff → not expired')
+        self.assertEqual(len(trade.sell_events), 1)
+        self.assertAlmostEqual(trade.sell_events[0].pct_sold, 100.0)
 
     def test_two_stage_sells_reduce_position_progressively(self):
         """Two active stages: sell 50% at stage1, remaining 50% at stage2."""
@@ -321,9 +321,12 @@ class LeapsSellLadderTest(unittest.TestCase):
         stages = [(5, 10.0, 50.0), (10, 20.0, 100.0)]
         trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
                                      strike_price=110.0)
-        self.assertGreaterEqual(len(trade.sell_events), 2)
+        self.assertEqual(len(trade.sell_events), 2)
         self.assertAlmostEqual(trade.sell_events[0].pct_sold, 50.0)
         self.assertAlmostEqual(trade.sell_events[1].pct_sold, 50.0)
+        # Total sold must sum to 100%, not more
+        total_sold = sum(se.pct_sold for se in trade.sell_events)
+        self.assertAlmostEqual(total_sold, 100.0, places=2)
 
 
 class LeapsFullTradeTest(unittest.TestCase):

@@ -392,6 +392,7 @@ def compute_sell_ladder(
                 date=current_date, price=exit_price,
                 pct_sold=remaining_pct, roi_pct=round(roi, 2),
             ))
+            remaining_pct = 0.0
             break
 
         exit_price = price_by_date.get(current_date)

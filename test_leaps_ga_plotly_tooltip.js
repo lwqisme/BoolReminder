@@ -72,7 +72,7 @@ function buildTradeTraces(trades, fullPriceSeries) {
     for (const se of tr.sell_events || []) {
       sellX.push(se.date);
       sellY.push(se.price);
-      sellText.push(se.date + '<br>卖' + se.pct_sold + '%<br>价格: ' + se.price.toFixed(2) + '<br>ROI: +' + Math.round(se.roi_pct) + '%');
+      sellText.push(se.date + '<br>卖' + se.pct_sold + '%<br>价格: ' + se.price.toFixed(2) + '<br>ROI: ' + (se.roi_pct > 0 ? '+' : '') + Math.round(se.roi_pct) + '%');
       sellSizes.push(Math.max(6, (se.pct_sold / 50) * 14));
     }
   }

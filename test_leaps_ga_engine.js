@@ -147,18 +147,21 @@ function testSellLadder() {
   assertGreater(trade2.sell_events.length, 0, 'Profit trigger -> sell');
   assertGreater(trade2.total_roi_pct, 0, 'Positive total ROI');
 
-  // Expiration force sell
+  // Expiration force sell - should be exactly 1 sell event (not duplicated)
   const flatPrices = makePrices(Array(400).fill(100), '2025-01-01');
   const trade3 = leaps.computeSellLadder(entry, flatPrices, [[20, 50, 100]], 190, 110);
-  assert(trade3.expired, 'Flat price -> expired');
-  assertGreater(trade3.sell_events.length, 0, 'Expired has sell event');
+  assert(!trade3.expired, 'Hard cutoff sell → not expired (sold at cutoff)');
+  assertEqual(trade3.sell_events.length, 1, 'Expired: exactly 1 sell (no duplicate)');
+  assertAlmostEqual(trade3.sell_events[0].pct_sold, 100, 1, 'Expired: sell all 100%');
 
-  // Two-stage
+  // Two-stage - should be exactly 2 sells, total 100%
   const vals4 = [...Array(122).fill(100), 100, ...[...Array(100).keys()].map(i => 100 + i)];
   const prices4 = makePrices(vals4, '2025-01-01');
   const trade4 = leaps.computeSellLadder(entry2, prices4, [[5, 10, 50], [10, 20, 100]], 190, 110);
-  assert(trade4.sell_events.length >= 2, 'Two stage -> >= 2 sells');
+  assertEqual(trade4.sell_events.length, 2, 'Two stage: exactly 2 sells');
   assertAlmostEqual(trade4.sell_events[0].pct_sold, 50, 1, 'First sell ~50%');
+  const totalSold4 = trade4.sell_events.reduce((s, se) => s + se.pct_sold, 0);
+  assertAlmostEqual(totalSold4, 100, 1, 'Total sold = 100%');
 }
 
 // ── Individual Key ────────────────────────────────────────────────────────

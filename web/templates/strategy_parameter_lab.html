@@ -8752,7 +8752,7 @@
                     var se = tr.sell_events[s2];
                     sellX.push(se.date);
                     sellY.push(se.price);
-                    sellText.push(se.date + '<br>卖' + se.pct_sold + '%<br>价格: ' + se.price.toFixed(2) + '<br>ROI: +' + Math.round(se.roi_pct) + '%');
+                    sellText.push(se.date + '<br>卖' + se.pct_sold + '%<br>价格: ' + se.price.toFixed(2) + '<br>ROI: ' + (se.roi_pct > 0 ? '+' : '') + Math.round(se.roi_pct) + '%');
                     sellSizes.push(Math.max(6, (se.pct_sold / 50) * 14));
                 }
 
@@ -8762,7 +8762,7 @@
                     var se2 = tr.sell_events[s3];
                     detailHtml += '<span style="color:var(--red);">●</span> ' + se2.date +
                         ' 卖' + se2.pct_sold + '% @' + se2.price.toFixed(1) +
-                        ' ROI+' + Math.round(se2.roi_pct) + '% ';
+                        ' ROI' + (se2.roi_pct > 0 ? '+' : '') + Math.round(se2.roi_pct) + '% ';
                 }
                 detailHtml += ' | 总ROI: ' + (tr.total_roi_pct > 0 ? '+' : '') + Math.round(tr.total_roi_pct) + '%<br>';
             }
