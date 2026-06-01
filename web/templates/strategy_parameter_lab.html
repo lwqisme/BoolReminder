@@ -1544,51 +1544,6 @@
             </div>
 
             <div class="panel">
-                <div class="panel-head"><h2>🧬 LEAPS GA 进化</h2></div>
-                <div class="panel-body">
-                    <div class="field-grid">
-                        <label>标的 (逗号分隔)
-                            <input id="leapsGaSymbols" value="AAPL.US" style="width:200px;">
-                        </label>
-                        <label>开始日期
-                            <input id="leapsGaStart" type="date" value="2024-01-01">
-                        </label>
-                        <label>结束日期
-                            <input id="leapsGaEnd" type="date" value="2025-06-01">
-                        </label>
-                        <label>种群大小
-                            <input id="leapsGaPopSize" type="number" min="5" max="200" step="5" value="30">
-                        </label>
-                        <label>进化代数
-                            <input id="leapsGaGenerations" type="number" min="3" max="100" step="1" value="15">
-                        </label>
-                        <label>变异率
-                            <input id="leapsGaMutationRate" type="number" min="0.01" max="0.5" step="0.01" value="0.15">
-                        </label>
-                        <label>交叉率
-                            <input id="leapsGaCrossoverRate" type="number" min="0.5" max="1.0" step="0.01" value="0.80">
-                        </label>
-                        <label>随机种子 (空=随机)
-                            <input id="leapsGaSeed" type="number" step="1" placeholder="空=随机" style="width:100px;">
-                        </label>
-                    </div>
-                    <div style="margin-top:10px;display:flex;gap:8px;align-items:center;">
-                        <button id="leapsGaRunBtn" onclick="runLeapsGa()">🚀 开始进化</button>
-                        <span id="leapsGaStatus" style="color:var(--muted);font-size:13px;"></span>
-                        <span id="leapsGaTimer" style="color:var(--muted);font-size:12px;font-family:var(--mono);"></span>
-                    </div>
-                </div>
-                <div id="leapsGaResults" style="display:none;">
-                    <div style="padding:12px;border-top:1px solid var(--border);">
-                        <h3 style="margin:0 0 8px;font-size:13px;">📈 适应度曲线</h3>
-                        <canvas id="leapsGaChart" width="600" height="150" style="width:100%;max-width:600px;"></canvas>
-                    </div>
-                    <div id="leapsGaBest" style="padding:12px;border-top:1px solid var(--border);"></div>
-                    <div id="leapsGaPopulation" style="padding:12px;border-top:1px solid var(--border);"></div>
-                </div>
-            </div>
-
-            <div class="panel">
                 <div class="panel-head"><h2>当前组合</h2></div>
                 <div class="panel-body">
                     <label>当前组合
@@ -1882,6 +1837,51 @@
                     <thead id="matrixHead"><tr><th>策略参数组合</th></tr></thead>
                     <tbody id="matrixBody"><tr><td>尚未运行。</td></tr></tbody>
                 </table>
+            </div>
+
+            <div class="panel" id="leapsGaMainPanel" style="margin-top:18px;">
+                <div class="panel-head"><h2>🧬 LEAPS GA 进化</h2></div>
+                <div class="panel-body">
+                    <div class="field-grid">
+                        <label>标的 (逗号分隔)
+                            <input id="leapsGaSymbols" value="AAPL.US" style="width:200px;">
+                        </label>
+                        <label>开始日期
+                            <input id="leapsGaStart" type="date" value="2024-01-01">
+                        </label>
+                        <label>结束日期
+                            <input id="leapsGaEnd" type="date" value="2025-06-01">
+                        </label>
+                        <label>种群大小
+                            <input id="leapsGaPopSize" type="number" min="5" max="200" step="5" value="30">
+                        </label>
+                        <label>进化代数
+                            <input id="leapsGaGenerations" type="number" min="3" max="100" step="1" value="15">
+                        </label>
+                        <label>变异率
+                            <input id="leapsGaMutationRate" type="number" min="0.01" max="0.5" step="0.01" value="0.15">
+                        </label>
+                        <label>交叉率
+                            <input id="leapsGaCrossoverRate" type="number" min="0.5" max="1.0" step="0.01" value="0.80">
+                        </label>
+                        <label>随机种子 (空=随机)
+                            <input id="leapsGaSeed" type="number" step="1" placeholder="空=随机" style="width:100px;">
+                        </label>
+                    </div>
+                    <div style="margin-top:10px;display:flex;gap:8px;align-items:center;">
+                        <button id="leapsGaRunBtn" onclick="runLeapsGa()" class="primary">🚀 开始进化</button>
+                        <span id="leapsGaStatus" style="color:var(--muted);font-size:13px;"></span>
+                        <span id="leapsGaTimer" style="color:var(--muted);font-size:12px;font-family:var(--mono);"></span>
+                    </div>
+                </div>
+                <div id="leapsGaResults" style="display:none;">
+                    <div style="padding:12px;border-top:1px solid var(--border);">
+                        <h3 style="margin:0 0 8px;font-size:13px;">📈 适应度曲线</h3>
+                        <canvas id="leapsGaChart" width="600" height="150" style="width:100%;max-width:600px;"></canvas>
+                    </div>
+                    <div id="leapsGaBest" style="padding:12px;border-top:1px solid var(--border);"></div>
+                    <div id="leapsGaPopulation" style="padding:12px;border-top:1px solid var(--border);"></div>
+                </div>
             </div>
 
         </main>
