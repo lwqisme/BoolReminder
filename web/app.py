@@ -10491,7 +10491,11 @@ def api_strategy_lab_parameter_lab_leaps_ga_evolve():
                 continue
             series = [(candle_datetime(c).replace(tzinfo=None), float(c.close)) for c in candles]
             pts = build_price_points_from_series(series)
-            price_series_by_symbol[symbol] = pts
+            # Convert PricePoint objects to (date, price) tuples for LEAPS GA
+            price_series_by_symbol[symbol] = [
+                (p.date.date() if hasattr(p.date, 'date') else p.date, p.close)
+                for p in pts
+            ]
 
         if not price_series_by_symbol:
             return _json_error("所有标的都无数据", 400)
