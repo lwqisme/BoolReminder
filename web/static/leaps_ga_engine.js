@@ -8,6 +8,11 @@
 function normCdf(x) {
   if (x < -8) return 0;
   if (x > 8) return 1;
+  // Use native Math.erf when available (fast C implementation in V8)
+  if (typeof Math.erf === 'function') {
+    return 0.5 * (1 + Math.erf(x / Math.SQRT2));
+  }
+  // Fallback: Abramowitz & Stegun approximation
   return 0.5 * (1 + _erf(x / Math.SQRT2));
 }
 
@@ -41,8 +46,13 @@ function estimateOptionDelta(stockPrice, strike, dte, r = 0.05, sigma = 0.40) {
 }
 
 function proxyOptionRoi(entryPrice, exitPrice, entryDate, exitDate, expiration, strikePrice, r = 0.05, sigma = 0.40) {
-  const dteEntry = Math.max(1, (new Date(expiration) - new Date(entryDate)) / 86400000);
-  const dteExit = Math.max(1, (new Date(expiration) - new Date(exitDate)) / 86400000);
+  // Use pre-parsed timestamps when possible, fall back to string parsing
+  const dteEntry = typeof entryDate === 'number'
+    ? Math.max(1, (typeof expiration === 'number' ? expiration : new Date(expiration).getTime()) - entryDate) / 86400000
+    : Math.max(1, (new Date(expiration) - new Date(entryDate)) / 86400000);
+  const dteExit = typeof exitDate === 'number'
+    ? Math.max(1, (typeof expiration === 'number' ? expiration : new Date(expiration).getTime()) - exitDate) / 86400000
+    : Math.max(1, (new Date(expiration) - new Date(exitDate)) / 86400000);
   const tEntry = dteEntry / 365;
   const tExit = dteExit / 365;
   const optEntry = bsCallPrice(entryPrice, strikePrice, tEntry, r, sigma);
@@ -142,13 +152,14 @@ function detectLeapsEntries(prices, drawdownThresholdPct = 20, entryMode = 'both
 
 function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePrice = null, r = 0.05, sigma = 0.40) {
   if (strikePrice == null) strikePrice = entry.price * 1.1;
-  const expiration = new Date(entry.date);
-  expiration.setDate(expiration.getDate() + expirationDays);
-  const hardCutoff = new Date(expiration);
-  hardCutoff.setDate(hardCutoff.getDate() - 60);
 
-  const priceByDate = {};
-  for (const [d, p] of prices) priceByDate[d] = p;
+  // Use timestamps for fast date comparison
+  const entryTs = new Date(entry.date).getTime();
+  const expTs = entryTs + expirationDays * 86400000;
+  const cutoffTs = expTs - 60 * 86400000;
+
+  // Build price points with timestamps
+  const pricePoints = prices.map(([d, p]) => ({ ts: new Date(d).getTime(), date: d, price: p }));
 
   const effectiveStages = [...stages];
   while (effectiveStages.length < 3) effectiveStages.push([9999, 0, 100]);
@@ -157,25 +168,19 @@ function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePr
   let remainingPct = 100;
   const stageTriggered = effectiveStages.map(() => false);
 
-  let currentDate = new Date(entry.date);
-  currentDate.setDate(currentDate.getDate() + 1);
-  const endDate = new Date(Math.max(hardCutoff.getTime(), new Date(prices[prices.length - 1][0]).getTime()));
+  // Iterate only over actual price data points (not every calendar day!)
+  for (const pt of pricePoints) {
+    if (pt.ts <= entryTs) continue;
 
-  while (currentDate <= endDate) {
-    const dateStr = currentDate.toISOString().slice(0, 10);
-
-    if (currentDate > hardCutoff) {
-      const exitPrice = priceByDate[dateStr] || entry.price;
-      const roi = proxyOptionRoi(entry.price, exitPrice, entry.date, dateStr, expiration.toISOString().slice(0, 10), strikePrice, r, sigma);
-      sellEvents.push({ date: dateStr, price: exitPrice, pct_sold: remainingPct, roi_pct: Math.round(roi * 100) / 100 });
+    // Check hard cutoff
+    if (pt.ts > cutoffTs) {
+      const roi = proxyOptionRoi(entry.price, pt.price, entryTs, pt.ts, expTs, strikePrice, r, sigma);
+      sellEvents.push({ date: pt.date, price: pt.price, pct_sold: remainingPct, roi_pct: Math.round(roi * 100) / 100 });
       break;
     }
 
-    const exitPrice = priceByDate[dateStr];
-    if (exitPrice == null) { currentDate.setDate(currentDate.getDate() + 1); continue; }
-
-    const holdDays = Math.round((currentDate - new Date(entry.date)) / 86400000);
-    const roi = proxyOptionRoi(entry.price, exitPrice, entry.date, dateStr, expiration.toISOString().slice(0, 10), strikePrice, r, sigma);
+    const holdDays = Math.round((pt.ts - entryTs) / 86400000);
+    const roi = proxyOptionRoi(entry.price, pt.price, entryTs, pt.ts, expTs, strikePrice, r, sigma);
 
     for (let si = 0; si < effectiveStages.length; si++) {
       if (stageTriggered[si]) continue;
@@ -187,21 +192,20 @@ function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePr
       const sellAmount = Math.min(sellFraction, remainingPct);
       remainingPct -= sellAmount;
       stageTriggered[si] = true;
-      sellEvents.push({ date: dateStr, price: exitPrice, pct_sold: Math.round(sellAmount * 100) / 100, roi_pct: Math.round(roi * 100) / 100 });
+      sellEvents.push({ date: pt.date, price: pt.price, pct_sold: Math.round(sellAmount * 100) / 100, roi_pct: Math.round(roi * 100) / 100 });
 
       if (remainingPct <= 0) break;
     }
 
     if (remainingPct <= 0) break;
-    currentDate.setDate(currentDate.getDate() + 1);
   }
 
+  // Force-sell if expired without triggering
   let expired = remainingPct > 0;
-  if (expired) {
-    const cutoffStr = hardCutoff.toISOString().slice(0, 10);
-    const cutoffPrice = priceByDate[cutoffStr] || entry.price;
-    const roi = proxyOptionRoi(entry.price, cutoffPrice, entry.date, cutoffStr, expiration.toISOString().slice(0, 10), strikePrice, r, sigma);
-    sellEvents.push({ date: cutoffStr, price: cutoffPrice, pct_sold: remainingPct, roi_pct: Math.round(roi * 100) / 100 });
+  if (expired && pricePoints.length) {
+    const lastPt = pricePoints[pricePoints.length - 1];
+    const roi = proxyOptionRoi(entry.price, lastPt.price, entryTs, cutoffTs, expTs, strikePrice, r, sigma);
+    sellEvents.push({ date: new Date(cutoffTs).toISOString().slice(0, 10), price: lastPt.price, pct_sold: remainingPct, roi_pct: Math.round(roi * 100) / 100 });
   }
 
   let totalRoi = 0;
