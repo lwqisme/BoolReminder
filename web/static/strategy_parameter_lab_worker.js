@@ -1,5 +1,12 @@
 if (typeof importScripts !== 'undefined') {
-  importScripts('/static/leaps_ga_engine.js');
+  // Extract engine version from worker's own URL for cache busting
+  var engineV = '';
+  try {
+    var params = new URL(self.location.href).searchParams;
+    engineV = params.get('engine_v') || '';
+  } catch(e) {}
+  importScripts('/static/leaps_ga_engine.js?v=' + (engineV || Date.now()));
+  console.log('[leaps-ga] Engine loaded, version:', engineV || 'live');
 }
 
 // Ensure engine is available in Node.js test context too
