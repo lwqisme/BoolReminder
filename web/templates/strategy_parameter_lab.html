@@ -8723,14 +8723,14 @@
                 // Entry point
                 entryX.push(tr.entry_date);
                 entryY.push(tr.entry_price);
-                entryText.push(tr.symbol + ' 买入<br>回撤: ' + tr.drawdown_pct.toFixed(1) + '%<br>价格: ' + tr.entry_price.toFixed(2));
+                entryText.push(tr.entry_date + '<br>' + tr.symbol + ' 买入<br>回撤: ' + tr.drawdown_pct.toFixed(1) + '%<br>价格: ' + tr.entry_price.toFixed(2));
 
                 // Sell points
                 for (var s2 = 0; s2 < tr.sell_events.length; s2++) {
                     var se = tr.sell_events[s2];
                     sellX.push(se.date);
                     sellY.push(se.price);
-                    sellText.push('卖' + se.pct_sold + '%<br>价格: ' + se.price.toFixed(2) + '<br>ROI: +' + Math.round(se.roi_pct) + '%');
+                    sellText.push(se.date + '<br>卖' + se.pct_sold + '%<br>价格: ' + se.price.toFixed(2) + '<br>ROI: +' + Math.round(se.roi_pct) + '%');
                     sellSizes.push(Math.max(6, (se.pct_sold / 50) * 14));
                 }
 

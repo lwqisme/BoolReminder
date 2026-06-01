@@ -48,12 +48,12 @@ function buildTradeTraces(trades) {
 
     entryX.push(tr.entry_date);
     entryY.push(tr.entry_price);
-    entryText.push(tr.symbol + ' 买入<br>回撤: ' + tr.drawdown_pct.toFixed(1) + '%<br>价格: ' + tr.entry_price.toFixed(2));
+    entryText.push(tr.entry_date + '<br>' + tr.symbol + ' 买入<br>回撤: ' + tr.drawdown_pct.toFixed(1) + '%<br>价格: ' + tr.entry_price.toFixed(2));
 
     for (const se of tr.sell_events || []) {
       sellX.push(se.date);
       sellY.push(se.price);
-      sellText.push('卖' + se.pct_sold + '% ROI: +' + Math.round(se.roi_pct) + '%<br>价格: ' + se.price.toFixed(2));
+      sellText.push(se.date + '<br>卖' + se.pct_sold + '%<br>价格: ' + se.price.toFixed(2) + '<br>ROI: +' + Math.round(se.roi_pct) + '%');
       sellSizes.push(Math.max(6, (se.pct_sold / 50) * 14));
     }
   }
@@ -117,12 +117,14 @@ const entryTrace = traces.find(t => t.name === '买入点');
 assert(entryTrace != null, 'Entry trace exists');
 assert(entryTrace.text.length === entryTrace.x.length, 'Entry hover text count matches');
 assert(entryTrace.text[0].includes('买入'), 'Entry hover has 买入');
+assert(entryTrace.text[0].includes('2024-03-15'), 'Entry hover has date');
 assert(entryTrace.text[0].includes('22'), 'Entry hover has drawdown');
 
-// Test 4: Sell markers have hover text
+// Test 4: Sell markers have hover text with date
 const sellTrace = traces.find(t => t.name === '卖出点');
 assert(sellTrace != null, 'Sell trace exists');
 assert(sellTrace.text.length === sellTrace.x.length, 'Sell hover text count matches');
+assert(sellTrace.text[0].includes('2024-05-01'), 'Sell hover has date');
 assert(sellTrace.text[0].includes('50%'), 'Sell hover has pct_sold');
 assert(sellTrace.text[0].includes('80%'), 'Sell hover has ROI');
 
