@@ -1723,6 +1723,7 @@ async function finishRun(workerIndex, runId) {
 // ── LEAPS GA ─────────────────────────────────────────────────────────
 
 async function handleLeapsGa(message) {
+  const tTotal = performance.now();
   const { packet, run_id } = message;
   const { priceSeriesBySymbol, config, paramRanges } = packet || {};
 
@@ -1730,6 +1731,11 @@ async function handleLeapsGa(message) {
     postMessage({ type: 'leaps_ga_error', run_id, message: 'No price data' });
     return;
   }
+
+  // Log data size
+  let totalPoints = 0;
+  for (const pts of Object.values(priceSeriesBySymbol)) totalPoints += pts.length;
+  console.log('[leaps-ga] Data:', Object.keys(priceSeriesBySymbol).length, 'symbols,', totalPoints, 'points');
 
   const cfg = config || {};
   const popSize = cfg.population_size || 30;
