@@ -41,6 +41,8 @@ const context = {
   performance: { now: () => 0 },
   setTimeout,
   importScripts() {},
+  leapsGaEngine: require('./web/static/leaps_ga_engine.js'),
+  leapsGaEngine: require('./web/static/leaps_ga_engine.js'),
 };
 context.self = context;
 vm.createContext(context);
@@ -147,6 +149,7 @@ const context = {
   performance: { now: () => 0 },
   setTimeout,
   importScripts() {},
+  leapsGaEngine: require('./web/static/leaps_ga_engine.js'),
 };
 context.self = context;
 vm.createContext(context);
@@ -221,6 +224,7 @@ const context = {
   performance: { now: () => 0 },
   setTimeout,
   importScripts() {},
+  leapsGaEngine: require('./web/static/leaps_ga_engine.js'),
 };
 context.self = context;
 vm.createContext(context);
@@ -297,6 +301,7 @@ const context = {
   performance: { now: () => 0 },
   setTimeout,
   importScripts() {},
+  leapsGaEngine: require('./web/static/leaps_ga_engine.js'),
 };
 context.self = context;
 vm.createContext(context);
@@ -477,6 +482,7 @@ const workerContext = {
   performance: { now: () => 0 },
   setTimeout,
   importScripts() {},
+  leapsGaEngine: require('./web/static/leaps_ga_engine.js'),
 };
 workerContext.self = workerContext;
 vm.createContext(workerContext);

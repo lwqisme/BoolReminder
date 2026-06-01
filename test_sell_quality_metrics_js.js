@@ -16,7 +16,8 @@ const globals = {
   postMessage() {},
   performance: { now: () => 0 },
   setTimeout,
-  importScripts() {},  // no-op for Node.js
+  importScripts() {},
+  leapsGaEngine: require('./web/static/leaps_ga_engine.js'),  // no-op for Node.js
 };
 globals.self = globals;
 const context = vm.createContext(globals);

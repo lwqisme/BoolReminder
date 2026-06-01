@@ -2,13 +2,8 @@ if (typeof importScripts !== 'undefined') {
   var engineV = '';
   try {
     engineV = new URL(self.location.href).searchParams.get('engine_v') || '';
-  } catch(e) { /* Node.js VM: no location */ }
+  } catch(e) {}
   importScripts('/static/leaps_ga_engine.js?v=' + (engineV || '1'));
-}
-
-// Ensure engine is available in Node.js test context too
-if (typeof leapsGaEngine === 'undefined' && typeof require !== 'undefined') {
-  try { var leapsGaEngine = require('./leaps_ga_engine.js'); } catch(e) {}
 }
 
 let paused = false;
