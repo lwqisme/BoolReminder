@@ -1758,7 +1758,9 @@ async function handleLeapsGa(message) {
     if (!seenKeys.has(ind.key)) { seenKeys.add(ind.key); population.push(ind); }
   }
 
+  const fit0Start = performance.now();
   let fitnesses = population.map(ind => leapsGaEngine.leapsFitnessFn(ind, priceSeriesBySymbol));
+  console.log('[leaps-ga] init_pop:', population.length, 'first_fitness:', Math.round(performance.now() - fit0Start) + 'ms');
   const snapshots = [];
   let bestIndividual = population[0];
   let bestFitness = fitnesses[0];
@@ -1796,6 +1798,7 @@ async function handleLeapsGa(message) {
 
     postMessage({ type: 'leaps_ga_progress', run_id, generation: gen + 1, total_generations: generations, best_fitness: genBest, avg_fitness: genAvg });
 
+    const breedStart = performance.now();
     const elites = population.slice(0, elitismCount);
     const nextPop = [...elites];
     while (nextPop.length < popSize) {
@@ -1807,7 +1810,12 @@ async function handleLeapsGa(message) {
     }
     population.length = 0;
     for (const ind of nextPop.slice(0, popSize)) population.push(ind);
+    const breedMs = Math.round(performance.now() - breedStart);
+
+    const fitStart = performance.now();
     fitnesses = population.map(ind => leapsGaEngine.leapsFitnessFn(ind, priceSeriesBySymbol));
+    const fitMs = Math.round(performance.now() - fitStart);
+    console.log('[leaps-ga] gen', gen + 1, 'breed:', breedMs + 'ms', 'fit:', fitMs + 'ms', 'best:', genBest.toFixed(1));
   }
 
   const rankedFinal = [...allEvaluated.entries()].sort((a, b) => b[1][1] - a[1][1]);
