@@ -717,6 +717,18 @@ def _collect_trade_details(
         for entry in entries:
             trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
                                          strike_price=entry.price * 1.10)
+            # Collect price series slice around this trade
+            all_dates = [entry.date] + [se.date for se in trade.sell_events]
+            if all_dates:
+                price_slice_start = min(all_dates) - timedelta(days=60)
+                price_slice_end = max(all_dates) + timedelta(days=30)
+                price_series = [
+                    {"date": d.isoformat(), "price": p}
+                    for d, p in prices
+                    if price_slice_start <= d <= price_slice_end
+                ]
+            else:
+                price_series = []
             trades.append({
                 "symbol": symbol,
                 "entry_date": entry.date.isoformat(),
@@ -732,6 +744,7 @@ def _collect_trade_details(
                 } for se in trade.sell_events],
                 "expired": trade.expired,
                 "total_roi_pct": trade.total_roi_pct,
+                "price_series": price_series,
             })
     return trades
 

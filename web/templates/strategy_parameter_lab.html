@@ -8592,37 +8592,39 @@
             var ctx = canvas.getContext('2d');
             var w = canvas.width, h = canvas.height;
             ctx.clearRect(0, 0, w, h);
+            // Light bg
+            ctx.fillStyle = '#fafafa';
+            ctx.fillRect(0, 0, w, h);
 
-            // Collect all price points from all trades
-            var allDates = [];
-            var allPrices = {};
             var entries = [];
             var sells = [];
+            var allPricePoints = [];  // all (date, price) for bounds
 
             for (var t = 0; t < trades.length; t++) {
                 var tr = trades[t];
-                var ed = tr.entry_date;
-                var ep = tr.entry_price;
-                allDates.push(ed);
-                allPrices[ed] = Math.max(allPrices[ed] || 0, ep);
-                entries.push({date: ed, price: ep, roi: tr.total_roi_pct, symbol: tr.symbol});
+                entries.push({date: tr.entry_date, price: tr.entry_price, roi: tr.total_roi_pct, symbol: tr.symbol, series: tr.price_series || []});
                 for (var s = 0; s < tr.sell_events.length; s++) {
                     var se = tr.sell_events[s];
-                    allDates.push(se.date);
-                    allPrices[se.date] = Math.max(allPrices[se.date] || 0, se.price);
                     sells.push({date: se.date, price: se.price, roi: se.roi_pct, pct: se.pct_sold});
+                }
+                var ps = tr.price_series || [];
+                for (var p = 0; p < ps.length; p++) {
+                    allPricePoints.push({date: ps[p].date, price: ps[p].price});
                 }
             }
 
-            allDates.sort();
-            if (!allDates.length) return;
-            var minDate = allDates[0], maxDate = allDates[allDates.length - 1];
-            var allVals = [];
-            for (var d = 0; d < allDates.length; d++) allVals.push(allPrices[allDates[d]]);
-            var minP = Math.min.apply(null, allVals);
-            var maxP = Math.max.apply(null, allVals);
+            if (!allPricePoints.length) return;
+            allPricePoints.sort(function(a, b) { return new Date(a.date) - new Date(b.date); });
+            var minDate = allPricePoints[0].date, maxDate = allPricePoints[allPricePoints.length - 1].date;
+            var minP = Infinity, maxP = -Infinity;
+            for (var pp = 0; pp < allPricePoints.length; pp++) {
+                if (allPricePoints[pp].price < minP) minP = allPricePoints[pp].price;
+                if (allPricePoints[pp].price > maxP) maxP = allPricePoints[pp].price;
+            }
             var range = Math.max(maxP - minP, 1);
-            var pad = 25;
+            minP -= range * 0.05; maxP += range * 0.05;
+            range = maxP - minP;
+            var pad = 30;
 
             function x(d) { return pad + ((new Date(d) - new Date(minDate)) / (new Date(maxDate) - new Date(minDate))) * (w - pad * 2); }
             function y(p) { return h - pad - ((p - minP) / range) * (h - pad * 2); }
@@ -8634,31 +8636,58 @@
                 ctx.beginPath(); ctx.moveTo(pad, gy); ctx.lineTo(w - pad, gy); ctx.stroke();
             }
 
+            // Price line per trade (different colors)
+            var colors = ['#6b7280', '#9ca3af', '#d1d5db'];
+            for (var t2 = 0; t2 < entries.length; t2++) {
+                var series = entries[t2].series;
+                if (!series || series.length < 2) continue;
+                ctx.strokeStyle = colors[t2 % colors.length];
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                for (var ps2 = 0; ps2 < series.length; ps2++) {
+                    var px = x(series[ps2].date), py = y(series[ps2].price);
+                    ps2 === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+                }
+                ctx.stroke();
+
+                // Symbol label on line
+                if (series.length) {
+                    var mid = series[Math.floor(series.length / 2)];
+                    ctx.fillStyle = colors[t2 % colors.length];
+                    ctx.font = '9px monospace';
+                    ctx.fillText(entries[t2].symbol, x(mid.date) + 3, y(mid.price) - 5);
+                }
+            }
+
             // Entry points (green)
             for (var e = 0; e < entries.length; e++) {
                 var ex = x(entries[e].date), ey = y(entries[e].price);
                 ctx.fillStyle = '#059669';
-                ctx.beginPath(); ctx.arc(ex, ey, 5, 0, Math.PI * 2); ctx.fill();
-                ctx.fillStyle = '#374151'; ctx.font = '9px monospace';
-                ctx.fillText(entries[e].symbol, ex + 7, ey - 7);
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+                ctx.beginPath(); ctx.arc(ex, ey, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
             }
 
             // Sell points (red, size by pct)
             for (var s2 = 0; s2 < sells.length; s2++) {
                 var sx = x(sells[s2].date), sy = y(sells[s2].price);
-                var r2 = 3 + (sells[s2].pct / 33) * 4;
-                ctx.fillStyle = 'rgba(220,38,38,0.8)';
-                ctx.beginPath(); ctx.arc(sx, sy, r2, 0, Math.PI * 2); ctx.fill();
+                var r2 = 3 + (sells[s2].pct / 33) * 5;
+                ctx.fillStyle = 'rgba(220,38,38,0.85)';
+                ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.arc(sx, sy, r2, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
                 ctx.fillStyle = '#dc2626'; ctx.font = '8px monospace';
-                ctx.fillText('+' + Math.round(sells[s2].roi) + '%', sx + r2 + 2, sy - 2);
+                ctx.fillText('+' + Math.round(sells[s2].roi) + '%', sx + r2 + 2, sy + 3);
             }
+
+            // Legend
+            ctx.fillStyle = '#059669'; ctx.font = '10px sans-serif'; ctx.fillText('● 买入', pad, 14);
+            ctx.fillStyle = '#dc2626'; ctx.fillText('● 卖出(+ROI%)', pad + 55, 14);
 
             // Trade detail text
             var detailDiv = document.getElementById(canvasId.replace('Canvas', 'Detail'));
             if (detailDiv) {
                 var detailHtml = '';
-                for (var t2 = 0; t2 < trades.length; t2++) {
-                    var tr2 = trades[t2];
+                for (var t3 = 0; t3 < trades.length; t3++) {
+                    var tr2 = trades[t3];
                     detailHtml += '<span style="color:var(--green);">●</span> ' + tr2.symbol + ' ' + tr2.entry_date +
                         ' 买入@' + tr2.entry_price.toFixed(1) + ' | ';
                     for (var s3 = 0; s3 < tr2.sell_events.length; s3++) {
