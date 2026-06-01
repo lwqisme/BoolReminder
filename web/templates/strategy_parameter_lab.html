@@ -8684,29 +8684,36 @@
                 var tr = trades[t];
                 var series = tr.price_series || [];
 
-                // Price line
+                // Price line (with hover tooltips)
                 if (series.length) {
                     var px = series.map(function(pt) { return pt.date; });
                     var py = series.map(function(pt) { return pt.price; });
+                    var priceHover = series.map(function(pt) {
+                        return pt.date + '<br>价格: ' + pt.price.toFixed(2) +
+                            (pt.bollinger_lower != null ? '<br>布林下轨: ' + pt.bollinger_lower.toFixed(2) : '');
+                    });
                     traces.push({
                         x: px, y: py, type: 'scatter', mode: 'lines',
                         name: tr.symbol + ' 价格',
+                        text: priceHover, hoverinfo: 'text',
                         line: { color: '#6b7280', width: 1.5 },
                         showlegend: t === 0,
                     });
 
-                    // Bollinger band
-                    var bbX = [], bbY = [];
+                    // Bollinger band (with hover tooltips)
+                    var bbX = [], bbY = [], bbHover = [];
                     for (var s = 0; s < series.length; s++) {
                         if (series[s].bollinger_lower != null) {
                             bbX.push(series[s].date);
                             bbY.push(series[s].bollinger_lower);
+                            bbHover.push(series[s].date + '<br>布林下轨: ' + series[s].bollinger_lower.toFixed(2));
                         }
                     }
                     if (bbX.length) {
                         traces.push({
                             x: bbX, y: bbY, type: 'scatter', mode: 'lines',
                             name: tr.symbol + ' 布林下轨',
+                            text: bbHover, hoverinfo: 'text',
                             line: { color: '#3b82f6', width: 1, dash: 'dash' },
                             showlegend: t === 0,
                         });
@@ -8723,7 +8730,7 @@
                     var se = tr.sell_events[s2];
                     sellX.push(se.date);
                     sellY.push(se.price);
-                    sellText.push('卖' + se.pct_sold + '% ROI: +' + Math.round(se.roi_pct) + '%');
+                    sellText.push('卖' + se.pct_sold + '%<br>价格: ' + se.price.toFixed(2) + '<br>ROI: +' + Math.round(se.roi_pct) + '%');
                     sellSizes.push(Math.max(6, (se.pct_sold / 50) * 14));
                 }
 
