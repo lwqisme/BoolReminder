@@ -7030,8 +7030,23 @@
             autoSaveTimer = setTimeout(() => {
                 try {
                     const payload = parameterLabPayload();
+                    // LEAPS GA fields
+                    const leapsGa = {};
+                    ['leapsGaSymbols','leapsGaStart','leapsGaEnd','leapsGaPopSize','leapsGaGenerations',
+                     'leapsGaMutationRate','leapsGaCrossoverRate','leapsGaSeed'].forEach(function(id) {
+                        var el = document.getElementById(id); if (el) leapsGa[id] = el.value;
+                    });
+                    // LEAPS GA ranges
+                    var rangePrefixes = ['DD','S1D','S1P','S1S','S2D','S2P','S2S'];
+                    rangePrefixes.forEach(function(pfx) {
+                        var mn = document.getElementById('leapsGaRange'+pfx+'_min');
+                        var mx = document.getElementById('leapsGaRange'+pfx+'_max');
+                        if (mn) leapsGa['leapsGaRange'+pfx+'_min'] = mn.value;
+                        if (mx) leapsGa['leapsGaRange'+pfx+'_max'] = mx.value;
+                    });
                     const saveData = {
                         payload,
+                        leapsGa,
                         customParameterValues: JSON.parse(JSON.stringify(customParameterValues))
                     };
                     localStorage.setItem(AUTO_SAVE_KEY, JSON.stringify(saveData));
@@ -7116,13 +7131,29 @@
                 if (payload.ga_continuous_mutation) { const el = document.getElementById('gaContinuousMutation'); if (el) el.value = payload.ga_continuous_mutation; }
                 if (payload.ga_sigma_ratio !== undefined) { const el = document.getElementById('gaSigmaRatio'); if (el) el.value = payload.ga_sigma_ratio; }
                 if (payload.ga_custom_bounds) { restoreGaCustomBounds(payload.ga_custom_bounds); }
+                // LEAPS GA fields
+                var leapsGa = saved.leapsGa || {};
+                Object.keys(leapsGa).forEach(function(id) {
+                    var el = document.getElementById(id); if (el) el.value = leapsGa[id];
+                });
                 renderCandidateGridSummary();
                 return true;
             } catch (error) { return false; }
         }
 
         function initAutoSaveListeners() {
-            const saveIds = ['start', 'end', 'initialCash', 'monthlyContribution', 'maxDrawdown', 'stepPct', 'equalSliceAllocation', 'tradeFee', 'hkdToUsd', 'reservePosition', 'sellMinProfit', 'repairSellCooldown', 'repairStageSellPct', 'dcaRearmDrawdown', 'sellStageRearmDrawdown', 'gridReboundStep', 'gridSellPct', 'gridMinSellAmount', 'gridReboundCycleReset', 'costFirstProfitPct', 'costSecondProfitPct', 'costThirdProfitPct', 'costFirstSellPct', 'costSecondSellPct', 'costThirdSellPct', 'costDeleverageCooldown', 'costMinSellAmount', 'coreDipInitialCorePct', 'coreDipWeeklyCorePct', 'coreDipCashReservePct', 'coreDipStartDrawdownPct', 'coreDipFullDrawdownPct', 'coreDipTimingMaxDelayDays', 'coreDipTimingRiseThresholdPct', 'coreDipTimingNearLowPct', 'leapsLowCashThreshold', 'leapsMinDrawdown', 'leapsPremiumBudgetCap', 'leapsTargetDteLabel', 'leapsDrawdownGatePct', 'workerCount', 'drawdownBasis', 'coreDipTimingEnabled', 'coreDipTimingFilter', 'sellQualityWeightPct'];
+            const saveIds = ['start', 'end', 'initialCash', 'monthlyContribution', 'maxDrawdown', 'stepPct', 'equalSliceAllocation', 'tradeFee', 'hkdToUsd', 'reservePosition', 'sellMinProfit', 'repairSellCooldown', 'repairStageSellPct', 'dcaRearmDrawdown', 'sellStageRearmDrawdown', 'gridReboundStep', 'gridSellPct', 'gridMinSellAmount', 'gridReboundCycleReset', 'costFirstProfitPct', 'costSecondProfitPct', 'costThirdProfitPct', 'costFirstSellPct', 'costSecondSellPct', 'costThirdSellPct', 'costDeleverageCooldown', 'costMinSellAmount', 'coreDipInitialCorePct', 'coreDipWeeklyCorePct', 'coreDipCashReservePct', 'coreDipStartDrawdownPct', 'coreDipFullDrawdownPct', 'coreDipTimingMaxDelayDays', 'coreDipTimingRiseThresholdPct', 'coreDipTimingNearLowPct', 'leapsLowCashThreshold', 'leapsMinDrawdown', 'leapsPremiumBudgetCap', 'leapsTargetDteLabel', 'leapsDrawdownGatePct', 'workerCount', 'drawdownBasis', 'coreDipTimingEnabled', 'coreDipTimingFilter', 'sellQualityWeightPct',
+                // LEAPS GA
+                'leapsGaSymbols', 'leapsGaStart', 'leapsGaEnd', 'leapsGaPopSize', 'leapsGaGenerations',
+                'leapsGaMutationRate', 'leapsGaCrossoverRate', 'leapsGaSeed',
+                'leapsGaRangeDD_min', 'leapsGaRangeDD_max',
+                'leapsGaRangeS1D_min', 'leapsGaRangeS1D_max',
+                'leapsGaRangeS1P_min', 'leapsGaRangeS1P_max',
+                'leapsGaRangeS1S_min', 'leapsGaRangeS1S_max',
+                'leapsGaRangeS2D_min', 'leapsGaRangeS2D_max',
+                'leapsGaRangeS2P_min', 'leapsGaRangeS2P_max',
+                'leapsGaRangeS2S_min', 'leapsGaRangeS2S_max',
+            ];
             saveIds.forEach((id) => {
                 const el = document.getElementById(id);
                 if (el) { el.addEventListener('input', autoSaveParameterLabDefaults); el.addEventListener('change', autoSaveParameterLabDefaults); }
