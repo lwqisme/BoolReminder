@@ -703,6 +703,39 @@ def leaps_fitness_fn(
     return 0.5 * median + 0.3 * p25 + 0.2 * p75
 
 
+def _collect_trade_details(
+    individual: LeapsIndividual,
+    price_series_by_symbol: dict[str, list[tuple[date, float]]],
+) -> list[dict[str, object]]:
+    """Collect all trades for an individual across all symbols."""
+    trades: list[dict[str, object]] = []
+    for symbol, prices in price_series_by_symbol.items():
+        entries = detect_leaps_entries(
+            prices, individual.drawdown_threshold_pct, individual.entry_mode,
+        )
+        stages = individual.to_stages()
+        for entry in entries:
+            trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
+                                         strike_price=entry.price * 1.10)
+            trades.append({
+                "symbol": symbol,
+                "entry_date": entry.date.isoformat(),
+                "entry_price": entry.price,
+                "drawdown_pct": entry.drawdown_pct,
+                "bollinger_score": entry.bollinger_score,
+                "composite_score": entry.composite_score,
+                "sell_events": [{
+                    "date": se.date.isoformat(),
+                    "price": se.price,
+                    "pct_sold": se.pct_sold,
+                    "roi_pct": se.roi_pct,
+                } for se in trade.sell_events],
+                "expired": trade.expired,
+                "total_roi_pct": trade.total_roi_pct,
+            })
+    return trades
+
+
 def _enforce_day_order(d1: int, d2: int, ranges: LeapsParamRanges | None = None) -> tuple[int, int]:
     """Ensure stage1_days < stage2_days within ranges."""
     r = ranges or LeapsParamRanges()
@@ -841,12 +874,15 @@ def evolve_leaps_parameters(
     ranked_final = sorted(all_evaluated.items(), key=lambda x: x[1][1], reverse=True)
     final_rows: list[dict[str, object]] = []
     for rank, (key, (ind, fit)) in enumerate(ranked_final, start=1):
-        final_rows.append({
+        row: dict[str, object] = {
             "rank": rank,
             "key": ind.key,
             "fitness": fit,
             **ind.to_params_dict(),
-        })
+        }
+        if rank <= 10:
+            row["trade_details"] = _collect_trade_details(ind, price_series_by_symbol)
+        final_rows.append(row)
 
     return {
         "config": {
