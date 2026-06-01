@@ -83,6 +83,10 @@ from drawdown.leaps_option_outcomes import (
     skipped_outcome,
     summarize_outcomes,
 )
+from drawdown.leaps_option_ga import (
+    LeapsEvolutionConfig,
+    evolve_leaps_parameters,
+)
 from trade_sync.cleanup import run_trade_sync_cleanup
 from trade_sync.normalize import canonical_symbol, normalize_trade_rows
 from trade_sync.store import (
@@ -10431,6 +10435,104 @@ def api_strategy_lab_parameter_lab_leaps_option_outcomes_batch():
         cache_stats=cache_stats,
     )
     return response
+
+
+@app.route('/api/strategy-lab/parameter-lab/leaps-ga-evolve', methods=['POST'])
+def api_strategy_lab_parameter_lab_leaps_ga_evolve():
+    """Server-side LEAPS GA evolution."""
+    from datetime import date as date_cls, timedelta
+    from drawdown.position_strategy import (
+        build_longbridge_quote_context,
+        build_price_points_from_series,
+        candle_datetime,
+        fetch_longbridge_daily_candles,
+    )
+
+    payload = request.get_json(silent=True) or {}
+    started = time.perf_counter()
+    run_id = str(payload.get("run_id") or "").strip()
+
+    try:
+        # Parse inputs
+        raw_symbols = payload.get("symbols")
+        if not isinstance(raw_symbols, list) or not raw_symbols:
+            return _json_error("symbols 必须是字符串数组", 400)
+        symbols = [str(s) for s in raw_symbols]
+
+        start_str = str(payload.get("start") or "")
+        end_str = str(payload.get("end") or "")
+        if not start_str or not end_str:
+            return _json_error("start 和 end 日期必填", 400)
+        start_date = date_cls.fromisoformat(start_str)
+        end_date = date_cls.fromisoformat(end_str)
+
+        # GA config
+        ga_config = LeapsEvolutionConfig(
+            population_size=int(payload.get("population_size") or 30),
+            generations=int(payload.get("generations") or 15),
+            mutation_rate=float(payload.get("mutation_rate") or 0.15),
+            crossover_rate=float(payload.get("crossover_rate") or 0.80),
+            elitism_count=int(payload.get("elitism_count") or 3),
+            tournament_size=int(payload.get("tournament_size") or 4),
+            seed=int(payload["seed"]) if payload.get("seed") is not None else None,
+        )
+
+        # Fetch price data
+        quote_ctx = build_longbridge_quote_context()
+        warmup = timedelta(days=365)
+        fetch_start = start_date - warmup
+        price_series_by_symbol: dict[str, list[tuple[date_cls, float]]] = {}
+        failed_symbols: list[str] = []
+
+        for symbol in symbols:
+            candles = fetch_longbridge_daily_candles(quote_ctx, symbol, fetch_start, end_date)
+            if not candles:
+                failed_symbols.append(symbol)
+                continue
+            series = [(candle_datetime(c).replace(tzinfo=None), float(c.close)) for c in candles]
+            pts = build_price_points_from_series(series)
+            price_series_by_symbol[symbol] = pts
+
+        if not price_series_by_symbol:
+            return _json_error("所有标的都无数据", 400)
+
+        # Run evolution
+        _parameter_lab_log(
+            "leaps_ga_evolve_start",
+            run_id=run_id,
+            symbols=symbols,
+            population_size=ga_config.population_size,
+            generations=ga_config.generations,
+            price_series_count=len(price_series_by_symbol),
+        )
+
+        result = evolve_leaps_parameters(price_series_by_symbol, ga_config)
+
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+        best = result.get("best") if isinstance(result.get("best"), dict) else {}
+
+        _parameter_lab_log(
+            "leaps_ga_evolve_done",
+            run_id=run_id,
+            elapsed_ms=elapsed_ms,
+            best_fitness=best.get("fitness"),
+            total_evaluated=result.get("total_evaluated"),
+            failed_symbols=failed_symbols,
+        )
+
+        return _json_response_with_optional_gzip({
+            "success": True,
+            "run_id": run_id,
+            "result": result,
+            "failed_symbols": failed_symbols,
+            "elapsed_ms": elapsed_ms,
+        })
+
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        _parameter_lab_error("leaps_ga_evolve_error", message=str(exc), stack=traceback.format_exc())
+        return _json_error(f"LEAPS GA 进化失败: {exc}", 500)
 
 
 @app.route('/api/strategy-lab/jobs/<job_id>', methods=['GET'])
