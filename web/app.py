@@ -85,6 +85,7 @@ from drawdown.leaps_option_outcomes import (
 )
 from drawdown.leaps_option_ga import (
     LeapsEvolutionConfig,
+    LeapsParamRanges,
     evolve_leaps_parameters,
 )
 from trade_sync.cleanup import run_trade_sync_cleanup
@@ -10510,7 +10511,8 @@ def api_strategy_lab_parameter_lab_leaps_ga_evolve():
             price_series_count=len(price_series_by_symbol),
         )
 
-        result = evolve_leaps_parameters(price_series_by_symbol, ga_config)
+        param_ranges = LeapsParamRanges.from_dict(payload.get("param_ranges"))
+        result = evolve_leaps_parameters(price_series_by_symbol, ga_config, param_ranges)
 
         elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
         best = result.get("best") if isinstance(result.get("best"), dict) else {}

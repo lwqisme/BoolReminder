@@ -414,7 +414,7 @@ class LeapsGATest(unittest.TestCase):
         """After mutation, stage constraints still hold."""
         ind = self._make_individual(stage1_days=20, stage1_profit=80.0,
                                      stage2_days=60, stage2_profit=60.0)
-        config = LeapsEvolutionConfig(mutation_rate=1.0)  # force mutation
+        config = LeapsEvolutionConfig(mutation_rate=1.0)
         mutant = leaps_mutate(ind, config)
         self.assertLess(mutant.stage1_days, mutant.stage2_days)
         self.assertGreater(mutant.stage1_profit, mutant.stage2_profit)

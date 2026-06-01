@@ -1868,6 +1868,32 @@
                             <input id="leapsGaSeed" type="number" step="1" placeholder="空=随机" style="width:100px;">
                         </label>
                     </div>
+                    <details style="margin-top:8px;">
+                        <summary style="cursor:pointer;font-weight:900;font-size:12px;">参数范围 (留空=默认)</summary>
+                        <div class="field-grid" style="margin-top:6px;">
+                            <label>回撤阈值% 范围
+                                <span style="display:flex;gap:4px;"><input id="leapsGaRangeDD_min" type="number" step="5" placeholder="10" style="width:56px;"><input id="leapsGaRangeDD_max" type="number" step="5" placeholder="30" style="width:56px;"></span>
+                            </label>
+                            <label>S1持有天数 范围
+                                <span style="display:flex;gap:4px;"><input id="leapsGaRangeS1D_min" type="number" step="1" placeholder="10" style="width:56px;"><input id="leapsGaRangeS1D_max" type="number" step="1" placeholder="30" style="width:56px;"></span>
+                            </label>
+                            <label>S1涨幅% 范围
+                                <span style="display:flex;gap:4px;"><input id="leapsGaRangeS1P_min" type="number" step="5" placeholder="60" style="width:56px;"><input id="leapsGaRangeS1P_max" type="number" step="5" placeholder="120" style="width:56px;"></span>
+                            </label>
+                            <label>S1卖仓% 范围
+                                <span style="display:flex;gap:4px;"><input id="leapsGaRangeS1S_min" type="number" step="5" placeholder="30" style="width:56px;"><input id="leapsGaRangeS1S_max" type="number" step="5" placeholder="70" style="width:56px;"></span>
+                            </label>
+                            <label>S2持有天数 范围
+                                <span style="display:flex;gap:4px;"><input id="leapsGaRangeS2D_min" type="number" step="1" placeholder="30" style="width:56px;"><input id="leapsGaRangeS2D_max" type="number" step="1" placeholder="90" style="width:56px;"></span>
+                            </label>
+                            <label>S2涨幅% 范围
+                                <span style="display:flex;gap:4px;"><input id="leapsGaRangeS2P_min" type="number" step="5" placeholder="40" style="width:56px;"><input id="leapsGaRangeS2P_max" type="number" step="5" placeholder="100" style="width:56px;"></span>
+                            </label>
+                            <label>S2卖仓% 范围
+                                <span style="display:flex;gap:4px;"><input id="leapsGaRangeS2S_min" type="number" step="5" placeholder="30" style="width:56px;"><input id="leapsGaRangeS2S_max" type="number" step="5" placeholder="70" style="width:56px;"></span>
+                            </label>
+                        </div>
+                    </details>
                     <div style="margin-top:10px;display:flex;gap:8px;align-items:center;">
                         <button id="leapsGaRunBtn" onclick="runLeapsGa()" class="primary">🚀 开始进化</button>
                         <span id="leapsGaStatus" style="color:var(--muted);font-size:13px;"></span>
@@ -8356,6 +8382,26 @@
             }
 
             var seedVal = document.getElementById('leapsGaSeed').value.trim();
+
+            // Collect param ranges
+            function rangeVal(minId, maxId) {
+                var mn = document.getElementById(minId).value.trim();
+                var mx = document.getElementById(maxId).value.trim();
+                if (!mn && !mx) return null;
+                return [mn ? parseFloat(mn) : null, mx ? parseFloat(mx) : null];
+            }
+            var paramRanges = {
+                drawdown_threshold_pct: rangeVal('leapsGaRangeDD_min', 'leapsGaRangeDD_max'),
+                stage1_days: rangeVal('leapsGaRangeS1D_min', 'leapsGaRangeS1D_max'),
+                stage1_profit: rangeVal('leapsGaRangeS1P_min', 'leapsGaRangeS1P_max'),
+                stage1_sell: rangeVal('leapsGaRangeS1S_min', 'leapsGaRangeS1S_max'),
+                stage2_days: rangeVal('leapsGaRangeS2D_min', 'leapsGaRangeS2D_max'),
+                stage2_profit: rangeVal('leapsGaRangeS2P_min', 'leapsGaRangeS2P_max'),
+                stage2_sell: rangeVal('leapsGaRangeS2S_min', 'leapsGaRangeS2S_max'),
+            };
+            // Remove null entries
+            for (var k in paramRanges) { if (!paramRanges[k]) delete paramRanges[k]; }
+
             var payload = {
                 run_id: 'leaps-ga-' + Date.now(),
                 symbols: symbols,
@@ -8366,6 +8412,7 @@
                 mutation_rate: parseFloat(document.getElementById('leapsGaMutationRate').value) || 0.15,
                 crossover_rate: parseFloat(document.getElementById('leapsGaCrossoverRate').value) || 0.80,
                 seed: seedVal ? parseInt(seedVal) : null,
+                param_ranges: Object.keys(paramRanges).length ? paramRanges : undefined,
             };
 
             leapsGaTimerStart = Date.now();

@@ -550,6 +550,46 @@ class LeapsEvolutionConfig:
             self.tournament_size = max(2, self.population_size // 10)
 
 
+@dataclass
+class LeapsParamRanges:
+    """Custom parameter ranges for LEAPS GA evolution."""
+    drawdown_threshold_pct: tuple[float, float] = (10.0, 30.0)
+    stage1_days: tuple[int, int] = (10, 30)
+    stage2_days: tuple[int, int] = (30, 90)
+    stage1_profit: tuple[float, float] = (60.0, 120.0)
+    stage2_profit: tuple[float, float] = (40.0, 100.0)
+    stage1_sell: tuple[float, float] = (30.0, 70.0)
+    stage2_sell: tuple[float, float] = (30.0, 70.0)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, list] | None) -> "LeapsParamRanges":
+        """Create from {param_name: [min, max]} dict, using defaults for missing."""
+        if not d:
+            return cls()
+        kwargs = {}
+        for field_name in ["drawdown_threshold_pct", "stage1_days", "stage2_days",
+                           "stage1_profit", "stage2_profit", "stage1_sell", "stage2_sell"]:
+            val = d.get(field_name)
+            if isinstance(val, list) and len(val) == 2:
+                lo = val[0] if val[0] is not None else getattr(cls(), field_name)[0]
+                hi = val[1] if val[1] is not None else getattr(cls(), field_name)[1]
+                kwargs[field_name] = (float(lo), float(hi))
+        return cls(**{k: kwargs.get(k, getattr(cls(), k)) for k in [
+            "drawdown_threshold_pct", "stage1_days", "stage2_days",
+            "stage1_profit", "stage2_profit", "stage1_sell", "stage2_sell",
+        ]})
+
+
+def _dd_options(ranges: LeapsParamRanges) -> list[float]:
+    lo, hi = ranges.drawdown_threshold_pct
+    vals = []
+    v = lo
+    while v <= hi + 0.01:
+        vals.append(round(v, 1))
+        v += 5.0
+    return vals or [lo]
+
+
 def leaps_crossover(parent1: LeapsIndividual, parent2: LeapsIndividual) -> LeapsIndividual:
     """Uniform crossover: each gene from parent1 or parent2 randomly."""
     def pick(f1, f2):
@@ -575,8 +615,14 @@ def leaps_crossover(parent1: LeapsIndividual, parent2: LeapsIndividual) -> Leaps
     )
 
 
-def leaps_mutate(individual: LeapsIndividual, config: LeapsEvolutionConfig) -> LeapsIndividual:
+def leaps_mutate(
+    individual: LeapsIndividual,
+    config: LeapsEvolutionConfig,
+    ranges: LeapsParamRanges | None = None,
+) -> LeapsIndividual:
     """Mutate random genes, preserving stage constraints."""
+    r = ranges or LeapsParamRanges()
+    dd_opts = _dd_options(r)
     dd = individual.drawdown_threshold_pct
     mode = individual.entry_mode
     s1d = individual.stage1_days
@@ -587,21 +633,21 @@ def leaps_mutate(individual: LeapsIndividual, config: LeapsEvolutionConfig) -> L
     s2s = individual.stage2_sell
 
     if random.random() < config.mutation_rate:
-        dd = random.choice(_DRAWDOWN_THRESHOLD_OPTIONS)
+        dd = random.choice(dd_opts)
     if random.random() < config.mutation_rate:
         mode = random.choice(_ENTRY_MODE_OPTIONS)
     if random.random() < config.mutation_rate:
-        s1d = random.randint(*_STAGE1_DAYS_RANGE)
+        s1d = random.randint(int(r.stage1_days[0]), int(r.stage1_days[1]))
     if random.random() < config.mutation_rate:
-        s1p = round(random.uniform(*_STAGE1_PROFIT_RANGE), 0)
+        s1p = round(random.uniform(*r.stage1_profit), 0)
     if random.random() < config.mutation_rate:
-        s1s = round(random.uniform(*_SELL_PCT_RANGE), 0)
+        s1s = round(random.uniform(*r.stage1_sell), 0)
     if random.random() < config.mutation_rate:
-        s2d = random.randint(*_STAGE2_DAYS_RANGE)
+        s2d = random.randint(int(r.stage2_days[0]), int(r.stage2_days[1]))
     if random.random() < config.mutation_rate:
-        s2p = round(random.uniform(*_STAGE2_PROFIT_RANGE), 0)
+        s2p = round(random.uniform(*r.stage2_profit), 0)
     if random.random() < config.mutation_rate:
-        s2s = round(random.uniform(*_SELL_PCT_RANGE), 0)
+        s2s = round(random.uniform(*r.stage2_sell), 0)
 
     s1d, s2d = _enforce_day_order(s1d, s2d)
     s1p, s2p = _enforce_profit_order(s1p, s2p)
@@ -657,38 +703,44 @@ def leaps_fitness_fn(
     return 0.5 * median + 0.3 * p25 + 0.2 * p75
 
 
-def _enforce_day_order(d1: int, d2: int) -> tuple[int, int]:
-    """Ensure stage1_days < stage2_days."""
+def _enforce_day_order(d1: int, d2: int, ranges: LeapsParamRanges | None = None) -> tuple[int, int]:
+    """Ensure stage1_days < stage2_days within ranges."""
+    r = ranges or LeapsParamRanges()
+    s1_hi = int(r.stage1_days[1])
+    s2_hi = int(r.stage2_days[1])
     if d1 >= d2:
         d2 = d1 + random.randint(10, 30)
-        if d2 > _STAGE2_DAYS_RANGE[1]:
-            d2 = _STAGE2_DAYS_RANGE[1]
+        if d2 > s2_hi:
+            d2 = s2_hi
             d1 = d2 - random.randint(10, 20)
     return d1, d2
 
 
-def _enforce_profit_order(p1: float, p2: float) -> tuple[float, float]:
-    """Ensure stage1_profit > stage2_profit."""
+def _enforce_profit_order(p1: float, p2: float, ranges: LeapsParamRanges | None = None) -> tuple[float, float]:
+    """Ensure stage1_profit > stage2_profit within ranges."""
+    r = ranges or LeapsParamRanges()
+    s1_hi = r.stage1_profit[1]
     if p1 <= p2:
         p1 = p2 + random.uniform(10.0, 30.0)
-        if p1 > _STAGE1_PROFIT_RANGE[1]:
-            p1 = _STAGE1_PROFIT_RANGE[1]
+        if p1 > s1_hi:
+            p1 = s1_hi
             p2 = p1 - random.uniform(10.0, 30.0)
     return p1, p2
 
 
-def _random_individual() -> LeapsIndividual:
+def _random_individual(ranges: LeapsParamRanges | None = None) -> LeapsIndividual:
     """Create a random valid LEAPS individual."""
-    dd = random.choice(_DRAWDOWN_THRESHOLD_OPTIONS)
+    r = ranges or LeapsParamRanges()
+    dd = random.choice(_dd_options(r))
     mode = random.choice(_ENTRY_MODE_OPTIONS)
-    s1d = random.randint(*_STAGE1_DAYS_RANGE)
-    s2d = random.randint(*_STAGE2_DAYS_RANGE)
-    s1p = round(random.uniform(*_STAGE1_PROFIT_RANGE), 0)
-    s2p = round(random.uniform(*_STAGE2_PROFIT_RANGE), 0)
-    s1s = round(random.uniform(*_SELL_PCT_RANGE), 0)
-    s2s = round(random.uniform(*_SELL_PCT_RANGE), 0)
-    s1d, s2d = _enforce_day_order(s1d, s2d)
-    s1p, s2p = _enforce_profit_order(s1p, s2p)
+    s1d = random.randint(int(r.stage1_days[0]), int(r.stage1_days[1]))
+    s2d = random.randint(int(r.stage2_days[0]), int(r.stage2_days[1]))
+    s1p = round(random.uniform(*r.stage1_profit), 0)
+    s2p = round(random.uniform(*r.stage2_profit), 0)
+    s1s = round(random.uniform(*r.stage1_sell), 0)
+    s2s = round(random.uniform(*r.stage2_sell), 0)
+    s1d, s2d = _enforce_day_order(s1d, s2d, r)
+    s1p, s2p = _enforce_profit_order(s1p, s2p, r)
     return LeapsIndividual(
         drawdown_threshold_pct=dd, entry_mode=mode,
         stage1_days=s1d, stage1_profit=s1p, stage1_sell=s1s,
@@ -709,17 +761,20 @@ def _tournament_select(
 def evolve_leaps_parameters(
     price_series_by_symbol: dict[str, list[tuple[date, float]]],
     config: LeapsEvolutionConfig | None = None,
+    param_ranges: LeapsParamRanges | None = None,
 ) -> dict[str, object]:
     """Run genetic algorithm to optimize LEAPS call parameters.
 
     Args:
         price_series_by_symbol: Symbol → list of (date, price) tuples.
         config: GA hyperparameters.
+        param_ranges: Custom parameter ranges for evolution.
 
     Returns:
         Dict with "best", "final_population", "snapshots", "config".
     """
     config = config or LeapsEvolutionConfig()
+    ranges = param_ranges or LeapsParamRanges()
     if config.seed is not None:
         random.seed(config.seed)
 
@@ -727,7 +782,7 @@ def evolve_leaps_parameters(
     seen_keys: set[str] = set()
     population: list[LeapsIndividual] = []
     while len(population) < config.population_size:
-        ind = _random_individual()
+        ind = _random_individual(ranges)
         if ind.key not in seen_keys:
             seen_keys.add(ind.key)
             population.append(ind)
@@ -777,7 +832,7 @@ def evolve_leaps_parameters(
             else:
                 child = p1
 
-            child = leaps_mutate(child, config)
+            child = leaps_mutate(child, config, ranges)
             next_population.append(child)
 
         population = next_population[:config.population_size]
