@@ -10792,6 +10792,7 @@ def _send_leaps_signal_email(results: list[dict[str, object]]) -> dict[str, obje
         smtp_port=email_config["smtp_port"],
         smtp_user=email_config["smtp_user"],
         smtp_password=email_config["smtp_password"],
+        from_email=email_config.get("from_email", ""),
     )
 
     # Build email body
