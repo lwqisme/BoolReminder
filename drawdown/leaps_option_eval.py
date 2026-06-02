@@ -17,6 +17,7 @@ from drawdown.leaps_option_ga import (
     LeapsParamRanges,
     LeapsSellEvent,
     LeapsTrade,
+    _bs_call_price,
     _dd_options,
     _enforce_day_order,
     _enforce_profit_order,
@@ -183,8 +184,15 @@ def _eval_unlimited_capital(
         }
 
     geo_product = 1.0
+    total_opt_cost = 0.0
+    total_opt_revenue = 0.0
     for t in all_trades:
         geo_product *= (1.0 + t.total_roi_pct / 100.0)
+        opt_entry = _bs_call_price(
+            t.entry.price, t.entry.price * 1.10, 190.0 / 365.0, 0.05, 0.40,
+        )
+        total_opt_cost += opt_entry
+        total_opt_revenue += opt_entry * (1.0 + t.total_roi_pct / 100.0)
 
     years = max((all_trades[-1].entry.date - all_trades[0].entry.date).days / 365.0, 0.5)
     annualized = geo_product ** (1.0 / years) - 1.0
@@ -195,6 +203,8 @@ def _eval_unlimited_capital(
         "annualized_geo": round(annualized * 100.0, 2),
         "total_return_pct": round(total_return, 2),
         "trade_count": len(all_trades),
+        "total_opt_cost": round(total_opt_cost, 4),
+        "total_opt_revenue": round(total_opt_revenue, 4),
     }
 
 
@@ -408,6 +418,8 @@ def evolve_leaps_parameters(
                     "total_return_pct": eval_result["total_return_pct"],
                     "trade_count": eval_result["trade_count"],
                     "annualized_geo": eval_result.get("annualized_geo", 0.0),
+                    "total_opt_cost": eval_result.get("total_opt_cost", 0.0),
+                    "total_opt_revenue": eval_result.get("total_opt_revenue", 0.0),
                 }
 
         total_roi = leaps_total_roi(ind, price_series_by_symbol, capital_mode, total_capital)
@@ -426,6 +438,9 @@ def evolve_leaps_parameters(
         else:
             row["annualized_geo"] = cached.get("annualized_geo", 0.0)
             row["trade_count"] = cached.get("trade_count", 0)
+            total_cost = cached.get("total_opt_cost", 0.0)
+            total_rev = cached.get("total_opt_revenue", 0.0)
+            row["input_output_ratio"] = round(total_rev / total_cost, 4) if total_cost > 0 else 0.0
         if rank <= 10:
             # Pass cached result to avoid recomputation
             cache_for_collect = {_EVAL_RESULT_KEY: cached} if cached else None

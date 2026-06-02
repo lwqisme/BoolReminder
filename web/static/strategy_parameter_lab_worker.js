@@ -1850,6 +1850,9 @@ async function handleLeapsGa(message) {
       const unlResult = leapsGaEngine._leapsEvalUnlimited(ind, parsed);
       row.annualized_geo = unlResult.annualized_geo;
       row.trade_count = unlResult.trade_count;
+      const tc = unlResult.total_opt_cost || 0;
+      const tr = unlResult.total_opt_revenue || 0;
+      row.input_output_ratio = tc > 0 ? Math.round(tr / tc * 1e4) / 1e4 : 0;
     }
     if (rank < 10) {
       row.trade_details = collectLeapsTradeDetails(ind, parsed, {

@@ -8648,7 +8648,7 @@
             if (capitalMode2 === 'fixed') {
                 headerCells = ['', '排名', '适应度', '总收益%', '最终净值$', 'CAGR%', '最大回撤%', '交易笔数', '模式', '仓位%', '冷却天', 'S1天', 'S1利%', 'S2天', 'S2利%'];
             } else {
-                headerCells = ['', '排名', '适应度', '总收益%', '年化几何%', '交易笔数', '模式', '仓位%', '冷却天', 'S1天', 'S1利%', 'S2天', 'S2利%'];
+                headerCells = ['', '排名', '适应度', '总收益%', '年化几何%', '投入产出比', '交易笔数', '模式', '仓位%', '冷却天', 'S1天', 'S1利%', 'S2天', 'S2利%'];
             }
             var headerHtml = headerCells.map(function(c) { return '<th>' + c + '</th>'; }).join('');
             var bodyHtml = '';
@@ -8677,6 +8677,7 @@
                 } else {
                     bodyHtml +=
                     '<td style="font-family:var(--mono);">' + (r.annualized_geo != null ? r.annualized_geo.toFixed(2) + '%' : '-') + '</td>' +
+                    '<td style="font-family:var(--mono);">' + (r.input_output_ratio != null ? r.input_output_ratio.toFixed(2) + '×' : '-') + '</td>' +
                     '<td>' + (r.trade_count != null ? r.trade_count : '-') + '</td>' +
                     '<td>' + r.entry_mode + '</td>' +
                     '<td>' + (r.position_pct != null ? r.position_pct : '-') + '</td>' +

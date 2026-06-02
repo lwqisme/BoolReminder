@@ -489,12 +489,18 @@ function _addDays(dateStr, days) {
 function _leapsEvalUnlimited(individual, priceSeriesBySymbol) {
   const allTrades = _leapsEvalTrades(individual, priceSeriesBySymbol);
   if (!allTrades.length) {
-    return { geo_product: 1, annualized_geo: 0, total_return_pct: 0, trade_count: 0 };
+    return { geo_product: 1, annualized_geo: 0, total_return_pct: 0, trade_count: 0,
+      total_opt_cost: 0, total_opt_revenue: 0 };
   }
 
   let geoProduct = 1;
+  let totalOptCost = 0;
+  let totalOptRevenue = 0;
   for (const t of allTrades) {
     geoProduct *= (1 + t.total_roi_pct / 100);
+    const optEntry = bsCallPrice(t.entry.price, t.entry.price * 1.1, 190 / 365, 0.05, 0.40);
+    totalOptCost += optEntry;
+    totalOptRevenue += optEntry * (1 + t.total_roi_pct / 100);
   }
 
   const firstDate = allTrades[0].entry.date;
@@ -508,6 +514,8 @@ function _leapsEvalUnlimited(individual, priceSeriesBySymbol) {
     annualized_geo: Math.round(annualized * 100) / 100,
     total_return_pct: Math.round(totalReturn * 100) / 100,
     trade_count: allTrades.length,
+    total_opt_cost: Math.round(totalOptCost * 1e4) / 1e4,
+    total_opt_revenue: Math.round(totalOptRevenue * 1e4) / 1e4,
   };
 }
 
