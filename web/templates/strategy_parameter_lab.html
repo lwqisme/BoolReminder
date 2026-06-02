@@ -8787,25 +8787,47 @@
             }
 
             // ── Entry/sell markers from trades ──
+            function fmtDate(v) {
+                if (!v && v !== 0) return '';
+                if (typeof v === 'number') {
+                    var d = new Date(v > 1e12 ? v : v * 1000);
+                    return d.getFullYear() + '-' +
+                        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                        String(d.getDate()).padStart(2, '0');
+                }
+                var s = String(v);
+                if (/^\d+$/.test(s) && s.length >= 10) {
+                    var n = parseInt(s, 10);
+                    var d2 = new Date(n > 1e12 ? n : n * 1000);
+                    return d2.getFullYear() + '-' +
+                        String(d2.getMonth() + 1).padStart(2, '0') + '-' +
+                        String(d2.getDate()).padStart(2, '0');
+                }
+                if (s.length >= 10 && (s[4] === '-' || s[4] === '/')) return s.slice(0, 10);
+                return s;
+            }
             for (var t = 0; t < trades.length; t++) {
                 var tr = trades[t];
-                entryX.push(tr.entry_date);
+                var ed = fmtDate(tr.entry_date);
+                entryX.push(ed);
                 entryY.push(tr.entry_price);
-                entryText.push(tr.entry_date + '<br>' + tr.symbol + ' 买入<br>回撤: ' + tr.drawdown_pct.toFixed(1) + '%<br>价格: ' + tr.entry_price.toFixed(2));
+                entryText.push(ed + '<br>' + tr.symbol + ' 买入<br>回撤: ' + tr.drawdown_pct.toFixed(1) + '%<br>价格: ' + tr.entry_price.toFixed(2));
 
                 for (var s2 = 0; s2 < tr.sell_events.length; s2++) {
                     var se = tr.sell_events[s2];
-                    sellX.push(se.date);
+                    var sd = fmtDate(se.date);
+                    sellX.push(sd);
                     sellY.push(se.price);
-                    sellText.push(se.date + '<br>卖' + se.pct_sold + '%<br>价格: ' + se.price.toFixed(2) + '<br>ROI: ' + (se.roi_pct > 0 ? '+' : '') + Math.round(se.roi_pct) + '%');
+                    sellText.push(sd + '<br>卖' + se.pct_sold + '%<br>价格: ' + se.price.toFixed(2) + '<br>ROI: ' + (se.roi_pct > 0 ? '+' : '') + Math.round(se.roi_pct) + '%');
                     sellSizes.push(Math.max(6, (se.pct_sold / 50) * 14));
                 }
 
-                detailHtml += '<span style="color:var(--green);">●</span> ' + tr.symbol + ' ' + tr.entry_date +
+                detailHtml += '<span style="color:var(--green);">●</span> ' + tr.symbol + ' ' + ed +
                     ' 买入@' + tr.entry_price.toFixed(1) + ' | ';
                 for (var s3 = 0; s3 < tr.sell_events.length; s3++) {
                     var se2 = tr.sell_events[s3];
-                    detailHtml += '<span style="color:var(--red);">●</span> ' + se2.date +
+                    var sd2 = fmtDate(se2.date);
+                    detailHtml += '<span style="color:var(--red);">●</span> ' + sd2 +
                         ' 卖' + se2.pct_sold + '% @' + se2.price.toFixed(1) +
                         ' ROI' + (se2.roi_pct > 0 ? '+' : '') + Math.round(se2.roi_pct) + '% ';
                 }

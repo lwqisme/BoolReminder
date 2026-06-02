@@ -923,26 +923,20 @@ def _collect_trade_details(
 
     output: list[dict[str, object]] = []
     for symbol, prices in price_series_by_symbol.items():
+        # Filter trades that originated from this symbol
+        # Build bb cache for this symbol
         bb_full = bollinger_lower_band(prices, period=22, std_mult=2.0)
         bb_by_date: dict[str, float | None] = {}
         for d, band in bb_full:
             bb_by_date[d.isoformat()] = band
 
         for trade in trades_list:
-            if hasattr(trade.entry, 'date'):
-                entry = trade.entry
-            else:
-                # It's a LeapsTrade, check entry
-                entry = trade.entry if hasattr(trade, 'entry') else trade
-            if hasattr(entry, 'symbol'):
-                ts = entry.symbol
-            else:
-                ts = symbol
-
             if not hasattr(trade, 'sell_events'):
                 continue
+            entry_signal = trade.entry
+            entry_date_str = entry_signal.date.isoformat() if hasattr(entry_signal, 'isoformat') else str(entry_signal.date)
 
-            all_dates = [entry.date if hasattr(entry, 'date') else entry]  # type: ignore
+            all_dates = [entry_signal.date]
             for se in trade.sell_events:
                 all_dates.append(se.date)
             if all_dates:
@@ -960,11 +954,11 @@ def _collect_trade_details(
                 price_series = []
             output.append({
                 "symbol": symbol,
-                "entry_date": entry.date.isoformat() if hasattr(entry, 'date') else str(entry),
-                "entry_price": entry.price if hasattr(entry, 'price') else 0,
-                "drawdown_pct": entry.drawdown_pct if hasattr(entry, 'drawdown_pct') else 0,
-                "bollinger_score": entry.bollinger_score if hasattr(entry, 'bollinger_score') else 0,
-                "composite_score": entry.composite_score if hasattr(entry, 'composite_score') else 0,
+                "entry_date": entry_date_str,
+                "entry_price": entry_signal.price,
+                "drawdown_pct": entry_signal.drawdown_pct,
+                "bollinger_score": entry_signal.bollinger_score,
+                "composite_score": entry_signal.composite_score,
                 "sell_events": [{
                     "date": se.date.isoformat(),
                     "price": se.price,
