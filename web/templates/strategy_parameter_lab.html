@@ -8727,8 +8727,8 @@
             if (!div) return;
 
             var traces = [];
-            var entryX = [], entryY = [], entryText = [];
-            var sellX = [], sellY = [], sellText = [], sellSizes = [];
+            var entryX = [], entryY = [], entryText = [], entryCustomdata = [];
+            var sellX = [], sellY = [], sellText = [], sellSizes = [], sellCustomdata = [];
             var detailHtml = '';
 
             // ── Full continuous price line (uses stored API data) ──
@@ -8814,6 +8814,7 @@
                 entryX.push(ed);
                 entryY.push(tr.entry_price);
                 entryText.push(ed + '<br>' + tr.symbol + ' 买入<br>回撤: ' + tr.drawdown_pct.toFixed(1) + '%<br>价格: ' + tr.entry_price.toFixed(2));
+                entryCustomdata.push(t);
 
                 for (var s2 = 0; s2 < tr.sell_events.length; s2++) {
                     var se = tr.sell_events[s2];
@@ -8822,6 +8823,7 @@
                     sellY.push(se.price);
                     sellText.push(sd + '<br>卖' + se.pct_sold + '%<br>价格: ' + se.price.toFixed(2) + '<br>ROI: ' + (se.roi_pct > 0 ? '+' : '') + Math.round(se.roi_pct) + '%');
                     sellSizes.push(Math.max(6, (se.pct_sold / 50) * 14));
+                    sellCustomdata.push(t);
                 }
 
                 var investInfo = '';
@@ -8848,21 +8850,25 @@
             }
 
             // Entry markers
+            var entryTraceIndex = traces.length;
             traces.push({
                 x: entryX, y: entryY, type: 'scatter', mode: 'markers',
                 name: '买入点',
                 marker: { color: '#059669', size: 12, symbol: 'circle',
                           line: { color: '#fff', width: 2 } },
                 text: entryText, hoverinfo: 'text',
+                customdata: entryCustomdata,
             });
 
             // Sell markers
+            var sellTraceIndex = traces.length;
             traces.push({
                 x: sellX, y: sellY, type: 'scatter', mode: 'markers',
                 name: '卖出点',
                 marker: { color: '#dc2626', size: sellSizes, symbol: 'circle',
                           line: { color: '#fff', width: 2 } },
                 text: sellText, hoverinfo: 'text',
+                customdata: sellCustomdata,
             });
 
             Plotly.newPlot(div, traces, {
@@ -8873,6 +8879,29 @@
                 paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
                 hovermode: 'closest',
             }, { responsive: true, displayModeBar: false });
+
+            // ── Hover highlight: group buy + sells by trade index ──
+            (function(plotDiv, entryTi, sellTi, entryCd, sellCd) {
+                var highlighted = -1;
+                function applyOpacity(ti) {
+                    if (ti === highlighted) return;
+                    highlighted = ti;
+                    var entryOp = entryCd.map(function(c) { return c === ti ? 1.0 : 0.15; });
+                    var sellOp = sellCd.map(function(c) { return c === ti ? 1.0 : 0.15; });
+                    Plotly.restyle(plotDiv, { 'marker.opacity': [entryOp] }, [entryTi]);
+                    Plotly.restyle(plotDiv, { 'marker.opacity': [sellOp] }, [sellTi]);
+                }
+                function resetOpacity() {
+                    if (highlighted < 0) return;
+                    highlighted = -1;
+                    Plotly.restyle(plotDiv, { 'marker.opacity': null }, [entryTi, sellTi]);
+                }
+                plotDiv.on('plotly_hover', function(ev) {
+                    var pt = ev.points && ev.points[0];
+                    if (pt && pt.customdata !== undefined) applyOpacity(pt.customdata);
+                });
+                plotDiv.on('plotly_unhover', function() { resetOpacity(); });
+            })(div, entryTraceIndex, sellTraceIndex, entryCustomdata, sellCustomdata);
 
             // Detail text
             var detailDiv = document.getElementById(divId.replace('Plot', 'Detail'));

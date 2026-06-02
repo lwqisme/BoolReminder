@@ -64,16 +64,20 @@ function buildTradeTraces(trades, fullPriceSeries) {
   }
 
   // ── Entry/sell markers from trades ──
-  for (const tr of trades) {
+  const entryCustomdata = [], sellCustomdata = [];
+  for (let t = 0; t < trades.length; t++) {
+    const tr = trades[t];
     entryX.push(tr.entry_date);
     entryY.push(tr.entry_price);
     entryText.push(tr.entry_date + '<br>' + tr.symbol + ' 买入<br>回撤: ' + tr.drawdown_pct.toFixed(1) + '%<br>价格: ' + tr.entry_price.toFixed(2));
+    entryCustomdata.push(t);
 
     for (const se of tr.sell_events || []) {
       sellX.push(se.date);
       sellY.push(se.price);
       sellText.push(se.date + '<br>卖' + se.pct_sold + '%<br>价格: ' + se.price.toFixed(2) + '<br>ROI: ' + (se.roi_pct > 0 ? '+' : '') + Math.round(se.roi_pct) + '%');
       sellSizes.push(Math.max(6, (se.pct_sold / 50) * 14));
+      sellCustomdata.push(t);
     }
   }
 
@@ -82,6 +86,7 @@ function buildTradeTraces(trades, fullPriceSeries) {
     name: '买入点',
     marker: { color: '#059669', size: 12, symbol: 'circle', line: { color: '#fff', width: 2 } },
     text: entryText, hoverinfo: 'text',
+    customdata: entryCustomdata,
   });
 
   traces.push({
@@ -89,6 +94,7 @@ function buildTradeTraces(trades, fullPriceSeries) {
     name: '卖出点',
     marker: { color: '#dc2626', size: sellSizes, symbol: 'circle', line: { color: '#fff', width: 2 } },
     text: sellText, hoverinfo: 'text',
+    customdata: sellCustomdata,
   });
 
   return traces;
@@ -173,6 +179,24 @@ assert(sellTrace.text.length === sellTrace.x.length, 'Sell hover text count matc
 assert(sellTrace.text[0].includes('2024-05-01'), 'Sell hover has date');
 assert(sellTrace.text[0].includes('50%'), 'Sell hover has pct_sold');
 assert(sellTrace.text[0].includes('80%'), 'Sell hover has ROI');
+
+// Test 5: Entry markers have customdata with trade index
+assert(Array.isArray(entryTrace.customdata), 'Entry trace has customdata array');
+assert(entryTrace.customdata.length === entryTrace.x.length, 'Entry customdata count matches markers');
+assert(entryTrace.customdata[0] === 0, 'First entry belongs to trade 0');
+assert(entryTrace.customdata[1] === 1, 'Second entry belongs to trade 1');
+
+// Test 6: Sell markers have customdata matching parent trade
+assert(Array.isArray(sellTrace.customdata), 'Sell trace has customdata array');
+assert(sellTrace.customdata.length === sellTrace.x.length, 'Sell customdata count matches markers');
+// Trade 0 has 2 sells -> customdata[0]=0, customdata[1]=0
+assert(sellTrace.customdata[0] === 0, 'First sell belongs to trade 0');
+assert(sellTrace.customdata[1] === 0, 'Second sell belongs to trade 0');
+// Trade 1 has 1 sell -> customdata[2]=1
+assert(sellTrace.customdata[2] === 1, 'Third sell belongs to trade 1');
+
+// Test 7: Buy and sell markers for same trade share same customdata index
+assert(entryTrace.customdata[0] === sellTrace.customdata[0], 'Trade 0 buy and first sell share same index');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
