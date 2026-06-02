@@ -90,6 +90,28 @@ class StrategyLabHistoryTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     save_experiment_preset("", {})
 
+    def test_save_and_load_leaps_preset(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("drawdown.strategy_lab_history.strategy_lab_data_dir", return_value=Path(tmpdir)):
+                leaps_payload = {
+                    "type": "leaps",
+                    "leaps_note": "test note",
+                    "drawdown_threshold_pct": 20,
+                    "entry_mode": "both",
+                    "stage1_days": 15, "stage1_profit": 80, "stage1_sell": 50,
+                    "stage2_days": 60, "stage2_profit": 60, "stage2_sell": 50,
+                    "position_pct": 20, "cooldown_days": 5,
+                }
+                preset = save_experiment_preset("LEAPS test", leaps_payload)
+                self.assertNotIn("config_payload", preset)
+                loaded = load_experiment_preset(preset["id"])
+                self.assertIsNotNone(loaded)
+                cfg = loaded["config_payload"]
+                self.assertEqual(cfg["type"], "leaps")
+                self.assertEqual(cfg["leaps_note"], "test note")
+                self.assertEqual(cfg["drawdown_threshold_pct"], 20)
+                self.assertEqual(cfg["stage1_days"], 15)
+
 
 if __name__ == "__main__":
     unittest.main()

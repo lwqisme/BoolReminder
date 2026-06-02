@@ -499,6 +499,67 @@ function test_gaDedupByDisplayStats_handles_empty() {
     console.log('PASS: test_gaDedupByDisplayStats_handles_empty');
 }
 
+// ── LEAPS preset payload builder ──
+function buildLeapsPresetPayload(row, note) {
+    const fields = [
+        'drawdown_threshold_pct', 'entry_mode',
+        'stage1_days', 'stage1_profit', 'stage1_sell',
+        'stage2_days', 'stage2_profit', 'stage2_sell',
+        'position_pct', 'cooldown_days',
+    ];
+    const p = { type: 'leaps', leaps_note: String(note || '') };
+    for (const f of fields) {
+        if (row[f] != null) p[f] = row[f];
+    }
+    return p;
+}
+
+function test_buildLeapsPresetPayload_all_fields() {
+    const row = {
+        drawdown_threshold_pct: 20, entry_mode: 'both',
+        stage1_days: 15, stage1_profit: 80, stage1_sell: 50,
+        stage2_days: 60, stage2_profit: 60, stage2_sell: 50,
+        position_pct: 20, cooldown_days: 5,
+    };
+    const p = buildLeapsPresetPayload(row, 'test note');
+    assert.strictEqual(p.type, 'leaps');
+    assert.strictEqual(p.leaps_note, 'test note');
+    assert.strictEqual(p.drawdown_threshold_pct, 20);
+    assert.strictEqual(p.entry_mode, 'both');
+    assert.strictEqual(p.stage1_days, 15);
+    assert.strictEqual(p.stage1_profit, 80);
+    assert.strictEqual(p.stage1_sell, 50);
+    assert.strictEqual(p.stage2_days, 60);
+    assert.strictEqual(p.stage2_profit, 60);
+    assert.strictEqual(p.stage2_sell, 50);
+    assert.strictEqual(p.position_pct, 20);
+    assert.strictEqual(p.cooldown_days, 5);
+    console.log('PASS: test_buildLeapsPresetPayload_all_fields');
+}
+
+function test_buildLeapsPresetPayload_no_note() {
+    const row = { drawdown_threshold_pct: 25, entry_mode: 'touch', stage1_days: 10,
+        stage1_profit: 100, stage1_sell: 40, stage2_days: 45, stage2_profit: 70, stage2_sell: 60,
+        position_pct: 30, cooldown_days: 10 };
+    const p = buildLeapsPresetPayload(row, '');
+    assert.strictEqual(p.leaps_note, '');
+    console.log('PASS: test_buildLeapsPresetPayload_no_note');
+}
+
+function test_buildLeapsPresetPayload_excludes_non_leaps_fields() {
+    const row = { drawdown_threshold_pct: 15, entry_mode: 'bounce', stage1_days: 20,
+        stage1_profit: 90, stage1_sell: 60, stage2_days: 70, stage2_profit: 50, stage2_sell: 45,
+        position_pct: 10, cooldown_days: 3,
+        fitness: 1.5, rank: 2, cagr: 25, total_roi: 150, final_equity: 25000,
+        trade_count: 8, trade_details: [], max_drawdown_pct: 5 };
+    const p = buildLeapsPresetPayload(row, '');
+    assert.strictEqual(p.fitness, undefined);
+    assert.strictEqual(p.rank, undefined);
+    assert.strictEqual(p.cagr, undefined);
+    assert.strictEqual(p.trade_details, undefined);
+    console.log('PASS: test_buildLeapsPresetPayload_excludes_non_leaps_fields');
+}
+
 // ── Run ──
 
 const tests = [
@@ -521,6 +582,9 @@ const tests = [
     test_gaDedupByDisplayStats_removes_duplicate_stats,
     test_gaDedupByDisplayStats_preserves_unique_entries,
     test_gaDedupByDisplayStats_handles_empty,
+    test_buildLeapsPresetPayload_all_fields,
+    test_buildLeapsPresetPayload_no_note,
+    test_buildLeapsPresetPayload_excludes_non_leaps_fields,
 ];
 
 let passed = 0, failed = 0;

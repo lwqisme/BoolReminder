@@ -8638,7 +8638,8 @@
             bestDiv.innerHTML = '<h3 style="margin:0 0 8px;font-size:13px;">🏆 最优参数 (适应度: ' +
                 (best.fitness != null ? best.fitness.toFixed(2) : '-') +
                 ', 评估: ' + (result.total_evaluated || 0) + '次)</h3>' +
-                '<table style="font-size:12px;">' + rows + '</table>' + tradeStats;
+                '<table style="font-size:12px;">' + rows + '</table>' + tradeStats +
+                '<button onclick="saveLeapsPreset(' + JSON.stringify(JSON.stringify(best)) + ')" style="margin-top:8px;font-size:11px;padding:2px 8px;">💾 存为预设</button>';
 
             // Population table
             var pop = result.final_population || [];
@@ -8657,7 +8658,7 @@
                 var rowId = 'leapsGaRow' + i;
                 var hasTrades = r.trade_details && r.trade_details.length > 0;
                 bodyHtml += '<tr id="' + rowId + '">' +
-                    '<td>' + (hasTrades ? '<button onclick="toggleLeapsTradeChart(\'' + rowId + '\', ' + i + ')" style="font-size:10px;padding:1px 4px;">▶</button>' : '') + '</td>' +
+                    '<td>' + (hasTrades ? '<button onclick="toggleLeapsTradeChart(\'' + rowId + '\', ' + i + ')" style="font-size:10px;padding:1px 4px;">▶</button>' : '') + ' <button onclick="saveLeapsPreset(' + JSON.stringify(JSON.stringify(r)) + ')" style="font-size:10px;padding:1px 4px;" title="存为预设">💾</button></td>' +
                     '<td>' + r.rank + '</td>' +
                     '<td style="font-family:var(--mono);">' + (r.fitness != null ? r.fitness.toFixed(2) : '-') + '</td>' +
                     '<td style="font-family:var(--mono);">' + (r.total_roi != null ? (r.total_roi > 0 ? '+' : '') + r.total_roi.toFixed(1) + '%' : '-') + '</td>';
@@ -8907,6 +8908,47 @@
             var detailDiv = document.getElementById(divId.replace('Plot', 'Detail'));
             if (detailDiv) detailDiv.innerHTML = detailHtml;
         }
+
+        // ── LEAPS preset save ────────────────────────────────────
+        function buildLeapsPresetPayload(row, note) {
+            var fields = [
+                'drawdown_threshold_pct', 'entry_mode',
+                'stage1_days', 'stage1_profit', 'stage1_sell',
+                'stage2_days', 'stage2_profit', 'stage2_sell',
+                'position_pct', 'cooldown_days',
+            ];
+            var p = { type: 'leaps', leaps_note: String(note || '') };
+            for (var i = 0; i < fields.length; i++) {
+                if (row[fields[i]] != null) p[fields[i]] = row[fields[i]];
+            }
+            return p;
+        }
+        window.saveLeapsPreset = async function(rowJson) {
+            var row = JSON.parse(rowJson);
+            var defaultName = 'LEAPS ' + (row.entry_mode || '') +
+                ' dd' + (row.drawdown_threshold_pct || '') +
+                ' s1' + row.stage1_days + 'd' + row.stage1_profit + '%' +
+                ' s2' + row.stage2_days + 'd' + row.stage2_profit + '%';
+            var note = prompt('备注（可选）', '');
+            if (note === null) return; // cancelled
+            var name = prompt('预设名称', defaultName);
+            if (!name) return;
+            var payload = buildLeapsPresetPayload(row, note);
+            try {
+                var r = await fetch('/api/strategy-lab/presets', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name, payload: payload }),
+                });
+                var d = await r.json();
+                if (d.success && d.preset) {
+                    alert('预设已保存: ' + d.preset.id);
+                } else {
+                    alert('保存失败: ' + (d.message || ''));
+                }
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+            }
+        };
 
         // ── End LEAPS GA ──────────────────────────────────────────
     </script>
