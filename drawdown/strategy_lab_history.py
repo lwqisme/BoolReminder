@@ -227,6 +227,7 @@ def _config_summary(payload: Mapping[str, object]) -> dict[str, object]:
     return {
         "start": payload.get("start"),
         "end": payload.get("end"),
+        "type": payload.get("type"),
         "target_count": target_count,
         "target_weight": round(weight_sum, 4),
         "buy_strategy": _strategy_selector(payload.get("buy_strategies")) or payload.get("buy_strategy"),

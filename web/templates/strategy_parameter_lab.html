@@ -8259,7 +8259,13 @@
             html += '<option value="">-- 选择预设 --</option>';
             for (const p of presetList) {
                 const selected = p.id === currentId ? ' selected' : '';
-                const label = (p.name || p.id) + ' (' + (p.config_summary?.buy_strategy || '?') + ')';
+                var cfg = p.config_summary || {};
+                var label;
+                if (cfg.type === 'leaps') {
+                    label = '🧬 LEAPS ' + (p.name || p.id);
+                } else {
+                    label = (p.name || p.id) + ' (' + (cfg.buy_strategy || '?') + ')';
+                }
                 html += '<option value="' + escapeHtml(p.id) + '"' + selected + '>' + escapeHtml(label) + '</option>';
             }
             html += '</select>';
@@ -8305,7 +8311,13 @@
             let html = '<select id="newBindingPreset" style="min-width:200px;">';
             html += '<option value="">-- 选择预设 --</option>';
             for (const p of presetList) {
-                const label = (p.name || p.id) + ' (' + (p.config_summary?.buy_strategy || '?') + ')';
+                var cfg = p.config_summary || {};
+                var label;
+                if (cfg.type === 'leaps') {
+                    label = '🧬 LEAPS ' + (p.name || p.id);
+                } else {
+                    label = (p.name || p.id) + ' (' + (cfg.buy_strategy || '?') + ')';
+                }
                 html += '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(label) + '</option>';
             }
             html += '</select>';
