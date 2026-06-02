@@ -1842,10 +1842,14 @@
             <div class="panel" id="leapsGaMainPanel" style="margin-top:18px;">
                 <div class="panel-head"><h2>🧬 LEAPS GA 进化</h2></div>
                 <div class="panel-body">
+                    <div style="margin-bottom:8px;">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                            <span style="font-weight:600;font-size:13px;">标的</span>
+                            <button type="button" onclick="toggleAllLeapsGaSymbols()" style="font-size:11px;padding:1px 6px;">全选/取消</button>
+                        </div>
+                        <div id="leapsGaSymbolsGrid" class="check-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); max-height:200px; overflow-y:auto;"></div>
+                    </div>
                     <div class="field-grid">
-                        <label>标的 (逗号分隔)
-                            <input id="leapsGaSymbols" value="AAPL.US" style="width:200px;">
-                        </label>
                         <label>开始日期
                             <input id="leapsGaStart" type="date" value="2024-01-01">
                         </label>
@@ -7047,10 +7051,12 @@
                     const payload = parameterLabPayload();
                     // LEAPS GA fields
                     const leapsGa = {};
-                    ['leapsGaSymbols','leapsGaStart','leapsGaEnd','leapsGaPopSize','leapsGaGenerations',
+                    ['leapsGaStart','leapsGaEnd','leapsGaPopSize','leapsGaGenerations',
                      'leapsGaMutationRate','leapsGaCrossoverRate','leapsGaSeed'].forEach(function(id) {
                         var el = document.getElementById(id); if (el) leapsGa[id] = el.value;
                     });
+                    // LEAPS GA symbols (checkboxes -> comma-separated)
+                    leapsGa['leapsGaSymbols'] = (getLeapsGaSelectedSymbols() || []).join(',');
                     // LEAPS GA ranges
                     var rangePrefixes = ['DD','S1D','S1P','S1S','S2D','S2P','S2S','Pos','CD'];
                     rangePrefixes.forEach(function(pfx) {
@@ -7149,7 +7155,19 @@
                 if (payload.ga_custom_bounds) { restoreGaCustomBounds(payload.ga_custom_bounds); }
                 // LEAPS GA fields
                 var leapsGa = saved.leapsGa || {};
+                // Restore symbol checkboxes
+                var leapsGaSymbolsStr = leapsGa['leapsGaSymbols'] || '';
+                var selectedSymbols = leapsGaSymbolsStr ? leapsGaSymbolsStr.split(',') : [];
+                var cbs = document.querySelectorAll('.leaps-ga-symbol-cb');
+                if (cbs.length && selectedSymbols.length) {
+                    var selSet = {};
+                    for (var si = 0; si < selectedSymbols.length; si++) selSet[selectedSymbols[si].trim()] = true;
+                    for (var ci = 0; ci < cbs.length; ci++) {
+                        cbs[ci].checked = !!selSet[cbs[ci].value];
+                    }
+                }
                 Object.keys(leapsGa).forEach(function(id) {
+                    if (id === 'leapsGaSymbols') return; // handled above
                     var el = document.getElementById(id); if (el) el.value = leapsGa[id];
                 });
                 renderCandidateGridSummary();
@@ -7160,7 +7178,7 @@
         function initAutoSaveListeners() {
             const saveIds = ['start', 'end', 'initialCash', 'monthlyContribution', 'maxDrawdown', 'stepPct', 'equalSliceAllocation', 'tradeFee', 'hkdToUsd', 'reservePosition', 'sellMinProfit', 'repairSellCooldown', 'repairStageSellPct', 'dcaRearmDrawdown', 'sellStageRearmDrawdown', 'gridReboundStep', 'gridSellPct', 'gridMinSellAmount', 'gridReboundCycleReset', 'costFirstProfitPct', 'costSecondProfitPct', 'costThirdProfitPct', 'costFirstSellPct', 'costSecondSellPct', 'costThirdSellPct', 'costDeleverageCooldown', 'costMinSellAmount', 'coreDipInitialCorePct', 'coreDipWeeklyCorePct', 'coreDipCashReservePct', 'coreDipStartDrawdownPct', 'coreDipFullDrawdownPct', 'coreDipTimingMaxDelayDays', 'coreDipTimingRiseThresholdPct', 'coreDipTimingNearLowPct', 'leapsLowCashThreshold', 'leapsMinDrawdown', 'leapsPremiumBudgetCap', 'leapsTargetDteLabel', 'leapsDrawdownGatePct', 'workerCount', 'drawdownBasis', 'coreDipTimingEnabled', 'coreDipTimingFilter', 'sellQualityWeightPct',
                 // LEAPS GA
-                'leapsGaSymbols', 'leapsGaStart', 'leapsGaEnd', 'leapsGaPopSize', 'leapsGaGenerations',
+                'leapsGaStart', 'leapsGaEnd', 'leapsGaPopSize', 'leapsGaGenerations',
                 'leapsGaMutationRate', 'leapsGaCrossoverRate', 'leapsGaSeed',
                 'leapsGaRangeDD_min', 'leapsGaRangeDD_max',
                 'leapsGaRangeS1D_min', 'leapsGaRangeS1D_max',
@@ -8428,6 +8446,44 @@
             }
         })();
 
+        // ── LEAPS GA symbol grid ──
+        function renderLeapsGaSymbolGrid() {
+            var grid = document.getElementById('leapsGaSymbolsGrid');
+            if (!grid) return;
+            var symbols = SYNCD_SYMBOLS && SYNCD_SYMBOLS.length ? [...SYNCD_SYMBOLS].sort() : [];
+            if (!symbols.length) {
+                grid.innerHTML = '<span style="color:var(--muted);font-size:11px;">暂无已同步标的</span>';
+                return;
+            }
+            var html = '';
+            for (var i = 0; i < symbols.length; i++) {
+                html += '<label><input type="checkbox" class="leaps-ga-symbol-cb" value="' + escapeHtml(symbols[i]) + '" checked> ' + escapeHtml(symbols[i]) + '</label>';
+            }
+            grid.innerHTML = html;
+        }
+        renderLeapsGaSymbolGrid();
+        // Attach auto-save to LEAPS GA symbol checkboxes (created dynamically)
+        var leapsGaGrid = document.getElementById('leapsGaSymbolsGrid');
+        if (leapsGaGrid) { leapsGaGrid.addEventListener('change', function(e) { if (e.target.classList.contains('leaps-ga-symbol-cb')) autoSaveParameterLabDefaults(); }); }
+
+        window.toggleAllLeapsGaSymbols = function() {
+            var cbs = document.querySelectorAll('.leaps-ga-symbol-cb');
+            if (!cbs.length) return;
+            var allChecked = true;
+            for (var i = 0; i < cbs.length; i++) { if (!cbs[i].checked) { allChecked = false; break; } }
+            var newVal = !allChecked;
+            for (var i2 = 0; i2 < cbs.length; i2++) { cbs[i2].checked = newVal; }
+        };
+
+        window.getLeapsGaSelectedSymbols = function() {
+            var cbs = document.querySelectorAll('.leaps-ga-symbol-cb');
+            var result = [];
+            for (var i = 0; i < cbs.length; i++) {
+                if (cbs[i].checked) result.push(cbs[i].value);
+            }
+            return result;
+        };
+
         function updateLeapsGaTimer() {
             var elapsed = Math.round((Date.now() - leapsGaTimerStart) / 100) / 10;
             document.getElementById('leapsGaTimer').textContent = elapsed + 's';
@@ -8445,8 +8501,7 @@
             statusEl.textContent = '';
             resultsDiv.style.display = 'none';
 
-            var symbolsStr = document.getElementById('leapsGaSymbols').value.trim();
-            var symbols = symbolsStr.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+            var symbols = getLeapsGaSelectedSymbols();
             if (!symbols.length) {
                 statusEl.textContent = '请输入标的';
                 btn.disabled = false; btn.textContent = '🚀 开始进化'; leapsGaRunning = false;
