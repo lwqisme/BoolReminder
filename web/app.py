@@ -88,6 +88,7 @@ from drawdown.leaps_option_ga import (
     LeapsParamRanges,
 )
 from drawdown.leaps_option_eval import evolve_leaps_parameters
+from drawdown.leaps_signal import generate_leaps_signals_for_symbol
 from trade_sync.cleanup import run_trade_sync_cleanup
 from trade_sync.normalize import canonical_symbol, normalize_trade_rows
 from trade_sync.store import (
@@ -10723,6 +10724,130 @@ def api_strategy_signal_run():
 
     results = generate_all_signals(signal_date=signal_date, dry_run=dry_run)
     return jsonify({"success": True, "results": results, "dry_run": dry_run})
+
+
+@app.route('/api/strategy-lab/leaps-signals/run', methods=['POST'])
+def api_strategy_leaps_signals_run():
+    """Run LEAPS signal generation for all bound symbols with LEAPS presets."""
+    payload = request.get_json(silent=True) or {}
+    dry_run = bool(payload.get("dry_run", True))
+    signal_date_raw = payload.get("signal_date")
+    signal_date = date.fromisoformat(signal_date_raw) if signal_date_raw else None
+
+    bindings = load_signal_bindings()
+    results: list[dict[str, object]] = []
+
+    for symbol, preset_id in bindings.items():
+        try:
+            # Skip non-LEAPS presets (checked inside generate)
+            result = generate_leaps_signals_for_symbol(
+                symbol, preset_id,
+                signal_date=signal_date,
+                dry_run=dry_run,
+            )
+            results.append(_serialize_leaps_result(result))
+        except Exception as exc:
+            results.append({"symbol": symbol, "preset_id": preset_id, "error": str(exc)})
+
+    # If not dry_run, send email
+    email_result = None
+    if not dry_run and results:
+        try:
+            email_result = _send_leaps_signal_email(results)
+        except Exception as exc:
+            email_result = {"error": str(exc)}
+
+    return jsonify({
+        "success": True,
+        "results": results,
+        "dry_run": dry_run,
+        "email": email_result,
+    })
+
+
+def _serialize_leaps_result(result) -> dict[str, object]:
+    from dataclasses import asdict
+    d = asdict(result)
+    d["signal_date"] = result.signal_date.isoformat()
+    for pos in d.get("open_positions", []):
+        if "entry_date" in pos:
+            pos["entry_date"] = pos["entry_date"].isoformat() if hasattr(pos["entry_date"], "isoformat") else str(pos["entry_date"])
+        if "expiration" in pos:
+            pos["expiration"] = pos["expiration"].isoformat() if hasattr(pos["expiration"], "isoformat") else str(pos["expiration"])
+    return d
+
+
+def _send_leaps_signal_email(results: list[dict[str, object]]) -> dict[str, object]:
+    """Send LEAPS signals via email."""
+    if config_manager is None:
+        return {"error": "配置管理器未初始化"}
+
+    email_config = config_manager.get_email_config()
+    if not email_config.get("smtp_host") or not email_config.get("to_emails"):
+        return {"error": "邮件配置不完整"}
+
+    from notify.email_sender import EmailSender
+    sender = EmailSender(
+        smtp_host=email_config["smtp_host"],
+        smtp_port=email_config["smtp_port"],
+        smtp_user=email_config["smtp_user"],
+        smtp_password=email_config["smtp_password"],
+    )
+
+    # Build email body
+    lines = ["LEAPS 期权信号报告", "=" * 30, ""]
+    has_any = False
+
+    for r in results:
+        sym = r.get("symbol", "?")
+        errors = r.get("errors", [])
+        if errors:
+            lines.append(f"{sym}: 错误 - {', '.join(errors)}")
+            continue
+
+        entry = r.get("entry_signals", [])
+        sell = r.get("sell_signals", [])
+        positions = r.get("open_positions", [])
+
+        if not entry and not sell and not positions:
+            continue
+        has_any = True
+
+        lines.append(f"--- {sym} ---")
+
+        if positions:
+            lines.append(f"  持仓: {len(positions)} 笔")
+            for pos in positions:
+                lines.append(f"    {pos.get('contract_code', '?')} "
+                           f"买入 {pos.get('total_quantity', 0)}张 "
+                           f"成本 ${pos.get('option_buy_price', 0):.2f} "
+                           f"到期 {pos.get('expiration', '?')}")
+
+        if entry:
+            lines.append(f"  入场信号: {len(entry)} 个")
+            for es in entry:
+                lines.append(f"    {es.get('date', '?')} "
+                           f"回撤 {es.get('drawdown_pct', 0):.1f}% "
+                           f"布林 {es.get('bollinger_score', 0):.2f} "
+                           f"股价 ${es.get('stock_price', 0):.2f}")
+
+        if sell:
+            lines.append(f"  卖出信号: {len(sell)} 个")
+            for ss in sell:
+                lines.append(f"    {ss.get('contract_code', '?')} "
+                           f"{ss.get('date', '?')} "
+                           f"ROA {ss.get('option_roi_pct', 0):.0f}% "
+                           f"建议卖 {ss.get('pct_to_sell', 0):.0f}% "
+                           f"[{ss.get('reason', '')}]")
+        lines.append("")
+
+    if not has_any:
+        lines.append("今日无信号。")
+
+    body = "\n".join(lines)
+    to_emails = [str(e).strip() for e in email_config.get("to_emails", []) if str(e).strip()]
+    sender.send_text_email("LEAPS 期权信号", body, to_emails)
+    return {"sent": True, "to": to_emails}
 
 
 @app.route('/api/strategy-lab/run', methods=['POST'])
