@@ -8699,6 +8699,7 @@
 
             // Store pop data for chart rendering
             window._leapsGaPop = pop;
+            window._leapsGaConfig = result.config || {};
         }
 
         window.toggleLeapsTradeChart = function(rowId, index) {
@@ -8823,8 +8824,19 @@
                     sellSizes.push(Math.max(6, (se.pct_sold / 50) * 14));
                 }
 
+                var investInfo = '';
+                var cfg = window._leapsGaConfig || {};
+                var capMode = cfg.capital_mode || 'fixed';
+                if (capMode === 'fixed') {
+                    var posPct = pop[index].position_pct || 0;
+                    var totalCap = cfg.total_capital || 10000;
+                    var investAmt = totalCap * posPct / 100;
+                    investInfo = ' 投入$' + Math.round(investAmt) + ' (' + posPct + '%仓位)';
+                } else {
+                    investInfo = ' 仓位0%';
+                }
                 detailHtml += '<span style="color:var(--green);">●</span> ' + tr.symbol + ' ' + ed +
-                    ' 买入@' + tr.entry_price.toFixed(1) + ' | ';
+                    ' 买入@' + tr.entry_price.toFixed(1) + investInfo + ' | ';
                 for (var s3 = 0; s3 < tr.sell_events.length; s3++) {
                     var se2 = tr.sell_events[s3];
                     var sd2 = fmtDate(se2.date);
