@@ -8819,34 +8819,37 @@
             // ── Full continuous price line (uses stored API data) ──
             var fullPrices = window._leapsGaFullPrices;
             if (fullPrices) {
-                // Collect all dates/prices across all symbols involved in these trades
-                var fullPx = [], fullPy = [], fullHover = [];
+                // Collect symbols involved in these trades
                 var seenSymbols = {};
                 for (var t = 0; t < trades.length; t++) {
                     seenSymbols[trades[t].symbol] = true;
                 }
+                // One price + bollinger trace per symbol (separate lines, not concatenated)
+                var symColors = ['#6b7280', '#059669', '#7c3aed', '#dc2626', '#d97706', '#3b82f6', '#8b5cf6', '#ec4899'];
+                var colorIdx = 0;
                 for (var sym in seenSymbols) {
                     var pts = fullPrices[sym];
                     if (!pts || !pts.length) continue;
-                    for (var i = 0; i < pts.length; i++) {
-                        fullPx.push(pts[i][0]);
-                        fullPy.push(pts[i][1]);
-                        fullHover.push(pts[i][0] + '<br>价格: ' + Number(pts[i][1]).toFixed(2));
+                    var symColor = symColors[colorIdx % symColors.length];
+                    colorIdx++;
+                    var pX = [], pY = [], pHover = [];
+                    for (var pi = 0; pi < pts.length; pi++) {
+                        pX.push(pts[pi][0]);
+                        pY.push(pts[pi][1]);
+                        pHover.push(pts[pi][0] + '<br>' + sym + ' 价格: ' + Number(pts[pi][1]).toFixed(2));
                     }
-                }
-                if (fullPx.length) {
                     traces.push({
-                        x: fullPx, y: fullPy, type: 'scatter', mode: 'lines',
-                        name: '价格',
-                        text: fullHover, hoverinfo: 'text',
-                        line: { color: '#6b7280', width: 1.5 },
+                        x: pX, y: pY, type: 'scatter', mode: 'lines',
+                        name: sym + ' 价格',
+                        text: pHover, hoverinfo: 'text',
+                        line: { color: symColor, width: 1.5 },
                     });
 
-                    // Full bollinger lower band (solid, not dashed)
+                    // Bollinger lower band per symbol
                     var bbX = [], bbY = [], bbHover = [];
                     var window2 = [];
-                    for (var j = 0; j < fullPx.length; j++) {
-                        window2.push(fullPy[j]);
+                    for (var j = 0; j < pX.length; j++) {
+                        window2.push(pY[j]);
                         if (j >= 22) window2.shift();
                         if (j >= 21) {
                             var mean = 0;
@@ -8857,17 +8860,17 @@
                             variance /= window2.length;
                             var std = Math.sqrt(variance);
                             var band = mean - 2.0 * std;
-                            bbX.push(fullPx[j]);
+                            bbX.push(pX[j]);
                             bbY.push(band);
-                            bbHover.push(fullPx[j] + '<br>布林下轨: ' + band.toFixed(2));
+                            bbHover.push(pX[j] + '<br>' + sym + ' 布林下轨: ' + band.toFixed(2));
                         }
                     }
                     if (bbX.length) {
                         traces.push({
                             x: bbX, y: bbY, type: 'scatter', mode: 'lines',
-                            name: '布林下轨',
+                            name: sym + ' 布林下轨',
                             text: bbHover, hoverinfo: 'text',
-                            line: { color: '#3b82f6', width: 1.5 },
+                            line: { color: symColor, width: 1, dash: 'dot' },
                         });
                     }
                 }
