@@ -13,13 +13,16 @@ from drawdown.leaps_option_ga import (
     compute_sell_ladder,
     detect_leaps_entries,
     estimate_option_delta,
-    evolve_leaps_parameters,
     leaps_crossover,
-    leaps_fitness_fn,
     leaps_individual_key,
     leaps_mutate,
     proxy_option_roi,
     rolling_120d_high,
+)
+from drawdown.leaps_option_eval import (
+    evolve_leaps_parameters,
+    leaps_fitness_fn,
+    leaps_total_roi,
 )
 
 
@@ -456,13 +459,13 @@ class LeapsGATest(unittest.TestCase):
 
     def test_total_roi_empty_returns_zero(self):
         """No trades → total_roi = 0."""
-        from drawdown.leaps_option_ga import leaps_total_roi
+        from drawdown.leaps_option_eval import leaps_total_roi
         ind = self._make_individual()
         self.assertEqual(leaps_total_roi(ind, {}), 0.0)
 
     def test_total_roi_positive(self):
         """Positive trades → positive total_roi."""
-        from drawdown.leaps_option_ga import leaps_total_roi
+        from drawdown.leaps_option_eval import leaps_total_roi
         ind = self._make_individual(
             drawdown_threshold_pct=12.0, entry_mode="touch",
             stage1_days=3, stage1_profit=5.0, stage1_sell=100.0,

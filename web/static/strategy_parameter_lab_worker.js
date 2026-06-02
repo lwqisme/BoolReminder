@@ -1852,9 +1852,10 @@ async function handleLeapsGa(message) {
       row.trade_count = unlResult.trade_count;
     }
     if (rank < 10) {
-      row.trade_details = capitalMode === 'fixed'
-        ? collectLeapsTradeDetailsFromExecuted(ind, parsed, totalCapital)
-        : collectLeapsTradeDetails(ind, parsed);
+      row.trade_details = collectLeapsTradeDetails(ind, parsed, {
+        executedOnly: capitalMode === 'fixed',
+        totalCapital: totalCapital,
+      });
     }
     finalPop.push(row);
   }
@@ -1866,47 +1867,34 @@ async function handleLeapsGa(message) {
   });
 }
 
-// For fixed capital mode, collect details from executed trades
-function collectLeapsTradeDetailsFromExecuted(individual, parsedPriceData, totalCapital) {
-  const capResult = leapsGaEngine._leapsEvalFixedCapital(individual, parsedPriceData, totalCapital);
-  const executedTrades = capResult.executed_trades || [];
-  const trades = [];
-  for (const [symbol, prices] of Object.entries(parsedPriceData)) {
-    const bbFull = leapsGaEngine.bollingerLowerBand(prices, 22, 2.0);
-    const bbByDate = {};
-    for (const b of bbFull) bbByDate[b.date] = b.band;
-    for (const trade of executedTrades) {
-      if (trade.symbol !== symbol) continue;
-      const entry = trade.entry;
-      const allDates = [entry.date, ...trade.sell_events.map(se => se.date)].sort();
-      const ss = new Date(allDates[0]); ss.setDate(ss.getDate() - 60);
-      const se = new Date(allDates[allDates.length - 1]); se.setDate(se.getDate() + 30);
-      const ssTs = ss.getTime(), seTs = se.getTime();
-      const ps = [];
-      for (const [ts, p, d] of prices) {
-        if (ts >= ssTs && ts <= seTs) {
-          const pt = { date: d, price: p };
-          if (bbByDate[d] != null) pt.bollinger_lower = bbByDate[d];
-          ps.push(pt);
-        }
+// Unified trade detail collector: handles both fixed capital (executedOnly) and unlimited modes
+function collectLeapsTradeDetails(individual, parsedPriceData, opts) {
+  const { executedOnly, totalCapital } = opts || {};
+  let tradeList;
+  if (executedOnly) {
+    const capResult = leapsGaEngine._leapsEvalFixedCapital(individual, parsedPriceData, totalCapital || 10000);
+    tradeList = capResult.executed_trades || [];
+  } else {
+    tradeList = [];
+    for (const [symbol, prices] of Object.entries(parsedPriceData)) {
+      const entries = leapsGaEngine.detectLeapsEntries(prices, individual.drawdown_threshold_pct, individual.entry_mode);
+      const stages = individual.toStages();
+      for (const entry of entries) {
+        const trade = leapsGaEngine.computeSellLadder(entry, prices, stages, 190, entry.price * 1.1);
+        trade.symbol = symbol;
+        tradeList.push(trade);
       }
-      trades.push({ symbol, entry_date: entry.date, entry_price: entry.price, drawdown_pct: entry.drawdown_pct, bollinger_score: entry.bollinger_score, composite_score: entry.composite_score, sell_events: trade.sell_events, expired: trade.expired, total_roi_pct: trade.total_roi_pct, price_series: ps });
     }
   }
-  return trades;
-}
 
-function collectLeapsTradeDetails(individual, parsedPriceData) {
   const trades = [];
   for (const [symbol, prices] of Object.entries(parsedPriceData)) {
-    // prices is [ts, price, dateStr]
     const bbFull = leapsGaEngine.bollingerLowerBand(prices, 22, 2.0);
     const bbByDate = {};
     for (const b of bbFull) bbByDate[b.date] = b.band;
-    const entries = leapsGaEngine.detectLeapsEntries(prices, individual.drawdown_threshold_pct, individual.entry_mode);
-    const stages = individual.toStages();
-    for (const entry of entries) {
-      const trade = leapsGaEngine.computeSellLadder(entry, prices, stages, 190, entry.price * 1.1);
+    for (const trade of tradeList) {
+      if (trade.symbol !== symbol) continue;
+      const entry = trade.entry;
       const allDates = [entry.date, ...trade.sell_events.map(se => se.date)].sort();
       const ss = new Date(allDates[0]); ss.setDate(ss.getDate() - 60);
       const se = new Date(allDates[allDates.length - 1]); se.setDate(se.getDate() + 30);

@@ -86,8 +86,8 @@ from drawdown.leaps_option_outcomes import (
 from drawdown.leaps_option_ga import (
     LeapsEvolutionConfig,
     LeapsParamRanges,
-    evolve_leaps_parameters,
 )
+from drawdown.leaps_option_eval import evolve_leaps_parameters
 from trade_sync.cleanup import run_trade_sync_cleanup
 from trade_sync.normalize import canonical_symbol, normalize_trade_rows
 from trade_sync.store import (

@@ -250,8 +250,8 @@ function makeIndividual(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos, cd) {
     drawdown_threshold_pct: dd, entry_mode: mode,
     stage1_days: s1d, stage1_profit: s1p, stage1_sell: s1s,
     stage2_days: s2d, stage2_profit: s2p, stage2_sell: s2s,
-    position_pct: pos != null ? pos : 20, cooldown_days: cd != null ? cd : 5,
-    key: leapsIndividualKey(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos != null ? pos : 20, cd != null ? cd : 5),
+    position_pct: pos != null ? pos : DEFAULTS.positionPct, cooldown_days: cd != null ? cd : DEFAULTS.cooldownDays,
+    key: leapsIndividualKey(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos != null ? pos : DEFAULTS.positionPct, cd != null ? cd : DEFAULTS.cooldownDays),
     toStages() { return [[this.stage1_days, this.stage1_profit, this.stage1_sell], [this.stage2_days, this.stage2_profit, this.stage2_sell]]; },
   };
 }
@@ -432,7 +432,7 @@ function _leapsEvalFixedCapital(individual, priceSeriesBySymbol, totalCapital) {
         if (cooldownUntil && currentDate <= cooldownUntil) continue;
         if (equity < investPerTrade) continue;
         equity -= investPerTrade;
-        const posData = { invested: investPerTrade, cumulative_sold: 0 };
+        const posData = { invested: investPerTrade, cumulative_sold: 0, _trade: trade };
         openPositions.push(posData);
         executedTrades.push(trade);
         for (const se of trade.sell_events) {
@@ -444,10 +444,23 @@ function _leapsEvalFixedCapital(individual, priceSeriesBySymbol, totalCapital) {
     }
   }
 
-  // Force-sell remaining
-  for (const pos of openPositions) {
-    const remaining = 100 - (pos.cumulative_sold || 0);
-    if (remaining > 0.1) equity += pos.invested * (remaining / 100) * 0.10;
+  // Force-sell remaining using actual option ROI at last available date
+  if (openPositions.length) {
+    const lastDate = sortedDates[sortedDates.length - 1];
+    for (const pos of openPositions) {
+      const remaining = 100 - (pos.cumulative_sold || 0);
+      if (remaining <= 0.1) continue;
+      const trade = pos._trade;
+      let recovery = 0.10; // conservative fallback
+      if (trade) {
+        const entrySig = trade.entry;
+        const expTs = new Date(entrySig.date).getTime() + 190 * 86400000;
+        const lastRoi = proxyOptionRoi(entrySig.price, entrySig.price, new Date(entrySig.date).getTime(), new Date(lastDate).getTime(), expTs, entrySig.price * 1.1);
+        // Use a floor of -95% to avoid extreme negative values from expired OTM options
+        recovery = Math.max(0.05, 1 + lastRoi / 100);
+      }
+      equity += pos.invested * (remaining / 100) * recovery;
+    }
   }
 
   const totalReturn = (equity / totalCapital - 1) * 100;
@@ -499,8 +512,8 @@ function _leapsEvalUnlimited(individual, priceSeriesBySymbol) {
 }
 
 function leapsFitnessFn(individual, priceSeriesBySymbol, capitalMode, totalCapital) {
-  const mode = capitalMode || 'fixed';
-  const cap = totalCapital || 10000;
+  const mode = capitalMode || DEFAULTS.capitalMode;
+  const cap = totalCapital || DEFAULTS.totalCapital;
   if (mode === 'unlimited') {
     const result = _leapsEvalUnlimited(individual, priceSeriesBySymbol);
     return result.geo_product;
@@ -510,8 +523,8 @@ function leapsFitnessFn(individual, priceSeriesBySymbol, capitalMode, totalCapit
 }
 
 function leapsTotalRoi(individual, priceSeriesBySymbol, capitalMode, totalCapital) {
-  const mode = capitalMode || 'fixed';
-  const cap = totalCapital || 10000;
+  const mode = capitalMode || DEFAULTS.capitalMode;
+  const cap = totalCapital || DEFAULTS.totalCapital;
   if (mode === 'unlimited') {
     return _leapsEvalUnlimited(individual, priceSeriesBySymbol).total_return_pct;
   }
@@ -530,6 +543,13 @@ function tournamentSelect(population, fitnesses, tournamentSize) {
   }
   return population[bestIdx];
 }
+
+const DEFAULTS = {
+  capitalMode: 'fixed',
+  totalCapital: 10000,
+  positionPct: 20,
+  cooldownDays: 5,
+};
 
 const DEFAULT_RANGES = {
   drawdown_threshold_pct: [10, 30],
@@ -572,6 +592,7 @@ const leapsGaEngine = {
   randomIndividual,
   ddOptions,
   DEFAULT_RANGES,
+  DEFAULTS,
   mergeRanges,
   ENTRY_MODES,
 };
