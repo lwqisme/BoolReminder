@@ -8723,7 +8723,9 @@
                 (best.fitness != null ? best.fitness.toFixed(2) : '-') +
                 ', 评估: ' + (result.total_evaluated || 0) + '次)</h3>' +
                 '<table style="font-size:12px;">' + rows + '</table>' + tradeStats +
-                '<button onclick="saveLeapsPreset(' + JSON.stringify(JSON.stringify(best)) + ')" style="margin-top:8px;font-size:11px;padding:2px 8px;">💾 存为预设</button>';
+                '<button onclick="saveLeapsPresetBest()" style="margin-top:8px;font-size:11px;padding:2px 8px;">💾 存为预设</button>';
+
+            window._leapsGaBest = best;
 
             // Population table
             var pop = result.final_population || [];
@@ -8742,7 +8744,7 @@
                 var rowId = 'leapsGaRow' + i;
                 var hasTrades = r.trade_details && r.trade_details.length > 0;
                 bodyHtml += '<tr id="' + rowId + '">' +
-                    '<td>' + (hasTrades ? '<button onclick="toggleLeapsTradeChart(\'' + rowId + '\', ' + i + ')" style="font-size:10px;padding:1px 4px;">▶</button>' : '') + ' <button onclick="saveLeapsPreset(' + JSON.stringify(JSON.stringify(r)) + ')" style="font-size:10px;padding:1px 4px;" title="存为预设">💾</button></td>' +
+                    '<td>' + (hasTrades ? '<button onclick="toggleLeapsTradeChart(\'' + rowId + '\', ' + i + ')" style="font-size:10px;padding:1px 4px;">▶</button>' : '') + ' <button onclick="saveLeapsPreset(' + i + ')" style="font-size:10px;padding:1px 4px;" title="存为预设">💾</button></td>' +
                     '<td>' + r.rank + '</td>' +
                     '<td style="font-family:var(--mono);">' + (r.fitness != null ? r.fitness.toFixed(2) : '-') + '</td>' +
                     '<td style="font-family:var(--mono);">' + (r.total_roi != null ? (r.total_roi > 0 ? '+' : '') + r.total_roi.toFixed(1) + '%' : '-') + '</td>';
@@ -9010,8 +9012,17 @@
             }
             return p;
         }
-        window.saveLeapsPreset = async function(rowJson) {
-            var row = JSON.parse(rowJson);
+        window.saveLeapsPreset = async function(index) {
+            var pop = window._leapsGaPop;
+            if (!pop || !pop[index]) { alert('种群数据丢失，请重新运行进化'); return; }
+            await _doSaveLeapsPreset(pop[index]);
+        };
+        window.saveLeapsPresetBest = async function() {
+            var best = window._leapsGaBest;
+            if (!best) { alert('最优参数数据丢失，请重新运行进化'); return; }
+            await _doSaveLeapsPreset(best);
+        };
+        async function _doSaveLeapsPreset(row) {
             var defaultName = 'LEAPS ' + (row.entry_mode || '') +
                 ' dd' + (row.drawdown_threshold_pct || '') +
                 ' s1' + row.stage1_days + 'd' + row.stage1_profit + '%' +
