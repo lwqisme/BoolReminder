@@ -228,16 +228,45 @@ def generate_all_signals(
     signal_date: date | None = None,
     dry_run: bool = False,
 ) -> list[dict[str, object]]:
-    """Generate signals for all bound symbols."""
+    """Generate signals for all bound symbols, routing by preset type."""
+    from drawdown.strategy_lab_history import load_experiment_preset
+
     bindings = load_signal_bindings()
     results: list[dict[str, object]] = []
     for symbol, preset_id in bindings.items():
         try:
-            result = generate_signal(symbol, preset_id, signal_date=signal_date, dry_run=dry_run)
+            preset = load_experiment_preset(preset_id)
+            is_leaps = (
+                preset is not None
+                and preset.get("config_payload", {}).get("type") == "leaps"
+            )
+            if is_leaps:
+                from drawdown.leaps_signal import generate_leaps_signals_for_symbol
+                result_obj = generate_leaps_signals_for_symbol(
+                    symbol, preset_id, signal_date=signal_date, dry_run=dry_run
+                )
+                result = _serialize_leaps_signal_result(result_obj)
+            else:
+                result = generate_signal(symbol, preset_id, signal_date=signal_date, dry_run=dry_run)
         except Exception as exc:
             result = {"symbol": symbol, "preset_id": preset_id, "error": str(exc)}
         results.append(result)
     return results
+
+
+def _serialize_leaps_signal_result(result) -> dict[str, object]:
+    """Serialize LeapsSignalResult to JSON-safe dict."""
+    from dataclasses import asdict
+    d = asdict(result)
+    d["signal_date"] = result.signal_date.isoformat()
+    for pos in d.get("open_positions", []):
+        for date_key in ("entry_date", "expiration"):
+            if date_key in pos and pos[date_key] is not None:
+                if hasattr(pos[date_key], "isoformat"):
+                    pos[date_key] = pos[date_key].isoformat()
+                else:
+                    pos[date_key] = str(pos[date_key])
+    return d
 
 
 # ---------------------------------------------------------------------------
