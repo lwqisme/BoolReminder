@@ -47,9 +47,7 @@ def _eval_trades(
         stages = individual.to_stages()
         for entry in entries:
             trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
-                                         strike_price=entry.price * 1.10,
-                                         stage_loss_threshold_pct=individual.stage_loss_threshold_pct,
-                                         stage_loss_sell_pct=individual.stage_loss_sell_pct)
+                                         strike_price=entry.price * 1.10)
             all_trades.append(trade)
     all_trades.sort(key=lambda t: t.entry.date)
     return all_trades
