@@ -152,7 +152,7 @@ function detectLeapsEntries(prices, drawdownThresholdPct = 20, entryMode = 'both
 
 // ── Sell ladder ───────────────────────────────────────────────────────────
 
-function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePrice = null, r = 0.05, sigma = 0.40) {
+function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePrice = null, r = 0.05, sigma = 0.40, tradeOverrides = null) {
   if (strikePrice == null) strikePrice = entry.price * 1.1;
 
   // Use timestamps for fast date comparison (prices are [ts, price, dateStr])
@@ -169,6 +169,16 @@ function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePr
   const sellEvents = [];
   let remainingPct = 100;
   const stageTriggered = effectiveStages.map(() => false);
+  // 方案 B: track how much of each stage was actually sold
+  const stageSoldPct = effectiveStages.map(() => 0.0);
+
+  // Build override lookup: date → pct sold
+  const overrideByDate = {};
+  if (tradeOverrides) {
+    for (const [d, v] of Object.entries(tradeOverrides)) {
+      overrideByDate[d] = Math.min(Number(v), 100);
+    }
+  }
 
   // Iterate only over actual price data points (not every calendar day!)
   for (const pt of pricePoints) {
@@ -183,6 +193,33 @@ function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePr
     }
 
     const holdDays = Math.round((pt.ts - entryTs) / 86400000);
+
+    // Apply real trade overrides before checking stages (方案 B)
+    const overridePct = overrideByDate[pt.date] || 0;
+    if (overridePct > 0 && remainingPct > 0) {
+      let remainingOverride = Math.min(overridePct, remainingPct);
+      for (let si = 0; si < effectiveStages.length; si++) {
+        if (remainingOverride <= 0) break;
+        const stageTarget = effectiveStages[si][2];
+        const stageRemaining = Math.max(0, stageTarget - stageSoldPct[si]);
+        if (stageRemaining > 0) {
+          const deduct = Math.min(remainingOverride, stageRemaining);
+          stageSoldPct[si] += deduct;
+          remainingOverride -= deduct;
+          remainingPct -= deduct;
+          // No sell event — real trade, not a signal
+          if (stageSoldPct[si] >= stageTarget - 0.01) {
+            stageTriggered[si] = true;
+          }
+        }
+      }
+      if (remainingOverride > 0) {
+        remainingPct -= remainingOverride;
+      }
+      if (remainingPct <= 0) break;
+      // Fall through to normal stage check — remaining may trigger same day
+    }
+
     const roi = proxyOptionRoi(entry.price, pt.price, entryTs, pt.ts, expTs, strikePrice, r, sigma);
 
     for (let si = 0; si < effectiveStages.length; si++) {
@@ -192,9 +229,20 @@ function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePr
       if (roi < profitThreshold) continue;
       if (remainingPct <= 0) break;
 
-      const sellAmount = Math.min(sellFraction, remainingPct);
+      // 方案 B: account for partial execution
+      const alreadySold = stageSoldPct[si];
+      const toSell = Math.max(0, sellFraction - alreadySold);
+      if (toSell <= 0.01) {
+        stageTriggered[si] = true;
+        continue;
+      }
+
+      const sellAmount = Math.min(toSell, remainingPct);
       remainingPct -= sellAmount;
-      stageTriggered[si] = true;
+      stageSoldPct[si] += sellAmount;
+      if (stageSoldPct[si] >= sellFraction - 0.01) {
+        stageTriggered[si] = true;
+      }
       sellEvents.push({ date: pt.date, price: pt.price, pct_sold: Math.round(sellAmount * 100) / 100, roi_pct: Math.round(roi * 100) / 100 });
 
       if (remainingPct <= 0) break;
