@@ -8462,6 +8462,24 @@
             grid.innerHTML = html;
         }
         renderLeapsGaSymbolGrid();
+        // Restore symbol checkbox state from localStorage (grid wasn't rendered during initial restore)
+        (function() {
+            try {
+                var raw = localStorage.getItem('strategyLabAutoDefaults');
+                if (!raw) return;
+                var saved = JSON.parse(raw);
+                var leapsGa = saved.leapsGa || {};
+                var symbStr = leapsGa['leapsGaSymbols'] || '';
+                if (!symbStr) return;
+                var sel = {};
+                var parts = symbStr.split(',');
+                for (var i = 0; i < parts.length; i++) sel[parts[i].trim()] = true;
+                var cbs = document.querySelectorAll('.leaps-ga-symbol-cb');
+                for (var j = 0; j < cbs.length; j++) {
+                    cbs[j].checked = !!sel[cbs[j].value];
+                }
+            } catch(e) {}
+        })();
         // Attach auto-save to LEAPS GA symbol checkboxes (created dynamically)
         var leapsGaGrid = document.getElementById('leapsGaSymbolsGrid');
         if (leapsGaGrid) { leapsGaGrid.addEventListener('change', function(e) { if (e.target.classList.contains('leaps-ga-symbol-cb')) autoSaveParameterLabDefaults(); }); }
