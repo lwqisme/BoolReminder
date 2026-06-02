@@ -7052,13 +7052,14 @@
                         var el = document.getElementById(id); if (el) leapsGa[id] = el.value;
                     });
                     // LEAPS GA ranges
-                    var rangePrefixes = ['DD','S1D','S1P','S1S','S2D','S2P','S2S'];
+                    var rangePrefixes = ['DD','S1D','S1P','S1S','S2D','S2P','S2S','Pos','CD'];
                     rangePrefixes.forEach(function(pfx) {
                         var mn = document.getElementById('leapsGaRange'+pfx+'_min');
                         var mx = document.getElementById('leapsGaRange'+pfx+'_max');
                         if (mn) leapsGa['leapsGaRange'+pfx+'_min'] = mn.value;
                         if (mx) leapsGa['leapsGaRange'+pfx+'_max'] = mx.value;
                     });
+                    leapsGa['leapsGaTotalCapital'] = document.getElementById('leapsGaTotalCapital').value;
                     const saveData = {
                         payload,
                         leapsGa,
@@ -7168,6 +7169,9 @@
                 'leapsGaRangeS2D_min', 'leapsGaRangeS2D_max',
                 'leapsGaRangeS2P_min', 'leapsGaRangeS2P_max',
                 'leapsGaRangeS2S_min', 'leapsGaRangeS2S_max',
+                'leapsGaRangePos_min', 'leapsGaRangePos_max',
+                'leapsGaRangeCD_min', 'leapsGaRangeCD_max',
+                'leapsGaTotalCapital',
             ];
             saveIds.forEach((id) => {
                 const el = document.getElementById(id);
@@ -8413,6 +8417,13 @@
             var saved = localStorage.getItem('leapsGaEngine');
             if (saved) {
                 var el = document.querySelector('input[name="leapsGaEngine"][value="' + saved + '"]');
+                if (el) el.checked = true;
+            }
+        })();
+        (function() {
+            var saved = localStorage.getItem('leapsGaCapitalMode');
+            if (saved) {
+                var el = document.querySelector('input[name="leapsGaCapitalMode"][value="' + saved + '"]');
                 if (el) el.checked = true;
             }
         })();
