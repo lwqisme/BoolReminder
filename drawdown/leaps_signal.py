@@ -348,6 +348,104 @@ def detect_sell_signals(
     Returns:
         SellSignal list for positions meeting stage conditions.
     """
+    return _compute_leaps_sell_signals_stub(positions, current_stock_price, current_date, stages)
+
+
+def compute_leaps_sell_signals(
+    position: OpenPosition,
+    prices: list[tuple[date, float]],
+    option_trades: list[OptionTrade],
+    stages: list[tuple[int, float, float]],
+    current_date: date,
+) -> list[SellSignal]:
+    """Compute sell signals for a LEAPS position, aligned with GA compute_sell_ladder.
+
+    Delegates to compute_sell_ladder with real trade overrides for partial
+    execution tracking (方案 B), then filters results to current_date.
+    """
+    from drawdown.leaps_option_ga import compute_sell_ladder, LeapsEntrySignal
+
+    if not prices:
+        return []
+
+    entry_date = position.entry_date
+    entry_price = position.entry_stock_price or prices[0][1]
+
+    # Build trade overrides: aggregate sell quantity per day as pct of position
+    initial_qty = position.total_quantity + (position.total_sold or 0.0)
+    if initial_qty <= 0:
+        return []
+    trade_overrides: dict[date, float] = {}
+    for t in option_trades:
+        if t.side == "sell" and t.contract_code == position.contract_code:
+            trade_overrides[t.trade_date] = trade_overrides.get(t.trade_date, 0.0) + t.quantity / initial_qty * 100.0
+
+    entry = LeapsEntrySignal(
+        date=entry_date,
+        price=entry_price,
+        drawdown_pct=0.0,
+        bollinger_score=0.0,
+        composite_score=0.0,
+    )
+
+    trade = compute_sell_ladder(
+        entry, prices, stages,
+        expiration_days=(position.expiration - entry_date).days,
+        strike_price=position.strike,
+        trade_overrides=trade_overrides if trade_overrides else None,
+    )
+
+    # Filter sell events to current_date and map to SellSignal
+    effective_stages = list(stages)
+    while len(effective_stages) < 3:
+        effective_stages.append((9999, 0.0, 100.0))
+
+    # Determine stage for each sell event by cumulative threshold matching
+    cum = sum(trade_overrides.values()) if trade_overrides else 0.0
+    signals: list[SellSignal] = []
+    for se in trade.sell_events:
+        if se.date != current_date:
+            cum += se.pct_sold
+            continue
+
+        before = cum
+        after = cum + se.pct_sold
+        stage_num = len(effective_stages)  # default: last stage (force-sell)
+        cum_stages = 0.0
+        for s_idx, (_, _, s_pct) in enumerate(effective_stages):
+            cum_stages += s_pct
+            if after <= cum_stages + 0.01:
+                stage_num = s_idx + 1
+                break
+        cum += se.pct_sold
+
+        hold_days = (current_date - entry_date).days
+        if stage_num <= len(effective_stages):
+            _, profit_threshold, _ = effective_stages[stage_num - 1]
+            reason = f"S{stage_num} 持有{hold_days}天 ROA{se.roi_pct:.0f}%≥{profit_threshold:.0f}% 建议卖{se.pct_sold:.0f}%"
+        else:
+            reason = f"到期强平 ROA{se.roi_pct:.0f}% 卖剩余{se.pct_sold:.0f}%"
+
+        signals.append(SellSignal(
+            contract_code=position.contract_code,
+            date=se.date.isoformat(),
+            stock_price=se.price,
+            option_roi_pct=se.roi_pct,
+            pct_to_sell=se.pct_sold,
+            stage=stage_num,
+            reason=reason,
+        ))
+
+    return signals
+
+
+def _compute_leaps_sell_signals_stub(
+    positions: list[OpenPosition],
+    current_stock_price: float,
+    current_date: date,
+    stages: list[tuple[int, float, float]],
+) -> list[SellSignal]:
+    """Temporary stub: old single-day logic."""
     from drawdown.leaps_option_ga import proxy_option_roi
 
     signals: list[SellSignal] = []
@@ -469,20 +567,23 @@ def generate_leaps_signals_for_symbol(
     for es in entry_signals:
         es.underlying = sym
 
-    # 6. Detect sell signals for open positions
+    # 6. Detect sell signals for open positions using unified engine
     current_price = prices[-1][1]
     # Set entry_stock_price for positions that don't have it
     for pos in open_positions:
         if pos.entry_stock_price is None:
-            # Find price on or near entry date
             pos.entry_stock_price = _find_price_on_date(prices, pos.entry_date) or current_price
 
-    sell_signals = detect_sell_signals(
-        open_positions,
-        current_stock_price=current_price,
-        current_date=today,
-        stages=stages,
-    )
+    # Filter option_trades to only sells for open positions
+    open_contracts = {p.contract_code for p in open_positions}
+    relevant_trades = [t for t in option_trades if t.contract_code in open_contracts]
+
+    sell_signals: list[SellSignal] = []
+    for pos in open_positions:
+        pos_signals = compute_leaps_sell_signals(
+            pos, prices, relevant_trades, stages, today,
+        )
+        sell_signals.extend(pos_signals)
 
     return LeapsSignalResult(
         symbol=sym,

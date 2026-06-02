@@ -343,6 +343,7 @@ def compute_sell_ladder(
     strike_price: float | None = None,
     risk_free_rate: float = 0.05,
     sigma: float = 0.40,
+    trade_overrides: dict[date, float] | None = None,
 ) -> LeapsTrade:
     """Simulate staged sell ladder from entry to expiration.
 
@@ -383,6 +384,12 @@ def compute_sell_ladder(
     sell_events: list[LeapsSellEvent] = []
     remaining_pct = 100.0  # portion of initial position not yet sold
     stage_triggered: list[bool] = [False] * len(effective_stages)
+    # 方案 B: track how much of each stage was actually sold
+    stage_sold_pct: list[float] = [0.0] * len(effective_stages)
+    # Precompute override sells by date (as percentage of total position)
+    override_by_date: dict[date, float] = {}
+    if trade_overrides:
+        override_by_date = {d: min(v, 100.0) for d, v in trade_overrides.items()}
 
     # Start from entry date + 1 day
     current_date = entry.date + timedelta(days=1)
@@ -409,6 +416,33 @@ def compute_sell_ladder(
             continue
 
         hold_days = (current_date - entry.date).days
+
+        # Apply real trade overrides before checking stages (方案 B)
+        override_pct = override_by_date.get(current_date, 0.0)
+        if override_pct > 0 and remaining_pct > 0:
+            # Allocate override sells to stages in order (silent state change only)
+            remaining_override = min(override_pct, remaining_pct)
+            for s_idx in range(len(effective_stages)):
+                if remaining_override <= 0:
+                    break
+                stage_target = effective_stages[s_idx][2]
+                stage_remaining = max(0, stage_target - stage_sold_pct[s_idx])
+                if stage_remaining > 0:
+                    deduct = min(remaining_override, stage_remaining)
+                    stage_sold_pct[s_idx] += deduct
+                    remaining_override -= deduct
+                    remaining_pct -= deduct
+                    # No sell event recorded — this is a real executed trade, not a signal
+                    if stage_sold_pct[s_idx] >= stage_target - 0.01:
+                        stage_triggered[s_idx] = True
+            if remaining_override > 0:
+                # Extra sells beyond all stages
+                remaining_pct -= remaining_override
+            if remaining_pct <= 0:
+                break
+            # Fall through to normal stage check — remaining may still trigger
+            # (方案 B: partial execution on same day → check if residual triggers)
+
         roi = proxy_option_roi(
             entry.price, exit_price, entry.date, current_date,
             expiration, strike_price, risk_free_rate, sigma,
@@ -425,10 +459,17 @@ def compute_sell_ladder(
             if remaining_pct <= 0:
                 break
 
-            # Trigger this stage
-            sell_amount = min(sell_fraction, remaining_pct)
+            # Trigger this stage (方案 B: account for partial execution)
+            already_sold = stage_sold_pct[stage_idx]
+            to_sell = max(0, sell_fraction - already_sold)
+            if to_sell <= 0.01:
+                stage_triggered[stage_idx] = True
+                continue
+            sell_amount = min(to_sell, remaining_pct)
             remaining_pct -= sell_amount
-            stage_triggered[stage_idx] = True
+            stage_sold_pct[stage_idx] += sell_amount
+            if stage_sold_pct[stage_idx] >= sell_fraction - 0.01:
+                stage_triggered[stage_idx] = True
             sell_events.append(LeapsSellEvent(
                 date=current_date, price=exit_price,
                 pct_sold=round(sell_amount, 2),

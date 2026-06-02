@@ -15,6 +15,7 @@ from drawdown.leaps_signal import (
     compute_open_positions,
     detect_entry_signals,
     detect_sell_signals,
+    compute_leaps_sell_signals,
 )
 
 
@@ -285,6 +286,223 @@ class DetectSellSignalsTest(unittest.TestCase):
             stages=[(10, 60.0, 50.0)],
         )
         self.assertEqual(len(signals), 0, "No sell when ROI below threshold")
+
+
+# ── Golden file sell signal tests ──────────────────────────────────────
+
+class GoldenSellSignalTest(unittest.TestCase):
+    """Verify signal sell logic matches GA compute_sell_ladder using golden data."""
+
+    @classmethod
+    def setUpClass(cls):
+        import json
+        from pathlib import Path
+        golden_path = Path(__file__).resolve().parent / "test_data" / "leaps_signal_golden.json"
+        with open(golden_path) as f:
+            cls.golden = json.load(f)
+
+    def _prices_for(self, window_key: str) -> list[tuple[date, float]]:
+        raw = self.golden["price_slices"][window_key]
+        return [(date.fromisoformat(d), p) for d, p in raw]
+
+    def _make_position(self, window_key: str, partial_sell_pct: float = 0.0) -> OpenPosition:
+        """Create an OpenPosition for a window, optionally with partial prior sells."""
+        ga = self.golden["expected_ga_results"][window_key]
+        entry_date = date.fromisoformat(ga["entry_date"])
+        entry_price = ga["entry_price"]
+        # entry + 190 days = expiration
+        expiration = entry_date + timedelta(days=190)
+        # strike = entry * 1.10 (same as GA default)
+        strike = entry_price * 1.10
+        total_qty = 100.0
+        total_sold = total_qty * partial_sell_pct / 100.0
+
+        return OpenPosition(
+            contract_code=f"NVDA{entry_date.strftime('%y%m%d')}C{int(strike*1000):08d}.US",
+            underlying="NVDA.US",
+            entry_date=entry_date,
+            entry_stock_price=entry_price,
+            option_buy_price=entry_price * 0.05,  # rough
+            total_quantity=total_qty - total_sold,
+            expiration=expiration,
+            strike=strike,
+            option_type="call",
+            total_sold=total_sold,
+        )
+
+    def test_s1_triggers_with_no_prior_trades(self):
+        """Tracer bullet: no real trades, S1 condition met → recommend S1 full."""
+        ga = self.golden["expected_ga_results"]["window_2"]
+        s1_expected = ga["sell_events"][0]  # S1: 31% @ 2024-05-14
+        s1_date = date.fromisoformat(s1_expected["date"])
+
+        position = self._make_position("window_2", partial_sell_pct=0.0)
+        prices = self._prices_for("window_2")
+        stages = [(d, p, s) for d, p, s in self.golden["stages"]]
+
+        signals = compute_leaps_sell_signals(
+            position, prices, [], stages, s1_date,
+        )
+
+        self.assertEqual(len(signals), 1, "Should have 1 sell signal")
+        sig = signals[0]
+        self.assertEqual(sig.stage, 1, "Should be stage 1")
+        self.assertAlmostEqual(sig.pct_to_sell, 31.0, delta=0.1)
+        self.assertAlmostEqual(sig.stock_price, s1_expected["price"], delta=1.0)
+
+    def test_s2_triggers_after_s1_fully_executed(self):
+        """S1 fully executed (31%), S2 condition met → recommend S2."""
+        ga = self.golden["expected_ga_results"]["window_2"]
+        s2_expected = ga["sell_events"][1]  # S2: 30% @ 2024-06-14
+        s2_date = date.fromisoformat(s2_expected["date"])
+
+        position = self._make_position("window_2", partial_sell_pct=0.0)
+        prices = self._prices_for("window_2")
+        stages = [(d, p, s) for d, p, s in self.golden["stages"]]
+
+        # Simulate: S1 was fully executed on 2024-05-14
+        s1_date = date.fromisoformat(ga["sell_events"][0]["date"])
+        s1_trades = [
+            OptionTrade(
+                position.contract_code, "NVDA.US",
+                s1_date, "sell",
+                position.total_quantity * 0.31,  # sold 31% of original qty
+                0.0, 0.0,
+                position.expiration, position.strike, "call",
+            )
+        ]
+
+        signals = compute_leaps_sell_signals(
+            position, prices, s1_trades, stages, s2_date,
+        )
+
+        self.assertEqual(len(signals), 1, "Should have 1 sell signal for S2")
+        sig = signals[0]
+        self.assertEqual(sig.stage, 2, "Should be stage 2")
+        self.assertAlmostEqual(sig.pct_to_sell, 30.0, delta=0.1)
+        self.assertAlmostEqual(sig.stock_price, s2_expected["price"], delta=1.0)
+
+    def test_s1_partial_execution_still_recommends_s1_remainder(self):
+        """方案 B: S1 partially executed (15/31%), S1 still meets conditions → recommend remaining 16%."""
+        ga = self.golden["expected_ga_results"]["window_2"]
+        s1_expected = ga["sell_events"][0]  # S1: 31% @ 2024-05-14
+        s1_date = date.fromisoformat(s1_expected["date"])
+
+        position = self._make_position("window_2", partial_sell_pct=0.0)
+        prices = self._prices_for("window_2")
+        stages = [(d, p, s) for d, p, s in self.golden["stages"]]
+
+        # Simulate: user only sold 15% of S1's 31% target on s1_date
+        s1_trades = [
+            OptionTrade(
+                position.contract_code, "NVDA.US",
+                s1_date, "sell",
+                position.total_quantity * 0.15,  # partial: 15% instead of 31%
+                0.0, 0.0,
+                position.expiration, position.strike, "call",
+            )
+        ]
+
+        signals = compute_leaps_sell_signals(
+            position, prices, s1_trades, stages, s1_date,
+        )
+
+        self.assertEqual(len(signals), 1, "Should still have S1 signal")
+        sig = signals[0]
+        self.assertEqual(sig.stage, 1, "Should remain stage 1")
+        self.assertAlmostEqual(sig.pct_to_sell, 16.0, delta=0.2, msg=f"Expected ~16% remaining, got {sig.pct_to_sell}")
+
+    def test_no_signal_when_s2_not_met_after_s1_executed(self):
+        """S1 fully executed, but date is before S2 conditions are met → no signal."""
+        ga = self.golden["expected_ga_results"]["window_2"]
+        s1_date = date.fromisoformat(ga["sell_events"][0]["date"])  # 2024-05-14
+        check_date = s1_date + timedelta(days=5)  # 2024-05-19 — well before S2 (2024-06-14)
+
+        position = self._make_position("window_2", partial_sell_pct=0.0)
+        prices = self._prices_for("window_2")
+        stages = [(d, p, s) for d, p, s in self.golden["stages"]]
+
+        s1_trades = [
+            OptionTrade(position.contract_code, "NVDA.US",
+                        s1_date, "sell", position.total_quantity * 0.31,
+                        0.0, 0.0, position.expiration, position.strike, "call"),
+        ]
+
+        signals = compute_leaps_sell_signals(
+            position, prices, s1_trades, stages, check_date,
+        )
+
+        self.assertEqual(len(signals), 0, f"No signal expected on {check_date}, got {[(s.stage, s.pct_to_sell) for s in signals]}")
+
+    def test_s3_triggers_after_s1_s2_executed(self):
+        """S1 and S2 fully executed, S3 (remaining) triggers at hard_cutoff or when conditions met."""
+        ga = self.golden["expected_ga_results"]["window_2"]
+        s3_expected = ga["sell_events"][2]  # S3: 39% @ 2024-08-28
+        s3_date = date.fromisoformat(s3_expected["date"])
+
+        position = self._make_position("window_2", partial_sell_pct=0.0)
+        prices = self._prices_for("window_2")
+        stages = [(d, p, s) for d, p, s in self.golden["stages"]]
+
+        # Simulate S1 and S2 fully executed
+        s1_date = date.fromisoformat(ga["sell_events"][0]["date"])
+        s2_date = date.fromisoformat(ga["sell_events"][1]["date"])
+        s1_trades = [
+            OptionTrade(position.contract_code, "NVDA.US",
+                        s1_date, "sell", position.total_quantity * 0.31,
+                        0.0, 0.0, position.expiration, position.strike, "call"),
+            OptionTrade(position.contract_code, "NVDA.US",
+                        s2_date, "sell", position.total_quantity * 0.30,
+                        0.0, 0.0, position.expiration, position.strike, "call"),
+        ]
+
+        signals = compute_leaps_sell_signals(
+            position, prices, s1_trades, stages, s3_date,
+        )
+
+        self.assertEqual(len(signals), 1, "Should have S3 sell signal")
+        sig = signals[0]
+        self.assertEqual(sig.stage, 3, "Should be stage 3 (remaining)")
+        self.assertAlmostEqual(sig.pct_to_sell, 39.0, delta=0.2)
+        self.assertAlmostEqual(sig.stock_price, s3_expected["price"], delta=1.0)
+
+    def test_window_1_force_sell_at_hard_cutoff(self):
+        """Window 1: S1/S2 never met (ROI too low), force-sell 100% at hard_cutoff."""
+        ga = self.golden["expected_ga_results"]["window_1"]
+        sell_date = date.fromisoformat(ga["sell_events"][0]["date"])  # 2023-12-18
+
+        position = self._make_position("window_1", partial_sell_pct=0.0)
+        prices = self._prices_for("window_1")
+        stages = [(d, p, s) for d, p, s in self.golden["stages"]]
+
+        signals = compute_leaps_sell_signals(
+            position, prices, [], stages, sell_date,
+        )
+
+        self.assertEqual(len(signals), 1, "Should have force-sell signal")
+        sig = signals[0]
+        self.assertAlmostEqual(sig.pct_to_sell, 100.0, delta=0.2)
+        self.assertAlmostEqual(sig.stock_price, ga["sell_events"][0]["price"], delta=1.0)
+
+    def test_window_3_same_day_s1_s2(self):
+        """Window 3: S1 and S2 trigger on same day → two signals for that day."""
+        ga = self.golden["expected_ga_results"]["window_3"]
+        s1_date = date.fromisoformat(ga["sell_events"][0]["date"])  # 2025-05-14
+        # S1 and S2 both on 2025-05-14
+
+        position = self._make_position("window_3", partial_sell_pct=0.0)
+        prices = self._prices_for("window_3")
+        stages = [(d, p, s) for d, p, s in self.golden["stages"]]
+
+        signals = compute_leaps_sell_signals(
+            position, prices, [], stages, s1_date,
+        )
+
+        self.assertEqual(len(signals), 2, f"Should have 2 signals (S1+S2 same day), got {len(signals)}")
+        stages_found = {s.stage for s in signals}
+        self.assertEqual(stages_found, {1, 2}, f"Should be stages 1 and 2, got {stages_found}")
+        total_sold = sum(s.pct_to_sell for s in signals)
+        self.assertAlmostEqual(total_sold, 61.0, delta=0.2)  # 31 + 30
 
 
 # ── Test helpers ──
