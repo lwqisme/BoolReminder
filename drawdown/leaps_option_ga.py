@@ -57,6 +57,8 @@ class LeapsIndividual:
     stage2_sell: float
     position_pct: float = 20.0
     cooldown_days: int = 5
+    stage_loss_threshold_pct: float | None = None
+    stage_loss_sell_pct: float = 100.0
     key: str = ""
 
     def __post_init__(self):
@@ -66,6 +68,7 @@ class LeapsIndividual:
                 self.stage1_days, self.stage1_profit, self.stage1_sell,
                 self.stage2_days, self.stage2_profit, self.stage2_sell,
                 self.position_pct, self.cooldown_days,
+                self.stage_loss_threshold_pct, self.stage_loss_sell_pct,
             ))
 
     def to_stages(self) -> list[tuple[int, float, float]]:
@@ -87,6 +90,8 @@ class LeapsIndividual:
             "stage2_sell": self.stage2_sell,
             "position_pct": self.position_pct,
             "cooldown_days": self.cooldown_days,
+            "stage_loss_threshold_pct": self.stage_loss_threshold_pct,
+            "stage_loss_sell_pct": self.stage_loss_sell_pct,
         }
 
 
@@ -101,14 +106,19 @@ def leaps_individual_key(
     stage2_sell: float,
     position_pct: float = 20.0,
     cooldown_days: int = 5,
+    stage_loss_threshold_pct: float | None = None,
+    stage_loss_sell_pct: float = 100.0,
 ) -> str:
     """Generate deterministic key for a LEAPS individual."""
-    return (
+    key = (
         f"dd{drawdown_threshold_pct:g}__{entry_mode}"
         f"__s1d{stage1_days}_p{stage1_profit:g}_s{stage1_sell:g}"
         f"__s2d{stage2_days}_p{stage2_profit:g}_s{stage2_sell:g}"
         f"__pos{position_pct:g}__cd{cooldown_days}"
     )
+    if stage_loss_threshold_pct is not None:
+        key += f"__sl{stage_loss_threshold_pct:g}_{stage_loss_sell_pct:g}"
+    return key
 
 
 def estimate_option_delta(
@@ -343,6 +353,8 @@ def compute_sell_ladder(
     strike_price: float | None = None,
     risk_free_rate: float = 0.05,
     sigma: float = 0.40,
+    stage_loss_threshold_pct: float | None = None,
+    stage_loss_sell_pct: float = 100.0,
 ) -> LeapsTrade:
     """Simulate staged sell ladder from entry to expiration.
 
@@ -351,6 +363,10 @@ def compute_sell_ladder(
     - hold days >= stage min_hold_days
     - proxy option ROI >= stage profit_pct
     - If met: sell stage's sell_pct of remaining position
+
+    If stage_loss_threshold_pct is set, checks stop-loss first:
+    - proxy option ROI <= -stage_loss_threshold_pct
+    - If met: sell stage_loss_sell_pct of remaining position
 
     Stage 3 (last) always sells 100% of remaining at expiration cutoff.
 
@@ -362,6 +378,8 @@ def compute_sell_ladder(
         strike_price: Option strike (default: entry.price * 1.10).
         risk_free_rate: For BS proxy.
         sigma: Implied volatility for BS proxy.
+        stage_loss_threshold_pct: If set, stop-loss when ROI <= -this%.
+        stage_loss_sell_pct: % of remaining position to sell on stop-loss.
 
     Returns:
         LeapsTrade with sell events and total ROI.
@@ -383,6 +401,7 @@ def compute_sell_ladder(
     sell_events: list[LeapsSellEvent] = []
     remaining_pct = 100.0  # portion of initial position not yet sold
     stage_triggered: list[bool] = [False] * len(effective_stages)
+    stop_loss_triggered = False  # only trigger stop-loss once per trade
 
     # Start from entry date + 1 day
     current_date = entry.date + timedelta(days=1)
@@ -413,6 +432,26 @@ def compute_sell_ladder(
             entry.price, exit_price, entry.date, current_date,
             expiration, strike_price, risk_free_rate, sigma,
         )
+
+        # Stop-loss check (checked first, independent of hold days)
+        if (
+            stage_loss_threshold_pct is not None
+            and not stop_loss_triggered
+            and roi <= -stage_loss_threshold_pct
+            and remaining_pct > 0
+        ):
+            sell_amount = min(stage_loss_sell_pct, remaining_pct)
+            remaining_pct -= sell_amount
+            stop_loss_triggered = True
+            sell_events.append(LeapsSellEvent(
+                date=current_date, price=exit_price,
+                pct_sold=round(sell_amount, 2),
+                roi_pct=round(roi, 2),
+            ))
+            if remaining_pct <= 0:
+                break
+            current_date += timedelta(days=1)
+            continue
 
         # Check each stage in order
         for stage_idx, (min_hold, profit_threshold, sell_fraction) in enumerate(effective_stages):
@@ -568,6 +607,8 @@ class LeapsParamRanges:
     stage2_sell: tuple[float, float] = (30.0, 70.0)
     position_pct: tuple[float, float] = (5.0, 50.0)
     cooldown_days: tuple[int, int] = (1, 30)
+    stage_loss_threshold_pct: tuple[float, float] = (50.0, 90.0)
+    stage_loss_sell_pct: tuple[float, float] = (30.0, 100.0)
 
     @classmethod
     def from_dict(cls, d: dict[str, list] | None) -> "LeapsParamRanges":
@@ -577,7 +618,8 @@ class LeapsParamRanges:
         kwargs = {}
         for field_name in ["drawdown_threshold_pct", "stage1_days", "stage2_days",
                            "stage1_profit", "stage2_profit", "stage1_sell", "stage2_sell",
-                           "position_pct", "cooldown_days"]:
+                           "position_pct", "cooldown_days",
+                           "stage_loss_threshold_pct", "stage_loss_sell_pct"]:
             val = d.get(field_name)
             if isinstance(val, list) and len(val) == 2:
                 lo = val[0] if val[0] is not None else getattr(cls(), field_name)[0]
@@ -587,6 +629,7 @@ class LeapsParamRanges:
             "drawdown_threshold_pct", "stage1_days", "stage2_days",
             "stage1_profit", "stage2_profit", "stage1_sell", "stage2_sell",
             "position_pct", "cooldown_days",
+            "stage_loss_threshold_pct", "stage_loss_sell_pct",
         ]})
 
 
@@ -615,6 +658,8 @@ def leaps_crossover(parent1: LeapsIndividual, parent2: LeapsIndividual) -> Leaps
     s2s = pick(parent1.stage2_sell, parent2.stage2_sell)
     pos = pick(parent1.position_pct, parent2.position_pct)
     cd = pick(parent1.cooldown_days, parent2.cooldown_days)
+    slt = pick(parent1.stage_loss_threshold_pct, parent2.stage_loss_threshold_pct)
+    sls = pick(parent1.stage_loss_sell_pct, parent2.stage_loss_sell_pct)
 
     # Enforce constraints
     s1d, s2d = _enforce_day_order(s1d, s2d)
@@ -625,6 +670,7 @@ def leaps_crossover(parent1: LeapsIndividual, parent2: LeapsIndividual) -> Leaps
         stage1_days=s1d, stage1_profit=s1p, stage1_sell=s1s,
         stage2_days=s2d, stage2_profit=s2p, stage2_sell=s2s,
         position_pct=pos, cooldown_days=int(cd),
+        stage_loss_threshold_pct=slt, stage_loss_sell_pct=sls,
     )
 
 
@@ -646,6 +692,8 @@ def leaps_mutate(
     s2s = individual.stage2_sell
     pos = individual.position_pct
     cd = individual.cooldown_days
+    slt = individual.stage_loss_threshold_pct
+    sls = individual.stage_loss_sell_pct
 
     if random.random() < config.mutation_rate:
         dd = random.choice(dd_opts)
@@ -667,6 +715,10 @@ def leaps_mutate(
         pos = round(random.uniform(*r.position_pct), 1)
     if random.random() < config.mutation_rate:
         cd = random.randint(int(r.cooldown_days[0]), int(r.cooldown_days[1]))
+    if random.random() < config.mutation_rate:
+        slt = round(random.uniform(*r.stage_loss_threshold_pct), 0)
+    if random.random() < config.mutation_rate:
+        sls = round(random.uniform(*r.stage_loss_sell_pct), 0)
 
     s1d, s2d = _enforce_day_order(s1d, s2d)
     s1p, s2p = _enforce_profit_order(s1p, s2p)
@@ -676,6 +728,7 @@ def leaps_mutate(
         stage1_days=s1d, stage1_profit=s1p, stage1_sell=s1s,
         stage2_days=s2d, stage2_profit=s2p, stage2_sell=s2s,
         position_pct=pos, cooldown_days=cd,
+        stage_loss_threshold_pct=slt, stage_loss_sell_pct=sls,
     )
 
 
@@ -725,6 +778,8 @@ def _random_individual(ranges: LeapsParamRanges | None = None) -> LeapsIndividua
     s2s = round(random.uniform(*r.stage2_sell), 0)
     pos = round(random.uniform(*r.position_pct), 1)
     cd = random.randint(int(r.cooldown_days[0]), int(r.cooldown_days[1]))
+    slt = round(random.uniform(*r.stage_loss_threshold_pct), 0)
+    sls = round(random.uniform(*r.stage_loss_sell_pct), 0)
     s1d, s2d = _enforce_day_order(s1d, s2d, r)
     s1p, s2p = _enforce_profit_order(s1p, s2p, r)
     return LeapsIndividual(
@@ -732,6 +787,7 @@ def _random_individual(ranges: LeapsParamRanges | None = None) -> LeapsIndividua
         stage1_days=s1d, stage1_profit=s1p, stage1_sell=s1s,
         stage2_days=s2d, stage2_profit=s2p, stage2_sell=s2s,
         position_pct=pos, cooldown_days=cd,
+        stage_loss_threshold_pct=slt, stage_loss_sell_pct=sls,
     )
 
 

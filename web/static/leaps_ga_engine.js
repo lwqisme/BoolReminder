@@ -152,7 +152,7 @@ function detectLeapsEntries(prices, drawdownThresholdPct = 20, entryMode = 'both
 
 // ── Sell ladder ───────────────────────────────────────────────────────────
 
-function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePrice = null, r = 0.05, sigma = 0.40) {
+function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePrice = null, r = 0.05, sigma = 0.40, stopLossThreshold = null, stopLossSell = 100) {
   if (strikePrice == null) strikePrice = entry.price * 1.1;
 
   // Use timestamps for fast date comparison (prices are [ts, price, dateStr])
@@ -169,6 +169,7 @@ function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePr
   const sellEvents = [];
   let remainingPct = 100;
   const stageTriggered = effectiveStages.map(() => false);
+  let stopLossTriggered = false;
 
   // Iterate only over actual price data points (not every calendar day!)
   for (const pt of pricePoints) {
@@ -184,6 +185,16 @@ function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePr
 
     const holdDays = Math.round((pt.ts - entryTs) / 86400000);
     const roi = proxyOptionRoi(entry.price, pt.price, entryTs, pt.ts, expTs, strikePrice, r, sigma);
+
+    // Stop-loss check (first, no minimum hold)
+    if (stopLossThreshold != null && !stopLossTriggered && roi <= -stopLossThreshold && remainingPct > 0) {
+      const sellAmount = Math.min(stopLossSell, remainingPct);
+      remainingPct -= sellAmount;
+      stopLossTriggered = true;
+      sellEvents.push({ date: pt.date, price: pt.price, pct_sold: Math.round(sellAmount * 100) / 100, roi_pct: Math.round(roi * 100) / 100 });
+      if (remainingPct <= 0) break;
+      continue;
+    }
 
     for (let si = 0; si < effectiveStages.length; si++) {
       if (stageTriggered[si]) continue;
@@ -241,17 +252,24 @@ function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePr
 
 // ── GA Individual ─────────────────────────────────────────────────────────
 
-function leapsIndividualKey(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos, cd) {
-  return `dd${dd}__${mode}__s1d${s1d}_p${s1p}_s${s1s}__s2d${s2d}_p${s2p}_s${s2s}__pos${pos}__cd${cd}`;
+function leapsIndividualKey(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos, cd, slt, sls) {
+  let key = `dd${dd}__${mode}__s1d${s1d}_p${s1p}_s${s1s}__s2d${s2d}_p${s2p}_s${s2s}__pos${pos}__cd${cd}`;
+  if (slt != null) key += `__sl${slt}_${sls}`;
+  return key;
 }
 
-function makeIndividual(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos, cd) {
+function makeIndividual(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos, cd, slt, sls) {
+  const pct = pos != null ? pos : DEFAULTS.positionPct;
+  const cool = cd != null ? cd : DEFAULTS.cooldownDays;
+  const lossT = slt != null ? slt : null;
+  const lossS = sls != null ? sls : DEFAULTS.stageLossSellPct;
   return {
     drawdown_threshold_pct: dd, entry_mode: mode,
     stage1_days: s1d, stage1_profit: s1p, stage1_sell: s1s,
     stage2_days: s2d, stage2_profit: s2p, stage2_sell: s2s,
-    position_pct: pos != null ? pos : DEFAULTS.positionPct, cooldown_days: cd != null ? cd : DEFAULTS.cooldownDays,
-    key: leapsIndividualKey(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos != null ? pos : DEFAULTS.positionPct, cd != null ? cd : DEFAULTS.cooldownDays),
+    position_pct: pct, cooldown_days: cool,
+    stage_loss_threshold_pct: lossT, stage_loss_sell_pct: lossS,
+    key: leapsIndividualKey(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pct, cool, lossT, lossS),
     toStages() { return [[this.stage1_days, this.stage1_profit, this.stage1_sell], [this.stage2_days, this.stage2_profit, this.stage2_sell]]; },
   };
 }
@@ -307,9 +325,11 @@ function randomIndividual(ranges) {
   let s2s = Math.round((Math.random() * (ranges.stage2_sell[1] - ranges.stage2_sell[0]) + ranges.stage2_sell[0]));
   const pos = Math.round((Math.random() * (ranges.position_pct[1] - ranges.position_pct[0]) + ranges.position_pct[0]) * 10) / 10;
   const cd = Math.floor(Math.random() * (ranges.cooldown_days[1] - ranges.cooldown_days[0] + 1)) + ranges.cooldown_days[0];
+  const slt = Math.round(Math.random() * (ranges.stage_loss_threshold_pct[1] - ranges.stage_loss_threshold_pct[0]) + ranges.stage_loss_threshold_pct[0]);
+  const sls = Math.round(Math.random() * (ranges.stage_loss_sell_pct[1] - ranges.stage_loss_sell_pct[0]) + ranges.stage_loss_sell_pct[0]);
   [s1d, s2d] = enforceDayOrder(s1d, s2d, ranges);
   [s1p, s2p] = enforceProfitOrder(s1p, s2p, ranges);
-  return makeIndividual(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos, cd);
+  return makeIndividual(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos, cd, slt, sls);
 }
 
 function leapsCrossover(p1, p2, ranges) {
@@ -329,6 +349,8 @@ function leapsCrossover(p1, p2, ranges) {
     pick(p1.stage2_sell, p2.stage2_sell),
     pick(p1.position_pct, p2.position_pct),
     pick(p1.cooldown_days, p2.cooldown_days),
+    pick(p1.stage_loss_threshold_pct, p2.stage_loss_threshold_pct),
+    pick(p1.stage_loss_sell_pct, p2.stage_loss_sell_pct),
   );
 }
 
@@ -338,6 +360,7 @@ function leapsMutate(ind, mutationRate, ranges) {
   let s1d = ind.stage1_days, s1p = ind.stage1_profit, s1s = ind.stage1_sell;
   let s2d = ind.stage2_days, s2p = ind.stage2_profit, s2s = ind.stage2_sell;
   let pos = ind.position_pct, cd = ind.cooldown_days;
+  let slt = ind.stage_loss_threshold_pct, sls = ind.stage_loss_sell_pct;
 
   if (Math.random() < mutationRate) dd = ddOptions(ranges)[Math.floor(Math.random() * ddOptions(ranges).length)];
   if (Math.random() < mutationRate) mode = ENTRY_MODES[Math.floor(Math.random() * ENTRY_MODES.length)];
@@ -349,10 +372,12 @@ function leapsMutate(ind, mutationRate, ranges) {
   if (Math.random() < mutationRate) s2s = Math.round(Math.random() * (ranges.stage2_sell[1] - ranges.stage2_sell[0]) + ranges.stage2_sell[0]);
   if (Math.random() < mutationRate) pos = Math.round((Math.random() * (ranges.position_pct[1] - ranges.position_pct[0]) + ranges.position_pct[0]) * 10) / 10;
   if (Math.random() < mutationRate) cd = Math.floor(Math.random() * (ranges.cooldown_days[1] - ranges.cooldown_days[0] + 1)) + ranges.cooldown_days[0];
+  if (Math.random() < mutationRate) slt = Math.round(Math.random() * (ranges.stage_loss_threshold_pct[1] - ranges.stage_loss_threshold_pct[0]) + ranges.stage_loss_threshold_pct[0]);
+  if (Math.random() < mutationRate) sls = Math.round(Math.random() * (ranges.stage_loss_sell_pct[1] - ranges.stage_loss_sell_pct[0]) + ranges.stage_loss_sell_pct[0]);
 
   [s1d, s2d] = enforceDayOrder(s1d, s2d, ranges);
   [s1p, s2p] = enforceProfitOrder(s1p, s2p, ranges);
-  return makeIndividual(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos, cd);
+  return makeIndividual(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos, cd, slt, sls);
 }
 
 // ── Fitness ───────────────────────────────────────────────────────────────
@@ -365,7 +390,8 @@ function _leapsEvalTrades(individual, priceSeriesBySymbol) {
     const entries = detectLeapsEntries(prices, individual.drawdown_threshold_pct, individual.entry_mode);
     const stages = individual.toStages();
     for (const entry of entries) {
-      const trade = computeSellLadder(entry, prices, stages, 190, entry.price * 1.1);
+      const trade = computeSellLadder(entry, prices, stages, 190, entry.price * 1.1,
+        0.05, 0.40, individual.stage_loss_threshold_pct, individual.stage_loss_sell_pct);
       trade.symbol = symbol;
       trades.push(trade);
     }
@@ -556,6 +582,7 @@ const DEFAULTS = {
   totalCapital: 10000,
   positionPct: 20,
   cooldownDays: 5,
+  stageLossSellPct: 100,
 };
 
 const DEFAULT_RANGES = {
@@ -565,6 +592,8 @@ const DEFAULT_RANGES = {
   stage1_sell: [30, 70], stage2_sell: [30, 70],
   position_pct: [5, 50],
   cooldown_days: [1, 30],
+  stage_loss_threshold_pct: [50, 90],
+  stage_loss_sell_pct: [30, 100],
 };
 
 function mergeRanges(custom) {

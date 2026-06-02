@@ -1801,6 +1801,8 @@ async function handleLeapsGa(message) {
         stage1_sell: bestIndividual.stage1_sell, stage2_days: bestIndividual.stage2_days,
         stage2_profit: bestIndividual.stage2_profit, stage2_sell: bestIndividual.stage2_sell,
         position_pct: bestIndividual.position_pct, cooldown_days: bestIndividual.cooldown_days,
+        stage_loss_threshold_pct: bestIndividual.stage_loss_threshold_pct,
+        stage_loss_sell_pct: bestIndividual.stage_loss_sell_pct,
       },
     });
 
@@ -1838,6 +1840,8 @@ async function handleLeapsGa(message) {
       stage1_days: ind.stage1_days, stage1_profit: ind.stage1_profit, stage1_sell: ind.stage1_sell,
       stage2_days: ind.stage2_days, stage2_profit: ind.stage2_profit, stage2_sell: ind.stage2_sell,
       position_pct: ind.position_pct, cooldown_days: ind.cooldown_days,
+      stage_loss_threshold_pct: ind.stage_loss_threshold_pct,
+      stage_loss_sell_pct: ind.stage_loss_sell_pct,
     };
     // Add capital-mode-specific metrics
     if (capitalMode === 'fixed') {

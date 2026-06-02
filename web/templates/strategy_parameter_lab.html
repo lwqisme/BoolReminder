@@ -8611,6 +8611,7 @@
                 stage1_days: 'S1持有天数', stage1_profit: 'S1涨幅%', stage1_sell: 'S1卖仓%',
                 stage2_days: 'S2持有天数', stage2_profit: 'S2涨幅%', stage2_sell: 'S2卖仓%',
                 position_pct: '仓位%', cooldown_days: '冷却天数',
+                stage_loss_threshold_pct: '止损阈值%', stage_loss_sell_pct: '止损卖出%',
             };
             var rows = '';
             for (var key in labelMap) {
@@ -8646,9 +8647,9 @@
             var capitalMode2 = (result.config && result.config.capital_mode) || 'fixed';
             var headerCells;
             if (capitalMode2 === 'fixed') {
-                headerCells = ['', '排名', '适应度', '总收益%', '最终净值$', 'CAGR%', '最大回撤%', '交易笔数', '模式', '仓位%', '冷却天', 'S1天', 'S1利%', 'S2天', 'S2利%'];
+                headerCells = ['', '排名', '适应度', '总收益%', '最终净值$', 'CAGR%', '最大回撤%', '交易笔数', '模式', '仓位%', '冷却天', '止损%', '止损卖%', 'S1天', 'S1利%', 'S2天', 'S2利%'];
             } else {
-                headerCells = ['', '排名', '适应度', '总收益%', '年化几何%', '投入产出比', '交易笔数', '模式', '仓位%', '冷却天', 'S1天', 'S1利%', 'S2天', 'S2利%'];
+                headerCells = ['', '排名', '适应度', '总收益%', '年化几何%', '投入产出比', '交易笔数', '模式', '仓位%', '冷却天', '止损%', '止损卖%', 'S1天', 'S1利%', 'S2天', 'S2利%'];
             }
             var headerHtml = headerCells.map(function(c) { return '<th>' + c + '</th>'; }).join('');
             var bodyHtml = '';
@@ -8682,6 +8683,8 @@
                     '<td>' + r.entry_mode + '</td>' +
                     '<td>' + (r.position_pct != null ? r.position_pct : '-') + '</td>' +
                     '<td>' + (r.cooldown_days != null ? r.cooldown_days : '-') + '</td>' +
+                    '<td>' + (r.stage_loss_threshold_pct != null ? r.stage_loss_threshold_pct : '-') + '</td>' +
+                    '<td>' + (r.stage_loss_sell_pct != null ? r.stage_loss_sell_pct : '-') + '</td>' +
                     '<td>' + r.stage1_days + '</td>' +
                     '<td>' + r.stage1_profit + '</td>' +
                     '<td>' + r.stage2_days + '</td>' +
