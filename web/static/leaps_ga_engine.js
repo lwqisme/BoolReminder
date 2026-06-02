@@ -361,8 +361,7 @@ function leapsMutate(ind, mutationRate, ranges) {
 function _leapsEvalTrades(individual, priceSeriesBySymbol) {
   const trades = [];
 
-  for (const [symbol, rawPrices] of Object.entries(priceSeriesBySymbol)) {
-    const prices = rawPrices.map(([d, p]) => [new Date(d).getTime(), p, d]);
+  for (const [symbol, prices] of Object.entries(priceSeriesBySymbol)) {
     const entries = detectLeapsEntries(prices, individual.drawdown_threshold_pct, individual.entry_mode);
     const stages = individual.toStages();
     for (const entry of entries) {
@@ -429,7 +428,7 @@ function _leapsEvalFixedCapital(individual, priceSeriesBySymbol, totalCapital) {
     // Process new entries
     if (entriesByDate[currentDate]) {
       for (const trade of entriesByDate[currentDate]) {
-        if (cooldownUntil && currentDate <= cooldownUntil) continue;
+        if (cooldownUntil && String(currentDate) <= cooldownUntil) continue;
         if (equity < investPerTrade) continue;
         equity -= investPerTrade;
         const posData = { invested: investPerTrade, cumulative_sold: 0, _trade: trade };
