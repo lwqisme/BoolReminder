@@ -45,7 +45,7 @@ class LeapsTrade:
 class LeapsIndividual:
     """A single LEAPS parameter candidate for GA evolution.
 
-    8 evolvable dimensions plus fixed stage3 sells remaining 100%.
+    10 evolvable dimensions plus fixed stage3 sells remaining 100%.
     """
     drawdown_threshold_pct: float
     entry_mode: str
@@ -55,6 +55,8 @@ class LeapsIndividual:
     stage2_days: int
     stage2_profit: float
     stage2_sell: float
+    position_pct: float = 20.0
+    cooldown_days: int = 5
     key: str = ""
 
     def __post_init__(self):
@@ -63,6 +65,7 @@ class LeapsIndividual:
                 self.drawdown_threshold_pct, self.entry_mode,
                 self.stage1_days, self.stage1_profit, self.stage1_sell,
                 self.stage2_days, self.stage2_profit, self.stage2_sell,
+                self.position_pct, self.cooldown_days,
             ))
 
     def to_stages(self) -> list[tuple[int, float, float]]:
@@ -82,6 +85,8 @@ class LeapsIndividual:
             "stage2_days": self.stage2_days,
             "stage2_profit": self.stage2_profit,
             "stage2_sell": self.stage2_sell,
+            "position_pct": self.position_pct,
+            "cooldown_days": self.cooldown_days,
         }
 
 
@@ -94,12 +99,15 @@ def leaps_individual_key(
     stage2_days: int,
     stage2_profit: float,
     stage2_sell: float,
+    position_pct: float = 20.0,
+    cooldown_days: int = 5,
 ) -> str:
     """Generate deterministic key for a LEAPS individual."""
     return (
         f"dd{drawdown_threshold_pct:g}__{entry_mode}"
         f"__s1d{stage1_days}_p{stage1_profit:g}_s{stage1_sell:g}"
         f"__s2d{stage2_days}_p{stage2_profit:g}_s{stage2_sell:g}"
+        f"__pos{position_pct:g}__cd{cooldown_days}"
     )
 
 
@@ -543,6 +551,8 @@ class LeapsEvolutionConfig:
     elitism_count: int = 3
     tournament_size: int = 4
     seed: int | None = None
+    capital_mode: str = "fixed"
+    total_capital: float = 10000.0
 
     def __post_init__(self):
         if self.elitism_count >= self.population_size:
@@ -561,6 +571,8 @@ class LeapsParamRanges:
     stage2_profit: tuple[float, float] = (40.0, 100.0)
     stage1_sell: tuple[float, float] = (30.0, 70.0)
     stage2_sell: tuple[float, float] = (30.0, 70.0)
+    position_pct: tuple[float, float] = (5.0, 50.0)
+    cooldown_days: tuple[int, int] = (1, 30)
 
     @classmethod
     def from_dict(cls, d: dict[str, list] | None) -> "LeapsParamRanges":
@@ -569,7 +581,8 @@ class LeapsParamRanges:
             return cls()
         kwargs = {}
         for field_name in ["drawdown_threshold_pct", "stage1_days", "stage2_days",
-                           "stage1_profit", "stage2_profit", "stage1_sell", "stage2_sell"]:
+                           "stage1_profit", "stage2_profit", "stage1_sell", "stage2_sell",
+                           "position_pct", "cooldown_days"]:
             val = d.get(field_name)
             if isinstance(val, list) and len(val) == 2:
                 lo = val[0] if val[0] is not None else getattr(cls(), field_name)[0]
@@ -578,6 +591,7 @@ class LeapsParamRanges:
         return cls(**{k: kwargs.get(k, getattr(cls(), k)) for k in [
             "drawdown_threshold_pct", "stage1_days", "stage2_days",
             "stage1_profit", "stage2_profit", "stage1_sell", "stage2_sell",
+            "position_pct", "cooldown_days",
         ]})
 
 
@@ -604,6 +618,8 @@ def leaps_crossover(parent1: LeapsIndividual, parent2: LeapsIndividual) -> Leaps
     s2d = pick(parent1.stage2_days, parent2.stage2_days)
     s2p = pick(parent2.stage2_profit, parent2.stage2_profit)
     s2s = pick(parent1.stage2_sell, parent2.stage2_sell)
+    pos = pick(parent1.position_pct, parent2.position_pct)
+    cd = pick(parent1.cooldown_days, parent2.cooldown_days)
 
     # Enforce constraints
     s1d, s2d = _enforce_day_order(s1d, s2d)
@@ -613,6 +629,7 @@ def leaps_crossover(parent1: LeapsIndividual, parent2: LeapsIndividual) -> Leaps
         drawdown_threshold_pct=dd, entry_mode=mode,
         stage1_days=s1d, stage1_profit=s1p, stage1_sell=s1s,
         stage2_days=s2d, stage2_profit=s2p, stage2_sell=s2s,
+        position_pct=pos, cooldown_days=int(cd),
     )
 
 
@@ -632,6 +649,8 @@ def leaps_mutate(
     s2d = individual.stage2_days
     s2p = individual.stage2_profit
     s2s = individual.stage2_sell
+    pos = individual.position_pct
+    cd = individual.cooldown_days
 
     if random.random() < config.mutation_rate:
         dd = random.choice(dd_opts)
@@ -649,6 +668,10 @@ def leaps_mutate(
         s2p = round(random.uniform(*r.stage2_profit), 0)
     if random.random() < config.mutation_rate:
         s2s = round(random.uniform(*r.stage2_sell), 0)
+    if random.random() < config.mutation_rate:
+        pos = round(random.uniform(*r.position_pct), 1)
+    if random.random() < config.mutation_rate:
+        cd = random.randint(int(r.cooldown_days[0]), int(r.cooldown_days[1]))
 
     s1d, s2d = _enforce_day_order(s1d, s2d)
     s1p, s2p = _enforce_profit_order(s1p, s2p)
@@ -657,16 +680,16 @@ def leaps_mutate(
         drawdown_threshold_pct=dd, entry_mode=mode,
         stage1_days=s1d, stage1_profit=s1p, stage1_sell=s1s,
         stage2_days=s2d, stage2_profit=s2p, stage2_sell=s2s,
+        position_pct=pos, cooldown_days=cd,
     )
 
 
 def _eval_trades(
     individual: LeapsIndividual,
     price_series_by_symbol: dict[str, list[tuple[date, float]]],
-) -> tuple[list[float], list[date]]:
-    """Simulate all trades for an individual, return (rois, dates)."""
-    all_rois: list[float] = []
-    all_dates: list[date] = []
+) -> list[LeapsTrade]:
+    """Simulate all trades for an individual, return trade objects chronologically."""
+    all_trades: list[LeapsTrade] = []
 
     for symbol, prices in price_series_by_symbol.items():
         entries = detect_leaps_entries(
@@ -676,79 +699,252 @@ def _eval_trades(
         for entry in entries:
             trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
                                          strike_price=entry.price * 1.10)
-            all_rois.append(trade.total_roi_pct)
-            all_dates.append(entry.date)
-    return all_rois, all_dates
+            all_trades.append(trade)
+    # Sort by entry date
+    all_trades.sort(key=lambda t: t.entry.date)
+    return all_trades
 
 
-def leaps_total_roi(
+def _eval_fixed_capital(
     individual: LeapsIndividual,
     price_series_by_symbol: dict[str, list[tuple[date, float]]],
-) -> float:
-    """Raw sum of all trade ROIs (not annualized, no density bonus)."""
-    all_rois, _ = _eval_trades(individual, price_series_by_symbol)
-    if not all_rois:
-        return 0.0
-    return float(sum(all_rois))
+    total_capital: float = 10000.0,
+) -> dict[str, object]:
+    """Simulate trades with fixed capital, cooldown, and fund-limited entries.
+
+    Returns dict with final_equity, cagr, total_return_pct, max_drawdown_pct,
+    trade_count, executed_trades (list).
+    """
+    all_trades = _eval_trades(individual, price_series_by_symbol)
+    if not all_trades:
+        return {
+            "final_equity": total_capital, "cagr": 0.0, "total_return_pct": 0.0,
+            "max_drawdown_pct": 0.0, "trade_count": 0, "executed_trades": [],
+        }
+
+    invest_per_trade = total_capital * individual.position_pct / 100.0
+    equity = total_capital
+    cooldown_days = individual.cooldown_days
+
+    # Equity curve tracking
+    equity_curve: list[tuple[date, float]] = []
+    peak_equity = total_capital
+    max_dd_pct = 0.0
+
+    # Pending trades: {symbol: {entry, invested, sell_events_queue, cumulative_sold_pct, cooldown_until}}
+    # Queue of all sell events across all trades, ordered by date
+    sell_queue: list[dict[str, object]] = []
+    executed_trades: list[dict[str, object]] = []
+    cooldown_until: dict[str, date] = {}  # symbol -> cooldown end date
+
+    for trade in all_trades:
+        s = trade.entry
+        # Check cooldown
+        if trade.entry.date in cooldown_until and cooldown_until[trade.entry.date] > trade.entry.date:
+            continue
+        # Wait, cooldown is keyed by symbol. Let's simplify: global cooldown.
+        # Actually, we process signals chronologically. For each signal:
+        pass
+
+    # Simpler approach: iterate signals chronologically, process sells before buys on each day
+    entry_dates = sorted(set(t.entry.date for t in all_trades))
+    all_dates_set = set(entry_dates)
+    for t in all_trades:
+        for se in t.sell_events:
+            all_dates_set.add(se.date)
+    all_dates_sorted = sorted(all_dates_set)
+
+    # Map entry date -> trade
+    entries_by_date: dict[date, list[LeapsTrade]] = {}
+    for t in all_trades:
+        entries_by_date.setdefault(t.entry.date, []).append(t)
+
+    # Open positions list
+    open_positions: list[dict[str, object]] = []
+    # Collect sell events by date
+    sell_events_by_date: dict[date, list[dict[str, object]]] = {}
+
+    last_equity = equity
+    equity_curve.append((all_dates_sorted[0] - timedelta(days=1), equity))
+    peak_equity = equity
+    global_cooldown_until: date | None = None
+
+    for current_date in all_dates_sorted:
+        # Process sells first
+        if current_date in sell_events_by_date:
+            for se in sell_events_by_date[current_date]:
+                invested = se["invested"]
+                pct = se["pct_sold"]
+                roi = se["roi_pct"]
+                released = invested * (pct / 100.0) * (1.0 + roi / 100.0)
+                equity += released
+                pos = se["position"]
+                pos["cumulative_sold"] = pos.get("cumulative_sold", 0.0) + pct
+
+        # Remove completed positions
+        open_positions = [p for p in open_positions if p.get("cumulative_sold", 0.0) < 99.9]
+
+        # Record equity
+        equity_curve.append((current_date, equity))
+        if equity > peak_equity:
+            peak_equity = equity
+        dd = (peak_equity - equity) / peak_equity * 100.0
+        if dd > max_dd_pct:
+            max_dd_pct = dd
+
+        # Process new entries
+        if current_date in entries_by_date:
+            for trade in entries_by_date[current_date]:
+                # Skip if cooldown active
+                if global_cooldown_until is not None and current_date <= global_cooldown_until:
+                    continue
+                # Skip if insufficient funds
+                if equity < invest_per_trade:
+                    continue
+                # Open position
+                equity -= invest_per_trade
+                pos_data = {"invested": invest_per_trade, "cumulative_sold": 0.0}
+                open_positions.append(pos_data)
+                executed_trades.append(trade)
+                # Queue sell events
+                for se in trade.sell_events:
+                    sell_events_by_date.setdefault(se.date, []).append({
+                        "invested": invest_per_trade,
+                        "pct_sold": se.pct_sold,
+                        "roi_pct": se.roi_pct,
+                        "position": pos_data,
+                    })
+                # Set cooldown
+                global_cooldown_until = current_date + timedelta(days=cooldown_days)
+
+    # Force-sell any remaining open positions at the last available price
+    if open_positions:
+        last_date = all_dates_sorted[-1]
+        for pos in open_positions:
+            remaining = 100.0 - pos.get("cumulative_sold", 0.0)
+            if remaining > 0.1:
+                # Find last trade's entry for ROI estimation at last date
+                # Use a conservative -90% ROI for expired positions (most will be near zero)
+                equity += pos["invested"] * (remaining / 100.0) * 0.10  # assume 90% loss
+
+    equity_curve.append((all_dates_sorted[-1] + timedelta(days=1), equity))
+
+    # Calculate metrics
+    total_return = (equity / total_capital - 1.0) * 100.0
+    years = max((all_dates_sorted[-1] - all_dates_sorted[0]).days / 365.0, 0.5)
+    cagr = (equity / total_capital) ** (1.0 / years) - 1.0
+
+    return {
+        "final_equity": round(equity, 2),
+        "cagr": round(cagr * 100.0, 2),
+        "total_return_pct": round(total_return, 2),
+        "max_drawdown_pct": round(max_dd_pct, 2),
+        "trade_count": len(executed_trades),
+        "executed_trades": executed_trades,
+    }
+
+
+def _eval_unlimited_capital(
+    individual: LeapsIndividual,
+    price_series_by_symbol: dict[str, list[tuple[date, float]]],
+) -> dict[str, object]:
+    """Simulate trades with unlimited capital (all signals, geometric compounding)."""
+    all_trades = _eval_trades(individual, price_series_by_symbol)
+    if not all_trades:
+        return {
+            "geo_product": 1.0, "annualized_geo": 0.0, "total_return_pct": 0.0,
+            "trade_count": 0,
+        }
+
+    geo_product = 1.0
+    for t in all_trades:
+        geo_product *= (1.0 + t.total_roi_pct / 100.0)
+
+    years = max((all_trades[-1].entry.date - all_trades[0].entry.date).days / 365.0, 0.5)
+    annualized = geo_product ** (1.0 / years) - 1.0
+    total_return = (geo_product - 1.0) * 100.0
+
+    return {
+        "geo_product": round(geo_product, 6),
+        "annualized_geo": round(annualized * 100.0, 2),
+        "total_return_pct": round(total_return, 2),
+        "trade_count": len(all_trades),
+    }
 
 
 def leaps_fitness_fn(
     individual: LeapsIndividual,
     price_series_by_symbol: dict[str, list[tuple[date, float]]],
+    capital_mode: str = "fixed",
+    total_capital: float = 10000.0,
 ) -> float:
-    """Evaluate fitness: annualized total ROI × trade density bonus.
+    """Evaluate fitness based on capital mode.
 
-    Fitness = (total_sum_roi / years) × min(trades_per_year / 3.0, 2.0)
-
-    Penalizes single-lucky-trade strategies. Rewards consistent,
-    frequent trading with high cumulative return.
-
-    For each symbol's price series: detect entries, simulate trades,
-    collect all ROIs and dates, compute annualized total return
-    scaled by trade frequency.
+    fixed: Simulate sequential capital allocation with fund checks.
+           Fitness = final_equity / total_capital.
+    unlimited: Geometric compounding of all signals.
+               Fitness = geometric product (then annualized in population ranking).
     """
-    all_rois, all_dates = _eval_trades(individual, price_series_by_symbol)
+    if capital_mode == "unlimited":
+        result = _eval_unlimited_capital(individual, price_series_by_symbol)
+        return float(result["geo_product"])
+    else:
+        result = _eval_fixed_capital(individual, price_series_by_symbol, total_capital)
+        return result["final_equity"] / total_capital
 
-    if not all_rois:
-        return 0.0
 
-    total_roi = sum(all_rois)
-    num_trades = len(all_rois)
-
-    # Time span
-    min_date = min(all_dates)
-    max_date = max(all_dates)
-    years = max((max_date - min_date).days / 365.0, 0.5)
-
-    trades_per_year = num_trades / years
-    density_bonus = min(trades_per_year / 3.0, 2.0)
-
-    annualized_roi = total_roi / years
-    return annualized_roi * density_bonus
+def leaps_total_roi(
+    individual: LeapsIndividual,
+    price_series_by_symbol: dict[str, list[tuple[date, float]]],
+    capital_mode: str = "fixed",
+    total_capital: float = 10000.0,
+) -> float:
+    """Total return percentage for display."""
+    if capital_mode == "unlimited":
+        result = _eval_unlimited_capital(individual, price_series_by_symbol)
+        return float(result["total_return_pct"])
+    else:
+        result = _eval_fixed_capital(individual, price_series_by_symbol, total_capital)
+        return float(result["total_return_pct"])
 
 
 def _collect_trade_details(
     individual: LeapsIndividual,
     price_series_by_symbol: dict[str, list[tuple[date, float]]],
+    capital_mode: str = "fixed",
+    total_capital: float = 10000.0,
 ) -> list[dict[str, object]]:
     """Collect all trades for an individual across all symbols."""
-    trades: list[dict[str, object]] = []
+    if capital_mode == "fixed":
+        result = _eval_fixed_capital(individual, price_series_by_symbol, total_capital)
+        trades_list = result.get("executed_trades", [])
+    else:
+        trades_list = _eval_trades(individual, price_series_by_symbol)
+
+    output: list[dict[str, object]] = []
     for symbol, prices in price_series_by_symbol.items():
-        # Pre-compute bollinger for entire series
         bb_full = bollinger_lower_band(prices, period=22, std_mult=2.0)
         bb_by_date: dict[str, float | None] = {}
         for d, band in bb_full:
             bb_by_date[d.isoformat()] = band
 
-        entries = detect_leaps_entries(
-            prices, individual.drawdown_threshold_pct, individual.entry_mode,
-        )
-        stages = individual.to_stages()
-        for entry in entries:
-            trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
-                                         strike_price=entry.price * 1.10)
-            # Collect price series slice around this trade
-            all_dates = [entry.date] + [se.date for se in trade.sell_events]
+        for trade in trades_list:
+            if hasattr(trade.entry, 'date'):
+                entry = trade.entry
+            else:
+                # It's a LeapsTrade, check entry
+                entry = trade.entry if hasattr(trade, 'entry') else trade
+            if hasattr(entry, 'symbol'):
+                ts = entry.symbol
+            else:
+                ts = symbol
+
+            if not hasattr(trade, 'sell_events'):
+                continue
+
+            all_dates = [entry.date if hasattr(entry, 'date') else entry]  # type: ignore
+            for se in trade.sell_events:
+                all_dates.append(se.date)
             if all_dates:
                 price_slice_start = min(all_dates) - timedelta(days=60)
                 price_slice_end = max(all_dates) + timedelta(days=30)
@@ -762,13 +958,13 @@ def _collect_trade_details(
                         price_series.append(pt)
             else:
                 price_series = []
-            trades.append({
+            output.append({
                 "symbol": symbol,
-                "entry_date": entry.date.isoformat(),
-                "entry_price": entry.price,
-                "drawdown_pct": entry.drawdown_pct,
-                "bollinger_score": entry.bollinger_score,
-                "composite_score": entry.composite_score,
+                "entry_date": entry.date.isoformat() if hasattr(entry, 'date') else str(entry),
+                "entry_price": entry.price if hasattr(entry, 'price') else 0,
+                "drawdown_pct": entry.drawdown_pct if hasattr(entry, 'drawdown_pct') else 0,
+                "bollinger_score": entry.bollinger_score if hasattr(entry, 'bollinger_score') else 0,
+                "composite_score": entry.composite_score if hasattr(entry, 'composite_score') else 0,
                 "sell_events": [{
                     "date": se.date.isoformat(),
                     "price": se.price,
@@ -779,7 +975,7 @@ def _collect_trade_details(
                 "total_roi_pct": trade.total_roi_pct,
                 "price_series": price_series,
             })
-    return trades
+    return output
 
 
 def _enforce_day_order(d1: int, d2: int, ranges: LeapsParamRanges | None = None) -> tuple[int, int]:
@@ -826,12 +1022,15 @@ def _random_individual(ranges: LeapsParamRanges | None = None) -> LeapsIndividua
     s2p = round(random.uniform(*r.stage2_profit), 0)
     s1s = round(random.uniform(*r.stage1_sell), 0)
     s2s = round(random.uniform(*r.stage2_sell), 0)
+    pos = round(random.uniform(*r.position_pct), 1)
+    cd = random.randint(int(r.cooldown_days[0]), int(r.cooldown_days[1]))
     s1d, s2d = _enforce_day_order(s1d, s2d, r)
     s1p, s2p = _enforce_profit_order(s1p, s2p, r)
     return LeapsIndividual(
         drawdown_threshold_pct=dd, entry_mode=mode,
         stage1_days=s1d, stage1_profit=s1p, stage1_sell=s1s,
         stage2_days=s2d, stage2_profit=s2p, stage2_sell=s2s,
+        position_pct=pos, cooldown_days=cd,
     )
 
 
@@ -862,6 +1061,8 @@ def evolve_leaps_parameters(
     """
     config = config or LeapsEvolutionConfig()
     ranges = param_ranges or LeapsParamRanges()
+    capital_mode = config.capital_mode
+    total_capital = config.total_capital
     if config.seed is not None:
         random.seed(config.seed)
 
@@ -874,7 +1075,10 @@ def evolve_leaps_parameters(
             seen_keys.add(ind.key)
             population.append(ind)
 
-    fitnesses = [leaps_fitness_fn(ind, price_series_by_symbol) for ind in population]
+    fitnesses = [
+        leaps_fitness_fn(ind, price_series_by_symbol, capital_mode, total_capital)
+        for ind in population
+    ]
 
     snapshots: list[dict[str, object]] = []
     best_individual = population[0]
@@ -923,20 +1127,37 @@ def evolve_leaps_parameters(
             next_population.append(child)
 
         population = next_population[:config.population_size]
-        fitnesses = [leaps_fitness_fn(ind, price_series_by_symbol) for ind in population]
+        fitnesses = [
+            leaps_fitness_fn(ind, price_series_by_symbol, capital_mode, total_capital)
+            for ind in population
+        ]
 
     ranked_final = sorted(all_evaluated.items(), key=lambda x: x[1][1], reverse=True)
     final_rows: list[dict[str, object]] = []
     for rank, (key, (ind, fit)) in enumerate(ranked_final, start=1):
+        total_roi = leaps_total_roi(ind, price_series_by_symbol, capital_mode, total_capital)
         row: dict[str, object] = {
             "rank": rank,
             "key": ind.key,
             "fitness": fit,
-            "total_roi": leaps_total_roi(ind, price_series_by_symbol),
+            "total_roi": total_roi,
             **ind.to_params_dict(),
         }
+        # Add capital-mode-specific metrics
+        if capital_mode == "fixed":
+            cap_result = _eval_fixed_capital(ind, price_series_by_symbol, total_capital)
+            row["final_equity"] = cap_result["final_equity"]
+            row["cagr"] = cap_result["cagr"]
+            row["max_drawdown_pct"] = cap_result["max_drawdown_pct"]
+            row["trade_count"] = cap_result["trade_count"]
+        else:
+            unl_result = _eval_unlimited_capital(ind, price_series_by_symbol)
+            row["annualized_geo"] = unl_result["annualized_geo"]
+            row["trade_count"] = unl_result["trade_count"]
         if rank <= 10:
-            row["trade_details"] = _collect_trade_details(ind, price_series_by_symbol)
+            row["trade_details"] = _collect_trade_details(
+                ind, price_series_by_symbol, capital_mode, total_capital,
+            )
         final_rows.append(row)
 
     return {
@@ -948,6 +1169,8 @@ def evolve_leaps_parameters(
             "elitism_count": config.elitism_count,
             "tournament_size": config.tournament_size,
             "seed": config.seed,
+            "capital_mode": capital_mode,
+            "total_capital": total_capital,
         },
         "snapshots": snapshots,
         "best": final_rows[0] if final_rows else None,

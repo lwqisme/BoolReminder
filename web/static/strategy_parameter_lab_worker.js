@@ -1744,6 +1744,8 @@ async function handleLeapsGa(message) {
   const elitismCount = cfg.elitism_count || 3;
   const tournamentSize = cfg.tournament_size || 4;
   const seed = cfg.seed;
+  const capitalMode = cfg.capital_mode || 'fixed';
+  const totalCapital = cfg.total_capital || 10000;
 
   const ranges = leapsGaEngine.mergeRanges(paramRanges);
 
@@ -1764,7 +1766,7 @@ async function handleLeapsGa(message) {
   }
 
   const fit0Start = performance.now();
-  let fitnesses = population.map(ind => leapsGaEngine.leapsFitnessFn(ind, parsed));
+  let fitnesses = population.map(ind => leapsGaEngine.leapsFitnessFn(ind, parsed, capitalMode, totalCapital));
   console.log('[leaps-ga] init_pop:', population.length, 'first_fitness:', Math.round(performance.now() - fit0Start) + 'ms');
   const snapshots = [];
   let bestIndividual = population[0];
@@ -1798,6 +1800,7 @@ async function handleLeapsGa(message) {
         stage1_days: bestIndividual.stage1_days, stage1_profit: bestIndividual.stage1_profit,
         stage1_sell: bestIndividual.stage1_sell, stage2_days: bestIndividual.stage2_days,
         stage2_profit: bestIndividual.stage2_profit, stage2_sell: bestIndividual.stage2_sell,
+        position_pct: bestIndividual.position_pct, cooldown_days: bestIndividual.cooldown_days,
       },
     });
 
@@ -1818,7 +1821,7 @@ async function handleLeapsGa(message) {
     const breedMs = Math.round(performance.now() - breedStart);
 
     const fitStart = performance.now();
-    fitnesses = population.map(ind => leapsGaEngine.leapsFitnessFn(ind, parsed));
+    fitnesses = population.map(ind => leapsGaEngine.leapsFitnessFn(ind, parsed, capitalMode, totalCapital));
     const fitMs = Math.round(performance.now() - fitStart);
     console.log('[leaps-ga] gen', gen + 1, 'breed:', breedMs + 'ms', 'fit:', fitMs + 'ms', 'best:', genBest.toFixed(1));
   }
@@ -1827,21 +1830,70 @@ async function handleLeapsGa(message) {
   const finalPop = [];
   for (let rank = 0; rank < rankedFinal.length; rank++) {
     const [key, [ind, fit]] = rankedFinal[rank];
-    finalPop.push({
+    const totalRoi = leapsGaEngine.leapsTotalRoi(ind, parsed, capitalMode, totalCapital);
+    const row = {
       rank: rank + 1, key, fitness: fit,
-      total_roi: leapsGaEngine.leapsTotalRoi(ind, parsed),
+      total_roi: totalRoi,
       drawdown_threshold_pct: ind.drawdown_threshold_pct, entry_mode: ind.entry_mode,
       stage1_days: ind.stage1_days, stage1_profit: ind.stage1_profit, stage1_sell: ind.stage1_sell,
       stage2_days: ind.stage2_days, stage2_profit: ind.stage2_profit, stage2_sell: ind.stage2_sell,
-      trade_details: rank < 10 ? collectLeapsTradeDetails(ind, parsed) : undefined,
-    });
+      position_pct: ind.position_pct, cooldown_days: ind.cooldown_days,
+    };
+    // Add capital-mode-specific metrics
+    if (capitalMode === 'fixed') {
+      const capResult = leapsGaEngine._leapsEvalFixedCapital(ind, parsed, totalCapital);
+      row.final_equity = capResult.final_equity;
+      row.cagr = capResult.cagr;
+      row.max_drawdown_pct = capResult.max_drawdown_pct;
+      row.trade_count = capResult.trade_count;
+    } else {
+      const unlResult = leapsGaEngine._leapsEvalUnlimited(ind, parsed);
+      row.annualized_geo = unlResult.annualized_geo;
+      row.trade_count = unlResult.trade_count;
+    }
+    if (rank < 10) {
+      row.trade_details = capitalMode === 'fixed'
+        ? collectLeapsTradeDetailsFromExecuted(ind, parsed, totalCapital)
+        : collectLeapsTradeDetails(ind, parsed);
+    }
+    finalPop.push(row);
   }
 
   postMessage({
     type: 'leaps_ga_done', run_id,
     result: { snapshots, best: finalPop[0] || null, final_population: finalPop, total_evaluated: allEvaluated.size,
-      config: { population_size: popSize, generations, mutation_rate: mutationRate, crossover_rate: crossoverRate, elitism_count: elitismCount, tournament_size: tournamentSize, seed } },
+      config: { population_size: popSize, generations, mutation_rate: mutationRate, crossover_rate: crossoverRate, elitism_count: elitismCount, tournament_size: tournamentSize, seed, capital_mode: capitalMode, total_capital: totalCapital } },
   });
+}
+
+// For fixed capital mode, collect details from executed trades
+function collectLeapsTradeDetailsFromExecuted(individual, parsedPriceData, totalCapital) {
+  const capResult = leapsGaEngine._leapsEvalFixedCapital(individual, parsedPriceData, totalCapital);
+  const executedTrades = capResult.executed_trades || [];
+  const trades = [];
+  for (const [symbol, prices] of Object.entries(parsedPriceData)) {
+    const bbFull = leapsGaEngine.bollingerLowerBand(prices, 22, 2.0);
+    const bbByDate = {};
+    for (const b of bbFull) bbByDate[b.date] = b.band;
+    for (const trade of executedTrades) {
+      if (trade.symbol !== symbol) continue;
+      const entry = trade.entry;
+      const allDates = [entry.date, ...trade.sell_events.map(se => se.date)].sort();
+      const ss = new Date(allDates[0]); ss.setDate(ss.getDate() - 60);
+      const se = new Date(allDates[allDates.length - 1]); se.setDate(se.getDate() + 30);
+      const ssTs = ss.getTime(), seTs = se.getTime();
+      const ps = [];
+      for (const [ts, p, d] of prices) {
+        if (ts >= ssTs && ts <= seTs) {
+          const pt = { date: d, price: p };
+          if (bbByDate[d] != null) pt.bollinger_lower = bbByDate[d];
+          ps.push(pt);
+        }
+      }
+      trades.push({ symbol, entry_date: entry.date, entry_price: entry.price, drawdown_pct: entry.drawdown_pct, bollinger_score: entry.bollinger_score, composite_score: entry.composite_score, sell_events: trade.sell_events, expired: trade.expired, total_roi_pct: trade.total_roi_pct, price_series: ps });
+    }
+  }
+  return trades;
 }
 
 function collectLeapsTradeDetails(individual, parsedPriceData) {

@@ -241,16 +241,17 @@ function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePr
 
 // ── GA Individual ─────────────────────────────────────────────────────────
 
-function leapsIndividualKey(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s) {
-  return `dd${dd}__${mode}__s1d${s1d}_p${s1p}_s${s1s}__s2d${s2d}_p${s2p}_s${s2s}`;
+function leapsIndividualKey(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos, cd) {
+  return `dd${dd}__${mode}__s1d${s1d}_p${s1p}_s${s1s}__s2d${s2d}_p${s2p}_s${s2s}__pos${pos}__cd${cd}`;
 }
 
-function makeIndividual(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s) {
+function makeIndividual(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos, cd) {
   return {
     drawdown_threshold_pct: dd, entry_mode: mode,
     stage1_days: s1d, stage1_profit: s1p, stage1_sell: s1s,
     stage2_days: s2d, stage2_profit: s2p, stage2_sell: s2s,
-    key: leapsIndividualKey(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s),
+    position_pct: pos != null ? pos : 20, cooldown_days: cd != null ? cd : 5,
+    key: leapsIndividualKey(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos != null ? pos : 20, cd != null ? cd : 5),
     toStages() { return [[this.stage1_days, this.stage1_profit, this.stage1_sell], [this.stage2_days, this.stage2_profit, this.stage2_sell]]; },
   };
 }
@@ -304,9 +305,11 @@ function randomIndividual(ranges) {
   let s2p = Math.round((Math.random() * (ranges.stage2_profit[1] - ranges.stage2_profit[0]) + ranges.stage2_profit[0]));
   let s1s = Math.round((Math.random() * (ranges.stage1_sell[1] - ranges.stage1_sell[0]) + ranges.stage1_sell[0]));
   let s2s = Math.round((Math.random() * (ranges.stage2_sell[1] - ranges.stage2_sell[0]) + ranges.stage2_sell[0]));
+  const pos = Math.round((Math.random() * (ranges.position_pct[1] - ranges.position_pct[0]) + ranges.position_pct[0]) * 10) / 10;
+  const cd = Math.floor(Math.random() * (ranges.cooldown_days[1] - ranges.cooldown_days[0] + 1)) + ranges.cooldown_days[0];
   [s1d, s2d] = enforceDayOrder(s1d, s2d, ranges);
   [s1p, s2p] = enforceProfitOrder(s1p, s2p, ranges);
-  return makeIndividual(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s);
+  return makeIndividual(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos, cd);
 }
 
 function leapsCrossover(p1, p2, ranges) {
@@ -324,6 +327,8 @@ function leapsCrossover(p1, p2, ranges) {
     pick(p1.stage1_sell, p2.stage1_sell),
     s2d, s2p,
     pick(p1.stage2_sell, p2.stage2_sell),
+    pick(p1.position_pct, p2.position_pct),
+    pick(p1.cooldown_days, p2.cooldown_days),
   );
 }
 
@@ -332,6 +337,7 @@ function leapsMutate(ind, mutationRate, ranges) {
   let mode = ind.entry_mode;
   let s1d = ind.stage1_days, s1p = ind.stage1_profit, s1s = ind.stage1_sell;
   let s2d = ind.stage2_days, s2p = ind.stage2_profit, s2s = ind.stage2_sell;
+  let pos = ind.position_pct, cd = ind.cooldown_days;
 
   if (Math.random() < mutationRate) dd = ddOptions(ranges)[Math.floor(Math.random() * ddOptions(ranges).length)];
   if (Math.random() < mutationRate) mode = ENTRY_MODES[Math.floor(Math.random() * ENTRY_MODES.length)];
@@ -341,52 +347,175 @@ function leapsMutate(ind, mutationRate, ranges) {
   if (Math.random() < mutationRate) s2d = Math.floor(Math.random() * (ranges.stage2_days[1] - ranges.stage2_days[0] + 1)) + ranges.stage2_days[0];
   if (Math.random() < mutationRate) s2p = Math.round(Math.random() * (ranges.stage2_profit[1] - ranges.stage2_profit[0]) + ranges.stage2_profit[0]);
   if (Math.random() < mutationRate) s2s = Math.round(Math.random() * (ranges.stage2_sell[1] - ranges.stage2_sell[0]) + ranges.stage2_sell[0]);
+  if (Math.random() < mutationRate) pos = Math.round((Math.random() * (ranges.position_pct[1] - ranges.position_pct[0]) + ranges.position_pct[0]) * 10) / 10;
+  if (Math.random() < mutationRate) cd = Math.floor(Math.random() * (ranges.cooldown_days[1] - ranges.cooldown_days[0] + 1)) + ranges.cooldown_days[0];
 
   [s1d, s2d] = enforceDayOrder(s1d, s2d, ranges);
   [s1p, s2p] = enforceProfitOrder(s1p, s2p, ranges);
-  return makeIndividual(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s);
+  return makeIndividual(dd, mode, s1d, s1p, s1s, s2d, s2p, s2s, pos, cd);
 }
 
 // ── Fitness ───────────────────────────────────────────────────────────────
 
-// Shared trade evaluation: returns raw ROI list and date list
+// Shared trade evaluation: returns all trade objects chronologically
 function _leapsEvalTrades(individual, priceSeriesBySymbol) {
-  const allRois = [];
-  const allDates = [];
+  const trades = [];
 
   for (const [symbol, rawPrices] of Object.entries(priceSeriesBySymbol)) {
-    // Pre-parse dates ONCE per symbol per fitness eval
     const prices = rawPrices.map(([d, p]) => [new Date(d).getTime(), p, d]);
     const entries = detectLeapsEntries(prices, individual.drawdown_threshold_pct, individual.entry_mode);
     const stages = individual.toStages();
     for (const entry of entries) {
       const trade = computeSellLadder(entry, prices, stages, 190, entry.price * 1.1);
-      allRois.push(trade.total_roi_pct);
-      allDates.push(entry.date);
+      trade.symbol = symbol;
+      trades.push(trade);
     }
   }
-  return { allRois, allDates };
+  trades.sort((a, b) => String(a.entry.date).localeCompare(String(b.entry.date)));
+  return trades;
 }
 
-function leapsTotalRoi(individual, priceSeriesBySymbol) {
-  const { allRois } = _leapsEvalTrades(individual, priceSeriesBySymbol);
-  if (!allRois.length) return 0;
-  return allRois.reduce((a, b) => a + b, 0);
+// Fixed capital simulation with fund tracking, cooldown, and sequential entries
+function _leapsEvalFixedCapital(individual, priceSeriesBySymbol, totalCapital) {
+  const allTrades = _leapsEvalTrades(individual, priceSeriesBySymbol);
+  if (!allTrades.length) {
+    return { final_equity: totalCapital, cagr: 0, total_return_pct: 0, max_drawdown_pct: 0, trade_count: 0, executed_trades: [] };
+  }
+
+  const investPerTrade = totalCapital * individual.position_pct / 100;
+  let equity = totalCapital;
+  const cd = individual.cooldown_days;
+
+  // Collect all date events
+  const dateSet = new Set();
+  const entriesByDate = {};
+  for (const t of allTrades) {
+    const ds = t.entry.date;
+    dateSet.add(ds);
+    if (!entriesByDate[ds]) entriesByDate[ds] = [];
+    entriesByDate[ds].push(t);
+    for (const se of t.sell_events) dateSet.add(se.date);
+  }
+  const sortedDates = [...dateSet].sort();
+
+  // State
+  let peakEquity = totalCapital;
+  let maxDd = 0;
+  let cooldownUntil = null;
+  const executedTrades = [];
+  const sellEventsByDate = {};
+  const openPositions = [];
+
+  for (const currentDate of sortedDates) {
+    // Process sells
+    if (sellEventsByDate[currentDate]) {
+      for (const se of sellEventsByDate[currentDate]) {
+        const released = se.invested * (se.pct_sold / 100) * (1 + se.roi_pct / 100);
+        equity += released;
+        se.position.cumulative_sold = (se.position.cumulative_sold || 0) + se.pct_sold;
+      }
+    }
+
+    // Remove completed positions
+    for (let i = openPositions.length - 1; i >= 0; i--) {
+      if ((openPositions[i].cumulative_sold || 0) >= 99.9) openPositions.splice(i, 1);
+    }
+
+    // Track equity curve
+    if (equity > peakEquity) peakEquity = equity;
+    const dd = (peakEquity - equity) / peakEquity * 100;
+    if (dd > maxDd) maxDd = dd;
+
+    // Process new entries
+    if (entriesByDate[currentDate]) {
+      for (const trade of entriesByDate[currentDate]) {
+        if (cooldownUntil && currentDate <= cooldownUntil) continue;
+        if (equity < investPerTrade) continue;
+        equity -= investPerTrade;
+        const posData = { invested: investPerTrade, cumulative_sold: 0 };
+        openPositions.push(posData);
+        executedTrades.push(trade);
+        for (const se of trade.sell_events) {
+          if (!sellEventsByDate[se.date]) sellEventsByDate[se.date] = [];
+          sellEventsByDate[se.date].push({ invested: investPerTrade, pct_sold: se.pct_sold, roi_pct: se.roi_pct, position: posData });
+        }
+        cooldownUntil = _addDays(currentDate, cd);
+      }
+    }
+  }
+
+  // Force-sell remaining
+  for (const pos of openPositions) {
+    const remaining = 100 - (pos.cumulative_sold || 0);
+    if (remaining > 0.1) equity += pos.invested * (remaining / 100) * 0.10;
+  }
+
+  const totalReturn = (equity / totalCapital - 1) * 100;
+  const lastDate = sortedDates[sortedDates.length - 1];
+  const firstDate = sortedDates[0];
+  const years = Math.max((new Date(lastDate) - new Date(firstDate)) / (365 * 86400000), 0.5);
+  const cagr = (Math.pow(equity / totalCapital, 1 / years) - 1) * 100;
+
+  return {
+    final_equity: Math.round(equity * 100) / 100,
+    cagr: Math.round(cagr * 100) / 100,
+    total_return_pct: Math.round(totalReturn * 100) / 100,
+    max_drawdown_pct: Math.round(maxDd * 100) / 100,
+    trade_count: executedTrades.length,
+    executed_trades: executedTrades,
+  };
 }
 
-function leapsFitnessFn(individual, priceSeriesBySymbol) {
-  const { allRois, allDates } = _leapsEvalTrades(individual, priceSeriesBySymbol);
+function _addDays(dateStr, days) {
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
-  if (!allRois.length) return 0;
+// Unlimited capital: geometric compounding of all signals
+function _leapsEvalUnlimited(individual, priceSeriesBySymbol) {
+  const allTrades = _leapsEvalTrades(individual, priceSeriesBySymbol);
+  if (!allTrades.length) {
+    return { geo_product: 1, annualized_geo: 0, total_return_pct: 0, trade_count: 0 };
+  }
 
-  const totalRoi = allRois.reduce((a, b) => a + b, 0);
-  const numTrades = allRois.length;
-  allDates.sort();
-  const years = Math.max((new Date(allDates[allDates.length - 1]) - new Date(allDates[0])) / (365 * 86400000), 0.5);
-  const tradesPerYear = numTrades / years;
-  const densityBonus = Math.min(tradesPerYear / 3, 2);
-  const annualizedRoi = totalRoi / years;
-  return annualizedRoi * densityBonus;
+  let geoProduct = 1;
+  for (const t of allTrades) {
+    geoProduct *= (1 + t.total_roi_pct / 100);
+  }
+
+  const firstDate = allTrades[0].entry.date;
+  const lastDate = allTrades[allTrades.length - 1].entry.date;
+  const years = Math.max((new Date(lastDate) - new Date(firstDate)) / (365 * 86400000), 0.5);
+  const annualized = (Math.pow(geoProduct, 1 / years) - 1) * 100;
+  const totalReturn = (geoProduct - 1) * 100;
+
+  return {
+    geo_product: Math.round(geoProduct * 1e6) / 1e6,
+    annualized_geo: Math.round(annualized * 100) / 100,
+    total_return_pct: Math.round(totalReturn * 100) / 100,
+    trade_count: allTrades.length,
+  };
+}
+
+function leapsFitnessFn(individual, priceSeriesBySymbol, capitalMode, totalCapital) {
+  const mode = capitalMode || 'fixed';
+  const cap = totalCapital || 10000;
+  if (mode === 'unlimited') {
+    const result = _leapsEvalUnlimited(individual, priceSeriesBySymbol);
+    return result.geo_product;
+  }
+  const result = _leapsEvalFixedCapital(individual, priceSeriesBySymbol, cap);
+  return result.final_equity / cap;
+}
+
+function leapsTotalRoi(individual, priceSeriesBySymbol, capitalMode, totalCapital) {
+  const mode = capitalMode || 'fixed';
+  const cap = totalCapital || 10000;
+  if (mode === 'unlimited') {
+    return _leapsEvalUnlimited(individual, priceSeriesBySymbol).total_return_pct;
+  }
+  return _leapsEvalFixedCapital(individual, priceSeriesBySymbol, cap).total_return_pct;
 }
 
 // ── Evolution ─────────────────────────────────────────────────────────────
@@ -407,6 +536,8 @@ const DEFAULT_RANGES = {
   stage1_days: [10, 30], stage2_days: [30, 90],
   stage1_profit: [60, 120], stage2_profit: [40, 100],
   stage1_sell: [30, 70], stage2_sell: [30, 70],
+  position_pct: [5, 50],
+  cooldown_days: [1, 30],
 };
 
 function mergeRanges(custom) {
@@ -435,6 +566,8 @@ const leapsGaEngine = {
   leapsMutate,
   leapsFitnessFn,
   leapsTotalRoi,
+  _leapsEvalFixedCapital,
+  _leapsEvalUnlimited,
   tournamentsSelect: tournamentSelect,
   randomIndividual,
   ddOptions,

@@ -10480,6 +10480,8 @@ def api_strategy_lab_parameter_lab_leaps_ga_evolve():
             elitism_count=int(payload.get("elitism_count") or 3),
             tournament_size=int(payload.get("tournament_size") or 4),
             seed=int(payload["seed"]) if payload.get("seed") is not None else None,
+            capital_mode=str(payload.get("capital_mode") or "fixed"),
+            total_capital=float(payload.get("total_capital") or 10000),
         )
 
         # Fetch price data

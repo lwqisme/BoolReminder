@@ -422,11 +422,11 @@ class LeapsGATest(unittest.TestCase):
         self.assertLess(mutant.stage1_days, mutant.stage2_days)
         self.assertGreater(mutant.stage1_profit, mutant.stage2_profit)
 
-    def test_zero_trades_gives_zero_fitness(self):
-        """No trades → fitness = 0."""
+    def test_zero_trades_gives_one_fitness(self):
+        """No trades → fitness = 1.0 (capital unchanged)."""
         ind = self._make_individual()
         fitness = leaps_fitness_fn(ind, {})
-        self.assertEqual(fitness, 0.0)
+        self.assertEqual(fitness, 1.0)
 
     def test_more_trades_beats_single_trade_same_total_roi(self):
         """Similar total ROI but more trades → higher fitness (density bonus)."""

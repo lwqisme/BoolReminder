@@ -1892,9 +1892,21 @@
                             <label>S2卖仓% 范围
                                 <span style="display:flex;gap:4px;"><input id="leapsGaRangeS2S_min" type="number" step="5" placeholder="30" style="width:56px;"><input id="leapsGaRangeS2S_max" type="number" step="5" placeholder="70" style="width:56px;"></span>
                             </label>
+                            <label>仓位% 范围
+                                <span style="display:flex;gap:4px;"><input id="leapsGaRangePos_min" type="number" step="1" placeholder="5" style="width:56px;"><input id="leapsGaRangePos_max" type="number" step="1" placeholder="50" style="width:56px;"></span>
+                            </label>
+                            <label>冷却天数 范围
+                                <span style="display:flex;gap:4px;"><input id="leapsGaRangeCD_min" type="number" step="1" placeholder="1" style="width:56px;"><input id="leapsGaRangeCD_max" type="number" step="1" placeholder="30" style="width:56px;"></span>
+                            </label>
                         </div>
                     </details>
                     <div style="margin-top:10px;display:flex;gap:8px;align-items:center;">
+                        <span style="font-size:12px;color:var(--muted);">资金模式:</span>
+                        <label style="font-size:12px;"><input type="radio" name="leapsGaCapitalMode" value="fixed" checked onchange="saveLeapsGaCapitalMode()"> 固定仓位</label>
+                        <label style="font-size:12px;"><input type="radio" name="leapsGaCapitalMode" value="unlimited" onchange="saveLeapsGaCapitalMode()"> 无限资金</label>
+                        <label style="font-size:12px;">总仓位 USD <input id="leapsGaTotalCapital" type="number" step="1000" value="10000" style="width:80px;"></label>
+                    </div>
+                    <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
                         <span style="font-size:12px;color:var(--muted);">引擎:</span>
                         <label style="font-size:12px;"><input type="radio" name="leapsGaEngine" value="worker" checked onchange="saveLeapsGaEngine()"> Worker</label>
                         <label style="font-size:12px;"><input type="radio" name="leapsGaEngine" value="python" onchange="saveLeapsGaEngine()"> Python</label>
@@ -8392,6 +8404,10 @@
             var val = document.querySelector('input[name="leapsGaEngine"]:checked').value;
             try { localStorage.setItem('leapsGaEngine', val); } catch(e) {}
         }
+        function saveLeapsGaCapitalMode() {
+            var val = document.querySelector('input[name="leapsGaCapitalMode"]:checked').value;
+            try { localStorage.setItem('leapsGaCapitalMode', val); } catch(e) {}
+        }
         // Restore on load
         (function() {
             var saved = localStorage.getItem('leapsGaEngine');
@@ -8442,14 +8458,20 @@
             r = rangeVal('leapsGaRangeS2D_min', 'leapsGaRangeS2D_max'); if (r) paramRanges.stage2_days = r;
             r = rangeVal('leapsGaRangeS2P_min', 'leapsGaRangeS2P_max'); if (r) paramRanges.stage2_profit = r;
             r = rangeVal('leapsGaRangeS2S_min', 'leapsGaRangeS2S_max'); if (r) paramRanges.stage2_sell = r;
+            r = rangeVal('leapsGaRangePos_min', 'leapsGaRangePos_max'); if (r) paramRanges.position_pct = r;
+            r = rangeVal('leapsGaRangeCD_min', 'leapsGaRangeCD_max'); if (r) paramRanges.cooldown_days = r;
 
             var seedVal = document.getElementById('leapsGaSeed').value.trim();
+            var capitalMode = document.querySelector('input[name="leapsGaCapitalMode"]:checked').value;
+            var totalCapital = parseFloat(document.getElementById('leapsGaTotalCapital').value) || 10000;
             var config = {
                 population_size: parseInt(document.getElementById('leapsGaPopSize').value) || 30,
                 generations: parseInt(document.getElementById('leapsGaGenerations').value) || 15,
                 mutation_rate: parseFloat(document.getElementById('leapsGaMutationRate').value) || 0.15,
                 crossover_rate: parseFloat(document.getElementById('leapsGaCrossoverRate').value) || 0.80,
                 seed: seedVal ? parseInt(seedVal) : null,
+                capital_mode: capitalMode,
+                total_capital: totalCapital,
             };
 
             leapsGaTimerStart = Date.now();
@@ -8535,6 +8557,8 @@
                             mutation_rate: config.mutation_rate,
                             crossover_rate: config.crossover_rate,
                             seed: config.seed,
+                            capital_mode: config.capital_mode,
+                            total_capital: config.total_capital,
                             param_ranges: Object.keys(paramRanges).length ? paramRanges : undefined,
                         }),
                     });
@@ -8586,6 +8610,7 @@
                 drawdown_threshold_pct: '回撤阈值%', entry_mode: '入场模式',
                 stage1_days: 'S1持有天数', stage1_profit: 'S1涨幅%', stage1_sell: 'S1卖仓%',
                 stage2_days: 'S2持有天数', stage2_profit: 'S2涨幅%', stage2_sell: 'S2卖仓%',
+                position_pct: '仓位%', cooldown_days: '冷却天数',
             };
             var rows = '';
             for (var key in labelMap) {
@@ -8593,24 +8618,21 @@
                     '</td><td style="font-family:var(--mono);">' + (best[key] != null ? best[key] : '-') + '</td></tr>';
             }
 
-            // Trade stats from best's trade_details
+            // Capital-mode metrics
+            var capitalMode = (result.config && result.config.capital_mode) || 'fixed';
             var tradeStats = '';
-            if (best.trade_details && best.trade_details.length) {
-                var totalROI = 0, tDates = [];
-                for (var t = 0; t < best.trade_details.length; t++) {
-                    totalROI += best.trade_details[t].total_roi_pct;
-                    tDates.push(best.trade_details[t].entry_date);
-                }
-                tDates.sort();
-                var years = Math.max((new Date(tDates[tDates.length-1]) - new Date(tDates[0])) / (365*86400000), 0.5);
-                var tpy = best.trade_details.length / years;
-                var density = Math.min(tpy / 3, 2.0);
+            if (capitalMode === 'fixed') {
                 tradeStats = '<div style="margin-top:4px;font-size:11px;color:var(--muted);">' +
-                    '总交易: ' + best.trade_details.length + '笔 | ' +
-                    '跨时: ' + years.toFixed(1) + '年 | ' +
-                    '年化笔数: ' + tpy.toFixed(1) + '笔/年 | ' +
-                    '密度加成: ×' + density.toFixed(2) +
-                    '<br>公式: <b>年化总收益 × min(年化笔数/3, 2.0)</b></div>';
+                    '最终净值: $' + (best.final_equity != null ? best.final_equity.toFixed(2) : '-') +
+                    ' | CAGR: ' + (best.cagr != null ? best.cagr.toFixed(2) + '%' : '-') +
+                    ' | 最大回撤: ' + (best.max_drawdown_pct != null ? best.max_drawdown_pct.toFixed(2) + '%' : '-') +
+                    ' | 交易笔数: ' + (best.trade_count != null ? best.trade_count : '-') +
+                    '</div>';
+            } else {
+                tradeStats = '<div style="margin-top:4px;font-size:11px;color:var(--muted);">' +
+                    '年化几何: ' + (best.annualized_geo != null ? best.annualized_geo.toFixed(2) + '%' : '-') +
+                    ' | 交易笔数: ' + (best.trade_count != null ? best.trade_count : '-') +
+                    '</div>';
             }
 
             bestDiv.innerHTML = '<h3 style="margin:0 0 8px;font-size:13px;">🏆 最优参数 (适应度: ' +
@@ -8621,7 +8643,13 @@
             // Population table
             var pop = result.final_population || [];
             var popDiv = document.getElementById('leapsGaPopulation');
-            var headerCells = ['', '排名', '适应度', '总收益%', '回撤%', '模式', 'S1天', 'S1利%', 'S1卖%', 'S2天', 'S2利%', 'S2卖%'];
+            var capitalMode2 = (result.config && result.config.capital_mode) || 'fixed';
+            var headerCells;
+            if (capitalMode2 === 'fixed') {
+                headerCells = ['', '排名', '适应度', '总收益%', '最终净值$', 'CAGR%', '最大回撤%', '交易笔数', '模式', '仓位%', '冷却天', 'S1天', 'S1利%', 'S2天', 'S2利%'];
+            } else {
+                headerCells = ['', '排名', '适应度', '总收益%', '年化几何%', '交易笔数', '模式', '仓位%', '冷却天', 'S1天', 'S1利%', 'S2天', 'S2利%'];
+            }
             var headerHtml = headerCells.map(function(c) { return '<th>' + c + '</th>'; }).join('');
             var bodyHtml = '';
             for (var i = 0; i < pop.length && i < 20; i++) {
@@ -8632,18 +8660,35 @@
                     '<td>' + (hasTrades ? '<button onclick="toggleLeapsTradeChart(\'' + rowId + '\', ' + i + ')" style="font-size:10px;padding:1px 4px;">▶</button>' : '') + '</td>' +
                     '<td>' + r.rank + '</td>' +
                     '<td style="font-family:var(--mono);">' + (r.fitness != null ? r.fitness.toFixed(2) : '-') + '</td>' +
-                    '<td style="font-family:var(--mono);">' + (r.total_roi != null ? (r.total_roi > 0 ? '+' : '') + r.total_roi.toFixed(1) + '%' : '-') + '</td>' +
-                    '<td>' + r.drawdown_threshold_pct + '</td>' +
+                    '<td style="font-family:var(--mono);">' + (r.total_roi != null ? (r.total_roi > 0 ? '+' : '') + r.total_roi.toFixed(1) + '%' : '-') + '</td>';
+                if (capitalMode2 === 'fixed') {
+                    bodyHtml +=
+                    '<td style="font-family:var(--mono);">' + (r.final_equity != null ? '$' + r.final_equity.toFixed(2) : '-') + '</td>' +
+                    '<td style="font-family:var(--mono);">' + (r.cagr != null ? r.cagr.toFixed(2) + '%' : '-') + '</td>' +
+                    '<td style="font-family:var(--mono);">' + (r.max_drawdown_pct != null ? r.max_drawdown_pct.toFixed(2) + '%' : '-') + '</td>' +
+                    '<td>' + (r.trade_count != null ? r.trade_count : '-') + '</td>' +
                     '<td>' + r.entry_mode + '</td>' +
+                    '<td>' + (r.position_pct != null ? r.position_pct : '-') + '</td>' +
+                    '<td>' + (r.cooldown_days != null ? r.cooldown_days : '-') + '</td>' +
                     '<td>' + r.stage1_days + '</td>' +
                     '<td>' + r.stage1_profit + '</td>' +
-                    '<td>' + r.stage1_sell + '</td>' +
                     '<td>' + r.stage2_days + '</td>' +
-                    '<td>' + r.stage2_profit + '</td>' +
-                    '<td>' + r.stage2_sell + '</td>' +
-                    '</tr>';
+                    '<td>' + r.stage2_profit + '</td>';
+                } else {
+                    bodyHtml +=
+                    '<td style="font-family:var(--mono);">' + (r.annualized_geo != null ? r.annualized_geo.toFixed(2) + '%' : '-') + '</td>' +
+                    '<td>' + (r.trade_count != null ? r.trade_count : '-') + '</td>' +
+                    '<td>' + r.entry_mode + '</td>' +
+                    '<td>' + (r.position_pct != null ? r.position_pct : '-') + '</td>' +
+                    '<td>' + (r.cooldown_days != null ? r.cooldown_days : '-') + '</td>' +
+                    '<td>' + r.stage1_days + '</td>' +
+                    '<td>' + r.stage1_profit + '</td>' +
+                    '<td>' + r.stage2_days + '</td>' +
+                    '<td>' + r.stage2_profit + '</td>';
+                }
+                bodyHtml += '</tr>';
                 if (hasTrades) {
-                    bodyHtml += '<tr id="' + rowId + 'Chart" style="display:none;"><td colspan="12" style="padding:8px;">' +
+                    bodyHtml += '<tr id="' + rowId + 'Chart" style="display:none;"><td colspan="' + headerCells.length + '" style="padding:8px;">' +
                         '<div id="' + rowId + 'Plot" style="width:100%;height:280px;"></div>' +
                         '<div id="' + rowId + 'Detail" style="font-size:11px;margin-top:4px;"></div></td></tr>';
                 }
