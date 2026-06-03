@@ -599,10 +599,57 @@ def _fetch_prices_for_leaps_signal(
     candles = fetch_longbridge_daily_candles(ctx, longbridge_sym, fetch_start, fetch_end)
 
     from drawdown.strategy_signal import candle_datetime  # type: ignore[import-untyped]
-    return [
+    daily = [
         (candle_datetime(c).replace(tzinfo=None), float(c.close))
         for c in candles
     ]
+
+    return append_realtime_price(daily, ctx, longbridge_sym, end_date)
+
+
+def append_realtime_price(
+    daily_prices: list[tuple[date, float]],
+    quote_ctx: object,
+    longbridge_symbol: str,
+    today: date,
+) -> list[tuple[date, float]]:
+    """Append or replace real-time price if market is open.
+
+    Args:
+        daily_prices: (date, price) sorted ascending from daily candles.
+        quote_ctx: Longbridge QuoteContext.
+        longbridge_symbol: Longbridge-format symbol.
+        today: Current date to check against.
+
+    Returns:
+        Potentially modified price list.
+    """
+    try:
+        sessions = quote_ctx.trading_session()
+        if not sessions:
+            return daily_prices
+        market_state = getattr(sessions[0], "market_state", "closed")
+        if market_state == "closed":
+            return daily_prices
+    except Exception:
+        return daily_prices
+
+    try:
+        quotes = quote_ctx.quote([longbridge_symbol])
+        if not quotes:
+            return daily_prices
+        realtime_price = float(quotes[0].last_done)
+    except Exception:
+        return daily_prices
+
+    result = list(daily_prices)
+    if result and result[-1][0] == today:
+        # Replace last entry with real-time price
+        result[-1] = (today, realtime_price)
+    elif not result or result[-1][0] < today:
+        # Append new entry for today
+        result.append((today, realtime_price))
+    return result
 
 
 def _find_price_on_date(

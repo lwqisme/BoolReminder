@@ -144,12 +144,10 @@ def main():
         signal_scheduler = SignalScheduler(
             email_sender=email_sender_instance,
             to_emails=email_config.get("to_emails", []),
-            hour=23,
-            minute=0,
         )
         signal_scheduler.start()
         set_signal_scheduler(signal_scheduler)
-        logger.info("策略信号调度器已启动 (每晚 23:00)")
+        logger.info("盘中策略信号调度器已启动 (11:00, 12:00 US/Eastern)")
     else:
         logger.warning("SMTP未配置，策略信号调度器未启动")
     
