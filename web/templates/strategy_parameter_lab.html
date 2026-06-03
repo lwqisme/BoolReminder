@@ -8462,7 +8462,10 @@
         function renderLeapsGaSymbolGrid() {
             var grid = document.getElementById('leapsGaSymbolsGrid');
             if (!grid) return;
-            var symbols = SYNCD_SYMBOLS && SYNCD_SYMBOLS.length ? [...SYNCD_SYMBOLS].sort() : [];
+            var allSymbols = SYNCD_SYMBOLS && SYNCD_SYMBOLS.length ? [...SYNCD_SYMBOLS].sort() : [];
+            // Filter out option contract codes (OCC format: TICKER+YYMMDD+C/P+STRIKE*1000[.US])
+            var occRe = /^[A-Z]+\d{6}[CP]\d{8}(\.US)?$/;
+            var symbols = allSymbols.filter(function(s) { return !occRe.test(s); });
             if (!symbols.length) {
                 grid.innerHTML = '<span style="color:var(--muted);font-size:11px;">暂无已同步标的</span>';
                 return;

@@ -10485,15 +10485,26 @@ def api_strategy_lab_parameter_lab_leaps_ga_evolve():
             total_capital=float(payload.get("total_capital") or 10000),
         )
 
+        # Filter out option contract codes (OCC format: TICKER+YYMMDD+C/P+STRIKE*1000)
+        import re as _re
+        _OCC_RE = _re.compile(r'^[A-Z]+\d{6}[CP]\d{8}(?:\.US)?$')
+        stock_symbols = [s for s in symbols if not _OCC_RE.match(s)]
+        skipped_option_symbols = [s for s in symbols if _OCC_RE.match(s)]
+
         # Fetch price data
         quote_ctx = build_longbridge_quote_context()
         warmup = timedelta(days=365)
         fetch_start = start_date - warmup
         price_series_by_symbol: dict[str, list[tuple[date_cls, float]]] = {}
-        failed_symbols: list[str] = []
+        failed_symbols: list[str] = list(skipped_option_symbols)
 
-        for symbol in symbols:
-            candles = fetch_longbridge_daily_candles(quote_ctx, symbol, fetch_start, end_date)
+        for symbol in stock_symbols:
+            try:
+                candles = fetch_longbridge_daily_candles(quote_ctx, symbol, fetch_start, end_date)
+            except Exception as _exc:
+                _parameter_lab_warn("leaps_ga_symbol_fetch_error", symbol=symbol, error=str(_exc))
+                failed_symbols.append(symbol)
+                continue
             if not candles:
                 failed_symbols.append(symbol)
                 continue
