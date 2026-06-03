@@ -10856,6 +10856,49 @@ def api_strategy_lab_delete_preset(preset_id: str):
     return jsonify({"success": True})
 
 
+@app.route('/api/strategy-lab/parameter-lab/stock-simulate', methods=['POST'])
+def api_strategy_lab_parameter_lab_stock_simulate():
+    """Run a stock strategy backtest from a saved preset."""
+    from datetime import date as date_cls
+    payload = request.get_json(silent=True) or {}
+
+    preset_id = str(payload.get("preset_id") or "").strip()
+    if not preset_id:
+        return _json_error("preset_id 必填", 400)
+
+    preset = load_experiment_preset(preset_id)
+    if not preset:
+        return _json_error("预设不存在", 404)
+
+    config_payload = preset.get("config_payload")
+    if not isinstance(config_payload, dict):
+        return _json_error("预设配置无效", 400)
+
+    # Merge optional overrides: symbols, dates
+    if payload.get("symbols"):
+        raw_symbols = payload["symbols"]
+        if not isinstance(raw_symbols, list):
+            return _json_error("symbols 必须是字符串数组", 400)
+        config_payload["targets"] = [
+            {"symbol": str(s), "weight": 100, "name": str(s)}
+            for s in raw_symbols
+        ]
+
+    if payload.get("start"):
+        config_payload["start"] = str(payload["start"])
+    if payload.get("end"):
+        config_payload["end"] = str(payload["end"])
+
+    try:
+        result = _run_strategy_lab_payload(config_payload)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        return _json_error(f"策略演算失败: {exc}", 500)
+
+    return jsonify({"success": True, "data": result})
+
+
 # ── Signal Bindings ────────────────────────────────────────────────────
 
 @app.route('/api/strategy-lab/signals/bindings', methods=['GET'])
