@@ -406,13 +406,14 @@ function leapsMutate(ind, mutationRate, ranges) {
 // ── Fitness ───────────────────────────────────────────────────────────────
 
 // Shared trade evaluation: returns all trade objects chronologically
-function _leapsEvalTrades(individual, priceSeriesBySymbol) {
+function _leapsEvalTrades(individual, priceSeriesBySymbol, minEntryDate = null) {
   const trades = [];
 
   for (const [symbol, prices] of Object.entries(priceSeriesBySymbol)) {
     const entries = detectLeapsEntries(prices, individual.drawdown_threshold_pct, individual.entry_mode);
     const stages = individual.toStages();
     for (const entry of entries) {
+      if (minEntryDate && entry.date < minEntryDate) continue;
       const trade = computeSellLadder(entry, prices, stages, 190, entry.price * 1.1);
       trade.symbol = symbol;
       trades.push(trade);
@@ -423,8 +424,8 @@ function _leapsEvalTrades(individual, priceSeriesBySymbol) {
 }
 
 // Fixed capital simulation with fund tracking, cooldown, and sequential entries
-function _leapsEvalFixedCapital(individual, priceSeriesBySymbol, totalCapital) {
-  const allTrades = _leapsEvalTrades(individual, priceSeriesBySymbol);
+function _leapsEvalFixedCapital(individual, priceSeriesBySymbol, totalCapital, minEntryDate = null) {
+  const allTrades = _leapsEvalTrades(individual, priceSeriesBySymbol, minEntryDate);
   if (!allTrades.length) {
     return { final_equity: totalCapital, cagr: 0, total_return_pct: 0, max_drawdown_pct: 0, trade_count: 0, executed_trades: [] };
   }
@@ -533,8 +534,8 @@ function _addDays(dateStr, days) {
 }
 
 // Unlimited capital: geometric compounding of all signals
-function _leapsEvalUnlimited(individual, priceSeriesBySymbol) {
-  const allTrades = _leapsEvalTrades(individual, priceSeriesBySymbol);
+function _leapsEvalUnlimited(individual, priceSeriesBySymbol, minEntryDate = null) {
+  const allTrades = _leapsEvalTrades(individual, priceSeriesBySymbol, minEntryDate);
   if (!allTrades.length) {
     return { geo_product: 1, annualized_geo: 0, total_return_pct: 0, trade_count: 0,
       total_opt_cost: 0, total_opt_revenue: 0 };
@@ -566,24 +567,24 @@ function _leapsEvalUnlimited(individual, priceSeriesBySymbol) {
   };
 }
 
-function leapsFitnessFn(individual, priceSeriesBySymbol, capitalMode, totalCapital) {
+function leapsFitnessFn(individual, priceSeriesBySymbol, capitalMode, totalCapital, minEntryDate = null) {
   const mode = capitalMode || DEFAULTS.capitalMode;
   const cap = totalCapital || DEFAULTS.totalCapital;
   if (mode === 'unlimited') {
-    const result = _leapsEvalUnlimited(individual, priceSeriesBySymbol);
+    const result = _leapsEvalUnlimited(individual, priceSeriesBySymbol, minEntryDate);
     return result.geo_product;
   }
-  const result = _leapsEvalFixedCapital(individual, priceSeriesBySymbol, cap);
+  const result = _leapsEvalFixedCapital(individual, priceSeriesBySymbol, cap, minEntryDate);
   return result.final_equity / cap;
 }
 
-function leapsTotalRoi(individual, priceSeriesBySymbol, capitalMode, totalCapital) {
+function leapsTotalRoi(individual, priceSeriesBySymbol, capitalMode, totalCapital, minEntryDate = null) {
   const mode = capitalMode || DEFAULTS.capitalMode;
   const cap = totalCapital || DEFAULTS.totalCapital;
   if (mode === 'unlimited') {
-    return _leapsEvalUnlimited(individual, priceSeriesBySymbol).total_return_pct;
+    return _leapsEvalUnlimited(individual, priceSeriesBySymbol, minEntryDate).total_return_pct;
   }
-  return _leapsEvalFixedCapital(individual, priceSeriesBySymbol, cap).total_return_pct;
+  return _leapsEvalFixedCapital(individual, priceSeriesBySymbol, cap, minEntryDate).total_return_pct;
 }
 
 // ── Evolution ─────────────────────────────────────────────────────────────

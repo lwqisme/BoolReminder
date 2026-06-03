@@ -10532,7 +10532,7 @@ def api_strategy_lab_parameter_lab_leaps_ga_evolve():
         )
 
         param_ranges = LeapsParamRanges.from_dict(payload.get("param_ranges"))
-        result = evolve_leaps_parameters(price_series_by_symbol, ga_config, param_ranges)
+        result = evolve_leaps_parameters(price_series_by_symbol, ga_config, param_ranges, min_entry_date=start_date)
 
         elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
         best = result.get("best") if isinstance(result.get("best"), dict) else {}

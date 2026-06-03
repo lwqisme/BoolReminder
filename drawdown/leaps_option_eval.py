@@ -36,6 +36,8 @@ from drawdown.leaps_option_ga import (
 def _eval_trades(
     individual: LeapsIndividual,
     price_series_by_symbol: dict[str, list[tuple[date, float]]],
+    *,
+    min_entry_date: date | None = None,
 ) -> list[LeapsTrade]:
     """Simulate all trades for an individual, return trade objects chronologically."""
     all_trades: list[LeapsTrade] = []
@@ -46,6 +48,8 @@ def _eval_trades(
         )
         stages = individual.to_stages()
         for entry in entries:
+            if min_entry_date is not None and entry.date < min_entry_date:
+                continue
             trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
                                          strike_price=entry.price * 1.10)
             all_trades.append(trade)
@@ -57,9 +61,11 @@ def _eval_fixed_capital(
     individual: LeapsIndividual,
     price_series_by_symbol: dict[str, list[tuple[date, float]]],
     total_capital: float = 10000.0,
+    *,
+    min_entry_date: date | None = None,
 ) -> dict[str, object]:
     """Simulate trades with fixed capital, cooldown, and fund-limited entries."""
-    all_trades = _eval_trades(individual, price_series_by_symbol)
+    all_trades = _eval_trades(individual, price_series_by_symbol, min_entry_date=min_entry_date)
     if not all_trades:
         return {
             "final_equity": total_capital, "cagr": 0.0, "total_return_pct": 0.0,
@@ -174,9 +180,11 @@ def _eval_fixed_capital(
 def _eval_unlimited_capital(
     individual: LeapsIndividual,
     price_series_by_symbol: dict[str, list[tuple[date, float]]],
+    *,
+    min_entry_date: date | None = None,
 ) -> dict[str, object]:
     """Simulate trades with unlimited capital (all signals, geometric compounding)."""
-    all_trades = _eval_trades(individual, price_series_by_symbol)
+    all_trades = _eval_trades(individual, price_series_by_symbol, min_entry_date=min_entry_date)
     if not all_trades:
         return {
             "geo_product": 1.0, "annualized_geo": 0.0, "total_return_pct": 0.0,
@@ -213,6 +221,8 @@ def leaps_fitness_fn(
     price_series_by_symbol: dict[str, list[tuple[date, float]]],
     capital_mode: str = "fixed",
     total_capital: float = 10000.0,
+    *,
+    min_entry_date: date | None = None,
 ) -> float:
     """Evaluate fitness based on capital mode.
 
@@ -220,10 +230,10 @@ def leaps_fitness_fn(
     unlimited: Fitness = geometric product.
     """
     if capital_mode == "unlimited":
-        result = _eval_unlimited_capital(individual, price_series_by_symbol)
+        result = _eval_unlimited_capital(individual, price_series_by_symbol, min_entry_date=min_entry_date)
         return float(result["geo_product"])
     else:
-        result = _eval_fixed_capital(individual, price_series_by_symbol, total_capital)
+        result = _eval_fixed_capital(individual, price_series_by_symbol, total_capital, min_entry_date=min_entry_date)
         return result["final_equity"] / total_capital
 
 
@@ -232,11 +242,13 @@ def leaps_total_roi(
     price_series_by_symbol: dict[str, list[tuple[date, float]]],
     capital_mode: str = "fixed",
     total_capital: float = 10000.0,
+    *,
+    min_entry_date: date | None = None,
 ) -> float:
     """Total return percentage for display."""
     if capital_mode == "unlimited":
-        return float(_eval_unlimited_capital(individual, price_series_by_symbol)["total_return_pct"])
-    return float(_eval_fixed_capital(individual, price_series_by_symbol, total_capital)["total_return_pct"])
+        return float(_eval_unlimited_capital(individual, price_series_by_symbol, min_entry_date=min_entry_date)["total_return_pct"])
+    return float(_eval_fixed_capital(individual, price_series_by_symbol, total_capital, min_entry_date=min_entry_date)["total_return_pct"])
 
 
 def _precompute_bollinger(
@@ -263,15 +275,17 @@ def _collect_trade_details(
     capital_mode: str = "fixed",
     total_capital: float = 10000.0,
     eval_cache: dict[str, object] | None = None,
+    *,
+    min_entry_date: date | None = None,
 ) -> list[dict[str, object]]:
     """Collect all trades for an individual across all symbols."""
     if capital_mode == "fixed" and eval_cache is not None and _EVAL_RESULT_KEY in eval_cache:
         trades_list = eval_cache[_EVAL_RESULT_KEY].get("executed_trades", [])
     elif capital_mode == "fixed":
-        result = _eval_fixed_capital(individual, price_series_by_symbol, total_capital)
+        result = _eval_fixed_capital(individual, price_series_by_symbol, total_capital, min_entry_date=min_entry_date)
         trades_list = result.get("executed_trades", [])
     else:
-        trades_list = _eval_trades(individual, price_series_by_symbol)
+        trades_list = _eval_trades(individual, price_series_by_symbol, min_entry_date=min_entry_date)
 
     output: list[dict[str, object]] = []
     for symbol, prices in price_series_by_symbol.items():
@@ -323,6 +337,8 @@ def evolve_leaps_parameters(
     price_series_by_symbol: dict[str, list[tuple[date, float]]],
     config: LeapsEvolutionConfig | None = None,
     param_ranges: LeapsParamRanges | None = None,
+    *,
+    min_entry_date: date | None = None,
 ) -> dict[str, object]:
     """Run genetic algorithm to optimize LEAPS call parameters."""
     config = config or LeapsEvolutionConfig()
@@ -345,7 +361,7 @@ def evolve_leaps_parameters(
             population.append(ind)
 
     fitnesses = [
-        leaps_fitness_fn(ind, price_series_by_symbol, capital_mode, total_capital)
+        leaps_fitness_fn(ind, price_series_by_symbol, capital_mode, total_capital, min_entry_date=min_entry_date)
         for ind in population
     ]
 
@@ -400,7 +416,7 @@ def evolve_leaps_parameters(
 
         population = next_population[:config.population_size]
         fitnesses = [
-            leaps_fitness_fn(ind, price_series_by_symbol, capital_mode, total_capital)
+            leaps_fitness_fn(ind, price_series_by_symbol, capital_mode, total_capital, min_entry_date=min_entry_date)
             for ind in population
         ]
 
@@ -410,9 +426,9 @@ def evolve_leaps_parameters(
         # Compute or fetch cached eval result
         if not cached:
             if capital_mode == "fixed":
-                cached = _eval_fixed_capital(ind, price_series_by_symbol, total_capital)
+                cached = _eval_fixed_capital(ind, price_series_by_symbol, total_capital, min_entry_date=min_entry_date)
             else:
-                eval_result = _eval_unlimited_capital(ind, price_series_by_symbol)
+                eval_result = _eval_unlimited_capital(ind, price_series_by_symbol, min_entry_date=min_entry_date)
                 # Normalize to same key structure
                 cached = {
                     "total_return_pct": eval_result["total_return_pct"],
@@ -422,7 +438,7 @@ def evolve_leaps_parameters(
                     "total_opt_revenue": eval_result.get("total_opt_revenue", 0.0),
                 }
 
-        total_roi = leaps_total_roi(ind, price_series_by_symbol, capital_mode, total_capital)
+        total_roi = leaps_total_roi(ind, price_series_by_symbol, capital_mode, total_capital, min_entry_date=min_entry_date)
         row: dict[str, object] = {
             "rank": rank,
             "key": ind.key,
@@ -447,6 +463,7 @@ def evolve_leaps_parameters(
             row["trade_details"] = _collect_trade_details(
                 ind, price_series_by_symbol, bollinger_cache,
                 capital_mode, total_capital, cache_for_collect,
+                min_entry_date=min_entry_date,
             )
         final_rows.append(row)
 

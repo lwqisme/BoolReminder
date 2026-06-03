@@ -1748,6 +1748,7 @@ async function handleLeapsGa(message) {
   const totalCapital = cfg.total_capital || 10000;
 
   const ranges = leapsGaEngine.mergeRanges(paramRanges);
+  const minEntryDate = packet.start || null;
 
   // Pre-parse dates once: [dateStr, price] -> [ts, price, dateStr]
   const parsed = {};
@@ -1766,7 +1767,7 @@ async function handleLeapsGa(message) {
   }
 
   const fit0Start = performance.now();
-  let fitnesses = population.map(ind => leapsGaEngine.leapsFitnessFn(ind, parsed, capitalMode, totalCapital));
+  let fitnesses = population.map(ind => leapsGaEngine.leapsFitnessFn(ind, parsed, capitalMode, totalCapital, minEntryDate));
   console.log('[leaps-ga] init_pop:', population.length, 'first_fitness:', Math.round(performance.now() - fit0Start) + 'ms');
   const snapshots = [];
   let bestIndividual = population[0];
@@ -1821,7 +1822,7 @@ async function handleLeapsGa(message) {
     const breedMs = Math.round(performance.now() - breedStart);
 
     const fitStart = performance.now();
-    fitnesses = population.map(ind => leapsGaEngine.leapsFitnessFn(ind, parsed, capitalMode, totalCapital));
+    fitnesses = population.map(ind => leapsGaEngine.leapsFitnessFn(ind, parsed, capitalMode, totalCapital, minEntryDate));
     const fitMs = Math.round(performance.now() - fitStart);
     console.log('[leaps-ga] gen', gen + 1, 'breed:', breedMs + 'ms', 'fit:', fitMs + 'ms', 'best:', genBest.toFixed(1));
   }
@@ -1841,13 +1842,13 @@ async function handleLeapsGa(message) {
     };
     // Add capital-mode-specific metrics
     if (capitalMode === 'fixed') {
-      const capResult = leapsGaEngine._leapsEvalFixedCapital(ind, parsed, totalCapital);
+      const capResult = leapsGaEngine._leapsEvalFixedCapital(ind, parsed, totalCapital, minEntryDate);
       row.final_equity = capResult.final_equity;
       row.cagr = capResult.cagr;
       row.max_drawdown_pct = capResult.max_drawdown_pct;
       row.trade_count = capResult.trade_count;
     } else {
-      const unlResult = leapsGaEngine._leapsEvalUnlimited(ind, parsed);
+      const unlResult = leapsGaEngine._leapsEvalUnlimited(ind, parsed, minEntryDate);
       row.annualized_geo = unlResult.annualized_geo;
       row.trade_count = unlResult.trade_count;
       const tc = unlResult.total_opt_cost || 0;
@@ -1858,6 +1859,7 @@ async function handleLeapsGa(message) {
       row.trade_details = collectLeapsTradeDetails(ind, parsed, {
         executedOnly: capitalMode === 'fixed',
         totalCapital: totalCapital,
+        minEntryDate: minEntryDate,
       });
     }
     finalPop.push(row);
@@ -1872,10 +1874,10 @@ async function handleLeapsGa(message) {
 
 // Unified trade detail collector: handles both fixed capital (executedOnly) and unlimited modes
 function collectLeapsTradeDetails(individual, parsedPriceData, opts) {
-  const { executedOnly, totalCapital } = opts || {};
+  const { executedOnly, totalCapital, minEntryDate } = opts || {};
   let tradeList;
   if (executedOnly) {
-    const capResult = leapsGaEngine._leapsEvalFixedCapital(individual, parsedPriceData, totalCapital || 10000);
+    const capResult = leapsGaEngine._leapsEvalFixedCapital(individual, parsedPriceData, totalCapital || 10000, minEntryDate || null);
     tradeList = capResult.executed_trades || [];
   } else {
     tradeList = [];
@@ -1883,6 +1885,7 @@ function collectLeapsTradeDetails(individual, parsedPriceData, opts) {
       const entries = leapsGaEngine.detectLeapsEntries(prices, individual.drawdown_threshold_pct, individual.entry_mode);
       const stages = individual.toStages();
       for (const entry of entries) {
+        if (minEntryDate && entry.date < minEntryDate) continue;
         const trade = leapsGaEngine.computeSellLadder(entry, prices, stages, 190, entry.price * 1.1);
         trade.symbol = symbol;
         tradeList.push(trade);
