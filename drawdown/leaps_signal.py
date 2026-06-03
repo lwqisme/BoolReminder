@@ -582,7 +582,10 @@ def _fetch_prices_for_leaps_signal(
     end_date: date,
 ) -> list[tuple[date, float]]:
     """Fetch daily close prices from Longbridge."""
-    from longbridge_quote import build_longbridge_quote_context, fetch_longbridge_daily_candles
+    from drawdown.position_strategy import (
+        build_longbridge_quote_context,
+        fetch_longbridge_daily_candles,
+    )
     from trade_sync.normalize import infer_longbridge_symbol
 
     # Determine earliest date: first option trade minus 180 days (for 120-day high + bollinger)

@@ -8362,35 +8362,54 @@
                 if (d.results && d.results.length) {
                     let html = '';
                     for (const res of d.results) {
-                        const hasErr = !!res.error;
-                        const hasSig = res.signals && res.signals.length > 0;
+                        const hasErr = !!res.error || (res.errors && res.errors.length > 0);
+                        const isLeaps = res.entry_signals !== undefined || res.sell_signals !== undefined;
+                        const stockSigs = res.signals || [];
+                        const leapsEntrySigs = res.entry_signals || [];
+                        const leapsSellSigs = res.sell_signals || [];
+                        const allSigs = isLeaps ? [...leapsEntrySigs, ...leapsSellSigs] : stockSigs;
+                        const hasSig = allSigs.length > 0;
+                        const errText = res.error || (res.errors && res.errors.length ? res.errors.join('; ') : '');
                         html += '<div class="signal-result-card' + (hasErr ? ' error' : '') + (hasSig ? ' has-signals' : '') + '">';
                         html += '<h4>' + escapeHtml(res.symbol) + ' <span style="font-weight:400;color:var(--muted);">' + escapeHtml(res.preset_name || res.preset_id || '') + '</span></h4>';
                         if (res.param_summary) {
                             html += '<div style="font-size:11px;color:var(--muted);margin-top:-2px;margin-bottom:4px;">' + escapeHtml(res.param_summary) + '</div>';
                         }
                         if (hasErr) {
-                            html += '<div style="color:var(--red);">⚠ ' + escapeHtml(res.error) + '</div>';
+                            html += '<div style="color:var(--red);">⚠ ' + escapeHtml(errText) + '</div>';
                         } else if (hasSig) {
                             const weekendNote = res.is_weekend ? ' <span style="color:var(--amber);font-size:11px;">(周末预览)</span>' : '';
                             html += '<div style="font-size:11px;color:var(--muted);margin-bottom:4px;">' +
                                 (res.effective_date || res.signal_date) + weekendNote + '</div>';
-                            let totalBuy = 0, totalBuyShares = 0;
-                            for (const sig of res.signals) {
-                                html += '<div class="signal-row">' +
-                                    (sig.action === 'buy' ? '🟢 买入' : '🔴 卖出') +
-                                    ' ' + (sig.shares || '?') + '股 @ $' + (sig.price || '?') +
-                                    (sig.reason ? ' <span style="color:var(--muted);">(' + escapeHtml(sig.reason) + ')</span>' : '') +
-                                    '</div>';
-                                if (sig.action === 'buy') {
-                                    totalBuy += (sig.shares || 0) * (sig.price || 0);
-                                    totalBuyShares += sig.shares || 0;
+                            if (isLeaps) {
+                                for (const es of leapsEntrySigs) {
+                                    html += '<div class="signal-row">🟢 LEAPS买入 ' +
+                                        (es.underlying || res.symbol) + ' @ $' + (es.stock_price || '?') +
+                                        ' <span style="color:var(--muted);">(' + escapeHtml(es.reason || '') + ')</span></div>';
                                 }
-                            }
-                            if (totalBuy > 0) {
-                                html += '<div style="font-size:11px;color:var(--amber);margin-top:2px;">' +
-                                    '💰 买入合计：' + totalBuyShares.toFixed(1) + '股 / $' + totalBuy.toFixed(0) +
-                                    '</div>';
+                                for (const ss of leapsSellSigs) {
+                                    html += '<div class="signal-row">🔴 LEAPS卖出 S' + (ss.stage || '?') +
+                                        ' ' + (ss.pct_to_sell || '?') + '% @ $' + (ss.stock_price || '?') +
+                                        ' <span style="color:var(--muted);">(' + escapeHtml(ss.reason || '') + ')</span></div>';
+                                }
+                            } else {
+                                let totalBuy = 0, totalBuyShares = 0;
+                                for (const sig of stockSigs) {
+                                    html += '<div class="signal-row">' +
+                                        (sig.action === 'buy' ? '🟢 买入' : '🔴 卖出') +
+                                        ' ' + (sig.shares || '?') + '股 @ $' + (sig.price || '?') +
+                                        (sig.reason ? ' <span style="color:var(--muted);">(' + escapeHtml(sig.reason) + ')</span>' : '') +
+                                        '</div>';
+                                    if (sig.action === 'buy') {
+                                        totalBuy += (sig.shares || 0) * (sig.price || 0);
+                                        totalBuyShares += sig.shares || 0;
+                                    }
+                                }
+                                if (totalBuy > 0) {
+                                    html += '<div style="font-size:11px;color:var(--amber);margin-top:2px;">' +
+                                        '💰 买入合计：' + totalBuyShares.toFixed(1) + '股 / $' + totalBuy.toFixed(0) +
+                                        '</div>';
+                                }
                             }
                         } else {
                             html += '<div style="color:var(--muted);">无信号</div>';
