@@ -37,9 +37,6 @@ class SignalScheduler:
             )
 
     def _run(self):
-        from datetime import date
-        today = date.today()
-
         logger.info("开始生成盘中策略信号...")
         try:
             results = generate_all_signals(dry_run=False)
