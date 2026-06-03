@@ -829,6 +829,34 @@ def _tournament_select(
     return population[best_idx]
 
 
+def _build_trade_price_series(
+    entry: LeapsEntrySignal,
+    trade: LeapsTrade,
+    prices: list[tuple[date, float]],
+) -> list[dict[str, object]]:
+    """Build price_series with bollinger lower band for chart rendering."""
+    all_dates = [entry.date]
+    for se in trade.sell_events:
+        all_dates.append(se.date)
+    if not all_dates:
+        return []
+
+    price_slice_start = min(all_dates) - timedelta(days=60)
+    price_slice_end = max(all_dates) + timedelta(days=30)
+    slice_prices = [(d, p) for d, p in prices if price_slice_start <= d <= price_slice_end]
+    bb_data = _bollinger_with_ma(prices, period=22, std_mult=2.0)
+    bb_by_date = {item["date"]: item.get("band") for item in bb_data if item.get("band") is not None}
+
+    result: list[dict[str, object]] = []
+    for d, p in slice_prices:
+        pt: dict[str, object] = {"date": d.isoformat(), "price": p}
+        band = bb_by_date.get(d)
+        if band is not None:
+            pt["bollinger_lower"] = band
+        result.append(pt)
+    return result
+
+
 def run_leaps_simulation(
     prices: list[tuple[date, float]],
     drawdown_threshold_pct: float,
@@ -915,6 +943,7 @@ def run_leaps_simulation(
             "total_roi_pct": trade.total_roi_pct,
             "open_pct": getattr(trade, 'open_pct', 0.0),
             "unrealized_roi_pct": getattr(trade, 'unrealized_roi_pct', 0.0),
+            "price_series": _build_trade_price_series(entry, trade, prices),
         })
 
         last_entry_date = entry.date

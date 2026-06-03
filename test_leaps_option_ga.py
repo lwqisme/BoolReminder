@@ -657,6 +657,13 @@ class RunLeapsSimulationTest(unittest.TestCase):
         self.assertIsInstance(trade['sell_events'], list)
         self.assertGreater(len(trade['sell_events']), 0)
         self.assertIn('total_roi_pct', trade)
+        # price_series with bollinger data for chart rendering
+        self.assertIn('price_series', trade)
+        self.assertIsInstance(trade['price_series'], list)
+        self.assertGreater(len(trade['price_series']), 0, 'price_series should not be empty')
+        first_pt = trade['price_series'][0]
+        self.assertIn('date', first_pt)
+        self.assertIn('price', first_pt)
         # sell event structure
         se = trade['sell_events'][0]
         self.assertIn('date', se)

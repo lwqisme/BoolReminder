@@ -9206,7 +9206,7 @@
                     '<td>' + (cp.position_pct || '-') + '</td>' +
                     '<td>' + (cp.cooldown_days || '-') + '</td>' +
                     '<td>' + presetActionsHtml(p) + '</td>' +
-                    '<td><button onclick="selectLeapsPreset(\'' + i + '\')" style="font-size:10px;padding:1px 5px;">选此预设</button></td>' +
+                    '<td><button class="leaps-select-btn" onclick="selectLeapsPreset(\'' + i + '\')" style="font-size:10px;padding:1px 5px;">选此预设</button></td>' +
                     '</tr>';
             }
             html += '</tbody></table>';
@@ -9215,12 +9215,28 @@
 
         var selectedLeapsPresetIndex = -1;
         function selectLeapsPreset(index) {
+            // Revert previous selection
+            if (selectedLeapsPresetIndex >= 0) {
+                var prevRow = document.getElementById('leapsPresetRow' + selectedLeapsPresetIndex);
+                if (prevRow) {
+                    prevRow.style.background = '';
+                    var prevBtn = prevRow.querySelector('.leaps-select-btn');
+                    if (prevBtn) { prevBtn.textContent = '选此预设'; prevBtn.className = 'leaps-select-btn'; }
+                }
+            }
+            if (selectedLeapsPresetIndex === index) {
+                // Deselect
+                selectedLeapsPresetIndex = -1;
+                document.getElementById('leapsPresetRunBtn').disabled = true;
+                return;
+            }
             selectedLeapsPresetIndex = index;
             document.getElementById('leapsPresetRunBtn').disabled = false;
-            // Highlight the row
-            for (var i = 0; i < presetLeapsCache.length; i++) {
-                var row = document.getElementById('leapsPresetRow' + i);
-                if (row) row.style.background = (i === index) ? 'rgba(17,103,216,0.08)' : '';
+            var row = document.getElementById('leapsPresetRow' + index);
+            if (row) {
+                row.style.background = 'rgba(17,103,216,0.08)';
+                var btn = row.querySelector('.leaps-select-btn');
+                if (btn) { btn.textContent = '已选中 ✓'; btn.className = 'leaps-select-btn primary'; btn.style.fontSize = '10px'; btn.style.padding = '1px 5px'; }
             }
         }
 
@@ -9270,6 +9286,9 @@
 
                 // Render results inline
                 renderLeapsSimResults(selectedLeapsPresetIndex, d.results || {});
+                // Store for later chart rendering
+                if (!window._leapsPresetResults) window._leapsPresetResults = {};
+                window._leapsPresetResults[selectedLeapsPresetIndex] = d.results || {};
             } catch (e) {
                 alert('请求失败: ' + e.message);
             } finally {
@@ -9300,7 +9319,7 @@
                     '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
                     '<strong>' + escapeHtml(sym) + '</strong> ' +
                     '<span style="color:var(--muted);font-size:12px;">' + trades.length + ' 笔交易 | 预设: ' + escapeHtml(preset.name || '') + '</span>' +
-                    '<button onclick="toggleLeapsPresetChart(\'' + resultId + '\')" style="font-size:11px;padding:2px 6px;">▶ 展开图表</button>' +
+                    '<button onclick="toggleLeapsPresetChart(\'' + resultId + '\', ' + presetIdx + ', \'' + sym.replace(/'/g, "\\'") + '\')" style="font-size:11px;padding:2px 6px;">▶ 展开图表</button>' +
                     '</div>' +
                     '<div id="' + resultId + 'Chart" style="display:none;">' +
                     '<div id="' + resultId + 'Plot" style="width:100%;height:300px;"></div>' +
@@ -9311,26 +9330,18 @@
             }
         }
 
-        window.toggleLeapsPresetChart = function(resultId) {
+        window.toggleLeapsPresetChart = function(resultId, presetIdx, sym) {
             var chartDiv = document.getElementById(resultId + 'Chart');
             if (!chartDiv) return;
             if (chartDiv.style.display === 'none') {
                 chartDiv.style.display = '';
-                drawLeapsPresetPlotly(resultId + 'Plot', resultId);
+                drawLeapsPresetPlotly(resultId + 'Plot', resultId, presetIdx, sym);
             } else {
                 chartDiv.style.display = 'none';
             }
         };
 
-        function drawLeapsPresetPlotly(plotId, resultId) {
-            // Find the result data
-            var presetIdx = parseInt(resultId.split('_')[1]);
-            var sym = resultId.slice(resultId.indexOf('_', resultId.indexOf('_') + 1) + 1).replace(/_/g, '.');
-            var preset = presetLeapsCache[presetIdx];
-            if (!preset) return;
-
-            // Re-fetch or use cached results? We need to store results.
-            // For now: re-run? No, let's store in a global.
+        function drawLeapsPresetPlotly(plotId, resultId, presetIdx, sym) {
             if (!window._leapsPresetResults) { alert('结果数据丢失，请重新模拟'); return; }
             var results = window._leapsPresetResults[presetIdx];
             if (!results) { alert('结果数据丢失'); return; }
@@ -9433,19 +9444,6 @@
             var detailDiv = document.getElementById(resultId + 'Detail');
             if (detailDiv) detailDiv.innerHTML = detailHtml;
         }
-
-        // Store results for later chart rendering
-        function storeLeapsPresetResults(presetIdx, results) {
-            if (!window._leapsPresetResults) window._leapsPresetResults = {};
-            window._leapsPresetResults[presetIdx] = results;
-        }
-
-        // Override renderLeapsSimResults to store results
-        var _origRenderLeapsSimResults = renderLeapsSimResults;
-        renderLeapsSimResults = function(presetIdx, results) {
-            storeLeapsPresetResults(presetIdx, results);
-            _origRenderLeapsSimResults(presetIdx, results);
-        };
 
         // ── Stock preset panel ────────────────────────────────────
         function renderPresetStockList() {
