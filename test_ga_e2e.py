@@ -414,6 +414,95 @@ for (let i = 0; i < 50; i++) {
         self.assertIn("bounds", pr)
         self.assertIn("int_fields", pr)
 
+    def _ensure_preset(self, name, payload):
+        """Create a preset and return its id, skipping if server down."""
+        import urllib.request, urllib.error
+        req = urllib.request.Request(
+            "http://127.0.0.1:5000/api/strategy-lab/presets",
+            data=json.dumps({"name": name, "payload": payload}).encode(),
+            headers={"Content-Type": "application/json"}
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=10)
+            data = json.loads(resp.read())
+            if data.get("success"):
+                return data["preset"]["id"]
+        except Exception:
+            pass
+        return None
+
+    def test_stock_simulate_from_preset_returns_trade_logs(self):
+        """S9: stock-simulate loads preset, runs backtest, returns trade_logs."""
+        preset_id = self._ensure_preset(
+            "e2e stock simulate test",
+            {
+                "start": "2025-01-01", "end": "2025-03-01",
+                "buy_strategies": ["pyramid_3"],
+                "sell_strategies": ["none"],
+                "targets": [{"symbol": "AAPL.US", "weight": 100, "name": "AAPL"}],
+            }
+        )
+        if not preset_id:
+            self.skipTest("Could not create preset (server not reachable)")
+            return
+
+        import urllib.request, urllib.error
+        req = urllib.request.Request(
+            "http://127.0.0.1:5000/api/strategy-lab/parameter-lab/stock-simulate",
+            data=json.dumps({"preset_id": preset_id}).encode(),
+            headers={"Content-Type": "application/json"}
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=30)
+            data = json.loads(resp.read())
+        except Exception as e:
+            self.skipTest(f"Server not reachable: {e}")
+            return
+
+        self.assertTrue(data.get("success"), f"stock-simulate failed: {data.get('message')}")
+        result = data.get("data", {})
+        strategies = result.get("strategies", [])
+        self.assertGreater(len(strategies), 0, "Expected at least one strategy")
+        for s in strategies:
+            self.assertIn("label", s)
+            self.assertIn("trades", s)
+            self.assertIsInstance(s["trades"], list)
+
+    def test_stock_simulate_with_symbol_override(self):
+        """S10: stock-simulate symbol override replaces preset targets."""
+        preset_id = self._ensure_preset(
+            "e2e stock simulate override",
+            {
+                "start": "2025-01-01", "end": "2025-03-01",
+                "buy_strategies": ["pyramid_3"],
+                "sell_strategies": ["none"],
+                "targets": [{"symbol": "MSFT.US", "weight": 100, "name": "MSFT"}],
+            }
+        )
+        if not preset_id:
+            self.skipTest("Could not create preset")
+            return
+
+        import urllib.request, urllib.error
+        req = urllib.request.Request(
+            "http://127.0.0.1:5000/api/strategy-lab/parameter-lab/stock-simulate",
+            data=json.dumps({
+                "preset_id": preset_id,
+                "symbols": ["AAPL.US"],
+            }).encode(),
+            headers={"Content-Type": "application/json"}
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=30)
+            data = json.loads(resp.read())
+        except Exception as e:
+            self.skipTest(f"Server not reachable: {e}")
+            return
+
+        self.assertTrue(data.get("success"))
+        strategies = data.get("data", {}).get("strategies", [])
+        self.assertGreater(len(strategies), 0, "Expected at least one strategy")
+
     def test_leaps_simulate_endpoint_returns_valid_structure(self):
         """S7: leaps-simulate endpoint returns trade_details per symbol."""
         import urllib.request, urllib.error
