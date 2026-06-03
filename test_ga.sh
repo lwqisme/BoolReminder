@@ -47,6 +47,13 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+echo "--- JavaScript: Preset management (classification, data validation) ---"
+if node test_preset_mgmt.js 2>&1; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=========================================="
 echo " Results: $PASS passed, $FAIL failed"
