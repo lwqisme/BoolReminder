@@ -241,11 +241,13 @@ def leaps_total_roi(
     price_series_by_symbol: dict[str, list[tuple[date, float]]],
     capital_mode: str = "fixed",
     total_capital: float = 10000.0,
+    *,
+    min_entry_date: date | None = None,
 ) -> float:
     """Total return percentage for display."""
     if capital_mode == "unlimited":
-        return float(_eval_unlimited_capital(individual, price_series_by_symbol)["total_return_pct"])
-    return float(_eval_fixed_capital(individual, price_series_by_symbol, total_capital)["total_return_pct"])
+        return float(_eval_unlimited_capital(individual, price_series_by_symbol, min_entry_date=min_entry_date)["total_return_pct"])
+    return float(_eval_fixed_capital(individual, price_series_by_symbol, total_capital, min_entry_date=min_entry_date)["total_return_pct"])
 
 
 def _precompute_bollinger(
@@ -433,7 +435,7 @@ def evolve_leaps_parameters(
                     "total_opt_revenue": eval_result.get("total_opt_revenue", 0.0),
                 }
 
-        total_roi = leaps_total_roi(ind, price_series_by_symbol, capital_mode, total_capital)
+        total_roi = leaps_total_roi(ind, price_series_by_symbol, capital_mode, total_capital, min_entry_date=min_entry_date)
         row: dict[str, object] = {
             "rank": rank,
             "key": ind.key,

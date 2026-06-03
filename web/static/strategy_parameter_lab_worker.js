@@ -1831,7 +1831,7 @@ async function handleLeapsGa(message) {
   const finalPop = [];
   for (let rank = 0; rank < rankedFinal.length; rank++) {
     const [key, [ind, fit]] = rankedFinal[rank];
-    const totalRoi = leapsGaEngine.leapsTotalRoi(ind, parsed, capitalMode, totalCapital);
+    const totalRoi = leapsGaEngine.leapsTotalRoi(ind, parsed, capitalMode, totalCapital, minEntryDate);
     const row = {
       rank: rank + 1, key, fitness: fit,
       total_roi: totalRoi,

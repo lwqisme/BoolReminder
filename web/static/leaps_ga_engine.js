@@ -578,13 +578,13 @@ function leapsFitnessFn(individual, priceSeriesBySymbol, capitalMode, totalCapit
   return result.final_equity / cap;
 }
 
-function leapsTotalRoi(individual, priceSeriesBySymbol, capitalMode, totalCapital) {
+function leapsTotalRoi(individual, priceSeriesBySymbol, capitalMode, totalCapital, minEntryDate = null) {
   const mode = capitalMode || DEFAULTS.capitalMode;
   const cap = totalCapital || DEFAULTS.totalCapital;
   if (mode === 'unlimited') {
-    return _leapsEvalUnlimited(individual, priceSeriesBySymbol).total_return_pct;
+    return _leapsEvalUnlimited(individual, priceSeriesBySymbol, minEntryDate).total_return_pct;
   }
-  return _leapsEvalFixedCapital(individual, priceSeriesBySymbol, cap).total_return_pct;
+  return _leapsEvalFixedCapital(individual, priceSeriesBySymbol, cap, minEntryDate).total_return_pct;
 }
 
 // ── Evolution ─────────────────────────────────────────────────────────────
