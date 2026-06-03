@@ -39,6 +39,8 @@ class LeapsTrade:
     sell_events: tuple[LeapsSellEvent, ...]
     expired: bool
     total_roi_pct: float
+    open_pct: float = 0.0
+    unrealized_roi_pct: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -349,6 +351,7 @@ def compute_sell_ladder(
     risk_free_rate: float = 0.05,
     sigma: float = 0.40,
     trade_overrides: dict[date, float] | None = None,
+    allow_open: bool = False,
 ) -> LeapsTrade:
     """Simulate staged sell ladder from entry to expiration.
 
@@ -368,6 +371,9 @@ def compute_sell_ladder(
         strike_price: Option strike (default: entry.price * 1.10).
         risk_free_rate: For BS proxy.
         sigma: Implied volatility for BS proxy.
+        trade_overrides: Dict of date → pct_sold for real executed trades.
+        allow_open: If True, don't force-sell when data ends; track open_pct
+                    and unrealized_roi_pct instead.
 
     Returns:
         LeapsTrade with sell events and total ROI.
@@ -489,27 +495,48 @@ def compute_sell_ladder(
 
         current_date += timedelta(days=1)
 
-    # If we exhausted prices without selling, mark as expired at hard_cutoff.
+    # If we exhausted prices without selling all, handle based on allow_open.
     # Use the last available price if hard_cutoff is past all price data.
-    expired = remaining_pct > 0
-    if expired:
-        # Find price at or nearest before hard_cutoff (like JS engine)
-        cutoff_price = entry.price
-        cutoff_date = hard_cutoff
-        for d, p in prices:
-            if d <= hard_cutoff:
-                cutoff_price = p
-                cutoff_date = d
-            else:
-                break
-        roi = proxy_option_roi(
-            entry.price, cutoff_price, entry.date, cutoff_date,
-            expiration, strike_price, risk_free_rate, sigma,
-        )
-        sell_events.append(LeapsSellEvent(
-            date=cutoff_date, price=cutoff_price,
-            pct_sold=remaining_pct, roi_pct=round(roi, 2),
-        ))
+    if remaining_pct > 0.01:
+        if allow_open:
+            # Signal mode: don't force-sell, track open position
+            last_price = entry.price
+            last_date = entry.date
+            for d, p in prices:
+                if d > entry.date:
+                    last_price = p
+                    last_date = d
+            unrealized_roi = proxy_option_roi(
+                entry.price, last_price, entry.date, last_date,
+                expiration, strike_price, risk_free_rate, sigma,
+            )
+            open_pct = round(remaining_pct, 2)
+            expired = False
+        else:
+            # GA mode: force-sell remaining
+            cutoff_price = entry.price
+            cutoff_date = hard_cutoff
+            for d, p in prices:
+                if d <= hard_cutoff:
+                    cutoff_price = p
+                    cutoff_date = d
+                else:
+                    break
+            roi = proxy_option_roi(
+                entry.price, cutoff_price, entry.date, cutoff_date,
+                expiration, strike_price, risk_free_rate, sigma,
+            )
+            sell_events.append(LeapsSellEvent(
+                date=cutoff_date, price=cutoff_price,
+                pct_sold=round(remaining_pct, 2), roi_pct=round(roi, 2),
+            ))
+            open_pct = 0.0
+            unrealized_roi = 0.0
+            expired = True
+    else:
+        open_pct = 0.0
+        unrealized_roi = 0.0
+        expired = False
 
     # Compute total weighted ROI
     if sell_events:
@@ -523,6 +550,8 @@ def compute_sell_ladder(
         sell_events=tuple(sell_events),
         expired=expired,
         total_roi_pct=round(total_roi, 2),
+        open_pct=open_pct,
+        unrealized_roi_pct=round(unrealized_roi, 2),
     )
 
 

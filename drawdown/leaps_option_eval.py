@@ -330,6 +330,8 @@ def _collect_trade_details(
                 } for se in trade.sell_events],
                 "expired": trade.expired,
                 "total_roi_pct": trade.total_roi_pct,
+                "open_pct": getattr(trade, 'open_pct', 0.0),
+                "unrealized_roi_pct": getattr(trade, 'unrealized_roi_pct', 0.0),
                 "price_series": price_series,
             })
     return output

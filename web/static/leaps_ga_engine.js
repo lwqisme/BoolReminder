@@ -153,7 +153,7 @@ function detectLeapsEntries(prices, drawdownThresholdPct = 20, entryMode = 'both
 
 // ── Sell ladder ───────────────────────────────────────────────────────────
 
-function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePrice = null, r = 0.05, sigma = 0.40, tradeOverrides = null) {
+function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePrice = null, r = 0.05, sigma = 0.40, tradeOverrides = null, allowOpen = false) {
   if (strikePrice == null) strikePrice = entry.price * 1.1;
 
   // Use timestamps for fast date comparison (prices are [ts, price, dateStr])
@@ -252,22 +252,42 @@ function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePr
     if (remainingPct <= 0) break;
   }
 
-  // Force-sell if expired without triggering
-  let expired = remainingPct > 0;
-  if (expired) {
-    // Find price at or nearest to cutoff date
-    let cutoffPrice = entry.price;
-    let cutoffDate = new Date(cutoffTs).toISOString().slice(0, 10);
-    for (const pt of pricePoints) {
-      if (pt.ts <= cutoffTs) {
-        cutoffPrice = pt.price;
-        cutoffDate = pt.date;
-      } else {
-        break;
+  // Handle remaining: allowOpen → track open, else force-sell
+  let openPct = 0;
+  let unrealizedRoiPct = 0;
+  let expired = false;
+  if (remainingPct > 0.01) {
+    if (allowOpen) {
+      // Signal mode: don't force-sell, track open position
+      let lastPrice = entry.price;
+      let lastDate = entry.date;
+      for (const pt of pricePoints) {
+        if (pt.ts > entryTs) {
+          lastPrice = pt.price;
+          lastDate = pt.date;
+        }
       }
+      const lastTs = new Date(lastDate).getTime();
+      const unrealizedRoi = proxyOptionRoi(entry.price, lastPrice, entryTs, lastTs, expTs, strikePrice, r, sigma);
+      openPct = Math.round(remainingPct * 100) / 100;
+      unrealizedRoiPct = Math.round(unrealizedRoi * 100) / 100;
+      expired = false;
+    } else {
+      // GA mode: force-sell remaining
+      let cutoffPrice = entry.price;
+      let cutoffDate = new Date(cutoffTs).toISOString().slice(0, 10);
+      for (const pt of pricePoints) {
+        if (pt.ts <= cutoffTs) {
+          cutoffPrice = pt.price;
+          cutoffDate = pt.date;
+        } else {
+          break;
+        }
+      }
+      const roi = proxyOptionRoi(entry.price, cutoffPrice, entryTs, cutoffTs, expTs, strikePrice, r, sigma);
+      sellEvents.push({ date: cutoffDate, price: cutoffPrice, pct_sold: Math.round(remainingPct * 100) / 100, roi_pct: Math.round(roi * 100) / 100 });
+      expired = true;
     }
-    const roi = proxyOptionRoi(entry.price, cutoffPrice, entryTs, cutoffTs, expTs, strikePrice, r, sigma);
-    sellEvents.push({ date: cutoffDate, price: cutoffPrice, pct_sold: remainingPct, roi_pct: Math.round(roi * 100) / 100 });
   }
 
   let totalRoi = 0;
@@ -285,6 +305,8 @@ function computeSellLadder(entry, prices, stages, expirationDays = 190, strikePr
     sell_events: sellEvents,
     expired,
     total_roi_pct: Math.round(totalRoi * 100) / 100,
+    open_pct: openPct,
+    unrealized_roi_pct: unrealizedRoiPct,
   };
 }
 

@@ -320,6 +320,65 @@ function testTotalRoi() {
   assertEqual(typeof roi, 'number', 'totalRoi is number');
 }
 
+// ── allowOpen Tests ─────────────────────────────────────────────────────
+
+function testAllowOpenNoForceSell() {
+  const vals = [...Array(122).fill(100), 100, 105, 110, 115, 120];
+  const prices = [];
+  const d = new Date('2025-01-01');
+  for (let i = 0; i < vals.length; i++) {
+    const date = new Date(d); date.setDate(date.getDate() + i);
+    prices.push([date.getTime(), vals[i], date.toISOString().slice(0, 10)]);
+  }
+  const entryDate = new Date(d); entryDate.setDate(entryDate.getDate() + 122);
+  const entry = { date: entryDate.toISOString().slice(0, 10), price: 100, drawdown_pct: 20, bollinger_score: 1.2, composite_score: 0.6 };
+  const stages = [[20, 30, 100]];  // hold 20 days, cannot be met
+  const trade = leaps.computeSellLadder(entry, prices, stages, 190, 110, 0.05, 0.40, null, true);
+
+  assertEqual(trade.sell_events.length, 0, 'allowOpen: no forced sell');
+  assertEqual(trade.expired, false, 'allowOpen: not expired');
+  assertGreater(trade.open_pct, 0, 'allowOpen: open_pct > 0');
+  assertAlmostEqual(trade.open_pct, 100, 0.1, 'allowOpen: open_pct = 100');
+  assertEqual(typeof trade.unrealized_roi_pct, 'number', 'allowOpen: unrealized_roi_pct is number');
+}
+
+function testAllowOpenPartialExecution() {
+  const vals = [...Array(122).fill(100), 100, ...Array(5).fill(100), 150, 150];
+  const prices = [];
+  const d = new Date('2025-01-01');
+  for (let i = 0; i < vals.length; i++) {
+    const date = new Date(d); date.setDate(date.getDate() + i);
+    prices.push([date.getTime(), vals[i], date.toISOString().slice(0, 10)]);
+  }
+  const entryDate = new Date(d); entryDate.setDate(entryDate.getDate() + 122);
+  const entry = { date: entryDate.toISOString().slice(0, 10), price: 100, drawdown_pct: 20, bollinger_score: 1.2, composite_score: 0.6 };
+  const stages = [[5, 10, 50], [20, 20, 100]];
+  const trade = leaps.computeSellLadder(entry, prices, stages, 190, 110, 0.05, 0.40, null, true);
+
+  assertGreater(trade.sell_events.length, 0, 'allowOpen: S1 triggered');
+  assertAlmostEqual(trade.sell_events[0].pct_sold, 50, 0.1, 'allowOpen: S1 sold 50%');
+  assertGreater(trade.open_pct, 0, 'allowOpen: remaining tracked');
+  assertAlmostEqual(trade.open_pct, 50, 0.1, 'allowOpen: open_pct = 50');
+  assertEqual(trade.expired, false, 'allowOpen: not expired');
+}
+
+function testAllowOpenFalseStillForceSells() {
+  const vals = Array(400).fill(100);
+  const prices = [];
+  const d = new Date('2025-01-01');
+  for (let i = 0; i < vals.length; i++) {
+    const date = new Date(d); date.setDate(date.getDate() + i);
+    prices.push([date.getTime(), vals[i], date.toISOString().slice(0, 10)]);
+  }
+  const entryDate = new Date(d); entryDate.setDate(entryDate.getDate() + 122);
+  const entry = { date: entryDate.toISOString().slice(0, 10), price: 100, drawdown_pct: 20, bollinger_score: 1.2, composite_score: 0.6 };
+  const stages = [[20, 50, 100]];
+  const trade = leaps.computeSellLadder(entry, prices, stages, 190, 110, 0.05, 0.40, null, false);
+
+  assertEqual(trade.sell_events.length, 1, 'allowOpen=false: force-sells');
+  assertAlmostEqual(trade.sell_events[0].pct_sold, 100, 0.1, 'allowOpen=false: sold 100%');
+}
+
 // ── Run all ───────────────────────────────────────────────────────────────
 
 testDelta();
@@ -334,6 +393,9 @@ testMutation();
 testFitness();
 testMergeRanges();
 testTotalRoi();
+testAllowOpenNoForceSell();
+testAllowOpenPartialExecution();
+testAllowOpenFalseStillForceSells();
 testPerformance();
 
 console.log(`\n${passed} passed, ${failed} failed`);

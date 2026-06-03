@@ -416,6 +416,7 @@ def compute_leaps_sell_signals(
         expiration_days=(position.expiration - entry_date).days,
         strike_price=position.strike,
         trade_overrides=trade_overrides if trade_overrides else None,
+        allow_open=True,
     )
 
     # Filter sell events to current_date and map to SellSignal

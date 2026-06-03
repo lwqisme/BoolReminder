@@ -523,5 +523,84 @@ class LeapsFullEvolutionTest(unittest.TestCase):
             self.assertIsInstance(row["total_roi"], float)
 
 
+class LeapsSellLadderAllowOpenTest(unittest.TestCase):
+    """compute_sell_ladder with allow_open=True: no forced liquidation at end of data."""
+
+    def _make_prices(self, values: list[float], start_date: date) -> list[tuple[date, float]]:
+        return [(start_date + timedelta(days=i), v) for i, v in enumerate(values)]
+
+    def test_allow_open_data_ends_no_force_sell(self):
+        """Data ends before profit trigger → no forced sell, position stays open."""
+        # Entry at 100, price slowly rises to 120 but data ends at day 10
+        # Stage: hold 20 days, profit>30%, sell 100%
+        values = [100.0] * 122 + [100.0] + [105.0, 110.0, 115.0, 120.0]
+        start = date(2025, 1, 1)
+        prices = self._make_prices(values, start)
+        entry_date = start + timedelta(days=122)
+        entry = LeapsEntrySignal(
+            date=entry_date, price=100.0,
+            drawdown_pct=20.0, bollinger_score=1.2, composite_score=0.6,
+        )
+        stages = [(20, 30.0, 100.0)]  # hold 20 days, cannot be met (only 4 days of data)
+        trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
+                                     strike_price=110.0, allow_open=True)
+        # No forced sell events
+        self.assertEqual(len(trade.sell_events), 0,
+                         'allow_open: no stage triggered → no sell events')
+        self.assertFalse(trade.expired,
+                         'allow_open: position open, not expired')
+        self.assertGreater(trade.open_pct, 0.0,
+                           'allow_open: remaining position tracked')
+        self.assertAlmostEqual(trade.open_pct, 100.0, places=1)
+        # unrealized_roi should be based on last price (120.0)
+        self.assertTrue(hasattr(trade, 'unrealized_roi_pct'))
+
+    def test_allow_open_partial_execution(self):
+        """First stage triggers, data ends before second → partial open."""
+        # Entry at 100, price rises to 150 then data ends
+        # Stage1: hold 5 days, profit>10%, sell 50%
+        # Stage2: hold 20 days, profit>20%, sell 100%
+        values = [100.0] * 122 + [100.0] + [100.0] * 5 + [150.0] + [150.0]
+        start = date(2025, 1, 1)
+        prices = self._make_prices(values, start)
+        entry_date = start + timedelta(days=122)
+        entry = LeapsEntrySignal(
+            date=entry_date, price=100.0,
+            drawdown_pct=20.0, bollinger_score=1.2, composite_score=0.6,
+        )
+        stages = [(5, 10.0, 50.0), (20, 20.0, 100.0)]
+        trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
+                                     strike_price=110.0, allow_open=True)
+        # S1 should trigger (hold 5 days, profit>10%)
+        self.assertGreaterEqual(len(trade.sell_events), 1,
+                                'S1 should trigger')
+        self.assertAlmostEqual(trade.sell_events[0].pct_sold, 50.0, places=1)
+        # S2 should NOT trigger (only ~7 days of data, need 20)
+        total_sold = sum(se.pct_sold for se in trade.sell_events)
+        self.assertLess(total_sold, 100.0,
+                        'S2 not triggered → not fully sold')
+        self.assertGreater(trade.open_pct, 0.0,
+                           'allow_open: remaining tracked')
+        self.assertAlmostEqual(trade.open_pct, 50.0, places=1)
+        self.assertFalse(trade.expired)
+
+    def test_allow_open_false_still_force_sells(self):
+        """allow_open=False (GA mode) still force-sells at end of data."""
+        values = [100.0] * 400
+        start = date(2025, 1, 1)
+        prices = self._make_prices(values, start)
+        entry_date = start + timedelta(days=122)
+        entry = LeapsEntrySignal(
+            date=entry_date, price=100.0,
+            drawdown_pct=20.0, bollinger_score=1.2, composite_score=0.6,
+        )
+        stages = [(20, 50.0, 100.0)]
+        trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
+                                     strike_price=110.0, allow_open=False)
+        self.assertEqual(len(trade.sell_events), 1,
+                         'allow_open=False: force-sells remaining')
+        self.assertAlmostEqual(trade.sell_events[0].pct_sold, 100.0)
+
+
 if __name__ == "__main__":
     unittest.main()
