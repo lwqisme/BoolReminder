@@ -10452,6 +10452,7 @@ def api_strategy_lab_parameter_lab_leaps_ga_evolve():
         build_price_points_from_series,
         candle_datetime,
         fetch_longbridge_daily_candles,
+        normalize_longbridge_symbol,
     )
 
     payload = request.get_json(silent=True) or {}
@@ -10500,7 +10501,8 @@ def api_strategy_lab_parameter_lab_leaps_ga_evolve():
 
         for symbol in stock_symbols:
             try:
-                candles = fetch_longbridge_daily_candles(quote_ctx, symbol, fetch_start, end_date)
+                lb_symbol = normalize_longbridge_symbol(symbol)
+                candles = fetch_longbridge_daily_candles(quote_ctx, lb_symbol, fetch_start, end_date)
             except Exception as _exc:
                 _parameter_lab_warn("leaps_ga_symbol_fetch_error", symbol=symbol, error=str(_exc))
                 failed_symbols.append(symbol)
