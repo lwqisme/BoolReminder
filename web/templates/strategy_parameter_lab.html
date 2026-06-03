@@ -1929,6 +1929,23 @@
                 </div>
             </div>
 
+            <!-- ── Preset Management Panel ─────────────────────────── -->
+            <div class="panel" id="presetMgmtPanel" style="margin-top:18px;">
+                <div class="panel-head">
+                    <h2>💾 预设管理</h2>
+                    <div style="display:flex;gap:6px;">
+                        <button id="presetTabLeaps" onclick="switchPresetTab('leaps')" class="primary" style="font-size:12px;">LEAPS 预设</button>
+                        <button id="presetTabStock" onclick="switchPresetTab('stock')" style="font-size:12px;">股票预设</button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <!-- LEAPS preset list -->
+                    <div id="presetLeapsList" style="display:none;"></div>
+                    <!-- Stock preset list -->
+                    <div id="presetStockList" style="display:none;"></div>
+                </div>
+            </div>
+
         </main>
     </div>
 
@@ -9095,6 +9112,579 @@
         };
 
         // ── End LEAPS GA ──────────────────────────────────────────
+
+        // ── Preset Management ─────────────────────────────────────
+        var presetMgmtTab = 'leaps';  // 'leaps' or 'stock'
+        var presetLeapsCache = [];
+        var presetStockCache = [];
+
+        function switchPresetTab(tab) {
+            presetMgmtTab = tab;
+            document.getElementById('presetTabLeaps').className = (tab === 'leaps') ? 'primary' : '';
+            document.getElementById('presetTabStock').className = (tab === 'stock') ? 'primary' : '';
+            document.getElementById('presetLeapsList').style.display = (tab === 'leaps') ? '' : 'none';
+            document.getElementById('presetStockList').style.display = (tab === 'stock') ? '' : 'none';
+            if (tab === 'leaps') loadPresetLeapsList();
+            else loadPresetStockList();
+        }
+
+        async function loadPresets() {
+            try {
+                var r = await fetch('/api/strategy-lab/presets?limit=200');
+                var d = await r.json();
+                return (d.success && d.presets) ? d.presets : [];
+            } catch (e) { return []; }
+        }
+
+        function isLeapsPreset(p) {
+            var cp = p.config_payload || p.config_summary || {};
+            return cp.type === 'leaps';
+        }
+
+        async function loadPresetLeapsList() {
+            var all = await loadPresets();
+            presetLeapsCache = all.filter(isLeapsPreset);
+            renderPresetLeapsList();
+        }
+
+        async function loadPresetStockList() {
+            var all = await loadPresets();
+            presetStockCache = all.filter(function(p) { return !isLeapsPreset(p); });
+            renderPresetStockList();
+        }
+
+        function presetActionsHtml(p) {
+            var id = escapeHtml(p.id);
+            return '<button onclick="renamePreset(\'' + id + '\', \'' + escapeHtml(p.name || '') + '\')" style="font-size:10px;padding:1px 5px;">✏️</button> ' +
+                '<button onclick="deletePreset(\'' + id + '\')" class="danger" style="font-size:10px;padding:1px 5px;">🗑️</button>';
+        }
+
+        // ── LEAPS preset panel ────────────────────────────────────
+        function renderPresetLeapsList() {
+            var div = document.getElementById('presetLeapsList');
+            if (presetLeapsCache.length === 0) {
+                div.innerHTML = '<div style="padding:12px;color:var(--muted);font-size:12px;">暂无 LEAPS 预设。从 GA 进化结果保存预设。</div>';
+                return;
+            }
+            var universeDiv = '';
+            var uv = window._leapsGaUniverse || [];
+            if (uv.length) {
+                universeDiv = '<div style="margin-bottom:12px;font-size:12px;color:var(--muted);">从当前 universe 快速选标的：' +
+                    uv.map(function(s) {
+                        return '<label style="display:inline-flex;align-items:center;gap:4px;margin-right:8px;cursor:pointer;"><input type="checkbox" class="leapsPresetSymbolCb" value="' + escapeHtml(s) + '">' + escapeHtml(s) + '</label>';
+                    }).join('') + '</div>';
+            }
+
+            var html = universeDiv +
+                '<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:end;">' +
+                '<label style="font-size:12px;">手动输入标的<input id="leapsPresetSymbols" type="text" placeholder="AAPL.US, MSFT.US" style="width:200px;"></label>' +
+                '<label style="font-size:12px;">开始<input id="leapsPresetStart" type="date" value="2024-01-01"></label>' +
+                '<label style="font-size:12px;">结束<input id="leapsPresetEnd" type="date" value="2025-06-01"></label>' +
+                '<button id="leapsPresetRunBtn" class="primary" style="font-size:12px;" onclick="runLeapsPresetSim()" disabled>▶ 模拟</button>' +
+                '</div>' +
+                '<details style="margin-bottom:10px;"><summary style="font-size:12px;cursor:pointer;color:var(--blue);">BS 期权参数（可改）</summary>' +
+                '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:8px;">' +
+                '<label style="font-size:11px;">到期天数<input id="leapsPresetExpDays" type="number" value="190" style="min-height:26px;"></label>' +
+                '<label style="font-size:11px;">行权价倍数<input id="leapsPresetStrikeMult" type="number" step="0.05" value="1.10" style="min-height:26px;"></label>' +
+                '<label style="font-size:11px;">无风险利率<input id="leapsPresetRf" type="number" step="0.01" value="0.05" style="min-height:26px;"></label>' +
+                '<label style="font-size:11px;">隐含波动率<input id="leapsPresetSigma" type="number" step="0.05" value="0.40" style="min-height:26px;"></label>' +
+                '</div></details>';
+
+            html += '<table class="mini-table" style="font-size:11px;"><thead><tr>' +
+                '<th>名称</th><th>回撤%</th><th>模式</th><th>S1天/利/卖</th><th>S2天/利/卖</th><th>仓位%</th><th>冷却</th><th>操作</th><th>模拟</th>' +
+                '</tr></thead><tbody>';
+
+            for (var i = 0; i < presetLeapsCache.length; i++) {
+                var p = presetLeapsCache[i];
+                var cp = p.config_payload || {};
+                html += '<tr id="leapsPresetRow' + i + '">' +
+                    '<td>' + escapeHtml(p.name || '-') + '<br><span style="font-size:9px;color:var(--muted);">' + (p.created_at || '').slice(0,10) + '</span></td>' +
+                    '<td>' + (cp.drawdown_threshold_pct || '-') + '</td>' +
+                    '<td>' + (cp.entry_mode || '-') + '</td>' +
+                    '<td>' + [cp.stage1_days, cp.stage1_profit, cp.stage1_sell].join('/') + '</td>' +
+                    '<td>' + [cp.stage2_days, cp.stage2_profit, cp.stage2_sell].join('/') + '</td>' +
+                    '<td>' + (cp.position_pct || '-') + '</td>' +
+                    '<td>' + (cp.cooldown_days || '-') + '</td>' +
+                    '<td>' + presetActionsHtml(p) + '</td>' +
+                    '<td><button onclick="selectLeapsPreset(\'' + i + '\')" style="font-size:10px;padding:1px 5px;">选此预设</button></td>' +
+                    '</tr>';
+            }
+            html += '</tbody></table>';
+            div.innerHTML = html;
+        }
+
+        var selectedLeapsPresetIndex = -1;
+        function selectLeapsPreset(index) {
+            selectedLeapsPresetIndex = index;
+            document.getElementById('leapsPresetRunBtn').disabled = false;
+            // Highlight the row
+            for (var i = 0; i < presetLeapsCache.length; i++) {
+                var row = document.getElementById('leapsPresetRow' + i);
+                if (row) row.style.background = (i === index) ? 'rgba(17,103,216,0.08)' : '';
+            }
+        }
+
+        async function runLeapsPresetSim() {
+            if (selectedLeapsPresetIndex < 0) return;
+            var preset = presetLeapsCache[selectedLeapsPresetIndex];
+            var cp = preset.config_payload || {};
+
+            // Collect symbols
+            var symbols = [];
+            var manual = document.getElementById('leapsPresetSymbols').value.trim();
+            if (manual) symbols = manual.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+            var cbs = document.querySelectorAll('.leapsPresetSymbolCb:checked');
+            cbs.forEach(function(cb) { symbols.push(cb.value); });
+            if (!symbols.length) { alert('请选择至少一个标的'); return; }
+
+            var start = document.getElementById('leapsPresetStart').value;
+            var end = document.getElementById('leapsPresetEnd').value;
+
+            var btn = document.getElementById('leapsPresetRunBtn');
+            btn.disabled = true; btn.textContent = '...';
+
+            try {
+                var body = {
+                    symbols: symbols, start: start, end: end,
+                    drawdown_threshold_pct: cp.drawdown_threshold_pct,
+                    entry_mode: cp.entry_mode || 'both',
+                    stages: [
+                        [cp.stage1_days || 15, cp.stage1_profit || 60, cp.stage1_sell || 50],
+                        [cp.stage2_days || 30, cp.stage2_profit || 100, cp.stage2_sell || 100]
+                    ],
+                    position_pct: cp.position_pct || 20,
+                    cooldown_days: cp.cooldown_days || 5,
+                    expiration_days: parseInt(document.getElementById('leapsPresetExpDays').value) || 190,
+                    strike_multiplier: parseFloat(document.getElementById('leapsPresetStrikeMult').value) || 1.10,
+                    risk_free_rate: parseFloat(document.getElementById('leapsPresetRf').value) || 0.05,
+                    sigma: parseFloat(document.getElementById('leapsPresetSigma').value) || 0.40,
+                };
+
+                var r = await fetch('/api/strategy-lab/parameter-lab/leaps-simulate', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                var d = await r.json();
+
+                if (!d.success) { alert('模拟失败: ' + (d.message || '')); return; }
+
+                // Render results inline
+                renderLeapsSimResults(selectedLeapsPresetIndex, d.results || {});
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+            } finally {
+                btn.disabled = false; btn.textContent = '▶ 模拟';
+            }
+        }
+
+        function renderLeapsSimResults(presetIdx, results) {
+            var preset = presetLeapsCache[presetIdx];
+            var row = document.getElementById('leapsPresetRow' + presetIdx);
+            if (!row) return;
+
+            // Remove any existing results row
+            var next = row.nextElementSibling;
+            while (next && next.classList && next.classList.contains('leaps-sim-result')) {
+                var tmp = next.nextElementSibling;
+                next.remove();
+                next = tmp;
+            }
+
+            for (var sym in results) {
+                var res = results[sym];
+                var trades = res.trade_details || [];
+                var resultRow = document.createElement('tr');
+                resultRow.className = 'leaps-sim-result';
+                var resultId = 'leapsSimResult_' + presetIdx + '_' + sym.replace(/\./g, '_');
+                resultRow.innerHTML = '<td colspan="9" style="padding:8px;">' +
+                    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+                    '<strong>' + escapeHtml(sym) + '</strong> ' +
+                    '<span style="color:var(--muted);font-size:12px;">' + trades.length + ' 笔交易 | 预设: ' + escapeHtml(preset.name || '') + '</span>' +
+                    '<button onclick="toggleLeapsPresetChart(\'' + resultId + '\')" style="font-size:11px;padding:2px 6px;">▶ 展开图表</button>' +
+                    '</div>' +
+                    '<div id="' + resultId + 'Chart" style="display:none;">' +
+                    '<div id="' + resultId + 'Plot" style="width:100%;height:300px;"></div>' +
+                    '<div id="' + resultId + 'Detail" style="font-size:11px;margin-top:4px;"></div>' +
+                    '</div>' +
+                    '</td>';
+                row.parentNode.insertBefore(resultRow, row.nextElementSibling);
+            }
+        }
+
+        window.toggleLeapsPresetChart = function(resultId) {
+            var chartDiv = document.getElementById(resultId + 'Chart');
+            if (!chartDiv) return;
+            if (chartDiv.style.display === 'none') {
+                chartDiv.style.display = '';
+                drawLeapsPresetPlotly(resultId + 'Plot', resultId);
+            } else {
+                chartDiv.style.display = 'none';
+            }
+        };
+
+        function drawLeapsPresetPlotly(plotId, resultId) {
+            // Find the result data
+            var presetIdx = parseInt(resultId.split('_')[1]);
+            var sym = resultId.slice(resultId.indexOf('_', resultId.indexOf('_') + 1) + 1).replace(/_/g, '.');
+            var preset = presetLeapsCache[presetIdx];
+            if (!preset) return;
+
+            // Re-fetch or use cached results? We need to store results.
+            // For now: re-run? No, let's store in a global.
+            if (!window._leapsPresetResults) { alert('结果数据丢失，请重新模拟'); return; }
+            var results = window._leapsPresetResults[presetIdx];
+            if (!results) { alert('结果数据丢失'); return; }
+            var res = results[sym];
+            if (!res) return;
+            var trades = res.trade_details || [];
+            if (!trades.length) return;
+
+            var plotDiv = document.getElementById(plotId);
+            if (!plotDiv) return;
+
+            var traces = [];
+            var entryX = [], entryY = [], entryText = [];
+            var sellX = [], sellY = [], sellText = [], sellSizes = [];
+            var detailHtml = '';
+
+            // Build price series from trades' price_series
+            var allPricePoints = [];
+            var symColors = ['#6b7280', '#059669', '#7c3aed', '#dc2626', '#d97706'];
+            var seenDates = {};
+
+            for (var t = 0; t < trades.length; t++) {
+                var tr = trades[t];
+                var ps = tr.price_series || [];
+                for (var pi = 0; pi < ps.length; pi++) {
+                    var key = ps[pi].date;
+                    if (!seenDates[key]) {
+                        seenDates[key] = true;
+                        allPricePoints.push(ps[pi]);
+                    }
+                }
+            }
+            allPricePoints.sort(function(a, b) { return a.date < b.date ? -1 : 1; });
+
+            // Price line
+            var pX = [], pY = [];
+            for (var i = 0; i < allPricePoints.length; i++) {
+                pX.push(allPricePoints[i].date); pY.push(allPricePoints[i].price);
+            }
+            traces.push({ x: pX, y: pY, type: 'scatter', mode: 'lines', name: sym + ' 价格',
+                line: { color: symColors[0], width: 1.5 } });
+
+            // Bollinger from price_series
+            var bbX = [], bbY = [];
+            for (var i = 0; i < allPricePoints.length; i++) {
+                if (allPricePoints[i].bollinger_lower != null) {
+                    bbX.push(allPricePoints[i].date);
+                    bbY.push(allPricePoints[i].bollinger_lower);
+                }
+            }
+            if (bbX.length) {
+                traces.push({ x: bbX, y: bbY, type: 'scatter', mode: 'lines', name: '布林下轨',
+                    line: { color: symColors[0], width: 1, dash: 'dot' } });
+            }
+
+            // Entry/sell markers
+            for (var t = 0; t < trades.length; t++) {
+                var tr = trades[t];
+                entryX.push(tr.entry_date);
+                entryY.push(tr.entry_price);
+                entryText.push(tr.entry_date + '<br>' + tr.symbol + ' 买入<br>回撤: ' + (tr.drawdown_pct || 0).toFixed(1) + '%<br>价格: ' + Number(tr.entry_price).toFixed(2));
+
+                var ses = tr.sell_events || [];
+                for (var s = 0; s < ses.length; s++) {
+                    var se = ses[s];
+                    sellX.push(se.date); sellY.push(se.price);
+                    sellText.push(se.date + '<br>卖' + se.pct_sold + '%<br>价格: ' + Number(se.price).toFixed(2) + '<br>ROI: ' + (se.roi_pct > 0 ? '+' : '') + Math.round(se.roi_pct) + '%');
+                    sellSizes.push(Math.max(6, (se.pct_sold / 50) * 14));
+                }
+
+                detailHtml += '<span style="color:var(--green);">●</span> ' + tr.symbol + ' ' + tr.entry_date +
+                    ' 买入@' + Number(tr.entry_price).toFixed(1);
+                for (var s2 = 0; s2 < ses.length; s2++) {
+                    var se2 = ses[s2];
+                    detailHtml += ' <span style="color:var(--red);">●</span> ' + se2.date +
+                        ' 卖' + se2.pct_sold + '% ROI' + (se2.roi_pct > 0 ? '+' : '') + Math.round(se2.roi_pct) + '%';
+                }
+                detailHtml += ' | 总ROI: ' + (tr.total_roi_pct > 0 ? '+' : '') + Math.round(tr.total_roi_pct) + '%<br>';
+            }
+
+            traces.push({
+                x: entryX, y: entryY, type: 'scatter', mode: 'markers', name: '买入点',
+                marker: { color: '#059669', size: 12, symbol: 'circle', line: { color: '#fff', width: 2 } },
+                text: entryText, hoverinfo: 'text',
+            });
+            traces.push({
+                x: sellX, y: sellY, type: 'scatter', mode: 'markers', name: '卖出点',
+                marker: { color: '#dc2626', size: sellSizes, symbol: 'circle', line: { color: '#fff', width: 2 } },
+                text: sellText, hoverinfo: 'text',
+            });
+
+            Plotly.newPlot(plotDiv, traces, {
+                margin: { l: 50, r: 20, t: 10, b: 30 },
+                legend: { x: 0, y: 1.15, orientation: 'h', font: { size: 10 } },
+                xaxis: { title: '' }, yaxis: { title: '价格' },
+                paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+                hovermode: 'closest',
+            }, { responsive: true, displayModeBar: false });
+
+            var detailDiv = document.getElementById(resultId + 'Detail');
+            if (detailDiv) detailDiv.innerHTML = detailHtml;
+        }
+
+        // Store results for later chart rendering
+        function storeLeapsPresetResults(presetIdx, results) {
+            if (!window._leapsPresetResults) window._leapsPresetResults = {};
+            window._leapsPresetResults[presetIdx] = results;
+        }
+
+        // Override renderLeapsSimResults to store results
+        var _origRenderLeapsSimResults = renderLeapsSimResults;
+        renderLeapsSimResults = function(presetIdx, results) {
+            storeLeapsPresetResults(presetIdx, results);
+            _origRenderLeapsSimResults(presetIdx, results);
+        };
+
+        // ── Stock preset panel ────────────────────────────────────
+        function renderPresetStockList() {
+            var div = document.getElementById('presetStockList');
+            if (presetStockCache.length === 0) {
+                div.innerHTML = '<div style="padding:12px;color:var(--muted);font-size:12px;">暂无股票策略预设。从 History 或参数行保存预设。</div>';
+                return;
+            }
+
+            var html = '<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:end;">' +
+                '<label style="font-size:12px;">标的（覆盖预设标的）<input id="stockPresetSymbols" type="text" placeholder="AAPL.US, MSFT.US (空=用预设标的)" style="width:220px;"></label>' +
+                '<label style="font-size:12px;">开始<input id="stockPresetStart" type="date" value=""></label>' +
+                '<label style="font-size:12px;">结束<input id="stockPresetEnd" type="date" value=""></label>' +
+                '</div>';
+
+            html += '<table class="mini-table" style="font-size:11px;"><thead><tr>' +
+                '<th>名称</th><th>标的数</th><th>买策略</th><th>卖策略</th><th>日期</th><th>操作</th><th>模拟</th>' +
+                '</tr></thead><tbody>';
+
+            for (var i = 0; i < presetStockCache.length; i++) {
+                var p = presetStockCache[i];
+                var cs = p.config_summary || {};
+                html += '<tr id="stockPresetRow' + i + '">' +
+                    '<td>' + escapeHtml(p.name || '-') + '<br><span style="font-size:9px;color:var(--muted);">' + (p.created_at || '').slice(0,10) + '</span></td>' +
+                    '<td>' + (cs.target_count || '-') + '</td>' +
+                    '<td>' + escapeHtml(cs.buy_strategy || '-') + '</td>' +
+                    '<td>' + escapeHtml(cs.sell_strategy || '-') + '</td>' +
+                    '<td style="font-size:9px;">' + (cs.start || '') + '~' + (cs.end || '') + '</td>' +
+                    '<td>' + presetActionsHtml(p) + '</td>' +
+                    '<td><button onclick="runStockPresetSim(' + i + ')" style="font-size:10px;padding:1px 5px;">▶ 模拟</button></td>' +
+                    '</tr>';
+            }
+            html += '</tbody></table>';
+            div.innerHTML = html;
+        }
+
+        async function runStockPresetSim(index) {
+            var preset = presetStockCache[index];
+            var btn = document.querySelector('#stockPresetRow' + index + ' button');
+            if (btn) { btn.disabled = true; btn.textContent = '...'; }
+
+            var body = { preset_id: preset.id };
+            var symbols = document.getElementById('stockPresetSymbols').value.trim();
+            if (symbols) {
+                body.symbols = symbols.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+            }
+            var startVal = document.getElementById('stockPresetStart').value;
+            var endVal = document.getElementById('stockPresetEnd').value;
+            if (startVal) body.start = startVal;
+            if (endVal) body.end = endVal;
+
+            try {
+                var r = await fetch('/api/strategy-lab/parameter-lab/stock-simulate', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                var d = await r.json();
+                if (!d.success) { alert('模拟失败: ' + (d.message || '')); return; }
+                renderStockSimResults(index, d.data || {});
+            } catch (e) {
+                alert('请求失败: ' + e.message);
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = '▶ 模拟'; }
+            }
+        }
+
+        function renderStockSimResults(presetIdx, data) {
+            var row = document.getElementById('stockPresetRow' + presetIdx);
+            if (!row) return;
+
+            // Remove existing result rows
+            var next = row.nextElementSibling;
+            while (next && next.classList && next.classList.contains('stock-sim-result')) {
+                var tmp = next.nextElementSibling;
+                next.remove();
+                next = tmp;
+            }
+
+            var strategies = data.strategies || [];
+            for (var s = 0; s < strategies.length; s++) {
+                var st = strategies[s];
+                var trades = st.trades || [];
+                var resultRow = document.createElement('tr');
+                resultRow.className = 'stock-sim-result';
+                var resultId = 'stockSimResult_' + presetIdx + '_' + s;
+                resultRow.innerHTML = '<td colspan="7" style="padding:8px;">' +
+                    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+                    '<strong>' + escapeHtml(st.label || '策略 ' + s) + '</strong> ' +
+                    '<span style="color:var(--muted);font-size:12px;">' + trades.length + ' 笔交易 | 收益: ' + pct(st.metrics?.return_pct) + ' | 回撤: ' + pct(st.metrics?.max_drawdown_pct) + '</span>' +
+                    '<button onclick="toggleStockPresetChart(\'' + resultId + '\')" style="font-size:11px;padding:2px 6px;">▶ 展开图表</button>' +
+                    '</div>' +
+                    '<div id="' + resultId + 'Chart" style="display:none;">' +
+                    '<div id="' + resultId + 'Plot" style="width:100%;height:300px;"></div>' +
+                    '<div id="' + resultId + 'Trades" style="font-size:11px;max-height:200px;overflow-y:auto;margin-top:4px;"></div>' +
+                    '</div>' +
+                    '</td>';
+                row.parentNode.insertBefore(resultRow, row.nextElementSibling);
+            }
+        }
+
+        window.toggleStockPresetChart = function(resultId) {
+            var chartDiv = document.getElementById(resultId + 'Chart');
+            if (!chartDiv) return;
+            if (chartDiv.style.display === 'none') {
+                chartDiv.style.display = '';
+                drawStockPresetPlotly(resultId);
+            } else {
+                chartDiv.style.display = 'none';
+            }
+        };
+
+        function drawStockPresetPlotly(resultId) {
+            var plotDiv = document.getElementById(resultId + 'Plot');
+            if (!plotDiv || !window.Plotly) return;
+
+            // Parse resultId: stockSimResult_{presetIdx}_{strategyIdx}
+            var parts = resultId.split('_');
+            var presetIdx = parseInt(parts[1]);
+            var strategyIdx = parseInt(parts[2]);
+
+            // We need to re-fetch or cache the data
+            if (!window._stockPresetResults || !window._stockPresetResults[presetIdx]) {
+                alert('数据丢失，请重新模拟'); return;
+            }
+            var strategies = window._stockPresetResults[presetIdx].strategies || [];
+            var st = strategies[strategyIdx];
+            if (!st) return;
+            var trades = st.trades || [];
+
+            // Use the existing buildCellPriceTraces approach
+            var symbols = [];
+            var seen = {};
+            for (var t = 0; t < trades.length; t++) {
+                var sym = trades[t].symbol;
+                if (sym && !seen[sym]) { seen[sym] = true; symbols.push(sym); }
+            }
+
+            var priceTraces = [];
+            symbols.forEach(function(sym) {
+                var entry = marketSeriesForSymbol(sym);
+                if (entry && entry.series) {
+                    priceTraces.push({
+                        type: 'scatter', mode: 'lines', name: sym + ' 股价',
+                        x: entry.series.dates || [],
+                        y: entry.series.closes || [],
+                        yaxis: 'y2',
+                        line: { color: '#d14b2f', width: 2, dash: 'solid' }
+                    });
+                }
+            });
+
+            // Buy/sell markers
+            var buyX = [], buyY = [], buyText = [];
+            var sellX = [], sellY = [], sellText = [];
+            var tradeTable = '<table style="font-size:11px;"><tr><th>日期</th><th>动作</th><th>标的</th><th>价格</th><th>金额</th><th>股数</th></tr>';
+
+            for (var t = 0; t < trades.length; t++) {
+                var tr = trades[t];
+                if (tr.action === 'buy') {
+                    buyX.push(tr.date); buyY.push(tr.price);
+                    buyText.push(tr.date + '<br>买入 ' + tr.symbol + '<br>价格: ' + Number(tr.price).toFixed(2));
+                } else {
+                    sellX.push(tr.date); sellY.push(tr.price);
+                    sellText.push(tr.date + '<br>卖出 ' + tr.symbol + '<br>价格: ' + Number(tr.price).toFixed(2));
+                }
+                tradeTable += '<tr><td>' + escapeHtml(tr.date) + '</td><td>' + escapeHtml(tr.action) + '</td><td>' +
+                    escapeHtml(tr.symbol || '') + '</td><td>' + Number(tr.price).toFixed(2) + '</td><td>' +
+                    money(tr.gross_amount) + '</td><td>' + Number(tr.shares || 0).toFixed(4) + '</td></tr>';
+            }
+            tradeTable += '</table>';
+
+            var allTraces = priceTraces.concat([
+                { x: buyX, y: buyY, type: 'scatter', mode: 'markers', name: '买入',
+                    marker: { color: '#059669', size: 10, symbol: 'triangle-up', line: { color: '#fff', width: 1 } },
+                    text: buyText, hoverinfo: 'text' },
+                { x: sellX, y: sellY, type: 'scatter', mode: 'markers', name: '卖出',
+                    marker: { color: '#dc2626', size: 10, symbol: 'triangle-down', line: { color: '#fff', width: 1 } },
+                    text: sellText, hoverinfo: 'text' },
+            ]);
+
+            Plotly.newPlot(plotDiv, allTraces, {
+                margin: { l: 50, r: 20, t: 10, b: 30 },
+                legend: { x: 0, y: 1.15, orientation: 'h', font: { size: 10 } },
+                xaxis: { title: '' }, yaxis: { title: '价格' },
+                paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+                hovermode: 'closest',
+            }, { responsive: true, displayModeBar: false });
+
+            document.getElementById(resultId + 'Trades').innerHTML = tradeTable;
+        }
+
+        function storeStockPresetResults(presetIdx, data) {
+            if (!window._stockPresetResults) window._stockPresetResults = {};
+            window._stockPresetResults[presetIdx] = data;
+        }
+
+        var _origRenderStockSimResults = renderStockSimResults;
+        renderStockSimResults = function(presetIdx, data) {
+            storeStockPresetResults(presetIdx, data);
+            _origRenderStockSimResults(presetIdx, data);
+        };
+
+        // ── Shared preset actions ──────────────────────────────────
+        async function renamePreset(id, currentName) {
+            var newName = prompt('新名称', currentName);
+            if (!newName || newName === currentName) return;
+            try {
+                var r = await fetch('/api/strategy-lab/presets/' + encodeURIComponent(id), {
+                    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newName }),
+                });
+                var d = await r.json();
+                if (d.success) {
+                    if (presetMgmtTab === 'leaps') loadPresetLeapsList();
+                    else loadPresetStockList();
+                } else {
+                    alert('重命名失败: ' + (d.message || ''));
+                }
+            } catch (e) { alert('请求失败: ' + e.message); }
+        }
+
+        async function deletePreset(id) {
+            if (!confirm('确定删除此预设？')) return;
+            try {
+                var r = await fetch('/api/strategy-lab/presets/' + encodeURIComponent(id), { method: 'DELETE' });
+                var d = await r.json();
+                if (d.success) {
+                    if (presetMgmtTab === 'leaps') loadPresetLeapsList();
+                    else loadPresetStockList();
+                } else {
+                    alert('删除失败: ' + (d.message || ''));
+                }
+            } catch (e) { alert('请求失败: ' + e.message); }
+        }
+
+        // Init: load on tab switch
+        switchPresetTab('leaps');
+
+        // ── End Preset Management ──────────────────────────────────
     </script>
 </body>
 </html>
