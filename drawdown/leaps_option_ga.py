@@ -827,3 +827,96 @@ def _tournament_select(
     indices = random.sample(range(len(population)), min(tournament_size, len(population)))
     best_idx = max(indices, key=lambda i: fitnesses[i])
     return population[best_idx]
+
+
+def run_leaps_simulation(
+    prices: list[tuple[date, float]],
+    drawdown_threshold_pct: float,
+    entry_mode: str,
+    stages: list[tuple[int, float, float]],
+    position_pct: float = 20.0,
+    cooldown_days: int = 5,
+    expiration_days: int = 190,
+    strike_multiplier: float = 1.10,
+    risk_free_rate: float = 0.05,
+    sigma: float = 0.40,
+    min_entry_date: date | None = None,
+    symbol: str = "",
+) -> list[dict[str, object]]:
+    """Run a single LEAPS backtest simulation from raw params + price data.
+
+    Detects entry signals then simulates staged sell ladder for each entry,
+    respecting cooldown between entries. Returns trade_details in the same
+    structure the JS frontend chart expects.
+
+    Args:
+        prices: List of (date, price) sorted ascending.
+        drawdown_threshold_pct: Min drawdown from 120d high to trigger entry.
+        entry_mode: "touch", "bounce", or "both".
+        stages: List of (min_hold_days, profit_pct, sell_fraction_pct).
+        position_pct: Capital % allocated per trade.
+        cooldown_days: Min days between entries.
+        expiration_days: Days to option expiration.
+        strike_multiplier: Strike = entry_price * this.
+        risk_free_rate: BS risk-free rate.
+        sigma: BS implied volatility.
+        min_entry_date: Ignore entries before this date.
+        symbol: Ticker label attached to each trade dict.
+
+    Returns:
+        List of trade dicts with symbol, entry_date, entry_price,
+        drawdown_pct, sell_events, total_roi_pct, open_pct, unrealized_roi_pct.
+    """
+    entries = detect_leaps_entries(
+        prices, drawdown_threshold_pct, entry_mode,
+        min_entry_date=min_entry_date,
+    )
+    if not entries:
+        return []
+
+    all_trades: list[dict[str, object]] = []
+    last_entry_date: date | None = None
+    max_price_date = max(d for d, _ in prices)
+
+    for entry in entries:
+        # Cooldown between entries
+        if cooldown_days > 0 and last_entry_date is not None:
+            if (entry.date - last_entry_date).days < cooldown_days:
+                continue
+
+        # Must be able to reach min hold before data ends
+        min_hold_days = min(s[0] for s in stages) if stages else 0
+        if entry.date + timedelta(days=min_hold_days) > max_price_date:
+            continue
+
+        strike_price = round(entry.price * strike_multiplier, 2)
+        trade = compute_sell_ladder(
+            entry, prices, stages,
+            expiration_days=expiration_days,
+            strike_price=strike_price,
+            risk_free_rate=risk_free_rate,
+            sigma=sigma,
+        )
+
+        all_trades.append({
+            "symbol": symbol,
+            "entry_date": entry.date.isoformat(),
+            "entry_price": entry.price,
+            "drawdown_pct": entry.drawdown_pct,
+            "bollinger_score": entry.bollinger_score,
+            "composite_score": entry.composite_score,
+            "sell_events": [{
+                "date": se.date.isoformat(),
+                "price": se.price,
+                "pct_sold": se.pct_sold,
+                "roi_pct": se.roi_pct,
+            } for se in trade.sell_events],
+            "expired": trade.expired,
+            "total_roi_pct": trade.total_roi_pct,
+            "open_pct": getattr(trade, 'open_pct', 0.0),
+            "unrealized_roi_pct": getattr(trade, 'unrealized_roi_pct', 0.0),
+        })
+
+        last_entry_date = entry.date
+
+    return all_trades

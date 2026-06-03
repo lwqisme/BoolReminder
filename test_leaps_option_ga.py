@@ -602,5 +602,121 @@ class LeapsSellLadderAllowOpenTest(unittest.TestCase):
         self.assertAlmostEqual(trade.sell_events[0].pct_sold, 100.0)
 
 
+class RunLeapsSimulationTest(unittest.TestCase):
+    """run_leaps_simulation: single-shot backtest for LEAPS preset sim."""
+
+    def _make_prices(self, values, start_date):
+        return [(start_date + timedelta(days=i), v) for i, v in enumerate(values)]
+
+    def test_returns_trade_for_crash_scenario(self):
+        """Price crash → at least one entry detected and simulated."""
+        from drawdown.leaps_option_ga import run_leaps_simulation
+        values = [100.0] * 122 + [70.0, 72.0, 75.0, 80.0, 85.0, 90.0, 95.0, 100.0, 105.0, 110.0]
+        values += [110.0] * 100
+        prices = self._make_prices(values, date(2025, 1, 1))
+        stages = [(15, 60.0, 50.0), (30, 100.0, 100.0)]
+        result = run_leaps_simulation(
+            prices, drawdown_threshold_pct=15.0, entry_mode="both",
+            stages=stages, position_pct=20.0, cooldown_days=5,
+            symbol="TEST",
+        )
+        self.assertIsInstance(result, list)
+        self.assertGreater(len(result), 0, 'Expected at least one trade')
+
+    def test_flat_prices_no_entries(self):
+        """No crash → no entries → empty list."""
+        from drawdown.leaps_option_ga import run_leaps_simulation
+        values = [100.0] * 400
+        prices = self._make_prices(values, date(2025, 1, 1))
+        stages = [(15, 60.0, 50.0), (30, 100.0, 100.0)]
+        result = run_leaps_simulation(
+            prices, drawdown_threshold_pct=20.0, entry_mode="touch",
+            stages=stages, symbol="FLAT",
+        )
+        self.assertEqual(len(result), 0)
+
+    def test_trade_structure_matches_frontend_format(self):
+        """Each trade dict has fields the JS chart expects."""
+        from drawdown.leaps_option_ga import run_leaps_simulation
+        values = [100.0] * 122 + [70.0] * 5 + [85.0, 95.0, 105.0, 115.0]
+        values += [115.0] * 200
+        prices = self._make_prices(values, date(2025, 1, 1))
+        stages = [(10, 60.0, 50.0), (30, 100.0, 100.0)]
+        result = run_leaps_simulation(
+            prices, drawdown_threshold_pct=15.0, entry_mode="both",
+            stages=stages, symbol="STRUCT",
+        )
+        self.assertGreater(len(result), 0)
+        trade = result[0]
+        self.assertIn('symbol', trade)
+        self.assertEqual(trade['symbol'], 'STRUCT')
+        self.assertIn('entry_date', trade)
+        self.assertIn('entry_price', trade)
+        self.assertIn('drawdown_pct', trade)
+        self.assertIn('sell_events', trade)
+        self.assertIsInstance(trade['sell_events'], list)
+        self.assertGreater(len(trade['sell_events']), 0)
+        self.assertIn('total_roi_pct', trade)
+        # sell event structure
+        se = trade['sell_events'][0]
+        self.assertIn('date', se)
+        self.assertIn('price', se)
+        self.assertIn('pct_sold', se)
+        self.assertIn('roi_pct', se)
+
+    def test_cooldown_respected(self):
+        """Two entries close together → cooldown filters second one."""
+        from drawdown.leaps_option_ga import run_leaps_simulation
+        # Two crashes close together
+        values = [100.0] * 122
+        values += [70.0, 72.0, 75.0, 80.0, 85.0, 90.0]  # crash 1 + recovery
+        values += [92.0, 90.0, 88.0, 85.0, 87.0, 90.0, 95.0]  # crash 2 close
+        values += [100.0] * 100
+        prices = self._make_prices(values, date(2025, 1, 1))
+        stages = [(10, 60.0, 100.0)]
+        result_no_cd = run_leaps_simulation(
+            prices, drawdown_threshold_pct=12.0, entry_mode="both",
+            stages=stages, cooldown_days=0, symbol="CD0",
+        )
+        result_cd = run_leaps_simulation(
+            prices, drawdown_threshold_pct=12.0, entry_mode="both",
+            stages=stages, cooldown_days=30, symbol="CD30",
+        )
+        # With cooldown=0 may get ≥1, with cooldown=30 should get ≤ no-cooldown
+        self.assertGreaterEqual(len(result_no_cd), len(result_cd),
+            'Cooldown should not increase trade count')
+
+    def test_custom_bs_params_propagate(self):
+        """Custom BS params affect ROI values without crashing."""
+        from drawdown.leaps_option_ga import run_leaps_simulation
+        values = [100.0] * 122 + [70.0] * 5 + [85.0, 95.0, 105.0, 115.0]
+        values += [115.0] * 200
+        prices = self._make_prices(values, date(2025, 1, 1))
+        stages = [(10, 60.0, 50.0), (30, 100.0, 100.0)]
+        result = run_leaps_simulation(
+            prices, drawdown_threshold_pct=15.0, entry_mode="both",
+            stages=stages, expiration_days=365, strike_multiplier=1.05,
+            risk_free_rate=0.03, sigma=0.30, symbol="CUSTOM",
+        )
+        self.assertGreater(len(result), 0)
+        trade = result[0]
+        self.assertIsInstance(trade['total_roi_pct'], float)
+
+    def test_min_entry_date_filters_early_entries(self):
+        """Entries before min_entry_date are excluded."""
+        from drawdown.leaps_option_ga import run_leaps_simulation
+        values = [100.0] * 122 + [70.0, 72.0, 75.0, 80.0, 85.0, 90.0, 95.0, 100.0, 105.0, 110.0]
+        values += [110.0] * 100
+        prices = self._make_prices(values, date(2025, 1, 1))
+        # Set min_entry_date after all prices → no trades
+        far_future = date(2026, 1, 1)
+        stages = [(15, 60.0, 50.0), (30, 100.0, 100.0)]
+        result = run_leaps_simulation(
+            prices, drawdown_threshold_pct=15.0, entry_mode="both",
+            stages=stages, min_entry_date=far_future, symbol="FUTURE",
+        )
+        self.assertEqual(len(result), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -414,6 +414,68 @@ for (let i = 0; i < 50; i++) {
         self.assertIn("bounds", pr)
         self.assertIn("int_fields", pr)
 
+    def test_leaps_simulate_endpoint_returns_valid_structure(self):
+        """S7: leaps-simulate endpoint returns trade_details per symbol."""
+        import urllib.request, urllib.error
+        req = urllib.request.Request(
+            "http://127.0.0.1:5000/api/strategy-lab/parameter-lab/leaps-simulate",
+            data=json.dumps({
+                "symbols": ["AAPL.US"],
+                "start": "2025-01-01",
+                "end": "2025-06-01",
+                "drawdown_threshold_pct": 20.0,
+                "entry_mode": "both",
+                "stages": [[15, 60.0, 50.0], [30, 100.0, 100.0]],
+                "position_pct": 20.0,
+                "cooldown_days": 5,
+            }).encode(),
+            headers={"Content-Type": "application/json"}
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=30)
+            data = json.loads(resp.read())
+        except Exception as e:
+            self.skipTest(f"Server not reachable: {e}")
+            return
+
+        self.assertTrue(data.get("success"), f"leaps-simulate failed: {data.get('message')}")
+        self.assertIn("results", data)
+        self.assertIn("failed_symbols", data)
+        results = data["results"]
+        for symbol, result in results.items():
+            self.assertIn("trade_details", result)
+            self.assertIn("trade_count", result)
+            self.assertIsInstance(result["trade_details"], list)
+            self.assertIsInstance(result["trade_count"], int)
+            for trade in result["trade_details"]:
+                self.assertIn("symbol", trade)
+                self.assertIn("entry_date", trade)
+                self.assertIn("entry_price", trade)
+                self.assertIn("sell_events", trade)
+                self.assertIn("total_roi_pct", trade)
+
+    def test_leaps_simulate_missing_symbols_returns_error(self):
+        """S8: leaps-simulate with no symbols returns 400."""
+        import urllib.request, urllib.error
+        req = urllib.request.Request(
+            "http://127.0.0.1:5000/api/strategy-lab/parameter-lab/leaps-simulate",
+            data=json.dumps({
+                "symbols": [],
+                "start": "2025-01-01",
+                "end": "2025-06-01",
+                "stages": [[15, 60.0, 50.0]],
+            }).encode(),
+            headers={"Content-Type": "application/json"}
+        )
+        try:
+            resp = urllib.request.urlopen(req, timeout=10)
+            data = json.loads(resp.read())
+            self.assertFalse(data.get("success"))
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 400)
+        except Exception as e:
+            self.skipTest(f"Server not reachable: {e}")
+
     def test_equal_slice_grid_rebound_full_worker_lifecycle(self):
         """S6: equal_slice + grid_rebound (user's failing combo) through worker message-passing lifecycle."""
         script = r"""

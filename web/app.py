@@ -10574,6 +10574,136 @@ def api_strategy_lab_parameter_lab_leaps_ga_evolve():
         return _json_error(f"LEAPS GA 进化失败: {exc}", 500)
 
 
+@app.route('/api/strategy-lab/parameter-lab/leaps-simulate', methods=['POST'])
+def api_strategy_lab_parameter_lab_leaps_simulate():
+    """Run a single LEAPS backtest with given preset params."""
+    from datetime import date as date_cls, timedelta
+    from drawdown.position_strategy import (
+        build_longbridge_quote_context,
+        build_price_points_from_series,
+        candle_datetime,
+        fetch_longbridge_daily_candles,
+        normalize_longbridge_symbol,
+    )
+    from drawdown.leaps_option_ga import run_leaps_simulation
+
+    payload = request.get_json(silent=True) or {}
+    started = time.perf_counter()
+    run_id = str(payload.get("run_id") or "").strip()
+
+    try:
+        # Parse symbols
+        raw_symbols = payload.get("symbols")
+        if not isinstance(raw_symbols, list) or not raw_symbols:
+            return _json_error("symbols 必须是字符串数组", 400)
+        symbols = [str(s) for s in raw_symbols]
+
+        # Parse dates
+        start_str = str(payload.get("start") or "")
+        end_str = str(payload.get("end") or "")
+        if not start_str or not end_str:
+            return _json_error("start 和 end 日期必填", 400)
+        start_date = date_cls.fromisoformat(start_str)
+        end_date = date_cls.fromisoformat(end_str)
+
+        # Parse LEAPS params
+        drawdown_threshold_pct = float(payload.get("drawdown_threshold_pct") or 20.0)
+        entry_mode = str(payload.get("entry_mode") or "both")
+        if entry_mode not in ("touch", "bounce", "both"):
+            return _json_error("entry_mode 必须是 touch/bounce/both", 400)
+
+        # Stages
+        raw_stages = payload.get("stages")
+        if isinstance(raw_stages, list) and len(raw_stages) >= 1:
+            stages: list[tuple[int, float, float]] = []
+            for s in raw_stages:
+                if isinstance(s, list) and len(s) == 3:
+                    stages.append((int(s[0]), float(s[1]), float(s[2])))
+            if not stages:
+                return _json_error("stages 格式错误", 400)
+        else:
+            return _json_error("stages 必填，至少一个阶段", 400)
+
+        position_pct = float(payload.get("position_pct") or 20.0)
+        cooldown_days = int(payload.get("cooldown_days") or 5)
+        expiration_days = int(payload.get("expiration_days") or 190)
+        strike_multiplier = float(payload.get("strike_multiplier") or 1.10)
+        risk_free_rate = float(payload.get("risk_free_rate") or 0.05)
+        sigma = float(payload.get("sigma") or 0.40)
+
+        # Filter out option contract codes
+        import re as _re
+        _OCC_RE = _re.compile(r'^[A-Z]+\d{6}[CP]\d{8}(?:\.US)?$')
+        stock_symbols = [s for s in symbols if not _OCC_RE.match(s)]
+        skipped_option_symbols = [s for s in symbols if _OCC_RE.match(s)]
+
+        # Fetch price data
+        quote_ctx = build_longbridge_quote_context()
+        warmup = timedelta(days=365)
+        fetch_start = start_date - warmup
+        price_series_by_symbol: dict[str, list[tuple[date_cls, float]]] = {}
+        failed_symbols: list[str] = list(skipped_option_symbols)
+
+        for symbol in stock_symbols:
+            try:
+                lb_symbol = normalize_longbridge_symbol(symbol)
+                candles = fetch_longbridge_daily_candles(quote_ctx, lb_symbol, fetch_start, end_date)
+            except Exception as _exc:
+                _parameter_lab_warn("leaps_simulate_symbol_fetch_error", symbol=symbol, error=str(_exc))
+                failed_symbols.append(symbol)
+                continue
+            if not candles:
+                failed_symbols.append(symbol)
+                continue
+            series = [(candle_datetime(c).replace(tzinfo=None), float(c.close)) for c in candles]
+            pts = build_price_points_from_series(series)
+            price_series_by_symbol[symbol] = [
+                (p.date.date() if hasattr(p.date, 'date') else p.date, p.close)
+                for p in pts
+            ]
+
+        if not price_series_by_symbol:
+            return _json_error("所有标的都无数据", 400)
+
+        # Run simulation per symbol
+        results: dict[str, object] = {}
+        for symbol, prices in price_series_by_symbol.items():
+            trades = run_leaps_simulation(
+                prices=prices,
+                drawdown_threshold_pct=drawdown_threshold_pct,
+                entry_mode=entry_mode,
+                stages=stages,
+                position_pct=position_pct,
+                cooldown_days=cooldown_days,
+                expiration_days=expiration_days,
+                strike_multiplier=strike_multiplier,
+                risk_free_rate=risk_free_rate,
+                sigma=sigma,
+                min_entry_date=start_date,
+                symbol=symbol,
+            )
+            results[symbol] = {
+                "trade_details": trades,
+                "trade_count": len(trades),
+            }
+
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
+
+        return _json_response_with_optional_gzip({
+            "success": True,
+            "run_id": run_id,
+            "results": results,
+            "failed_symbols": failed_symbols,
+            "elapsed_ms": elapsed_ms,
+        })
+
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
+    except Exception as exc:
+        _parameter_lab_error("leaps_simulate_error", message=str(exc), stack=traceback.format_exc())
+        return _json_error(f"LEAPS 模拟失败: {exc}", 500)
+
+
 @app.route('/api/strategy-lab/jobs/<job_id>', methods=['GET'])
 def api_strategy_lab_job_status(job_id: str):
     _cleanup_strategy_lab_jobs()
