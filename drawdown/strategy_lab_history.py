@@ -156,7 +156,7 @@ def list_experiment_presets(limit: int = 50) -> list[dict[str, object]]:
         preset = _read_snapshot(path)
         if not preset:
             continue
-        presets.append(_public_preset(preset, include_config=False))
+        presets.append(_public_preset(preset, include_config=True))
     return presets
 
 
