@@ -489,16 +489,25 @@ def compute_sell_ladder(
 
         current_date += timedelta(days=1)
 
-    # If we exhausted prices without selling, mark as expired at hard_cutoff
+    # If we exhausted prices without selling, mark as expired at hard_cutoff.
+    # Use the last available price if hard_cutoff is past all price data.
     expired = remaining_pct > 0
     if expired:
-        cutoff_price = price_by_date.get(hard_cutoff, entry.price)
+        # Find price at or nearest before hard_cutoff (like JS engine)
+        cutoff_price = entry.price
+        cutoff_date = hard_cutoff
+        for d, p in prices:
+            if d <= hard_cutoff:
+                cutoff_price = p
+                cutoff_date = d
+            else:
+                break
         roi = proxy_option_roi(
-            entry.price, cutoff_price, entry.date, hard_cutoff,
+            entry.price, cutoff_price, entry.date, cutoff_date,
             expiration, strike_price, risk_free_rate, sigma,
         )
         sell_events.append(LeapsSellEvent(
-            date=hard_cutoff, price=cutoff_price,
+            date=cutoff_date, price=cutoff_price,
             pct_sold=remaining_pct, roi_pct=round(roi, 2),
         ))
 

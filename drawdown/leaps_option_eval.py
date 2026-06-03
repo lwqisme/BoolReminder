@@ -48,7 +48,12 @@ def _eval_trades(
             min_entry_date=min_entry_date,
         )
         stages = individual.to_stages()
+        # Filter entries that can't reach minimum hold days before data ends
+        max_price_date = max(d for d, _ in prices)
+        min_hold_days = min(s[0] for s in stages) if stages else 0
         for entry in entries:
+            if entry.date + timedelta(days=min_hold_days) > max_price_date:
+                continue
             trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
                                          strike_price=entry.price * 1.10)
             all_trades.append(trade)

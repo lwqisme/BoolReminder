@@ -413,7 +413,12 @@ function _leapsEvalTrades(individual, priceSeriesBySymbol, minEntryDate = null) 
   for (const [symbol, prices] of Object.entries(priceSeriesBySymbol)) {
     const entries = detectLeapsEntries(prices, individual.drawdown_threshold_pct, individual.entry_mode, minEntryDate);
     const stages = individual.toStages();
+    // Filter entries that can't reach minimum hold days before data ends
+    const maxPriceDate = new Date(Math.max(...prices.map(p => p[0])));
+    const minHoldDays = stages.length ? Math.min(...stages.map(s => s[0])) : 0;
     for (const entry of entries) {
+      const minHoldDate = new Date(new Date(entry.date).getTime() + minHoldDays * 86400000);
+      if (minHoldDate > maxPriceDate) continue;
       const trade = computeSellLadder(entry, prices, stages, 190, entry.price * 1.1);
       trade.symbol = symbol;
       trades.push(trade);
