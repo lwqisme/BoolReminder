@@ -250,6 +250,8 @@ def detect_leaps_entries(
     prices: list[tuple[date, float]],
     drawdown_threshold_pct: float = 20.0,
     entry_mode: str = "both",
+    *,
+    min_entry_date: date | None = None,
 ) -> list[LeapsEntrySignal]:
     """Detect LEAPS call entry signals from price data.
 
@@ -331,6 +333,9 @@ def detect_leaps_entries(
             bollinger_score=round(bollinger_score, 4),
             composite_score=round(composite, 4),
         ))
+
+    if min_entry_date is not None:
+        entries = [e for e in entries if e.date >= min_entry_date]
 
     return entries
 

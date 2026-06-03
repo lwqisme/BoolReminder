@@ -100,7 +100,7 @@ function bollingerLowerBand(prices, period = 22, stdMult = 2.0) {
 
 // ── Entry detection ───────────────────────────────────────────────────────
 
-function detectLeapsEntries(prices, drawdownThresholdPct = 20, entryMode = 'both') {
+function detectLeapsEntries(prices, drawdownThresholdPct = 20, entryMode = 'both', minEntryDate = null) {
   if (prices.length < 122) return [];
 
   const highs = rolling120dHigh(prices);
@@ -109,6 +109,7 @@ function detectLeapsEntries(prices, drawdownThresholdPct = 20, entryMode = 'both
 
   for (let i = 121; i < prices.length; i++) {
     const [ts, p, d] = prices[i];
+    if (minEntryDate && d < minEntryDate) continue;
     const high = highs[i][1];
     const { ma, band } = bbData[i];
     if (high == null || ma == null || band == null || high <= 0 || ma <= 0) continue;
@@ -410,10 +411,9 @@ function _leapsEvalTrades(individual, priceSeriesBySymbol, minEntryDate = null) 
   const trades = [];
 
   for (const [symbol, prices] of Object.entries(priceSeriesBySymbol)) {
-    const entries = detectLeapsEntries(prices, individual.drawdown_threshold_pct, individual.entry_mode);
+    const entries = detectLeapsEntries(prices, individual.drawdown_threshold_pct, individual.entry_mode, minEntryDate);
     const stages = individual.toStages();
     for (const entry of entries) {
-      if (minEntryDate && entry.date < minEntryDate) continue;
       const trade = computeSellLadder(entry, prices, stages, 190, entry.price * 1.1);
       trade.symbol = symbol;
       trades.push(trade);
@@ -578,13 +578,13 @@ function leapsFitnessFn(individual, priceSeriesBySymbol, capitalMode, totalCapit
   return result.final_equity / cap;
 }
 
-function leapsTotalRoi(individual, priceSeriesBySymbol, capitalMode, totalCapital, minEntryDate = null) {
+function leapsTotalRoi(individual, priceSeriesBySymbol, capitalMode, totalCapital) {
   const mode = capitalMode || DEFAULTS.capitalMode;
   const cap = totalCapital || DEFAULTS.totalCapital;
   if (mode === 'unlimited') {
-    return _leapsEvalUnlimited(individual, priceSeriesBySymbol, minEntryDate).total_return_pct;
+    return _leapsEvalUnlimited(individual, priceSeriesBySymbol).total_return_pct;
   }
-  return _leapsEvalFixedCapital(individual, priceSeriesBySymbol, cap, minEntryDate).total_return_pct;
+  return _leapsEvalFixedCapital(individual, priceSeriesBySymbol, cap).total_return_pct;
 }
 
 // ── Evolution ─────────────────────────────────────────────────────────────

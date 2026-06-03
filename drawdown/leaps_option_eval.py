@@ -45,11 +45,10 @@ def _eval_trades(
     for symbol, prices in price_series_by_symbol.items():
         entries = detect_leaps_entries(
             prices, individual.drawdown_threshold_pct, individual.entry_mode,
+            min_entry_date=min_entry_date,
         )
         stages = individual.to_stages()
         for entry in entries:
-            if min_entry_date is not None and entry.date < min_entry_date:
-                continue
             trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
                                          strike_price=entry.price * 1.10)
             all_trades.append(trade)
@@ -242,13 +241,11 @@ def leaps_total_roi(
     price_series_by_symbol: dict[str, list[tuple[date, float]]],
     capital_mode: str = "fixed",
     total_capital: float = 10000.0,
-    *,
-    min_entry_date: date | None = None,
 ) -> float:
     """Total return percentage for display."""
     if capital_mode == "unlimited":
-        return float(_eval_unlimited_capital(individual, price_series_by_symbol, min_entry_date=min_entry_date)["total_return_pct"])
-    return float(_eval_fixed_capital(individual, price_series_by_symbol, total_capital, min_entry_date=min_entry_date)["total_return_pct"])
+        return float(_eval_unlimited_capital(individual, price_series_by_symbol)["total_return_pct"])
+    return float(_eval_fixed_capital(individual, price_series_by_symbol, total_capital)["total_return_pct"])
 
 
 def _precompute_bollinger(
@@ -275,17 +272,15 @@ def _collect_trade_details(
     capital_mode: str = "fixed",
     total_capital: float = 10000.0,
     eval_cache: dict[str, object] | None = None,
-    *,
-    min_entry_date: date | None = None,
 ) -> list[dict[str, object]]:
     """Collect all trades for an individual across all symbols."""
     if capital_mode == "fixed" and eval_cache is not None and _EVAL_RESULT_KEY in eval_cache:
         trades_list = eval_cache[_EVAL_RESULT_KEY].get("executed_trades", [])
     elif capital_mode == "fixed":
-        result = _eval_fixed_capital(individual, price_series_by_symbol, total_capital, min_entry_date=min_entry_date)
+        result = _eval_fixed_capital(individual, price_series_by_symbol, total_capital)
         trades_list = result.get("executed_trades", [])
     else:
-        trades_list = _eval_trades(individual, price_series_by_symbol, min_entry_date=min_entry_date)
+        trades_list = _eval_trades(individual, price_series_by_symbol)
 
     output: list[dict[str, object]] = []
     for symbol, prices in price_series_by_symbol.items():
@@ -438,7 +433,7 @@ def evolve_leaps_parameters(
                     "total_opt_revenue": eval_result.get("total_opt_revenue", 0.0),
                 }
 
-        total_roi = leaps_total_roi(ind, price_series_by_symbol, capital_mode, total_capital, min_entry_date=min_entry_date)
+        total_roi = leaps_total_roi(ind, price_series_by_symbol, capital_mode, total_capital)
         row: dict[str, object] = {
             "rank": rank,
             "key": ind.key,
@@ -463,7 +458,6 @@ def evolve_leaps_parameters(
             row["trade_details"] = _collect_trade_details(
                 ind, price_series_by_symbol, bollinger_cache,
                 capital_mode, total_capital, cache_for_collect,
-                min_entry_date=min_entry_date,
             )
         final_rows.append(row)
 

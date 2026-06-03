@@ -1882,10 +1882,9 @@ function collectLeapsTradeDetails(individual, parsedPriceData, opts) {
   } else {
     tradeList = [];
     for (const [symbol, prices] of Object.entries(parsedPriceData)) {
-      const entries = leapsGaEngine.detectLeapsEntries(prices, individual.drawdown_threshold_pct, individual.entry_mode);
+      const entries = leapsGaEngine.detectLeapsEntries(prices, individual.drawdown_threshold_pct, individual.entry_mode, minEntryDate || null);
       const stages = individual.toStages();
       for (const entry of entries) {
-        if (minEntryDate && entry.date < minEntryDate) continue;
         const trade = leapsGaEngine.computeSellLadder(entry, prices, stages, 190, entry.price * 1.1);
         trade.symbol = symbol;
         tradeList.push(trade);
