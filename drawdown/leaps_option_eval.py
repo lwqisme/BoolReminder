@@ -337,6 +337,35 @@ def _collect_trade_details(
     return output
 
 
+def _detect_filtered_entries(
+    price_series_by_symbol: dict[str, list[tuple[date, float]]],
+    individual: LeapsIndividual,
+    min_entry_date: date | None = None,
+) -> list[dict[str, object]]:
+    """Find entries that were detected but filtered because data was too short."""
+    filtered: list[dict[str, object]] = []
+    min_hold_days = min(s[0] for s in individual.to_stages()) if individual.to_stages() else 0
+
+    for symbol, prices in price_series_by_symbol.items():
+        entries = detect_leaps_entries(
+            prices, individual.drawdown_threshold_pct, individual.entry_mode,
+            min_entry_date=min_entry_date,
+        )
+        max_price_date = max(d for d, _ in prices)
+        for e in entries:
+            if e.date + timedelta(days=min_hold_days) > max_price_date:
+                filtered.append({
+                    "symbol": symbol,
+                    "date": e.date.isoformat(),
+                    "price": round(e.price, 2),
+                    "drawdown_pct": round(e.drawdown_pct, 1),
+                    "days_to_end": (max_price_date - e.date).days,
+                    "min_hold_days": min_hold_days,
+                    "reason": f"数据不足：距末尾{max_price_date}仅{(max_price_date - e.date).days}天，需≥{min_hold_days}天",
+                })
+    return filtered
+
+
 def evolve_leaps_parameters(
     price_series_by_symbol: dict[str, list[tuple[date, float]]],
     config: LeapsEvolutionConfig | None = None,
@@ -486,4 +515,7 @@ def evolve_leaps_parameters(
         "best": final_rows[0] if final_rows else None,
         "final_population": final_rows,
         "total_evaluated": len(all_evaluated),
+        "filtered_entries": _detect_filtered_entries(
+            price_series_by_symbol, best_individual, min_entry_date,
+        ),
     }

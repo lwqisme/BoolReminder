@@ -1865,9 +1865,36 @@ async function handleLeapsGa(message) {
     finalPop.push(row);
   }
 
+  // Compute filtered entries for the best individual
+  var filteredEntries = [];
+  if (bestIndividual) {
+    var bestStages = bestIndividual.toStages();
+    var minHold = bestStages.length ? Math.min.apply(null, bestStages.map(function(s) { return s[0]; })) : 0;
+    for (var sym in parsedPriceData) {
+      var prices = parsedPriceData[sym];
+      var maxDate = new Date(Math.max.apply(null, prices.map(function(p) { return p[0]; })));
+      var entries = leapsGaEngine.detectLeapsEntries(prices, bestIndividual.drawdown_threshold_pct, bestIndividual.entry_mode, minEntryDate || null);
+      for (var ei = 0; ei < entries.length; ei++) {
+        var e = entries[ei];
+        var minHoldDate = new Date(new Date(e.date).getTime() + minHold * 86400000);
+        if (minHoldDate > maxDate) {
+          filteredEntries.push({
+            symbol: sym,
+            date: e.date,
+            price: Math.round(e.price * 100) / 100,
+            drawdown_pct: Math.round(e.drawdown_pct * 10) / 10,
+            days_to_end: Math.round((maxDate.getTime() - new Date(e.date).getTime()) / 86400000),
+            min_hold_days: minHold,
+            reason: '数据不足：距末尾仅' + Math.round((maxDate.getTime() - new Date(e.date).getTime()) / 86400000) + '天，需≥' + minHold + '天',
+          });
+        }
+      }
+    }
+  }
+
   postMessage({
     type: 'leaps_ga_done', run_id,
-    result: { snapshots, best: finalPop[0] || null, final_population: finalPop, total_evaluated: allEvaluated.size,
+    result: { snapshots, best: finalPop[0] || null, final_population: finalPop, total_evaluated: allEvaluated.size, filtered_entries: filteredEntries,
       config: { population_size: popSize, generations, mutation_rate: mutationRate, crossover_rate: crossoverRate, elitism_count: elitismCount, tournament_size: tournamentSize, seed, capital_mode: capitalMode, total_capital: totalCapital } },
   });
 }
@@ -1884,7 +1911,12 @@ function collectLeapsTradeDetails(individual, parsedPriceData, opts) {
     for (const [symbol, prices] of Object.entries(parsedPriceData)) {
       const entries = leapsGaEngine.detectLeapsEntries(prices, individual.drawdown_threshold_pct, individual.entry_mode, minEntryDate || null);
       const stages = individual.toStages();
+      // Filter entries that can't reach minimum hold days before data ends
+      const maxPriceDate = new Date(Math.max(...prices.map(p => p[0])));
+      const minHoldDays = stages.length ? Math.min(...stages.map(s => s[0])) : 0;
       for (const entry of entries) {
+        const minHoldDate = new Date(new Date(entry.date).getTime() + minHoldDays * 86400000);
+        if (minHoldDate > maxPriceDate) continue;
         const trade = leapsGaEngine.computeSellLadder(entry, prices, stages, 190, entry.price * 1.1);
         trade.symbol = symbol;
         tradeList.push(trade);
@@ -1912,7 +1944,7 @@ function collectLeapsTradeDetails(individual, parsedPriceData, opts) {
           ps.push(pt);
         }
       }
-      trades.push({ symbol, entry_date: entry.date, entry_price: entry.price, drawdown_pct: entry.drawdown_pct, bollinger_score: entry.bollinger_score, composite_score: entry.composite_score, sell_events: trade.sell_events, expired: trade.expired, total_roi_pct: trade.total_roi_pct, price_series: ps });
+      trades.push({ symbol, entry_date: entry.date, entry_price: entry.price, drawdown_pct: entry.drawdown_pct, bollinger_score: entry.bollinger_score, composite_score: entry.composite_score, sell_events: trade.sell_events, expired: trade.expired, total_roi_pct: trade.total_roi_pct, open_pct: trade.open_pct || 0, unrealized_roi_pct: trade.unrealized_roi_pct || 0, price_series: ps });
     }
   }
   return trades;
