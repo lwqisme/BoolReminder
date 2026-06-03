@@ -65,6 +65,7 @@ from drawdown.strategy_lab_history import (
     list_run_snapshots,
     load_experiment_preset,
     load_run_snapshot,
+    rename_experiment_preset,
     save_experiment_preset,
     save_run_snapshot,
 )
@@ -10827,6 +10828,22 @@ def api_strategy_lab_presets():
 @app.route('/api/strategy-lab/presets/<preset_id>', methods=['GET'])
 def api_strategy_lab_preset(preset_id: str):
     preset = load_experiment_preset(preset_id)
+    if not preset:
+        return _json_error("参数预设不存在", 404)
+    return jsonify({"success": True, "preset": preset})
+
+
+@app.route('/api/strategy-lab/presets/<preset_id>', methods=['PATCH'])
+def api_strategy_lab_rename_preset(preset_id: str):
+    from drawdown.strategy_lab_history import rename_experiment_preset
+    payload = request.get_json(silent=True) or {}
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        return _json_error("name 不能为空", 400)
+    try:
+        preset = rename_experiment_preset(preset_id, name)
+    except ValueError as exc:
+        return _json_error(str(exc), 400)
     if not preset:
         return _json_error("参数预设不存在", 404)
     return jsonify({"success": True, "preset": preset})

@@ -123,6 +123,27 @@ def save_experiment_preset(name: str, payload: Mapping[str, object]) -> dict[str
     return _public_preset(preset, include_config=False)
 
 
+def rename_experiment_preset(preset_id: str, name: str) -> dict[str, object] | None:
+    """Rename an existing preset. Returns updated public preset or None."""
+    cleaned_name = str(name or "").strip()
+    if not cleaned_name:
+        raise ValueError("预设名称不能为空")
+    if len(cleaned_name) > 80:
+        raise ValueError("预设名称不能超过 80 个字符")
+    if not PRESET_ID_PATTERN.match(preset_id):
+        return None
+    path = presets_dir() / f"{preset_id}.json"
+    if not path.exists():
+        return None
+    preset = _read_snapshot(path)
+    if not preset:
+        return None
+    preset["name"] = cleaned_name
+    preset["updated_at"] = datetime.now(timezone.utc).isoformat()
+    path.write_text(json.dumps(preset, ensure_ascii=False, indent=2), encoding="utf-8")
+    return _public_preset(preset, include_config=False)
+
+
 def list_experiment_presets(limit: int = 50) -> list[dict[str, object]]:
     directory = presets_dir()
     if not directory.exists():
