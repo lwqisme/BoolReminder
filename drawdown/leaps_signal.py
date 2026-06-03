@@ -337,18 +337,41 @@ def detect_sell_signals(
     current_date: date,
     stages: list[tuple[int, float, float]],
 ) -> list[SellSignal]:
-    """Detect sell signals for open LEAPS positions.
+    """Detect sell signals for open LEAPS positions (delegates to unified engine).
 
-    Args:
-        positions: Currently open LEAPS positions.
-        current_stock_price: Latest underlying stock price.
-        current_date: Date to check (today).
-        stages: List of (min_hold_days, profit_pct_threshold, sell_fraction_pct).
-
-    Returns:
-        SellSignal list for positions meeting stage conditions.
+    Legacy API kept for test backward compatibility.
     """
-    return _compute_leaps_sell_signals_stub(positions, current_stock_price, current_date, stages)
+    from drawdown.leaps_option_ga import proxy_option_roi
+
+    signals: list[SellSignal] = []
+    for pos in positions:
+        if pos.option_type != "call":
+            continue
+        hold_days = (current_date - pos.entry_date).days
+        roi = proxy_option_roi(
+            entry_price=pos.entry_stock_price or current_stock_price,
+            exit_price=current_stock_price,
+            entry_date=pos.entry_date,
+            exit_date=current_date,
+            expiration=pos.expiration,
+            strike_price=pos.strike,
+        )
+        for stage_idx, (min_hold, profit_threshold, sell_fraction) in enumerate(stages):
+            if hold_days < min_hold:
+                continue
+            if roi < profit_threshold:
+                continue
+            signals.append(SellSignal(
+                contract_code=pos.contract_code,
+                date=current_date.isoformat(),
+                stock_price=current_stock_price,
+                option_roi_pct=round(roi, 2),
+                pct_to_sell=sell_fraction,
+                stage=stage_idx + 1,
+                reason=f"S{stage_idx+1} 持有{hold_days}天 ROA{roi:.0f}%≥{profit_threshold:.0f}% 建议卖{sell_fraction:.0f}%",
+            ))
+            break
+    return signals
 
 
 def compute_leaps_sell_signals(
@@ -435,52 +458,6 @@ def compute_leaps_sell_signals(
             stage=stage_num,
             reason=reason,
         ))
-
-    return signals
-
-
-def _compute_leaps_sell_signals_stub(
-    positions: list[OpenPosition],
-    current_stock_price: float,
-    current_date: date,
-    stages: list[tuple[int, float, float]],
-) -> list[SellSignal]:
-    """Temporary stub: old single-day logic."""
-    from drawdown.leaps_option_ga import proxy_option_roi
-
-    signals: list[SellSignal] = []
-
-    for pos in positions:
-        if pos.option_type != "call":
-            continue  # Only calls for now
-
-        hold_days = (current_date - pos.entry_date).days
-
-        roi = proxy_option_roi(
-            entry_price=pos.entry_stock_price or current_stock_price,
-            exit_price=current_stock_price,
-            entry_date=pos.entry_date,
-            exit_date=current_date,
-            expiration=pos.expiration,
-            strike_price=pos.strike,
-        )
-
-        for stage_idx, (min_hold, profit_threshold, sell_fraction) in enumerate(stages):
-            if hold_days < min_hold:
-                continue
-            if roi < profit_threshold:
-                continue
-            # Stage triggered
-            signals.append(SellSignal(
-                contract_code=pos.contract_code,
-                date=current_date.isoformat(),
-                stock_price=current_stock_price,
-                option_roi_pct=round(roi, 2),
-                pct_to_sell=sell_fraction,
-                stage=stage_idx + 1,
-                reason=f"S{stage_idx+1} 持有{hold_days}天 ROA{roi:.0f}%≥{profit_threshold:.0f}% 建议卖{sell_fraction:.0f}%",
-            ))
-            break  # Only first triggered stage per position
 
     return signals
 
