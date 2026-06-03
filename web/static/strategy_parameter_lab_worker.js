@@ -1870,8 +1870,8 @@ async function handleLeapsGa(message) {
   if (bestIndividual) {
     var bestStages = bestIndividual.toStages();
     var minHold = bestStages.length ? Math.min.apply(null, bestStages.map(function(s) { return s[0]; })) : 0;
-    for (var sym in parsedPriceData) {
-      var prices = parsedPriceData[sym];
+    for (var sym in parsed) {
+      var prices = parsed[sym];
       var maxDate = new Date(Math.max.apply(null, prices.map(function(p) { return p[0]; })));
       var entries = leapsGaEngine.detectLeapsEntries(prices, bestIndividual.drawdown_threshold_pct, bestIndividual.entry_mode, minEntryDate || null);
       for (var ei = 0; ei < entries.length; ei++) {
