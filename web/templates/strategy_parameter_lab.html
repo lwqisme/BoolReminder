@@ -9166,13 +9166,17 @@
                 div.innerHTML = '<div style="padding:12px;color:var(--muted);font-size:12px;">暂无 LEAPS 预设。从 GA 进化结果保存预设。</div>';
                 return;
             }
+            // Universe checkboxes from SYNCD_SYMBOLS (same source as LEAPS GA grid)
+            var allSymbols = (typeof SYNCD_SYMBOLS !== 'undefined' && SYNCD_SYMBOLS && SYNCD_SYMBOLS.length) ? [...SYNCD_SYMBOLS].sort() : [];
+            var occRe = /^[A-Z]+\d{6}[CP]\d{8}(\.US)?$/;
+            var symbols = allSymbols.filter(function(s) { return !occRe.test(s); });
             var universeDiv = '';
-            var uv = window._leapsGaUniverse || [];
-            if (uv.length) {
-                universeDiv = '<div style="margin-bottom:12px;font-size:12px;color:var(--muted);">从当前 universe 快速选标的：' +
-                    uv.map(function(s) {
-                        return '<label style="display:inline-flex;align-items:center;gap:4px;margin-right:8px;cursor:pointer;"><input type="checkbox" class="leapsPresetSymbolCb" value="' + escapeHtml(s) + '">' + escapeHtml(s) + '</label>';
-                    }).join('') + '</div>';
+            if (symbols.length) {
+                universeDiv = '<div style="margin-bottom:12px;"><span style="font-size:12px;color:var(--muted);">默认标的（多选）：</span>' +
+                    '<div class="check-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));max-height:150px;overflow-y:auto;margin-top:4px;">' +
+                    symbols.map(function(s) {
+                        return '<label><input type="checkbox" class="leapsPresetSymbolCb" value="' + escapeHtml(s) + '">' + escapeHtml(s) + '</label>';
+                    }).join('') + '</div></div>';
             }
 
             var html = universeDiv +
