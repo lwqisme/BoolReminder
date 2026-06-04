@@ -9440,7 +9440,7 @@
             Plotly.newPlot(plotDiv, traces, {
                 margin: { l: 50, r: 20, t: 10, b: 30 },
                 legend: { x: 0, y: 1.15, orientation: 'h', font: { size: 10 } },
-                xaxis: { title: '' }, yaxis: { title: '价格' },
+                xaxis: { title: '', rangebreaks: [{pattern: 'day of week', bounds: [6, 1]}] }, yaxis: { title: '价格' },
                 paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
                 hovermode: 'closest',
             }, { responsive: true, displayModeBar: false });
@@ -9631,7 +9631,7 @@
             Plotly.newPlot(plotDiv, allTraces, {
                 margin: { l: 50, r: 20, t: 10, b: 30 },
                 legend: { x: 0, y: 1.15, orientation: 'h', font: { size: 10 } },
-                xaxis: { title: '' }, yaxis: { title: '价格' },
+                xaxis: { title: '', rangebreaks: [{pattern: 'day of week', bounds: [6, 1]}] }, yaxis: { title: '价格' },
                 paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
                 hovermode: 'closest',
             }, { responsive: true, displayModeBar: false });
