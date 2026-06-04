@@ -408,14 +408,17 @@ def compute_sell_ladder(
 
     while current_date <= end_date:
         if current_date > hard_cutoff:
-            # Force-sell remaining at cutoff date
-            exit_price = price_by_date.get(current_date, entry.price)
+            # Force-sell remaining at or after cutoff date.
+            # Walk back to find last available trading day (avoid weekends/holidays).
+            available_dates = sorted(d for d in price_by_date if d <= current_date)
+            actual_date = available_dates[-1] if available_dates else current_date
+            exit_price = price_by_date.get(actual_date, entry.price)
             roi = proxy_option_roi(
-                entry.price, exit_price, entry.date, current_date,
+                entry.price, exit_price, entry.date, actual_date,
                 expiration, strike_price, risk_free_rate, sigma,
             )
             sell_events.append(LeapsSellEvent(
-                date=current_date, price=exit_price,
+                date=actual_date, price=exit_price,
                 pct_sold=remaining_pct, roi_pct=round(roi, 2),
             ))
             remaining_pct = 0.0

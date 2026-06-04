@@ -601,6 +601,48 @@ class LeapsSellLadderAllowOpenTest(unittest.TestCase):
                          'allow_open=False: force-sells remaining')
         self.assertAlmostEqual(trade.sell_events[0].pct_sold, 100.0)
 
+    def test_force_sell_uses_last_available_price_when_cutoff_no_data(self):
+        """Hard cutoff on date with no price → use last available price, not entry.price."""
+        # Entry at 100, prices rise gradually, then data ends with a gap
+        # Hard cutoff should fall in the gap but last price before gap is ~150
+        start = date(2025, 1, 1)  # Wednesday
+        # Entry at day 122 = May 3 (Saturday) - use a weekday entry
+        # Actually let's construct explicit dates with a gap
+        prices = []
+        d = date(2024, 6, 3)  # Monday
+        # 130 days of flat prices (warmup for entry detection)
+        for i in range(130):
+            prices.append((d + timedelta(days=i), 100.0))
+        # Entry signal date (set manually, not via detect)
+        entry_date = d + timedelta(days=130)  # About Oct 11, 2024 (Friday)
+        # Continue prices: steady rise then a gap at hard cutoff
+        # Hard cutoff = entry + 190 - 60 = entry + 130 days ≈ Feb 18, 2025
+        gap_date = entry_date + timedelta(days=130)
+        prices.append((entry_date, 100.0))
+        prev_date = entry_date
+        for i in range(1, 200):
+            curr = entry_date + timedelta(days=i)
+            if curr == gap_date:
+                continue  # Skip this date - simulate weekend/holiday
+            prices.append((curr, 100.0 + i * 0.5))
+            prev_date = curr
+        # Last price before gap ≈ 100 + 129*0.5 = 164.5
+
+        entry = LeapsEntrySignal(
+            date=entry_date, price=100.0,
+            drawdown_pct=20.0, bollinger_score=1.2, composite_score=0.6,
+        )
+        stages = [(20, 999.0, 100.0)]  # impossible profit → force sell at cutoff
+        trade = compute_sell_ladder(entry, prices, stages, expiration_days=190,
+                                     strike_price=110.0)
+        self.assertEqual(len(trade.sell_events), 1)
+        # Should NOT use entry.price (100.0) as fallback
+        self.assertGreater(trade.sell_events[0].price, 120.0,
+            f'Sell price {trade.sell_events[0].price} should use last available price, not entry.price')
+        # ROI should reflect actual price change, not fake -64% from same-price BS calc
+        self.assertGreater(trade.total_roi_pct, -50.0,
+            f'ROI {trade.total_roi_pct}% should not be artificial -64% from entry.price fallback')
+
 
 class RunLeapsSimulationTest(unittest.TestCase):
     """run_leaps_simulation: single-shot backtest for LEAPS preset sim."""
