@@ -9160,12 +9160,31 @@
         }
 
         // ── LEAPS preset panel ────────────────────────────────────
+        var LEAPS_PRESET_DATES_KEY = 'leaps_preset_dates';
+        function _getLeapsPresetDates() {
+            var today = new Date().toISOString().slice(0, 10);
+            var oneYearAgo = new Date(Date.now() - 365*86400000).toISOString().slice(0, 10);
+            var defaults = { start: oneYearAgo, end: today };
+            try {
+                var saved = JSON.parse(localStorage.getItem(LEAPS_PRESET_DATES_KEY) || '{}');
+                if (saved.start) defaults.start = saved.start;
+                if (saved.end) defaults.end = saved.end;
+            } catch(e) {}
+            return defaults;
+        }
+        function _saveLeapsPresetDates(start, end) {
+            try {
+                localStorage.setItem(LEAPS_PRESET_DATES_KEY, JSON.stringify({ start: start, end: end }));
+            } catch(e) {}
+        }
+
         function renderPresetLeapsList() {
             var div = document.getElementById('presetLeapsList');
             if (presetLeapsCache.length === 0) {
                 div.innerHTML = '<div style="padding:12px;color:var(--muted);font-size:12px;">暂无 LEAPS 预设。从 GA 进化结果保存预设。</div>';
                 return;
             }
+            var presetDates = _getLeapsPresetDates();
             // Universe checkboxes from SYNCD_SYMBOLS (same source as LEAPS GA grid)
             var allSymbols = (typeof SYNCD_SYMBOLS !== 'undefined' && SYNCD_SYMBOLS && SYNCD_SYMBOLS.length) ? [...SYNCD_SYMBOLS].sort() : [];
             var occRe = /^[A-Z]+\d{6}[CP]\d{8}(\.US)?$/;
@@ -9182,8 +9201,8 @@
             var html = universeDiv +
                 '<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:end;">' +
                 '<label style="font-size:12px;">手动输入标的<input id="leapsPresetSymbols" type="text" placeholder="AAPL.US, MSFT.US" style="width:200px;"></label>' +
-                '<label style="font-size:12px;">开始<input id="leapsPresetStart" type="date" value="2024-01-01"></label>' +
-                '<label style="font-size:12px;">结束<input id="leapsPresetEnd" type="date" value="2025-06-01"></label>' +
+                '<label style="font-size:12px;">开始<input id="leapsPresetStart" type="date" value="' + presetDates.start + '"></label>' +
+                '<label style="font-size:12px;">结束<input id="leapsPresetEnd" type="date" value="' + presetDates.end + '"></label>' +
                 '<button id="leapsPresetRunBtn" class="primary" style="font-size:12px;" onclick="runLeapsPresetSim()" disabled>▶ 模拟</button>' +
                 '</div>' +
                 '<details style="margin-bottom:10px;"><summary style="font-size:12px;cursor:pointer;color:var(--blue);">BS 期权参数（可改）</summary>' +
@@ -9215,6 +9234,13 @@
             }
             html += '</tbody></table>';
             div.innerHTML = html;
+            // Persist date changes
+            var startEl = document.getElementById('leapsPresetStart');
+            var endEl = document.getElementById('leapsPresetEnd');
+            if (startEl && endEl) {
+                startEl.addEventListener('change', function() { _saveLeapsPresetDates(startEl.value, endEl.value); });
+                endEl.addEventListener('change', function() { _saveLeapsPresetDates(startEl.value, endEl.value); });
+            }
         }
 
         var selectedLeapsPresetIndex = -1;
@@ -9360,6 +9386,7 @@
             var traces = [];
             var entryX = [], entryY = [], entryText = [];
             var sellX = [], sellY = [], sellText = [], sellSizes = [];
+            var openX = [], openY = [], openText = [];
             var detailHtml = '';
 
             // Build price series from trades' price_series
@@ -9404,11 +9431,19 @@
             // Entry/sell markers
             for (var t = 0; t < trades.length; t++) {
                 var tr = trades[t];
-                entryX.push(tr.entry_date);
-                entryY.push(tr.entry_price);
-                entryText.push(tr.entry_date + '<br>' + tr.symbol + ' 买入<br>回撤: ' + (tr.drawdown_pct || 0).toFixed(1) + '%<br>价格: ' + Number(tr.entry_price).toFixed(2));
-
+                var isOpen = (tr.open_pct || 0) > 0;
                 var ses = tr.sell_events || [];
+
+                if (isOpen) {
+                    openX.push(tr.entry_date);
+                    openY.push(tr.entry_price);
+                    openText.push(tr.entry_date + '<br>' + tr.symbol + ' 买入<br>回撤: ' + (tr.drawdown_pct || 0).toFixed(1) + '%<br>价格: ' + Number(tr.entry_price).toFixed(2) + '<br>🔵 持仓中' + (ses.length ? ' (已卖' + ses.reduce(function(s,se){return s+(se.pct_sold||0);},0).toFixed(0) + '%)' : ''));
+                } else {
+                    entryX.push(tr.entry_date);
+                    entryY.push(tr.entry_price);
+                    entryText.push(tr.entry_date + '<br>' + tr.symbol + ' 买入<br>回撤: ' + (tr.drawdown_pct || 0).toFixed(1) + '%<br>价格: ' + Number(tr.entry_price).toFixed(2));
+                }
+
                 for (var s = 0; s < ses.length; s++) {
                     var se = ses[s];
                     sellX.push(se.date); sellY.push(se.price);
@@ -9423,19 +9458,37 @@
                     detailHtml += ' <span style="color:var(--red);">●</span> ' + se2.date +
                         ' 卖' + se2.pct_sold + '% ROI' + (se2.roi_pct > 0 ? '+' : '') + Math.round(se2.roi_pct) + '%';
                 }
-                detailHtml += ' | 总ROI: ' + (tr.total_roi_pct > 0 ? '+' : '') + Math.round(tr.total_roi_pct) + '%<br>';
+                if (isOpen) {
+                    detailHtml += ' | <span style="color:#2563eb;">🔵 持仓中</span>';
+                    if (ses.length > 0) detailHtml += ' (剩余' + tr.open_pct.toFixed(0) + '%)';
+                    if (tr.unrealized_roi_pct) detailHtml += ' 未实现ROI ' + (tr.unrealized_roi_pct > 0 ? '+' : '') + Math.round(tr.unrealized_roi_pct) + '%';
+                } else {
+                    detailHtml += ' | 总ROI: ' + (tr.total_roi_pct > 0 ? '+' : '') + Math.round(tr.total_roi_pct) + '%';
+                }
+                detailHtml += '<br>';
             }
 
-            traces.push({
-                x: entryX, y: entryY, type: 'scatter', mode: 'markers', name: '买入点',
-                marker: { color: '#059669', size: 12, symbol: 'circle', line: { color: '#fff', width: 2 } },
-                text: entryText, hoverinfo: 'text',
-            });
-            traces.push({
-                x: sellX, y: sellY, type: 'scatter', mode: 'markers', name: '卖出点',
-                marker: { color: '#dc2626', size: sellSizes, symbol: 'circle', line: { color: '#fff', width: 2 } },
-                text: sellText, hoverinfo: 'text',
-            });
+            if (entryX.length) {
+                traces.push({
+                    x: entryX, y: entryY, type: 'scatter', mode: 'markers', name: '买入点',
+                    marker: { color: '#059669', size: 12, symbol: 'circle', line: { color: '#fff', width: 2 } },
+                    text: entryText, hoverinfo: 'text',
+                });
+            }
+            if (openX.length) {
+                traces.push({
+                    x: openX, y: openY, type: 'scatter', mode: 'markers', name: '持仓中',
+                    marker: { color: '#2563eb', size: 14, symbol: 'diamond-open', line: { color: '#2563eb', width: 2 } },
+                    text: openText, hoverinfo: 'text',
+                });
+            }
+            if (sellX.length) {
+                traces.push({
+                    x: sellX, y: sellY, type: 'scatter', mode: 'markers', name: '卖出点',
+                    marker: { color: '#dc2626', size: sellSizes, symbol: 'circle', line: { color: '#fff', width: 2 } },
+                    text: sellText, hoverinfo: 'text',
+                });
+            }
 
             Plotly.newPlot(plotDiv, traces, {
                 margin: { l: 50, r: 20, t: 10, b: 30 },

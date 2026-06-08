@@ -915,18 +915,15 @@ def run_leaps_simulation(
             if (entry.date - last_entry_date).days < cooldown_days:
                 continue
 
-        # Must be able to reach min hold before data ends
-        min_hold_days = min(s[0] for s in stages) if stages else 0
-        if entry.date + timedelta(days=min_hold_days) > max_price_date:
-            continue
-
         strike_price = round(entry.price * strike_multiplier, 2)
+        allow_open = True
         trade = compute_sell_ladder(
             entry, prices, stages,
             expiration_days=expiration_days,
             strike_price=strike_price,
             risk_free_rate=risk_free_rate,
             sigma=sigma,
+            allow_open=allow_open,
         )
 
         all_trades.append({

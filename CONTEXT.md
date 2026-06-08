@@ -41,3 +41,7 @@ _Avoid_: fixture、snapshot
 **代理期权 ROI (Proxy Option ROI)**:
 用 Black-Scholes 模型估算的 LEAPS 期权回报率，不依赖真实期权价格。
 _Avoid_: 理论ROI、BS定价
+
+**开放交易 (Open Trade)**:
+模拟中已触发入口但尚未完成全部卖出阶梯的 LEAPS 交易。`open_pct` 表示未卖出比例，`unrealized_roi_pct` 为按最新价格估算的未实现代理 ROI。
+_Avoid_: 未平仓交易、进行中交易
