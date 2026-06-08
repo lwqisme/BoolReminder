@@ -45,3 +45,11 @@ _Avoid_: 理论ROI、BS定价
 **开放交易 (Open Trade)**:
 模拟中已触发入口但尚未完成全部卖出阶梯的 LEAPS 交易。`open_pct` 表示未卖出比例，`unrealized_roi_pct` 为按最新价格估算的未实现代理 ROI。
 _Avoid_: 未平仓交易、进行中交易
+
+**预设 (Preset)**:
+从 History 或 GA 进化结果保存的策略参数快照。包含完整参数 payload，可按名称检索。
+_Avoid_: 模板、配置快照
+
+**预设回测 (Preset Backtest)**:
+加载一个预设，指定标的和时间区间，重跑策略引擎生成交易记录和图表。
+_Avoid_: 预设模拟、回放

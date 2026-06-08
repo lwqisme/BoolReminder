@@ -1845,7 +1845,7 @@
                     <div style="margin-bottom:8px;">
                         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
                             <span style="font-weight:600;font-size:13px;">标的</span>
-                            <button type="button" onclick="toggleAllLeapsGaSymbols()" style="font-size:11px;padding:1px 6px;">全选/取消</button>
+                            <button type="button" onclick="symbolPickerToggleAll('leapsGaSymbolsGrid', null)" style="font-size:11px;padding:1px 6px;">全选/取消</button>
                         </div>
                         <div id="leapsGaSymbolsGrid" class="check-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); max-height:200px; overflow-y:auto;"></div>
                     </div>
@@ -8293,9 +8293,9 @@
 
         function renderSignalBindings() {
             const list = document.getElementById('signalBindingsList');
-            const symbols = [...SYNCD_SYMBOLS];
+            const symbols = _mergedSymbols();
             if (symbols.length === 0) {
-                list.innerHTML = '<p style="color:var(--muted);font-size:12px;">暂无已同步的标的。请先在 Google Sheets 中同步交易数据。</p>';
+                list.innerHTML = '<p style="color:var(--muted);font-size:12px;">暂无标的。请先在 Google Sheets 中同步交易数据或配置投资标的。</p>';
                 return;
             }
             let html = '';
@@ -8494,63 +8494,191 @@
             }
         })();
 
+        // ── Shared symbol picker component ──
+        // Builds a unified symbol list from SYNCD_SYMBOLS ∪ investment_universe
+        function _mergedSymbols() {
+            var seen = {};
+            var result = [];
+            var occRe = /^[A-Z]+\d{6}[CP]\d{8}(\.US)?$/;
+            function add(s) {
+                var key = String(s || '').trim().toUpperCase();
+                if (!key || seen[key] || occRe.test(key)) return;
+                seen[key] = true;
+                result.push(String(s).trim());
+            }
+            if (Array.isArray(SYNCD_SYMBOLS)) { for (var i = 0; i < SYNCD_SYMBOLS.length; i++) add(SYNCD_SYMBOLS[i]); }
+            if (Array.isArray(defaultInvestmentUniverse)) {
+                for (var i2 = 0; i2 < defaultInvestmentUniverse.length; i2++) {
+                    var item = defaultInvestmentUniverse[i2];
+                    if (item && item.symbol) add(item.symbol);
+                }
+            }
+            result.sort();
+            return result;
+        }
+
+        // Render a checkbox-grid symbol picker into containerId.
+        // options: { checkboxClass, showSearch, showManualInput, showDateRange, showAllToggle, maxHeight, columns, initialChecked, onChange, extraHtml }
+        window.renderSymbolPicker = function(containerId, options) {
+            var opts = options || {};
+            var container = document.getElementById(containerId);
+            if (!container) return;
+            var symbols = _mergedSymbols();
+            var cbClass = opts.checkboxClass || 'symbol-picker-cb';
+            var cols = opts.columns || 3;
+            var maxH = opts.maxHeight || '200px';
+            var initialChecked = opts.initialChecked || {};
+            var html = '';
+
+            // Search
+            if (opts.showSearch !== false) {
+                html += '<div style="margin-bottom:6px;"><input id="' + containerId + 'Search" type="text" placeholder="搜索标的…" style="width:100%;min-height:26px;font-size:11px;" oninput="filterSymbolPicker(\'' + containerId + '\')"></div>';
+            }
+
+            // All/None toggle
+            if (opts.showAllToggle !== false) {
+                html += '<div style="margin-bottom:4px;display:flex;gap:6px;">' +
+                    '<button type="button" onclick="symbolPickerToggleAll(\'' + containerId + '\', true)" style="font-size:10px;min-height:22px;padding:2px 6px;">全选</button>' +
+                    '<button type="button" onclick="symbolPickerToggleAll(\'' + containerId + '\', false)" style="font-size:10px;min-height:22px;padding:2px 6px;">取消</button>' +
+                    '</div>';
+            }
+
+            // Checkbox grid
+            html += '<div id="' + containerId + 'Grid" class="check-grid" style="grid-template-columns:repeat(' + cols + ',minmax(0,1fr));max-height:' + maxH + ';overflow-y:auto;">';
+            for (var i = 0; i < symbols.length; i++) {
+                var sym = symbols[i];
+                var checked = initialChecked[sym.toUpperCase()] ? ' checked' : '';
+                html += '<label class="symbol-picker-label" data-symbol="' + escapeHtml(sym) + '"><input type="checkbox" class="' + cbClass + '" value="' + escapeHtml(sym) + '"' + checked + '> ' + escapeHtml(sym) + '</label>';
+            }
+            html += '</div>';
+
+            // Manual input
+            if (opts.showManualInput !== false) {
+                html += '<div style="margin-top:6px;"><input id="' + containerId + 'Manual" type="text" placeholder="手动输入，逗号分隔" style="width:100%;min-height:26px;font-size:11px;"></div>';
+            }
+
+            // Extra HTML (e.g., date range)
+            if (opts.extraHtml) {
+                html += opts.extraHtml;
+            }
+
+            container.innerHTML = html;
+
+            // Attach onChange handler
+            if (typeof opts.onChange === 'function') {
+                container.addEventListener('change', function(e) {
+                    if (e.target.classList.contains(cbClass)) {
+                        opts.onChange(getSelectedSymbolPickerSymbols(containerId, cbClass));
+                    }
+                });
+                var manualEl = document.getElementById(containerId + 'Manual');
+                if (manualEl) {
+                    manualEl.addEventListener('input', function() {
+                        opts.onChange(getSelectedSymbolPickerSymbols(containerId, cbClass));
+                    });
+                }
+            }
+            if (typeof opts.onRender === 'function') { opts.onRender(container); }
+        };
+
+        // Get selected symbols (checkboxes + manual input)
+        window.getSelectedSymbolPickerSymbols = function(containerId, cbClass) {
+            var result = [];
+            var cbs = document.querySelectorAll('#' + containerId + ' .' + (cbClass || 'symbol-picker-cb') + ':checked');
+            for (var i = 0; i < cbs.length; i++) { result.push(cbs[i].value); }
+            var manualEl = document.getElementById(containerId + 'Manual');
+            if (manualEl) {
+                var manual = manualEl.value.trim();
+                if (manual) {
+                    var parts = manual.split(',');
+                    for (var j = 0; j < parts.length; j++) {
+                        var s = parts[j].trim();
+                        if (s && result.indexOf(s) < 0) result.push(s);
+                    }
+                }
+            }
+            return result;
+        };
+
+        window.filterSymbolPicker = function(containerId) {
+            var searchEl = document.getElementById(containerId + 'Search');
+            var query = (searchEl && searchEl.value || '').trim().toUpperCase();
+            var labels = document.querySelectorAll('#' + containerId + 'Grid .symbol-picker-label');
+            for (var i = 0; i < labels.length; i++) {
+                var sym = (labels[i].getAttribute('data-symbol') || '').toUpperCase();
+                labels[i].style.display = (!query || sym.indexOf(query) >= 0) ? '' : 'none';
+            }
+        };
+
+        window.symbolPickerToggleAll = function(containerId, checked) {
+            var grid = document.getElementById(containerId + 'Grid');
+            if (!grid) return;
+            var cbs = grid.querySelectorAll('input[type="checkbox"]');
+            // Toggle mode: if checked is null, toggle all
+            if (checked === null || checked === undefined) {
+                var allChecked = true;
+                for (var i = 0; i < cbs.length; i++) {
+                    var label = cbs[i].closest('.symbol-picker-label');
+                    if (!label || label.style.display !== 'none') {
+                        if (!cbs[i].checked) { allChecked = false; break; }
+                    }
+                }
+                checked = !allChecked;
+            }
+            for (var i = 0; i < cbs.length; i++) {
+                var label = cbs[i].closest('.symbol-picker-label');
+                if (!label || label.style.display !== 'none') { cbs[i].checked = checked; }
+            }
+            // Trigger change event on the container to fire onChange
+            var container = document.getElementById(containerId);
+            if (container) {
+                container.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        };
+
         // ── LEAPS GA symbol grid ──
         function renderLeapsGaSymbolGrid() {
             var grid = document.getElementById('leapsGaSymbolsGrid');
             if (!grid) return;
-            var allSymbols = SYNCD_SYMBOLS && SYNCD_SYMBOLS.length ? [...SYNCD_SYMBOLS].sort() : [];
-            // Filter out option contract codes (OCC format: TICKER+YYMMDD+C/P+STRIKE*1000[.US])
-            var occRe = /^[A-Z]+\d{6}[CP]\d{8}(\.US)?$/;
-            var symbols = allSymbols.filter(function(s) { return !occRe.test(s); });
-            if (!symbols.length) {
-                grid.innerHTML = '<span style="color:var(--muted);font-size:11px;">暂无已同步标的</span>';
-                return;
-            }
-            var html = '';
-            for (var i = 0; i < symbols.length; i++) {
-                html += '<label><input type="checkbox" class="leaps-ga-symbol-cb" value="' + escapeHtml(symbols[i]) + '" checked> ' + escapeHtml(symbols[i]) + '</label>';
-            }
-            grid.innerHTML = html;
-        }
-        renderLeapsGaSymbolGrid();
-        // Restore symbol checkbox state from localStorage (grid wasn't rendered during initial restore)
-        (function() {
+            // Restore saved state
+            var initialChecked = {};
             try {
                 var raw = localStorage.getItem('strategyLabAutoDefaults');
-                if (!raw) return;
-                var saved = JSON.parse(raw);
-                var leapsGa = saved.leapsGa || {};
-                var symbStr = leapsGa['leapsGaSymbols'] || '';
-                if (!symbStr) return;
-                var sel = {};
-                var parts = symbStr.split(',');
-                for (var i = 0; i < parts.length; i++) sel[parts[i].trim()] = true;
-                var cbs = document.querySelectorAll('.leaps-ga-symbol-cb');
-                for (var j = 0; j < cbs.length; j++) {
-                    cbs[j].checked = !!sel[cbs[j].value];
+                if (raw) {
+                    var saved = JSON.parse(raw);
+                    var leapsGa = saved.leapsGa || {};
+                    var symbStr = leapsGa['leapsGaSymbols'] || '';
+                    if (symbStr) {
+                        var parts = symbStr.split(',');
+                        for (var i = 0; i < parts.length; i++) { initialChecked[parts[i].trim().toUpperCase()] = true; }
+                    }
                 }
             } catch(e) {}
-        })();
-        // Attach auto-save to LEAPS GA symbol checkboxes (created dynamically)
-        var leapsGaGrid = document.getElementById('leapsGaSymbolsGrid');
-        if (leapsGaGrid) { leapsGaGrid.addEventListener('change', function(e) { if (e.target.classList.contains('leaps-ga-symbol-cb')) autoSaveParameterLabDefaults(); }); }
-
-        window.toggleAllLeapsGaSymbols = function() {
-            var cbs = document.querySelectorAll('.leaps-ga-symbol-cb');
-            if (!cbs.length) return;
-            var allChecked = true;
-            for (var i = 0; i < cbs.length; i++) { if (!cbs[i].checked) { allChecked = false; break; } }
-            var newVal = !allChecked;
-            for (var i2 = 0; i2 < cbs.length; i2++) { cbs[i2].checked = newVal; }
-        };
+            // Default all to checked if no saved state
+            var hasSaved = Object.keys(initialChecked).length > 0;
+            renderSymbolPicker('leapsGaSymbolsGrid', {
+                checkboxClass: 'leaps-ga-symbol-cb',
+                showSearch: true,
+                showManualInput: false,
+                showAllToggle: true,
+                maxHeight: '200px',
+                columns: 3,
+                initialChecked: hasSaved ? initialChecked : null,
+                onRender: function(container) {
+                    if (!hasSaved) {
+                        // Default all checked
+                        var cbs = container.querySelectorAll('.leaps-ga-symbol-cb');
+                        for (var i = 0; i < cbs.length; i++) { cbs[i].checked = true; }
+                    }
+                },
+                onChange: function() { autoSaveParameterLabDefaults(); }
+            });
+            // Auto-save listener is handled by onChange from renderSymbolPicker
+        }
+        renderLeapsGaSymbolGrid();
 
         window.getLeapsGaSelectedSymbols = function() {
-            var cbs = document.querySelectorAll('.leaps-ga-symbol-cb');
-            var result = [];
-            for (var i = 0; i < cbs.length; i++) {
-                if (cbs[i].checked) result.push(cbs[i].value);
-            }
-            return result;
+            return getSelectedSymbolPickerSymbols('leapsGaSymbolsGrid', 'leaps-ga-symbol-cb');
         };
 
         function updateLeapsGaTimer() {
@@ -9185,22 +9313,9 @@
                 return;
             }
             var presetDates = _getLeapsPresetDates();
-            // Universe checkboxes from SYNCD_SYMBOLS (same source as LEAPS GA grid)
-            var allSymbols = (typeof SYNCD_SYMBOLS !== 'undefined' && SYNCD_SYMBOLS && SYNCD_SYMBOLS.length) ? [...SYNCD_SYMBOLS].sort() : [];
-            var occRe = /^[A-Z]+\d{6}[CP]\d{8}(\.US)?$/;
-            var symbols = allSymbols.filter(function(s) { return !occRe.test(s); });
-            var universeDiv = '';
-            if (symbols.length) {
-                universeDiv = '<div style="margin-bottom:12px;"><span style="font-size:12px;color:var(--muted);">默认标的（多选）：</span>' +
-                    '<div class="check-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));max-height:150px;overflow-y:auto;margin-top:4px;">' +
-                    symbols.map(function(s) {
-                        return '<label><input type="checkbox" class="leapsPresetSymbolCb" value="' + escapeHtml(s) + '">' + escapeHtml(s) + '</label>';
-                    }).join('') + '</div></div>';
-            }
-
-            var html = universeDiv +
+            // Use shared symbol picker
+            var html = '<div id="leapsPresetSymbolPicker" style="margin-bottom:12px;"></div>' +
                 '<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:end;">' +
-                '<label style="font-size:12px;">手动输入标的<input id="leapsPresetSymbols" type="text" placeholder="AAPL.US, MSFT.US" style="width:200px;"></label>' +
                 '<label style="font-size:12px;">开始<input id="leapsPresetStart" type="date" value="' + presetDates.start + '"></label>' +
                 '<label style="font-size:12px;">结束<input id="leapsPresetEnd" type="date" value="' + presetDates.end + '"></label>' +
                 '<button id="leapsPresetRunBtn" class="primary" style="font-size:12px;" onclick="runLeapsPresetSim()" disabled>▶ 模拟</button>' +
@@ -9234,6 +9349,15 @@
             }
             html += '</tbody></table>';
             div.innerHTML = html;
+            // Render shared symbol picker into placeholder
+            renderSymbolPicker('leapsPresetSymbolPicker', {
+                checkboxClass: 'leapsPresetSymbolCb',
+                showSearch: true,
+                showManualInput: true,
+                showAllToggle: true,
+                maxHeight: '150px',
+                columns: 3
+            });
             // Persist date changes
             var startEl = document.getElementById('leapsPresetStart');
             var endEl = document.getElementById('leapsPresetEnd');
@@ -9275,12 +9399,8 @@
             var preset = presetLeapsCache[selectedLeapsPresetIndex];
             var cp = preset.config_payload || {};
 
-            // Collect symbols
-            var symbols = [];
-            var manual = document.getElementById('leapsPresetSymbols').value.trim();
-            if (manual) symbols = manual.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
-            var cbs = document.querySelectorAll('.leapsPresetSymbolCb:checked');
-            cbs.forEach(function(cb) { symbols.push(cb.value); });
+            // Collect symbols via shared picker
+            var symbols = getSelectedSymbolPickerSymbols('leapsPresetSymbolPicker', 'leapsPresetSymbolCb');
             if (!symbols.length) { alert('请选择至少一个标的'); return; }
 
             var start = document.getElementById('leapsPresetStart').value;
@@ -9510,8 +9630,8 @@
                 return;
             }
 
-            var html = '<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:end;">' +
-                '<label style="font-size:12px;">标的（覆盖预设标的）<input id="stockPresetSymbols" type="text" placeholder="AAPL.US, MSFT.US (空=用预设标的)" style="width:220px;"></label>' +
+            var html = '<div id="stockPresetSymbolPicker" style="margin-bottom:12px;"></div>' +
+                '<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:end;">' +
                 '<label style="font-size:12px;">开始<input id="stockPresetStart" type="date" value=""></label>' +
                 '<label style="font-size:12px;">结束<input id="stockPresetEnd" type="date" value=""></label>' +
                 '</div>';
@@ -9545,6 +9665,15 @@
             }
             html += '</tbody></table>';
             div.innerHTML = html;
+            // Render shared symbol picker for stock preset
+            renderSymbolPicker('stockPresetSymbolPicker', {
+                checkboxClass: 'stockPresetSymbolCb',
+                showSearch: true,
+                showManualInput: true,
+                showAllToggle: true,
+                maxHeight: '150px',
+                columns: 3
+            });
         }
 
         function _stockPresetDetailHtml(p) {
@@ -9616,9 +9745,10 @@
             if (btn) { btn.disabled = true; btn.textContent = '...'; }
 
             var body = { preset_id: preset.id };
-            var symbols = document.getElementById('stockPresetSymbols').value.trim();
-            if (symbols) {
-                body.symbols = symbols.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+            // Collect symbols via shared picker
+            var symbols = getSelectedSymbolPickerSymbols('stockPresetSymbolPicker', 'stockPresetSymbolCb');
+            if (symbols.length) {
+                body.symbols = symbols;
             }
             var startVal = document.getElementById('stockPresetStart').value;
             var endVal = document.getElementById('stockPresetEnd').value;
@@ -9703,27 +9833,22 @@
             if (!st) return;
             var trades = st.trades || [];
 
-            // Use the existing buildCellPriceTraces approach
-            var symbols = [];
-            var seen = {};
-            for (var t = 0; t < trades.length; t++) {
-                var sym = trades[t].symbol;
-                if (sym && !seen[sym]) { seen[sym] = true; symbols.push(sym); }
-            }
-
+            // Build price traces from price_series in API response (not lastParameterPacket)
+            var priceSeries = window._stockPresetResults[presetIdx].price_series || {};
+            var priceColors = ['#d14b2f', '#2563eb', '#059669', '#7c3aed', '#d97706'];
             var priceTraces = [];
-            symbols.forEach(function(sym) {
-                var entry = marketSeriesForSymbol(sym);
-                if (entry && entry.series) {
+            var colorIdx = 0;
+            for (var sym in priceSeries) {
+                var ps = priceSeries[sym];
+                if (ps && ps.dates && ps.closes) {
                     priceTraces.push({
                         type: 'scatter', mode: 'lines', name: sym + ' 股价',
-                        x: entry.series.dates || [],
-                        y: entry.series.closes || [],
-                        yaxis: 'y2',
-                        line: { color: '#d14b2f', width: 2, dash: 'solid' }
+                        x: ps.dates, y: ps.closes,
+                        line: { color: priceColors[colorIdx % priceColors.length], width: 2, dash: 'solid' }
                     });
+                    colorIdx++;
                 }
-            });
+            }
 
             // Buy/sell markers
             var buyX = [], buyY = [], buyText = [];
