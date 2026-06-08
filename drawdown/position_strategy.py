@@ -260,6 +260,7 @@ class SymbolState:
     grid_rebound_cycle_anchor_drawdown_pct: float | None = None
     grid_rebound_last_sell_drawdown_pct: float | None = None
     grid_rebound_last_sell_lot_count: int = 0
+    price_rise_grid_anchor_price: float | None = None
     price_history: list[PricePoint] = field(default_factory=list)
 
 
