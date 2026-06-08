@@ -16,10 +16,27 @@ WORKER_JS = Path(__file__).resolve().parent / "web/static/strategy_parameter_lab
 
 class GeneticAlgorithmE2ETest(unittest.TestCase):
 
+    _created_presets: list[str] = []
+
     @classmethod
     def setUpClass(cls):
         if shutil.which("node") is None:
             raise unittest.SkipTest("node is required for GA E2E tests")
+
+    @classmethod
+    def tearDownClass(cls):
+        """Clean up presets created during tests."""
+        import urllib.request, urllib.error
+        for pid in cls._created_presets:
+            try:
+                req = urllib.request.Request(
+                    f"http://127.0.0.1:5000/api/strategy-lab/presets/{pid}",
+                    method="DELETE",
+                )
+                urllib.request.urlopen(req, timeout=5)
+            except Exception:
+                pass
+        cls._created_presets.clear()
 
     def _run_node_script(self, script: str, *args: str) -> dict:
         completed = subprocess.run(
@@ -426,7 +443,9 @@ for (let i = 0; i < 50; i++) {
             resp = urllib.request.urlopen(req, timeout=10)
             data = json.loads(resp.read())
             if data.get("success"):
-                return data["preset"]["id"]
+                pid = data["preset"]["id"]
+                self.__class__._created_presets.append(pid)
+                return pid
         except Exception:
             pass
         return None
