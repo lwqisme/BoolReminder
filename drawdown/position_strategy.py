@@ -3215,6 +3215,55 @@ def _rearm_buy_tranches_after_position_sell(
         state.buy_rearm_drawdown_pct = None
 
 
+def _execute_price_rise_grid_sells(
+    state: SymbolState,
+    point: PricePoint,
+    inputs: StrategyInputs,
+    trade_log: list[dict[str, object]],
+) -> None:
+    """Price-rise grid sell: sell grid_sell_pct% of shares each time price
+    rises grid_rebound_step_pct% above the anchor (starting from avg cost).
+
+    Aligned with JS engine's price_rise_grid implementation.
+    """
+    if state.shares <= 0:
+        return
+    avg_cost = _avg_cost_usd(state)
+    if avg_cost <= 0:
+        return
+    current_price_usd = _price_usd(state.symbol, point.close, inputs)
+    min_profit_multiplier = 1 + inputs.sell_min_profit_pct / 100.0
+    if current_price_usd < avg_cost * min_profit_multiplier:
+        return
+
+    if state.price_rise_grid_anchor_price is None:
+        state.price_rise_grid_anchor_price = avg_cost
+
+    anchor = state.price_rise_grid_anchor_price
+    step = float(inputs.grid_rebound_step_pct)
+    if current_price_usd < anchor * (1 + step / 100.0) - 1e-9:
+        return
+
+    sell_pct = float(inputs.grid_sell_pct or 0)
+    if sell_pct <= 0:
+        return
+    shares = state.shares * sell_pct / 100.0
+    sell_stage = f"price_rise_{current_price_usd:.2f}"
+    if _sell_shares(
+        state,
+        point,
+        shares,
+        inputs,
+        trade_log,
+        "price_rise_grid",
+        current_price_usd,
+        min_gross_amount=inputs.grid_min_sell_amount,
+        sell_stage=sell_stage,
+    ):
+        state.sell_marks = (state.sell_marks or set()) | {sell_stage}
+        state.price_rise_grid_anchor_price = current_price_usd
+
+
 def _execute_sell_strategy(
     state: SymbolState,
     point: PricePoint,
@@ -3237,11 +3286,8 @@ def _execute_sell_strategy(
             _execute_grid_rebound_sells(state, point, inputs, trade_log)
         else:
             _execute_position_grid_rebound_sells(state, point, inputs, trade_log)
-    elif sell_strategy == "grid_rebound" or sell_strategy == "price_rise_grid":
-        if _uses_lot_level_sells(buy_strategy):
-            _execute_grid_rebound_sells(state, point, inputs, trade_log)
-        else:
-            _execute_position_grid_rebound_sells(state, point, inputs, trade_log)
+    elif sell_strategy == "price_rise_grid":
+        _execute_price_rise_grid_sells(state, point, inputs, trade_log)
     elif sell_strategy == "cost_deleverage":
         _execute_cost_deleverage_sells(state, point, inputs, trade_log, trade_index)
 
