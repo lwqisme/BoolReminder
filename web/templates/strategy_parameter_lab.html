@@ -8174,7 +8174,7 @@
             const label = (buyStrategyLabels[buy] || buy) + ' / ' + (sellStrategyLabels[sell] || sell);
             const name = prompt('预设名称', label + ' (' + new Date().toISOString().slice(0, 10) + ')');
             if (!name) return;
-            const payload = buildPresetPayloadFromCandidate(candidate);
+            const payload = buildPresetPayloadFromCandidate(candidate, lastParameterPacket);
             if (!payload || Object.keys(payload).length === 0) { alert('无法从参数行提取预设数据'); return; }
             try {
                 const r = await fetch('/api/strategy-lab/presets', {
@@ -8189,7 +8189,7 @@
                 } else { alert('保存失败: ' + (d.message || '')); }
             } catch (e) { alert('请求失败: ' + e.message); }
         }
-        function buildPresetPayloadFromCandidate(candidate) {
+        function buildPresetPayloadFromCandidate(candidate, packet) {
             const p = {};
             const map = {
                 buy_strategy: 'default_buy_strategy', sell_strategy: 'default_sell_strategy',
@@ -8233,6 +8233,18 @@
                 'default_reserve_position_pct', 'default_trade_fee', 'default_hkd_to_usd',
                 'default_grid_rebound_cycle_reset', 'default_buy_rearm_mode']) {
                 if (defaultConfig[k] !== undefined && p[k] === undefined) p[k] = defaultConfig[k];
+            }
+            // Include targets from GA packet (so preset backtest uses same stocks)
+            if (packet) {
+                var tasks = packet.tasks || [];
+                if (tasks.length) {
+                    var targets = tasks[0].targets || [];
+                    if (targets.length) {
+                        p['default_targets'] = targets.map(function(t) {
+                            return { symbol: t.symbol, weight: t.weight, name: t.name, max_drawdown_pct: t.max_drawdown_pct };
+                        });
+                    }
+                }
             }
             return p;
         }

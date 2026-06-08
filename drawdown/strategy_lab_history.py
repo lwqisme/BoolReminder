@@ -234,7 +234,7 @@ def _kind_label(kind: str) -> str:
 
 
 def _config_summary(payload: Mapping[str, object]) -> dict[str, object]:
-    targets = payload.get("targets")
+    targets = payload.get("targets") or payload.get("default_targets")
     target_count = len(targets) if isinstance(targets, list) else 0
     weight_sum = 0.0
     if isinstance(targets, list):

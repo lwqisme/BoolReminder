@@ -10895,12 +10895,26 @@ def api_strategy_lab_parameter_lab_stock_simulate():
     if payload.get("end"):
         config_payload["end"] = str(payload["end"])
     if "initial_cash" in payload:
-        config_payload["default_initial_cash"] = float(payload["initial_cash"])
+        config_payload["initial_cash"] = float(payload["initial_cash"])
     if "monthly_contribution" in payload:
-        config_payload["default_monthly_contribution"] = float(payload["monthly_contribution"])
+        config_payload["monthly_contribution"] = float(payload["monthly_contribution"])
+
+    # Normalize: convert default_* keys to non-prefixed (from_runtime_payload reads non-prefixed)
+    normalized: dict[str, object] = {}
+    for k, v in config_payload.items():
+        if k.startswith("default_"):
+            normalized[k[8:]] = v
+        else:
+            normalized[k] = v
+    # Alias slice_step_pct → step_pct
+    if "slice_step_pct" in normalized and "step_pct" not in normalized:
+        normalized["step_pct"] = normalized["slice_step_pct"]
+    # targets: use from preset if not overridden by symbols
+    if "targets" not in normalized and "default_targets" in config_payload:
+        normalized["targets"] = config_payload["default_targets"]
 
     try:
-        result = _run_strategy_lab_payload(config_payload)
+        result = _run_strategy_lab_payload(normalized)
     except ValueError as exc:
         return _json_error(str(exc), 400)
     except Exception as exc:
