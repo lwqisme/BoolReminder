@@ -10909,6 +10909,11 @@ def api_strategy_lab_parameter_lab_stock_simulate():
     # Alias slice_step_pct → step_pct
     if "slice_step_pct" in normalized and "step_pct" not in normalized:
         normalized["step_pct"] = normalized["slice_step_pct"]
+    # Map single buy/sell strategy to list form expected by _run_strategy_lab_payload
+    if "buy_strategy" in normalized and "buy_strategies" not in normalized:
+        normalized["buy_strategies"] = [normalized["buy_strategy"]]
+    if "sell_strategy" in normalized and "sell_strategies" not in normalized:
+        normalized["sell_strategies"] = [normalized["sell_strategy"]]
     # targets: use from preset if not overridden by symbols
     if "targets" not in normalized and "default_targets" in config_payload:
         normalized["targets"] = config_payload["default_targets"]
