@@ -9517,25 +9517,98 @@
                 '</div>';
 
             html += '<table class="mini-table" style="font-size:11px;"><thead><tr>' +
-                '<th>名称</th><th>标的数</th><th>买策略</th><th>卖策略</th><th>日期</th><th>操作</th><th>模拟</th>' +
+                '<th style="width:20px;"></th><th>名称</th><th>标的数</th><th>买策略</th><th>卖策略</th><th>日期</th><th>操作</th><th>模拟</th>' +
                 '</tr></thead><tbody>';
+
+            var STOCK_BUY_LABELS = { pyramid_3: '三档金字塔', equal_slice: '等距细切', linear_weighted_slice: '线性递增加权细切', weekly_dca: '每周定投', salary_flow_dca: '工资流定投', core_dip_dca: '核心定投+回撤加仓' };
+            var STOCK_SELL_LABELS = { none: '不卖出', repair_step: '阶梯修复卖出', grid_rebound: '网格回弹卖出', price_rise_grid: '价格上涨网格卖出', cost_deleverage: '成本区间去杠杆' };
 
             for (var i = 0; i < presetStockCache.length; i++) {
                 var p = presetStockCache[i];
+                var cp = p.config_payload || {};
                 var cs = p.config_summary || {};
-                html += '<tr id="stockPresetRow' + i + '">' +
+                var buyKey = cp.default_buy_strategy || cp.buy_strategy || '';
+                var sellKey = cp.default_sell_strategy || cp.sell_strategy || '';
+                var buyLabel = STOCK_BUY_LABELS[buyKey] || buyKey || '-';
+                var sellLabel = STOCK_SELL_LABELS[sellKey] || sellKey || '-';
+                var rowId = 'stockPresetRow' + i;
+                html += '<tr id="' + rowId + '" class="stock-preset-row" onclick="toggleStockPresetDetail(' + i + ')" style="cursor:pointer;">' +
+                    '<td><span id="stockPresetArrow' + i + '">▶</span></td>' +
                     '<td>' + escapeHtml(p.name || '-') + '<br><span style="font-size:9px;color:var(--muted);">' + (p.created_at || '').slice(0,10) + '</span></td>' +
-                    '<td>' + (cs.target_count || '-') + '</td>' +
-                    '<td>' + escapeHtml(cs.buy_strategy || '-') + '</td>' +
-                    '<td>' + escapeHtml(cs.sell_strategy || '-') + '</td>' +
-                    '<td style="font-size:9px;">' + (cs.start || '') + '~' + (cs.end || '') + '</td>' +
+                    '<td>' + (cs.target_count || cp.target_count || (cp.targets ? cp.targets.length : 0) || '-') + '</td>' +
+                    '<td>' + escapeHtml(buyLabel) + '</td>' +
+                    '<td>' + escapeHtml(sellLabel) + '</td>' +
+                    '<td style="font-size:9px;">' + (cs.start || cp.start || '') + '~' + (cs.end || cp.end || '') + '</td>' +
                     '<td>' + presetActionsHtml(p) + '</td>' +
-                    '<td><button onclick="runStockPresetSim(' + i + ')" style="font-size:10px;padding:1px 5px;">▶ 模拟</button></td>' +
+                    '<td><button onclick="event.stopPropagation();runStockPresetSim(' + i + ')" style="font-size:10px;padding:1px 5px;">▶ 模拟</button></td>' +
                     '</tr>';
             }
             html += '</tbody></table>';
             div.innerHTML = html;
         }
+
+        function _stockPresetDetailHtml(p) {
+            var cp = p.config_payload || {};
+            var buyKey = cp.default_buy_strategy || cp.buy_strategy || '';
+            var sellKey = cp.default_sell_strategy || cp.sell_strategy || '';
+            var parts = [];
+
+            // 资金
+            var cashParts = [];
+            if (cp.default_initial_cash != null) cashParts.push('初始资金 $' + Number(cp.default_initial_cash).toFixed(0));
+            if (cp.default_monthly_contribution != null && Number(cp.default_monthly_contribution) > 0) cashParts.push('每月 $' + Number(cp.default_monthly_contribution).toFixed(0));
+            if (cp.default_max_drawdown_pct != null) cashParts.push('最大回撤 ' + Number(cp.default_max_drawdown_pct).toFixed(0) + '%');
+            if (cp.default_reserve_position_pct != null) cashParts.push('保留仓位 ' + Number(cp.default_reserve_position_pct).toFixed(0) + '%');
+            if (cashParts.length) parts.push('<span style="color:var(--amber);">💰</span> ' + cashParts.join(' | '));
+
+            // 买入参数
+            var buyParts = [];
+            if (cp.default_slice_step_pct != null) buyParts.push('步长 ' + Number(cp.default_slice_step_pct).toFixed(2) + '%');
+            if (cp.default_equal_slice_allocation_pct != null) buyParts.push('每档仓位 ' + Number(cp.default_equal_slice_allocation_pct).toFixed(1) + '%');
+            if (cp.default_dca_rearm_drawdown_pct != null) buyParts.push('重启回撤 ' + Number(cp.default_dca_rearm_drawdown_pct).toFixed(0) + '%');
+            if (buyParts.length) parts.push('<span style="color:var(--green);">📈</span> 买入: ' + buyParts.join(' | '));
+
+            // 卖出参数
+            var sellParts = [];
+            if (cp.default_sell_min_profit_pct != null) sellParts.push('最低盈利 ' + Number(cp.default_sell_min_profit_pct).toFixed(1) + '%');
+            if (cp.default_repair_stage_sell_pct != null) sellParts.push('卖出比例 ' + Number(cp.default_repair_stage_sell_pct).toFixed(0) + '%');
+            if (cp.default_repair_sell_cooldown_days != null) sellParts.push('冷却 ' + Number(cp.default_repair_sell_cooldown_days).toFixed(0) + '天');
+            if (cp.default_grid_rebound_step_pct != null) sellParts.push('回弹步长 ' + Number(cp.default_grid_rebound_step_pct).toFixed(2) + '%');
+            if (cp.default_grid_sell_pct != null) sellParts.push('卖出比例 ' + Number(cp.default_grid_sell_pct).toFixed(1) + '%');
+            if (cp.default_grid_min_sell_amount != null) sellParts.push('最低卖出 $' + Number(cp.default_grid_min_sell_amount).toFixed(0));
+            if (cp.default_sell_stage_rearm_drawdown_pct != null) sellParts.push('档位重启 ' + Number(cp.default_sell_stage_rearm_drawdown_pct).toFixed(0) + '%');
+            if (cp.default_cost_first_profit_pct != null) sellParts.push('三档盈利 ' + [cp.default_cost_first_profit_pct,cp.default_cost_second_profit_pct,cp.default_cost_third_profit_pct].filter(function(x){return x!=null;}).map(function(x){return Number(x).toFixed(0)+'%';}).join('/'));
+            if (sellKey === 'cost_deleverage' && cp.default_cost_deleverage_cooldown_days != null) sellParts.push('冷却 ' + cp.default_cost_deleverage_cooldown_days + '天');
+            if (sellParts.length) parts.push('<span style="color:var(--red);">📉</span> 卖出: ' + sellParts.join(' | '));
+
+            // 其他
+            if (cp.default_hkd_to_usd != null && Number(cp.default_hkd_to_usd) !== 0.128) parts.push('HKD/USD ' + Number(cp.default_hkd_to_usd).toFixed(3));
+            if (cp.default_trade_fee != null && Number(cp.default_trade_fee) !== 0.35) parts.push('手续费 $' + Number(cp.default_trade_fee).toFixed(2));
+            if (cp.default_drawdown_basis != null && cp.default_drawdown_basis !== 'rolling_120') parts.push('回撤口径 ' + cp.default_drawdown_basis);
+
+            return parts.length ? parts.join('<br>') : '<span style="color:var(--muted);">(无额外参数)</span>';
+        }
+
+        window.toggleStockPresetDetail = function(index) {
+            var row = document.getElementById('stockPresetRow' + index);
+            var arrow = document.getElementById('stockPresetArrow' + index);
+            if (!row) return;
+            var next = row.nextElementSibling;
+            if (next && next.classList.contains('stock-preset-detail')) {
+                // Collapse
+                next.remove();
+                if (arrow) arrow.textContent = '▶';
+                return;
+            }
+            // Expand
+            if (arrow) arrow.textContent = '▼';
+            var detailRow = document.createElement('tr');
+            detailRow.className = 'stock-preset-detail';
+            detailRow.style.background = 'rgba(37,99,235,0.04)';
+            var p = presetStockCache[index];
+            detailRow.innerHTML = '<td colspan="8" style="padding:6px 12px 8px;font-size:11px;line-height:1.7;">' + _stockPresetDetailHtml(p) + '</td>';
+            row.parentNode.insertBefore(detailRow, row.nextElementSibling);
+        };
 
         async function runStockPresetSim(index) {
             var preset = presetStockCache[index];
