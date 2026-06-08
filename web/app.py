@@ -9111,8 +9111,14 @@ def _run_strategy_lab_payload(payload: dict[str, object]) -> dict[str, object]:
     targets = lab_config.portfolio_or_default()
     if not isinstance(targets, list):
         raise ValueError("targets 必须是数组")
-    buy_strategies = payload.get("buy_strategies") or list(STRATEGY_LABELS)
-    sell_strategies = payload.get("sell_strategies") or list(SELL_STRATEGY_LABELS)
+    buy_strategies = payload.get("buy_strategies")
+    if not buy_strategies:
+        single = payload.get("default_buy_strategy")
+        buy_strategies = [single] if (single and single not in ("all", "")) else list(STRATEGY_LABELS)
+    sell_strategies = payload.get("sell_strategies")
+    if not sell_strategies:
+        single = payload.get("default_sell_strategy")
+        sell_strategies = [single] if (single and single not in ("all", "")) else list(SELL_STRATEGY_LABELS)
     if not isinstance(buy_strategies, list) or not isinstance(sell_strategies, list):
         raise ValueError("buy_strategies 和 sell_strategies 必须是数组")
     result = run_longbridge_strategy_lab(
