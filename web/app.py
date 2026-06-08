@@ -10894,6 +10894,10 @@ def api_strategy_lab_parameter_lab_stock_simulate():
         config_payload["start"] = str(payload["start"])
     if payload.get("end"):
         config_payload["end"] = str(payload["end"])
+    if "initial_cash" in payload:
+        config_payload["default_initial_cash"] = float(payload["initial_cash"])
+    if "monthly_contribution" in payload:
+        config_payload["default_monthly_contribution"] = float(payload["monthly_contribution"])
 
     try:
         result = _run_strategy_lab_payload(config_payload)

@@ -9637,6 +9637,8 @@
                 '<div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:8px;align-items:end;">' +
                 '<label style="font-size:12px;">开始<input id="stockPresetStart" type="date" value=""></label>' +
                 '<label style="font-size:12px;">结束<input id="stockPresetEnd" type="date" value=""></label>' +
+                '<label style="font-size:12px;">💰 初始资金<input id="stockPresetCash" type="number" value="" placeholder="$100000" step="1000" style="width:90px;"></label>' +
+                '<label style="font-size:12px;">每月投入<input id="stockPresetMonthly" type="number" value="" placeholder="$0" step="500" style="width:80px;"></label>' +
                 '</div>';
 
             html += '<table class="mini-table" style="font-size:11px;"><thead><tr>' +
@@ -9757,6 +9759,10 @@
             var endVal = document.getElementById('stockPresetEnd').value;
             if (startVal) body.start = startVal;
             if (endVal) body.end = endVal;
+            var cashVal = document.getElementById('stockPresetCash').value;
+            if (cashVal) body.initial_cash = Number(cashVal);
+            var monthlyVal = document.getElementById('stockPresetMonthly').value;
+            if (monthlyVal) body.monthly_contribution = Number(monthlyVal);
 
             try {
                 var r = await fetch('/api/strategy-lab/parameter-lab/stock-simulate', {
@@ -9795,7 +9801,7 @@
                 resultRow.innerHTML = '<td colspan="7" style="padding:8px;">' +
                     '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
                     '<strong>' + escapeHtml(st.label || '策略 ' + s) + '</strong> ' +
-                    '<span style="color:var(--muted);font-size:12px;">' + trades.length + ' 笔交易 | 收益: ' + pct(st.metrics?.return_pct) + ' | 回撤: ' + pct(st.metrics?.max_drawdown_pct) + '</span>' +
+                    '<span style="color:var(--muted);font-size:12px;">' + trades.length + ' 笔交易 | 总收益: ' + money(st.metrics?.profit) + ' | 收益率: ' + pct(st.metrics?.return_pct) + ' | 回撤: ' + pct(st.metrics?.max_drawdown_pct) + '</span>' +
                     '<button onclick="toggleStockPresetChart(\'' + resultId + '\')" style="font-size:11px;padding:2px 6px;">▶ 展开图表</button>' +
                     '</div>' +
                     '<div id="' + resultId + 'Chart" style="display:none;">' +
