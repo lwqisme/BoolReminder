@@ -1847,7 +1847,7 @@
                             <span style="font-weight:600;font-size:13px;">标的</span>
                             <button type="button" onclick="symbolPickerToggleAll('leapsGaSymbolsGrid', null)" style="font-size:11px;padding:1px 6px;">全选/取消</button>
                         </div>
-                        <div id="leapsGaSymbolsGrid" class="check-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr)); max-height:200px; overflow-y:auto;"></div>
+                        <div id="leapsGaSymbolsGrid"></div>
                     </div>
                     <div class="field-grid">
                         <label>开始日期
@@ -8563,6 +8563,9 @@
             }
 
             container.innerHTML = html;
+            // Ensure container is a plain block (not a grid) since we generate our own internal grid
+            container.style.display = 'block';
+            container.classList.remove('check-grid');
 
             // Attach onChange handler
             if (typeof opts.onChange === 'function') {
