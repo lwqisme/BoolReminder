@@ -143,7 +143,9 @@ def generate_signal(
         trade_overrides[td].append(dict(row))
 
     # Determine effective signal date (weekend → use last trading day)
-    last_price_date = points[-1].date.date() if points else today
+    # points[-1].date may be datetime (from candles) or date (after append_realtime_price normalization)
+    _last_pt_date = points[-1].date
+    last_price_date = (_last_pt_date.date() if hasattr(_last_pt_date, 'date') else _last_pt_date) if points else today
     is_weekend = today.weekday() >= 5
     effective_signal_date = last_price_date if (is_weekend and last_price_date < today) else today
 
