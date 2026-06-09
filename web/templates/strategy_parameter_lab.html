@@ -8168,9 +8168,12 @@
         async function saveRowAsPreset(rowKey) {
             const row = findRow(rowKey);
             if (!row) return;
-            const candidate = row.candidate || {};
-            const buy = candidate.buy_strategy || row.buy_strategy || '';
-            const sell = candidate.sell_strategy || row.sell_strategy || '';
+            const candidate = Object.assign({}, row.candidate || {});
+            // Rows from scan/history don't have .candidate — pull strategy from row directly
+            if (!candidate.buy_strategy && row.buy_strategy) candidate.buy_strategy = row.buy_strategy;
+            if (!candidate.sell_strategy && row.sell_strategy) candidate.sell_strategy = row.sell_strategy;
+            const buy = candidate.buy_strategy || '';
+            const sell = candidate.sell_strategy || '';
             const label = (buyStrategyLabels[buy] || buy) + ' / ' + (sellStrategyLabels[sell] || sell);
             const name = prompt('预设名称', label + ' (' + new Date().toISOString().slice(0, 10) + ')');
             if (!name) return;
