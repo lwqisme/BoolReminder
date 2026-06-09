@@ -613,7 +613,11 @@ def append_realtime_price(
     longbridge_symbol: str,
     today: date,
 ) -> list[tuple[date, float]]:
-    """Append or replace real-time price if market is open.
+    """Append or replace real-time price from Longbridge quote.
+
+    Always attempts to fetch the latest quote.  last_done is at least
+    as fresh as daily candles (real-time during market hours, closing
+    price post-market, previous close pre-market).
 
     Args:
         daily_prices: (date, price) sorted ascending from daily candles.
@@ -625,29 +629,24 @@ def append_realtime_price(
         Potentially modified price list.
     """
     try:
-        sessions = quote_ctx.trading_session()
-        if not sessions:
-            return daily_prices
-        market_state = getattr(sessions[0], "market_state", "closed")
-        if market_state == "closed":
-            return daily_prices
-    except Exception:
-        return daily_prices
-
-    try:
         quotes = quote_ctx.quote([longbridge_symbol])
         if not quotes:
             return daily_prices
         realtime_price = float(quotes[0].last_done)
+        if realtime_price <= 0:
+            return daily_prices
     except Exception:
         return daily_prices
 
     result = list(daily_prices)
+    # Normalize dates to date objects (candles may return datetime)
+    from datetime import datetime as dt_cls
+    def _to_date(d):
+        return d.date() if isinstance(d, dt_cls) else d
+    result = [(_to_date(d), p) for d, p in result]
     if result and result[-1][0] == today:
-        # Replace last entry with real-time price
         result[-1] = (today, realtime_price)
     elif not result or result[-1][0] < today:
-        # Append new entry for today
         result.append((today, realtime_price))
     return result
 

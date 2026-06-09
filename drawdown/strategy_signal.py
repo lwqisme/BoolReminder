@@ -122,6 +122,9 @@ def generate_signal(
         (candle_datetime(c).replace(tzinfo=None), float(c.close))
         for c in candles
     ]
+    # Append real-time price if available (intraday quote replaces last close)
+    from drawdown.leaps_signal import append_realtime_price
+    series = append_realtime_price(series, quote_ctx, longbridge_sym, end_date)
     points = build_price_points_from_series(series)
     if not points:
         return {"symbol": sym, "preset_id": preset_id, "error": "无法构建价格序列"}

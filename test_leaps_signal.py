@@ -516,20 +516,16 @@ def build_test_prices(price: float, days: int, start: date | None = None) -> lis
 class AppendRealtimePriceTest(unittest.TestCase):
     """Real-time price append/replace for intraday signal generation."""
 
-    def _mock_quote_ctx(self, *, last_done: float, market_state: str = "normal"):
-        """Build a mock QuoteContext with quote() and trading_session()."""
+    def _mock_quote_ctx(self, *, last_done: float):
+        """Build a mock QuoteContext with quote()."""
         ctx = MagicMock()
         quote_resp = MagicMock()
         quote_resp.last_done = last_done
         ctx.quote.return_value = [quote_resp]
-
-        session_resp = MagicMock()
-        session_resp.market_state = market_state
-        ctx.trading_session.return_value = [session_resp]
         return ctx
 
     def test_append_when_market_open_and_daily_ends_before_today(self):
-        """Market open, daily data ends yesterday → append today's realtime price."""
+        """Daily data ends yesterday → append today's realtime price."""
         from drawdown.leaps_signal import append_realtime_price
 
         today = date(2026, 6, 3)
@@ -537,7 +533,7 @@ class AppendRealtimePriceTest(unittest.TestCase):
             (date(2026, 5, 1), 400.0),
             (date(2026, 6, 2), 370.0),
         ]
-        ctx = self._mock_quote_ctx(last_done=361.85, market_state="normal")
+        ctx = self._mock_quote_ctx(last_done=361.85)
 
         result = append_realtime_price(daily, ctx, "GOOGL.US", today)
 
@@ -545,8 +541,8 @@ class AppendRealtimePriceTest(unittest.TestCase):
         self.assertEqual(result[-1][0], today)
         self.assertAlmostEqual(result[-1][1], 361.85)
 
-    def test_replace_when_market_open_and_daily_has_today(self):
-        """Market open, daily data already has today → replace last price."""
+    def test_replace_when_daily_has_today(self):
+        """Daily data already has today → replace last price with realtime."""
         from drawdown.leaps_signal import append_realtime_price
 
         today = date(2026, 6, 3)
@@ -555,7 +551,7 @@ class AppendRealtimePriceTest(unittest.TestCase):
             (date(2026, 6, 2), 370.0),
             (date(2026, 6, 3), 365.0),
         ]
-        ctx = self._mock_quote_ctx(last_done=361.85, market_state="normal")
+        ctx = self._mock_quote_ctx(last_done=361.85)
 
         result = append_realtime_price(daily, ctx, "GOOGL.US", today)
 
@@ -563,8 +559,8 @@ class AppendRealtimePriceTest(unittest.TestCase):
         self.assertEqual(result[-1][0], today)
         self.assertAlmostEqual(result[-1][1], 361.85)
 
-    def test_skip_when_market_closed(self):
-        """Market closed (holiday/weekend) → return daily data unchanged."""
+    def test_append_even_when_quote_available(self):
+        """Always append real-time price when quote is available (regardless of market state)."""
         from drawdown.leaps_signal import append_realtime_price
 
         today = date(2026, 6, 3)
@@ -572,13 +568,13 @@ class AppendRealtimePriceTest(unittest.TestCase):
             (date(2026, 5, 1), 400.0),
             (date(2026, 6, 2), 370.0),
         ]
-        ctx = self._mock_quote_ctx(last_done=361.85, market_state="closed")
+        ctx = self._mock_quote_ctx(last_done=361.85)
 
         result = append_realtime_price(daily, ctx, "GOOGL.US", today)
 
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[-1][0], date(2026, 6, 2))
-        self.assertAlmostEqual(result[-1][1], 370.0)
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[-1][0], today)
+        self.assertAlmostEqual(result[-1][1], 361.85)
 
 
 if __name__ == "__main__":
