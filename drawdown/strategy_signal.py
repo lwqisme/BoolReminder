@@ -84,8 +84,11 @@ def generate_signal(
     inputs = config.to_strategy_inputs()
     longbridge_sym = normalize_longbridge_symbol(sym)
 
-    # 2. Load trade history
+    # 2. Load trade history (try base symbol as fallback for .US/.HK suffix mismatch)
     snapshot = load_symbol_snapshot(sym)
+    if not snapshot:
+        base_sym = sym.split(".", 1)[0]
+        snapshot = load_symbol_snapshot(base_sym)
     if not snapshot:
         return {"symbol": sym, "preset_id": preset_id, "error": "无交易记录"}
 
