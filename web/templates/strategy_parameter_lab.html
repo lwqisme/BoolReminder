@@ -8287,13 +8287,17 @@
             let html = '<select onchange="signalBindings[\'' + escapeHtml(sym) + '\'] = this.value; saveSignalBindings();" style="min-width:200px;">';
             html += '<option value="">-- 选择预设 --</option>';
             for (const p of presetList) {
-                const selected = p.id === currentId ? ' selected' : '';
                 var cfg = p.config_summary || {};
+                // Skip presets without concrete buy/sell strategy — unusable for signal generation
+                if (cfg.type !== 'leaps' && (!cfg.buy_strategy || !cfg.sell_strategy || cfg.buy_strategy === 'all' || cfg.sell_strategy === 'all')) continue;
+                const selected = p.id === currentId ? ' selected' : '';
                 var label;
                 if (cfg.type === 'leaps') {
                     label = '🧬 LEAPS ' + (p.name || p.id);
                 } else {
-                    label = (p.name || p.id) + ' (' + (cfg.buy_strategy || '?') + ')';
+                    var buyLabel = cfg.buy_strategy || '?';
+                    var sellLabel = cfg.sell_strategy || '?';
+                    label = (p.name || p.id) + ' (' + buyLabel + ' / ' + sellLabel + ')';
                 }
                 html += '<option value="' + escapeHtml(p.id) + '"' + selected + '>' + escapeHtml(label) + '</option>';
             }
@@ -8341,11 +8345,15 @@
             html += '<option value="">-- 选择预设 --</option>';
             for (const p of presetList) {
                 var cfg = p.config_summary || {};
+                // Skip presets without concrete buy/sell strategy — unusable for signal generation
+                if (cfg.type !== 'leaps' && (!cfg.buy_strategy || !cfg.sell_strategy || cfg.buy_strategy === 'all' || cfg.sell_strategy === 'all')) continue;
                 var label;
                 if (cfg.type === 'leaps') {
                     label = '🧬 LEAPS ' + (p.name || p.id);
                 } else {
-                    label = (p.name || p.id) + ' (' + (cfg.buy_strategy || '?') + ')';
+                    var buyLabel = cfg.buy_strategy || '?';
+                    var sellLabel = cfg.sell_strategy || '?';
+                    label = (p.name || p.id) + ' (' + buyLabel + ' / ' + sellLabel + ')';
                 }
                 html += '<option value="' + escapeHtml(p.id) + '">' + escapeHtml(label) + '</option>';
             }

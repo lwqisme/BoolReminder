@@ -81,6 +81,15 @@ def generate_signal(
         return {"symbol": sym, "preset_id": preset_id, "error": "预设不存在"}
 
     config = StrategyLabConfig.from_saved_defaults(preset.get("config_payload", {}))
+
+    # "all" is a parameter-lab selector, not a concrete strategy — reject early
+    if config.buy_strategy == "all" or config.sell_strategy == "all":
+        return {
+            "symbol": sym,
+            "preset_id": preset_id,
+            "error": "预设策略为“全部”，无法生成信号。请在参数实验室中为该预设选择具体的买卖策略后重新保存。",
+        }
+
     inputs = config.to_strategy_inputs()
     longbridge_sym = normalize_longbridge_symbol(sym)
 
