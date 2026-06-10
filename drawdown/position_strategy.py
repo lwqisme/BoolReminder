@@ -76,7 +76,7 @@ SCORECARD_PORTFOLIOS = [
     {
         "key": "tencent_100",
         "label": "全仓 腾讯",
-        "targets": [{"symbol": "0700.HK", "weight": 100.0, "name": "Tencent", "max_drawdown_pct": 50.0}],
+        "targets": [{"symbol": "0700.HK", "weight": 100.0, "name": "Tencent"}],
     },
     {
         "key": "qqq_100",
@@ -1154,8 +1154,13 @@ def _resolve_scorecard_portfolios(
                     for target in parsed_core_targets
                 ]
                 break
+    # Per-symbol max_drawdown_pct from scoring topics applies ONLY to the core
+    # portfolio. Scorecard portfolios (全仓 TSLA etc.) use the strategy's
+    # global max_drawdown_pct so the GA can evolve it freely.
     if symbol_max_drawdowns:
         for portfolio in scorecard_portfolios:
+            if portfolio["key"] != "core_50_30_20":
+                continue
             for target in portfolio["targets"]:
                 symbol = normalize_longbridge_symbol(str(target.get("symbol", "")))
                 if symbol in symbol_max_drawdowns:
