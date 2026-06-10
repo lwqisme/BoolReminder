@@ -2064,6 +2064,7 @@
             'core_dip_timing_max_delay_days',
             'core_dip_timing_rise_threshold_pct',
             'core_dip_timing_near_low_pct',
+            'max_drawdown_pct',
             'sell_min_profit_pct',
             'repair_sell_cooldown_days',
             'repair_stage_sell_pct',
@@ -2088,7 +2089,8 @@
             'step_pct', 'equal_slice_allocation_pct', 'core_dip_initial_core_pct', 'core_dip_weekly_core_pct',
             'core_dip_cash_reserve_pct', 'core_dip_start_drawdown_pct', 'core_dip_full_drawdown_pct',
             'core_dip_timing_enabled', 'core_dip_timing_max_delay_days', 'core_dip_timing_rise_threshold_pct',
-            'core_dip_timing_near_low_pct'
+            'core_dip_timing_near_low_pct',
+            'max_drawdown_pct'
         ];
         const SELL_PARAMETER_FIELDS = [
             'sell_min_profit_pct', 'repair_sell_cooldown_days', 'repair_stage_sell_pct',
@@ -2101,8 +2103,8 @@
         const BASELINE_PARAMETER_FIELDS = [
             'drawdown_basis', 'max_drawdown_pct', 'trade_fee', 'hkd_to_usd', 'reserve_position_pct'
         ];
-        const buyParameterFields = parameterFields.slice(0, 11);
-        const sellParameterFields = parameterFields.slice(11);
+        const buyParameterFields = parameterFields.slice(0, 12);
+        const sellParameterFields = parameterFields.slice(12);
         const parameterLabScanFieldDefinitions = {
             step_pct: { label: '步长候选', input: 'stepPct', formatter: percentChip, help: '回撤买入的档位间距。值越小档位越密集，扫描空间越大。此处选择需测试的多个候选步长值。' },
             equal_slice_allocation_pct: { label: '每步投入', input: 'equalSliceAllocation', formatter: percentChip, help: '每触发一个买入档位时投入的目标仓位比例。值越大现金消耗越快。' },

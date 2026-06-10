@@ -50,6 +50,7 @@ BUY_PARAMETER_FIELDS = (
     "core_dip_timing_max_delay_days",
     "core_dip_timing_rise_threshold_pct",
     "core_dip_timing_near_low_pct",
+    "max_drawdown_pct",
 )
 
 BASELINE_PARAMETER_FIELDS = (

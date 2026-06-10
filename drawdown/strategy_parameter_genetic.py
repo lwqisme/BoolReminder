@@ -68,6 +68,7 @@ _BUY_PARAM_RANGES: dict[str, list[object]] = {
     "core_dip_timing_max_delay_days": [int(v) for v in ROBUST_CORE_DIP_TIMING_MAX_DELAY_DAYS],
     "core_dip_timing_rise_threshold_pct": [float(v) for v in ROBUST_CORE_DIP_TIMING_RISE_THRESHOLDS],
     "core_dip_timing_near_low_pct": [float(v) for v in ROBUST_CORE_DIP_TIMING_NEAR_LOW_VALUES],
+    "max_drawdown_pct": [float(v) for v in [20.0, 22.5, 25.0, 27.5, 30.0, 32.5, 35.0, 37.5, 40.0, 42.5, 45.0, 47.5, 50.0]],
 }
 
 _SELL_PARAM_RANGES: dict[str, list[object]] = {
@@ -91,8 +92,8 @@ _SELL_PARAM_RANGES: dict[str, list[object]] = {
 
 # Fields relevant per strategy type
 _RELEVANT_BUY_FIELDS: dict[str, list[str]] = {
-    "equal_slice": ["step_pct", "equal_slice_allocation_pct"],
-    "linear_weighted_slice": ["step_pct"],
+    "equal_slice": ["step_pct", "equal_slice_allocation_pct", "max_drawdown_pct"],
+    "linear_weighted_slice": ["step_pct", "max_drawdown_pct"],
     "core_dip_dca": [
         "core_dip_initial_core_pct",
         "core_dip_weekly_core_pct",
@@ -103,7 +104,7 @@ _RELEVANT_BUY_FIELDS: dict[str, list[str]] = {
         "core_dip_timing_rise_threshold_pct",
         "core_dip_timing_near_low_pct",
     ],
-    "pyramid_3": [],
+    "pyramid_3": ["max_drawdown_pct"],
     "weekly_dca": [],
     "salary_flow_dca": [],
 }
@@ -174,6 +175,7 @@ _PARAM_PRECISION: dict[str, int] = {
     "step_pct": 2, "equal_slice_allocation_pct": 2, "core_dip_initial_core_pct": 1,
     "core_dip_weekly_core_pct": 1, "core_dip_cash_reserve_pct": 1,
     "core_dip_start_drawdown_pct": 2, "core_dip_full_drawdown_pct": 2,
+    "max_drawdown_pct": 1,
     "core_dip_timing_rise_threshold_pct": 2, "core_dip_timing_near_low_pct": 2,
     "sell_min_profit_pct": 2, "repair_stage_sell_pct": 2,
     "grid_rebound_step_pct": 2, "grid_sell_pct": 1,

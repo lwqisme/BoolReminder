@@ -246,9 +246,9 @@ class RelevantFieldsTest(unittest.TestCase):
         self.assertIn("step_pct", fields)
         self.assertIn("equal_slice_allocation_pct", fields)
 
-    def test_pyramid_3_has_no_fields(self):
+    def test_pyramid_3_has_max_drawdown_pct(self):
         fields = _relevant_buy_parameter_fields("pyramid_3")
-        self.assertEqual(fields, [])
+        self.assertEqual(fields, ["max_drawdown_pct"])
 
     def test_grid_rebound_has_sell_fields(self):
         inputs = StrategyInputs()
