@@ -294,6 +294,8 @@ def _serialize_leaps_signal_result(result) -> dict[str, object]:
 def _load_target_allocation(symbol: str, fallback: float) -> float:
     """Parse signal_targets sheet for the symbol's 初始投入 (initial allocation)."""
     sym_base = symbol.upper()
+    sym_short = sym_base.split(".", 1)[0]
+    match_keys = {sym_base, sym_short}
     if not SIGNAL_TARGETS_LATEST_PATH.exists():
         return fallback
     try:
@@ -313,7 +315,7 @@ def _load_target_allocation(symbol: str, fallback: float) -> float:
             name = str(row.get(k, "")).strip().upper()
             if name:
                 break
-        if name != sym_base:
+        if name not in match_keys:
             continue
         enabled = str(row.get("启用", "")).strip()
         if enabled and enabled not in ("是", "yes", "true", "1", "True"):
@@ -331,6 +333,8 @@ def _load_target_allocation(symbol: str, fallback: float) -> float:
 def _load_target_monthly(symbol: str, fallback: float) -> float:
     """Parse signal_targets sheet for the symbol's 每月投入 (monthly contribution)."""
     sym_base = symbol.upper()
+    sym_short = sym_base.split(".", 1)[0]
+    match_keys = {sym_base, sym_short}
     if not SIGNAL_TARGETS_LATEST_PATH.exists():
         return fallback
     try:
@@ -350,7 +354,7 @@ def _load_target_monthly(symbol: str, fallback: float) -> float:
             name = str(row.get(k, "")).strip().upper()
             if name:
                 break
-        if name != sym_base:
+        if name not in match_keys:
             continue
         for k in monthly_keys:
             try:
