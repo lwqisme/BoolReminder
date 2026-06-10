@@ -75,6 +75,9 @@ def _compute_position_context(
     position_ratio = market_value / total if total > 0 else 0.0
 
     tranches = build_strategy_tranches(inputs, buy_strategy)
+    dca_strategies = {"weekly_dca", "salary_flow_dca", "core_dip_dca"}
+    is_dca = buy_strategy in dca_strategies
+
     consumed: list[dict[str, object]] = []
     remaining: list[dict[str, object]] = []
     for t in sorted(tranches, key=lambda x: x.threshold_pct):
@@ -83,9 +86,9 @@ def _compute_position_context(
             "threshold_pct": t.threshold_pct,
             "allocation_pct": t.allocation_pct,
             "description": t.label,
-            "is_consumed": position_ratio >= alloc_ratio,
+            "is_consumed": True if is_dca else position_ratio >= alloc_ratio,
         }
-        if position_ratio >= alloc_ratio:
+        if info["is_consumed"]:
             consumed.append(info)
         else:
             remaining.append(info)
@@ -98,7 +101,8 @@ def _compute_position_context(
         "consumed_count": len(consumed),
         "remaining_count": len(remaining),
         "next_tranche": next_tranche,
-        "summary": _format_position_summary(position_ratio, consumed, next_tranche),
+        "buy_strategy": buy_strategy,
+        "summary": _format_position_summary(position_ratio, consumed, next_tranche, buy_strategy, cash, inputs),
     }
 
 
@@ -106,8 +110,22 @@ def _format_position_summary(
     position_ratio: float,
     consumed: list[dict[str, object]],
     next_tranche: dict[str, object] | None,
+    buy_strategy: str,
+    cash: float,
+    inputs: StrategyInputs,
 ) -> str:
     parts = [f"已投入 {position_ratio * 100:.0f}%"]
+
+    dca_labels = {
+        "weekly_dca": "初始现金和工资到账后立即买入",
+        "salary_flow_dca": "每周首个交易日按工资流动态定投",
+        "core_dip_dca": "核心底仓 + 回撤扫入现金",
+    }
+    if buy_strategy in dca_labels:
+        parts.append(dca_labels[buy_strategy])
+        parts.append(f"剩余现金 ${cash:,.0f}")
+        return "、".join(parts)
+
     if consumed:
         consumed_allocs = [f"{c['allocation_pct']:.0f}%" for c in consumed]
         parts.append(f"已覆盖档位: {', '.join(consumed_allocs)}")

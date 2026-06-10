@@ -2228,9 +2228,9 @@ def _mark_consumed_tranches_from_position(
 ) -> None:
     """After real trades are replayed, mark tranches as consumed based on current position ratio.
 
-    For pyramid_3 / equal_slice / linear_weighted_slice: if the position already
-    covers N% of total portfolio (cash + market value), mark those tranches as done.
-    Example: 65% invested -> tranches at 20% and 50% are consumed, only 100% tranche remains.
+    For pyramid_3: sets executed[key] = 1.0 (flag).  Engine checks already > 0 → skip.
+    For equal_slice / linear_weighted_slice: sets executed[key] to the target dollar
+    amount so that target_amount - already_executed ≤ 0, preventing spurious buy signals.
     """
     if state.shares <= 0 or not tranches:
         return
@@ -2239,10 +2239,16 @@ def _mark_consumed_tranches_from_position(
     if total <= 0:
         return
     invested_ratio = market_value / total
+    strategy = tranches[0].strategy if tranches else ""
     for tranche in sorted(tranches, key=lambda t: t.threshold_pct):
         threshold_key = round(tranche.threshold_pct, 8)
         if invested_ratio >= tranche.allocation_pct / 100.0:
-            executed[threshold_key] = 1.0
+            if strategy == "pyramid_3":
+                executed[threshold_key] = 1.0
+            else:
+                # Mark as fully consumed: set executed to the target dollar amount
+                # so that later target_amount - already_executed ≈ 0.
+                executed[threshold_key] = total * tranche.allocation_pct / 100.0
 
 
 def _simulate_strategy(
