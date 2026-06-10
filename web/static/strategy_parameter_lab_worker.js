@@ -787,6 +787,30 @@ function executeTranches(state, point, tranches, executed, inputs, tradeLog, buy
   return bought;
 }
 
+function markConsumedTranchesFromPosition(state, tranches, executed, strategy) {
+  // Mark tranches as consumed based on current invested ratio (cumulative allocation).
+  // Mirrors Python _mark_consumed_tranches_from_position.
+  if (state.shares <= 0 || !tranches || !tranches.length) return;
+  const marketValue = state.shares * (state.last_price || 0);
+  const total = state.cash + marketValue;
+  if (total <= 0) return;
+  const investedRatio = marketValue / total;
+  var cumulative = 0;
+  var sorted = tranches.slice().sort(function (a, b) { return num(a.threshold_pct) - num(b.threshold_pct); });
+  for (var i = 0; i < sorted.length; i++) {
+    var t = sorted[i];
+    var key = String(Math.round(num(t.threshold_pct) * 1e8) / 1e8);
+    cumulative += num(t.allocation_pct) / 100;
+    if (investedRatio >= cumulative - 1e-9) {
+      if (strategy === 'pyramid_3') {
+        executed[key] = 1;
+      } else {
+        executed[key] = total * num(t.allocation_pct) / 100;
+      }
+    }
+  }
+}
+
 function recordSell(state, point, shares, inputs, tradeLog, sellStrategy, trigger, costBasis = null, stage = null, soldLotSlices = null) {
   const px = priceUsd(state.symbol, point.close, inputs);
   const gross = shares * px;
@@ -1407,6 +1431,10 @@ function simulate(task, baseInputs, candidate) {
           state.buy_rearm_drawdown_pct = null;
         }
         const tranches = tranchesBySymbol[symbol] || [];
+        // Re-mark consumed tranches after any rearm so the engine respects current position.
+        if (!Object.keys(executed[symbol]).length) {
+          markConsumedTranchesFromPosition(state, tranches, executed[symbol], strategy);
+        }
         bought = executeTranches(state, point, tranches, executed[symbol], inputs, tradeLog, strategy, sellStrategy);
       }
       if (!bought || (bought && sellStrategy !== 'none' && Boolean(inputs.sell_allow_same_day_sell))) {
