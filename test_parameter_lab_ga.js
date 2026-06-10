@@ -194,7 +194,11 @@ function mutateGa(ind, mutationRate, paramRanges, gaConfig, crossEnabled) {
                 child[field] = vals[Math.floor(Math.random() * vals.length)];
                 if (intFields.has(field)) child[field] = Math.trunc(Number(child[field]));
             } else if (field === 'sell_allow_same_day_sell') {
-                child[field] = Math.random() < 0.5;
+                if (gaConfig.sell_allow_same_day_sell === 'true' || gaConfig.sell_allow_same_day_sell === 'false') {
+                    child[field] = gaConfig.sell_allow_same_day_sell === 'true';
+                } else {
+                    child[field] = Math.random() < 0.5;
+                }
             }
         }
     }
