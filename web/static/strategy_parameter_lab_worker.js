@@ -232,34 +232,51 @@ function weeklyDcaDays(points) {
   return result;
 }
 
-function rebuildPricePoints(dates, closes, start, end) {
-  const rows = [];
+function rebuildPricePoints(dates, closes, start, end, warmupDays) {
   const startKey = String(start || '');
   const endKey = String(end || '');
+  const warmup = Math.max(0, Number(warmupDays) || 0);
+
+  // Compute warmup start date for accurate ATH tracking.
+  let warmupStartKey = startKey;
+  if (warmup > 0 && startKey) {
+    const d = new Date(startKey + 'T00:00:00');
+    if (!isNaN(d.getTime())) {
+      d.setDate(d.getDate() - warmup);
+      warmupStartKey = d.toISOString().slice(0, 10);
+    }
+  }
+
+  // First pass: collect all points (warmup + window) for ATH calculation.
+  const allRows = [];
   for (let index = 0; index < dates.length; index += 1) {
     const day = String(dates[index] || '');
     if (!day) continue;
-    if (startKey && day < startKey) continue;
+    if (warmupStartKey && day < warmupStartKey) continue;
     if (endKey && day > endKey) continue;
     const close = num(closes[index]);
     if (close <= 0) continue;
-    rows.push({ date: day, close });
+    allRows.push({ date: day, close });
   }
+
+  // Compute ATH and 120-day drawdown across all points (including warmup).
   let rollingPeak = -Infinity;
-  for (let index = 0; index < rows.length; index += 1) {
-    const point = rows[index];
+  for (let index = 0; index < allRows.length; index += 1) {
+    const point = allRows[index];
     rollingPeak = Math.max(rollingPeak, point.close);
     let windowPeak = -Infinity;
     const windowStart = Math.max(0, index - 119);
     for (let windowIndex = windowStart; windowIndex <= index; windowIndex += 1) {
-      windowPeak = Math.max(windowPeak, rows[windowIndex].close);
+      windowPeak = Math.max(windowPeak, allRows[windowIndex].close);
     }
     point.rolling_peak = rollingPeak;
     point.drawdown_ath = rollingPeak > 0 ? point.close / rollingPeak - 1 : 0;
     point.rolling_120_peak = windowPeak;
     point.drawdown_120 = windowPeak > 0 ? point.close / windowPeak - 1 : 0;
   }
-  return rows;
+
+  // Return only window points (>= startKey).
+  return allRows.filter(function (r) { return r.date >= startKey; });
 }
 
 function inflateTask(task, marketData) {
@@ -273,7 +290,7 @@ function inflateTask(task, marketData) {
     const series = symbols[symbol] || {};
     const dates = Array.isArray(series.dates) ? series.dates : [];
     const closes = Array.isArray(series.closes) ? series.closes : [];
-    pricePoints[symbol] = rebuildPricePoints(dates, closes, task.start, task.end);
+    pricePoints[symbol] = rebuildPricePoints(dates, closes, task.start, task.end, 365);
   }
   return { ...task, price_points: pricePoints };
 }

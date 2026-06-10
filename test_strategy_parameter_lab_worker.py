@@ -18,7 +18,7 @@ class StrategyParameterLabWorkerTest(unittest.TestCase):
     def test_worker_inflates_v3_packet_and_precomputes_task_contexts(self):
         source = WORKER_JS.read_text(encoding="utf-8")
 
-        self.assertIn("function rebuildPricePoints(dates, closes, start, end)", source)
+        self.assertIn("function rebuildPricePoints(dates, closes, start, end, warmupDays)", source)
         self.assertIn("function buildTaskContexts(packet)", source)
         self.assertIn("function inflateCandidate(packet, candidateRow)", source)
         self.assertIn("function buildCandidateKey(buyStrategy, sellStrategy, buyParams, sellParams)", source)

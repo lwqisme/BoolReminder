@@ -273,6 +273,41 @@ def _parameter_lab_price_series_from_tasks(tasks: list[dict[str, object]]) -> tu
     return series, row_count
 
 
+def _inject_warmup_into_tasks(
+    tasks: list[dict[str, object]],
+    full_points_by_symbol: dict[str, list[object]],
+    warmup_cutoff: date,
+) -> None:
+    """Extend each task's price_points dict with warmup data for accurate drawdown.
+
+    full_points_by_symbol already contains the extended fetch range (warmup + window).
+    The tasks built by _build_robust_tasks only scope points to the period window.
+    This function adds warmup points (date < warmup_cutoff) to each task's price_points
+    so that the compacted market_data includes them for client-side drawdown computation.
+    """
+    from datetime import date as date_cls
+    from drawdown.position_strategy import PricePoint
+
+    for task in tasks:
+        price_points = task.get("price_points")
+        if not isinstance(price_points, dict):
+            continue
+        for symbol, scoped_points in list(price_points.items()):
+            full_points = full_points_by_symbol.get(symbol)
+            if not full_points:
+                continue
+            warmup_pts = [
+                p for p in full_points
+                if (
+                    (isinstance(p, PricePoint) and p.date.date() < warmup_cutoff)
+                    or (isinstance(p, dict) and str(p.get("date", "")) < warmup_cutoff.isoformat())
+                )
+            ]
+            if warmup_pts:
+                # Prepend warmup points, keeping scoped points after.
+                price_points[symbol] = warmup_pts + list(scoped_points)
+
+
 def _parameter_lab_variant_schema(*fields: str) -> list[str]:
     return ["variant_id", "variant_key", "strategy_key", *fields]
 
@@ -9492,12 +9527,16 @@ def _prepare_ga_client_payload(payload: dict[str, object]) -> dict[str, object]:
     resolved_periods = _resolve_scorecard_periods(end_date, payload.get("scorecard_periods"))
     if not scorecard_portfolios or not resolved_periods:
         raise ValueError("没有可用于参数实验室的题目。")
-    start_date = min(period["fetch_start"] for period in resolved_periods)
+    raw_start_date = min(period["fetch_start"] for period in resolved_periods)
     fetch_end_date = max(period["end"] for period in resolved_periods)
+    # Include 365-day warmup so client-side drawdown calculation matches server-side.
+    start_date = raw_start_date - timedelta(days=365)
     full_points_by_symbol, warnings = _fetch_scorecard_points(scorecard_portfolios, start_date, fetch_end_date)
     tasks = _build_robust_tasks(scorecard_portfolios, resolved_periods, full_points_by_symbol)
     if not tasks:
         raise ValueError("没有可用于参数实验室的题目。")
+    # Extend each task's price_points with warmup data for accurate client-side drawdown.
+    _inject_warmup_into_tasks(tasks, full_points_by_symbol, raw_start_date)
 
     packet = {
         "range": {"start": start_date.isoformat(), "end": fetch_end_date.isoformat()},
@@ -9613,12 +9652,16 @@ def _prepare_strategy_parameter_lab_payload(payload: dict[str, object]) -> dict[
     resolved_periods = _resolve_scorecard_periods(end_date, payload.get("scorecard_periods"))
     if not scorecard_portfolios or not resolved_periods:
         raise ValueError("没有可用于参数实验室的题目。")
-    start_date = min(period["fetch_start"] for period in resolved_periods)
+    raw_start_date = min(period["fetch_start"] for period in resolved_periods)
     fetch_end_date = max(period["end"] for period in resolved_periods)
+    # Include 365-day warmup so client-side drawdown calculation matches server-side.
+    start_date = raw_start_date - timedelta(days=365)
     full_points_by_symbol, warnings = _fetch_scorecard_points(scorecard_portfolios, start_date, fetch_end_date)
     tasks = _build_robust_tasks(scorecard_portfolios, resolved_periods, full_points_by_symbol)
     if not tasks:
         raise ValueError("没有可用于参数实验室的题目。")
+    # Extend each task's price_points with warmup data for accurate client-side drawdown.
+    _inject_warmup_into_tasks(tasks, full_points_by_symbol, raw_start_date)
     candidate_count = int((manifest.get("candidate_counts") or {}).get("total", 0))
     packet = {
         "range": {"start": start_date.isoformat(), "end": fetch_end_date.isoformat()},
