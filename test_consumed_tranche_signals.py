@@ -19,6 +19,7 @@ from drawdown.position_strategy import (
     _mark_consumed_tranches_from_position,
     _position_value_usd,
     _price_usd,
+    _rearm_buy_tranches_after_repair,
     build_strategy_tranches,
 )
 
@@ -252,6 +253,29 @@ class ConsumedTrancheSignalTest(unittest.TestCase):
                 _mark_consumed_tranches_from_position(state, tranches, executed)
                 self.assertEqual(len(executed), len(tranches),
                                  f"{strategy}: all {len(tranches)} tranches should be consumed")
+
+    # ── rearm + position respect ─────────────────────────────────────
+
+    def test_rearm_after_repair_respects_position(self):
+        """After repair rearm (drawdown ≤ 0.5%), position is re-evaluated."""
+        state = _make_state(self.cash, self.shares, self.price)
+        tranches = self._build_tranches("linear_weighted_slice")
+        executed: dict[float, float] = {}
+        # Simulate: engine built up position, then rearm at ATH
+        point = _make_price_point(self.price, -0.003)  # 0.3% drawdown
+        _rearm_buy_tranches_after_repair(state, point, executed,
+                                          StrategyInputs(), tranches)
+        # 60% invested → first 6 tranches should be consumed
+        self.assertGreater(len(executed), 0,
+                           "After rearm near ATH, consumed tranches should be re-marked")
+        # Run execute — consumed tranches should NOT fire
+        trade_log: list[dict[str, object]] = []
+        _execute_crossed_tranches(
+            state, point, tranches, executed, self.inputs,
+            trade_log, "linear_weighted_slice", "none",
+        )
+        # At 0.3% drawdown, no thresholds crossed anyway
+        self.assertEqual(len(trade_log), 0)
 
 
 if __name__ == "__main__":

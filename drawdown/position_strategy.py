@@ -2398,8 +2398,10 @@ def _simulate_strategy(
                         executed[symbol],
                     )
                     _position_applied.add(symbol)
-                _rearm_buy_tranches_after_repair(state, point, executed[symbol], inputs)
-                _rearm_buy_tranches_after_position_sell(state, point, executed[symbol], inputs)
+                _rearm_buy_tranches_after_repair(state, point, executed[symbol], inputs,
+                    tranches_by_symbol.get(symbol, default_tranches))
+                _rearm_buy_tranches_after_position_sell(state, point, executed[symbol], inputs,
+                    tranches_by_symbol.get(symbol, default_tranches))
                 bought_today = _execute_crossed_tranches(
                     state,
                     point,
@@ -3236,11 +3238,15 @@ def _rearm_buy_tranches_after_repair(
     point: PricePoint,
     executed_thresholds: dict[float, float],
     inputs: StrategyInputs,
+    tranches: list[StrategyTranche] | None = None,
 ) -> None:
     drawdown_pct = point_drawdown_pct(point, inputs)
     if drawdown_pct <= 0.50:
         executed_thresholds.clear()
         state.buy_rearm_anchor_drawdown_pct = None
+        # Re-mark consumed tranches so the engine doesn't buy already-covered thresholds.
+        if tranches:
+            _mark_consumed_tranches_from_position(state, tranches, executed_thresholds)
 
 
 def _rearm_buy_tranches_after_position_sell(
@@ -3248,6 +3254,7 @@ def _rearm_buy_tranches_after_position_sell(
     point: PricePoint,
     executed_thresholds: dict[float, float],
     inputs: StrategyInputs,
+    tranches: list[StrategyTranche] | None = None,
 ) -> None:
     if not executed_thresholds or state.buy_rearm_drawdown_pct is None:
         return
@@ -3259,6 +3266,9 @@ def _rearm_buy_tranches_after_position_sell(
         else:
             state.buy_rearm_anchor_drawdown_pct = None
         state.buy_rearm_drawdown_pct = None
+        # Re-mark consumed tranches so the engine doesn't buy already-covered thresholds.
+        if tranches:
+            _mark_consumed_tranches_from_position(state, tranches, executed_thresholds)
 
 
 def _execute_price_rise_grid_sells(
