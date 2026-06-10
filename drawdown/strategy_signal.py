@@ -80,15 +80,17 @@ def _compute_position_context(
 
     consumed: list[dict[str, object]] = []
     remaining: list[dict[str, object]] = []
+    cumulative_alloc = 0.0
     for t in sorted(tranches, key=lambda x: x.threshold_pct):
-        alloc_ratio = t.allocation_pct / 100.0
+        cumulative_alloc += t.allocation_pct / 100.0
+        is_consumed = True if is_dca else position_ratio >= cumulative_alloc - 1e-9
         info = {
             "threshold_pct": t.threshold_pct,
             "allocation_pct": t.allocation_pct,
             "description": t.label,
-            "is_consumed": True if is_dca else position_ratio >= alloc_ratio,
+            "is_consumed": is_consumed,
         }
-        if info["is_consumed"]:
+        if is_consumed:
             consumed.append(info)
         else:
             remaining.append(info)

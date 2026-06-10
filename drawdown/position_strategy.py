@@ -2231,6 +2231,10 @@ def _mark_consumed_tranches_from_position(
     For pyramid_3: sets executed[key] = 1.0 (flag).  Engine checks already > 0 → skip.
     For equal_slice / linear_weighted_slice: sets executed[key] to the target dollar
     amount so that target_amount - already_executed ≤ 0, preventing spurious buy signals.
+
+    Uses cumulative allocation: invested_ratio must reach the sum of all allocation_pct
+    up to and including the current tranche.  This correctly handles pyramid_3 where
+    tranches have different allocation sizes.
     """
     if state.shares <= 0 or not tranches:
         return
@@ -2240,9 +2244,11 @@ def _mark_consumed_tranches_from_position(
         return
     invested_ratio = market_value / total
     strategy = tranches[0].strategy if tranches else ""
+    cumulative_alloc = 0.0
     for tranche in sorted(tranches, key=lambda t: t.threshold_pct):
         threshold_key = round(tranche.threshold_pct, 8)
-        if invested_ratio >= tranche.allocation_pct / 100.0:
+        cumulative_alloc += tranche.allocation_pct / 100.0
+        if invested_ratio >= cumulative_alloc - 1e-9:
             if strategy == "pyramid_3":
                 executed[threshold_key] = 1.0
             else:
