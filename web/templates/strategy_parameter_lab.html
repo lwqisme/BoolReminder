@@ -5309,6 +5309,31 @@
             });
             const drawdownBasisLabel = ((lastParameterPacket?.inputs?.drawdown_basis || 'ath') === 'rolling_120') ? '120日回撤' : 'ATH回撤';
             const trades = Array.isArray(cell.trade_log) ? cell.trade_log : [];
+
+            // Compute tranche index for a buy trade based on strategy and threshold.
+            function buyTrancheIndex(trade) {
+                const strategy = trade.buy_strategy || '';
+                const thr = Number(trade.base_threshold_pct);
+                if (!Number.isFinite(thr)) return '';
+                const inputs = (lastParameterPacket && lastParameterPacket.inputs) || {};
+                const maxDd = Math.max(0.0001, Number(inputs.max_drawdown_pct) || 50);
+                const step = Math.max(0.0001, Number(inputs.step_pct) || 5);
+                var thresholds = [];
+                if (strategy === 'pyramid_3') {
+                    thresholds = [maxDd * 0.2, maxDd * 0.5, maxDd];
+                } else if (strategy === 'equal_slice' || strategy === 'linear_weighted_slice') {
+                    var count = Math.floor(maxDd / step);
+                    for (var i = 1; i <= count; i++) thresholds.push(step * i);
+                    if (!thresholds.length || Math.abs(thresholds[thresholds.length - 1] - maxDd) > 1e-9) thresholds.push(maxDd);
+                } else {
+                    return '';
+                }
+                for (var j = 0; j < thresholds.length; j++) {
+                    if (Math.abs(thresholds[j] - thr) < 0.02) return '第' + (j + 1) + '档 (' + thr.toFixed(2) + '%)';
+                }
+                return thr.toFixed(2) + '%';
+            }
+
             const tradeTrace = (action, name, color, symbol, lineColor = '#fafafa') => {
                 const items = trades.filter((trade) => trade.action === action);
                 const tradeTooltip = (trade) => {
@@ -5323,6 +5348,8 @@
                         `交易后现金占比: ${Number.isFinite(cashPctAfter) ? pct(cashPctAfter) : '--'}`
                     ];
                     if (action === 'buy') {
+                        const trancheLabel = buyTrancheIndex(trade);
+                        if (trancheLabel) lines.push('触发档位: ' + trancheLabel);
                         lines.push(`买入股数: ${number(trade.shares, 4)}`);
                     } else {
                         lines.push(`卖出股数: ${number(trade.shares, 4)}`);
