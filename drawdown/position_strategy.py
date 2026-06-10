@@ -3107,7 +3107,8 @@ def _execute_crossed_tranches(
         threshold_key = round(tranche.threshold_pct, 8)
         if drawdown_pct + 1e-9 < effective_threshold_pct:
             continue
-        target_amount = state.budget * tranche.allocation_pct / 100.0
+        current_total = state.cash + _position_value_usd(state.symbol, state.shares, point.close, inputs)
+        target_amount = current_total * tranche.allocation_pct / 100.0
         already_executed = executed_thresholds.get(threshold_key, 0.0)
         if buy_strategy == "pyramid_3":
             if already_executed > 0:

@@ -748,7 +748,8 @@ function executeTranches(state, point, tranches, executed, inputs, tradeLog, buy
     const key = String(Math.round(tranche.threshold_pct * 1e8) / 1e8);
     const effectiveThreshold = anchor + num(tranche.threshold_pct);
     if (drawdown + 1e-9 < effectiveThreshold) continue;
-    const target = state.budget * tranche.allocation_pct / 100;
+    const currentTotal = state.cash + state.shares * priceUsd(state.symbol, point.close, inputs);
+    const target = currentTotal * tranche.allocation_pct / 100;
     const already = executed[key] || 0;
     if (buyStrategy === 'pyramid_3' && already > 0) continue;
     const gross = buyStrategy === 'pyramid_3'
