@@ -57,7 +57,7 @@ class SignalScheduler:
         for r in results:
             if r.get("error"):
                 continue
-            has_stock = bool(r.get("signals"))
+            has_stock = any(s.get("status") == "signal" for s in r.get("signals", []))
             has_leaps = bool(r.get("entry_signals") or r.get("sell_signals"))
             if has_stock or has_leaps:
                 active.append(r)
@@ -71,7 +71,16 @@ class SignalScheduler:
         for r in active:
             symbol = str(r["symbol"])
             # Stock signals
+            has_actionable = False
             for sig in r.get("signals", []):
+                status = sig.get("status", "signal")
+                if status == "covered":
+                    # Covered tranche: show as info
+                    body_lines.append(
+                        f"{symbol}: [已覆盖] {sig.get('reason', '')}"
+                    )
+                    continue
+                has_actionable = True
                 action = sig.get("action", "?")
                 price = sig.get("price", "?")
                 reason = sig.get("reason", "")

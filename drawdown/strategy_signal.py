@@ -299,6 +299,28 @@ def generate_signal(
         inputs=inputs,
     )
 
+    # Build all-tranche signals: actionable buys + covered tranches marked as 已覆盖
+    all_signals: list[dict[str, object]] = []
+    # Today's actionable signals first
+    for t in signal_trades:
+        all_signals.append({
+            "action": t.get("action"),
+            "shares": t.get("shares"),
+            "price": t.get("price"),
+            "reason": _signal_reason(t),
+            "status": "signal",
+        })
+    # Covered tranches from position_context
+    for c in position_context.get("consumed", []):
+        all_signals.append({
+            "action": "buy",
+            "status": "covered",
+            "threshold_pct": c.get("threshold_pct"),
+            "allocation_pct": c.get("allocation_pct"),
+            "description": c.get("description", ""),
+            "reason": f"已覆盖: 回撤 {c.get('threshold_pct', 0):.1f}% 档位 (仓位 {c.get('allocation_pct', 0):.1f}%)",
+        })
+
     return {
         "symbol": sym,
         "preset_id": preset_id,
@@ -318,15 +340,7 @@ def generate_signal(
             "avg_cost": total_buy / real_shares if real_shares > 0 else 0,
         },
         "position_context": position_context,
-        "signals": [
-            {
-                "action": t.get("action"),
-                "shares": t.get("shares"),
-                "price": t.get("price"),
-                "reason": _signal_reason(t),
-            }
-            for t in signal_trades
-        ],
+        "signals": all_signals,
         "dry_run": dry_run,
     }
 

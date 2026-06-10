@@ -8448,14 +8448,20 @@
                             } else {
                                 let totalBuy = 0, totalBuyShares = 0;
                                 for (const sig of stockSigs) {
-                                    html += '<div class="signal-row">' +
-                                        (sig.action === 'buy' ? '🟢 买入' : '🔴 卖出') +
-                                        ' ' + (sig.shares || '?') + '股 @ $' + (sig.price || '?') +
-                                        (sig.reason ? ' <span style="color:var(--muted);">(' + escapeHtml(sig.reason) + ')</span>' : '') +
-                                        '</div>';
-                                    if (sig.action === 'buy') {
-                                        totalBuy += (sig.shares || 0) * (sig.price || 0);
-                                        totalBuyShares += sig.shares || 0;
+                                    if (sig.status === 'covered') {
+                                        html += '<div class="signal-row" style="color:var(--muted);">' +
+                                            '✅ ' + escapeHtml(sig.reason || '已覆盖') +
+                                            '</div>';
+                                    } else {
+                                        html += '<div class="signal-row">' +
+                                            (sig.action === 'buy' ? '🟢 买入' : '🔴 卖出') +
+                                            ' ' + (sig.shares || '?') + '股 @ $' + (sig.price || '?') +
+                                            (sig.reason ? ' <span style="color:var(--muted);">(' + escapeHtml(sig.reason) + ')</span>' : '') +
+                                            '</div>';
+                                        if (sig.action === 'buy') {
+                                            totalBuy += (sig.shares || 0) * (sig.price || 0);
+                                            totalBuyShares += sig.shares || 0;
+                                        }
                                     }
                                 }
                                 if (totalBuy > 0) {
