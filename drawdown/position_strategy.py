@@ -2221,6 +2221,30 @@ def _apply_real_trades(
             })
 
 
+def _mark_consumed_tranches_from_position(
+    state: SymbolState,
+    tranches: list[StrategyTranche],
+    executed: dict[float, float],
+) -> None:
+    """After real trades are replayed, mark tranches as consumed based on current position ratio.
+
+    For pyramid_3 / equal_slice / linear_weighted_slice: if the position already
+    covers N% of total portfolio (cash + market value), mark those tranches as done.
+    Example: 65% invested -> tranches at 20% and 50% are consumed, only 100% tranche remains.
+    """
+    if state.shares <= 0 or not tranches:
+        return
+    market_value = state.last_value
+    total = state.cash + market_value
+    if total <= 0:
+        return
+    invested_ratio = market_value / total
+    for tranche in sorted(tranches, key=lambda t: t.threshold_pct):
+        threshold_key = round(tranche.threshold_pct, 8)
+        if invested_ratio >= tranche.allocation_pct / 100.0:
+            executed[threshold_key] = 1.0
+
+
 def _simulate_strategy(
     price_points_by_symbol: dict[str, list[PricePoint]],
     targets: list[PortfolioTarget],
@@ -2253,6 +2277,7 @@ def _simulate_strategy(
         for target in targets
     }
     executed = {target.symbol: {} for target in targets}
+    _position_applied: set[str] = set()
     point_by_day = {
         symbol: {point.date.date(): point for point in points}
         for symbol, points in price_points_by_symbol.items()
@@ -2354,6 +2379,13 @@ def _simulate_strategy(
                     sell_strategy,
                 )
             else:
+                if symbol not in _position_applied:
+                    _mark_consumed_tranches_from_position(
+                        state,
+                        tranches_by_symbol.get(symbol, default_tranches),
+                        executed[symbol],
+                    )
+                    _position_applied.add(symbol)
                 _rearm_buy_tranches_after_repair(state, point, executed[symbol], inputs)
                 _rearm_buy_tranches_after_position_sell(state, point, executed[symbol], inputs)
                 bought_today = _execute_crossed_tranches(
