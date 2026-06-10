@@ -1670,6 +1670,7 @@
                             <label>网格最小额 $ (0~1000)<div style="display:flex;gap:3px;"><input id="gaB_gMin" type="number" min="0" max="1000" step="10" placeholder="0" style="width:50%;"><span>~</span><input id="gaB_gMinHi" type="number" min="0" max="1000" step="10" placeholder="1000" style="width:50%;"></div></label>
                             <label>最小盈利 % (1~50)<div style="display:flex;gap:3px;"><input id="gaB_mPrf" type="number" min="1" max="50" step="1" placeholder="1" style="width:50%;"><span>~</span><input id="gaB_mPrfHi" type="number" min="1" max="50" step="1" placeholder="50" style="width:50%;"></div></label>
                             <label>修复冷却 天 (0~120)<div style="display:flex;gap:3px;"><input id="gaB_rpCd" type="number" min="0" max="120" step="1" placeholder="0" style="width:50%;"><span>~</span><input id="gaB_rpCdHi" type="number" min="0" max="120" step="1" placeholder="120" style="width:50%;"></div></label>
+                            <label>最大回撤 % (20~50)<div style="display:flex;gap:3px;"><input id="gaB_maxDd" type="number" min="20" max="50" step="2.5" placeholder="20" style="width:50%;"><span>~</span><input id="gaB_maxDdHi" type="number" min="20" max="50" step="2.5" placeholder="50" style="width:50%;"></div></label>
                         </div>
                     </details>
                     <div style="margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;font-size:12px;">
@@ -7223,7 +7224,7 @@
             const sameDayEl = document.getElementById('sellAllowSameDaySell'); if (sameDayEl) sameDayEl.addEventListener('change', autoSaveParameterLabDefaults);
             const leapsGate = document.getElementById('leapsDrawdownGate'); if (leapsGate) leapsGate.addEventListener('change', autoSaveParameterLabDefaults);
             const pfText = document.getElementById('portfolioText'); if (pfText) pfText.addEventListener('input', autoSaveParameterLabDefaults);
-            const gaSaveIds = ['gaBuyStrategy', 'gaSellStrategy', 'gaCrossStrategy', 'gaStrategyMutationRate', 'gaPopSize', 'gaGenerations', 'gaMutationRate', 'gaCrossoverRate', 'gaContinuousMutation', 'gaSigmaRatio', 'gaB_dcaRe', 'gaB_dcaReHi', 'gaB_stgRe', 'gaB_stgReHi', 'gaB_step', 'gaB_stepHi', 'gaB_alloc', 'gaB_allocHi', 'gaB_gStp', 'gaB_gStpHi', 'gaB_gSel', 'gaB_gSelHi', 'gaB_mPrf', 'gaB_mPrfHi', 'gaB_rpCd', 'gaB_rpCdHi'];
+            const gaSaveIds = ['gaBuyStrategy', 'gaSellStrategy', 'gaCrossStrategy', 'gaStrategyMutationRate', 'gaPopSize', 'gaGenerations', 'gaMutationRate', 'gaCrossoverRate', 'gaContinuousMutation', 'gaSigmaRatio', 'gaB_dcaRe', 'gaB_dcaReHi', 'gaB_stgRe', 'gaB_stgReHi', 'gaB_step', 'gaB_stepHi', 'gaB_alloc', 'gaB_allocHi', 'gaB_gStp', 'gaB_gStpHi', 'gaB_gSel', 'gaB_gSelHi', 'gaB_mPrf', 'gaB_mPrfHi', 'gaB_rpCd', 'gaB_rpCdHi', 'gaB_maxDd', 'gaB_maxDdHi'];
             gaSaveIds.forEach(function(id) {
                 const el = document.getElementById(id);
                 if (el) { el.addEventListener('input', autoSaveParameterLabDefaults); el.addEventListener('change', autoSaveParameterLabDefaults); }
@@ -7710,7 +7711,8 @@
                 dcaRe: 'dca_rearm_drawdown_pct', stgRe: 'sell_stage_rearm_drawdown_pct',
                 step: 'step_pct', alloc: 'equal_slice_allocation_pct',
                 gStp: 'grid_rebound_step_pct', gSel: 'grid_sell_pct', gMin: 'grid_min_sell_amount',
-                mPrf: 'sell_min_profit_pct', rpCd: 'repair_sell_cooldown_days'
+                mPrf: 'sell_min_profit_pct', rpCd: 'repair_sell_cooldown_days',
+                maxDd: 'max_drawdown_pct'
             };
             const out = {};
             for (const [suffix, field] of Object.entries(map)) {
@@ -7730,7 +7732,7 @@
         }
 
         function readGaCustomBoundsRaw() {
-            const suffixes = ['dcaRe', 'stgRe', 'step', 'alloc', 'gStp', 'gSel', 'mPrf', 'rpCd'];
+            const suffixes = ['dcaRe', 'stgRe', 'step', 'alloc', 'gStp', 'gSel', 'mPrf', 'rpCd', 'maxDd'];
             const out = {};
             suffixes.forEach(function(suffix) {
                 const lo = document.getElementById('gaB_' + suffix);
@@ -7873,7 +7875,8 @@
                 grid_rebound_cycle_reset: '周期重启',
                 grid_min_sell_amount: '网格最小额',
                 sell_min_profit_pct: '最小盈利',
-                repair_sell_cooldown_days: '修复冷却'
+                repair_sell_cooldown_days: '修复冷却',
+                max_drawdown_pct: '最大回撤'
             };
             return (paramRanges?._custom_bounds_fields || []).map(function(field) {
                 const b = gaNumericBounds(field, paramRanges);
