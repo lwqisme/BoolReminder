@@ -82,7 +82,7 @@ def _compute_position_context(
         info = {
             "threshold_pct": t.threshold_pct,
             "allocation_pct": t.allocation_pct,
-            "description": t.description,
+            "description": t.label,
             "is_consumed": position_ratio >= alloc_ratio,
         }
         if position_ratio >= alloc_ratio:
@@ -109,11 +109,11 @@ def _format_position_summary(
 ) -> str:
     parts = [f"已投入 {position_ratio * 100:.0f}%"]
     if consumed:
-        consumed_thresholds = [f"{c['threshold_pct']:.0f}%" for c in consumed]
-        parts.append(f"已覆盖档位: {', '.join(consumed_thresholds)}")
+        consumed_allocs = [f"{c['allocation_pct']:.0f}%" for c in consumed]
+        parts.append(f"已覆盖档位: {', '.join(consumed_allocs)}")
     if next_tranche:
         parts.append(
-            f"下一档: 回撤 ≥ {next_tranche['allocation_pct']:.0f}% 时买入 "
+            f"下一档: 回撤 ≥ {next_tranche['threshold_pct']:.0f}% 时买入 "
             f"{next_tranche['allocation_pct']:.0f}% 仓位"
         )
     else:
