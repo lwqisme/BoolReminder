@@ -21,6 +21,7 @@ from drawdown.position_strategy import (
     PortfolioTarget,
     StrategyInputs,
     _simulate_strategy,
+    build_strategy_tranches,
     parse_portfolio_targets,
 )
 from drawdown.strategy_lab_config import StrategyLabConfig
@@ -58,6 +59,66 @@ def save_signal_bindings(bindings: dict[str, str]) -> None:
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(cleaned, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
+
+
+def _compute_position_context(
+    *,
+    shares: float,
+    cash: float,
+    price: float,
+    buy_strategy: str,
+    inputs: StrategyInputs,
+) -> dict[str, object]:
+    """Compute which tranches are already covered by the real position."""
+    market_value = shares * price
+    total = cash + market_value
+    position_ratio = market_value / total if total > 0 else 0.0
+
+    tranches = build_strategy_tranches(inputs, buy_strategy)
+    consumed: list[dict[str, object]] = []
+    remaining: list[dict[str, object]] = []
+    for t in sorted(tranches, key=lambda x: x.threshold_pct):
+        alloc_ratio = t.allocation_pct / 100.0
+        info = {
+            "threshold_pct": t.threshold_pct,
+            "allocation_pct": t.allocation_pct,
+            "description": t.description,
+            "is_consumed": position_ratio >= alloc_ratio,
+        }
+        if position_ratio >= alloc_ratio:
+            consumed.append(info)
+        else:
+            remaining.append(info)
+
+    next_tranche = remaining[0] if remaining else None
+    return {
+        "position_ratio": round(position_ratio * 100, 1),
+        "total_value": round(total, 2),
+        "market_value": round(market_value, 2),
+        "consumed_count": len(consumed),
+        "remaining_count": len(remaining),
+        "next_tranche": next_tranche,
+        "summary": _format_position_summary(position_ratio, consumed, next_tranche),
+    }
+
+
+def _format_position_summary(
+    position_ratio: float,
+    consumed: list[dict[str, object]],
+    next_tranche: dict[str, object] | None,
+) -> str:
+    parts = [f"已投入 {position_ratio * 100:.0f}%"]
+    if consumed:
+        consumed_thresholds = [f"{c['threshold_pct']:.0f}%" for c in consumed]
+        parts.append(f"已覆盖档位: {', '.join(consumed_thresholds)}")
+    if next_tranche:
+        parts.append(
+            f"下一档: 回撤 ≥ {next_tranche['allocation_pct']:.0f}% 时买入 "
+            f"{next_tranche['allocation_pct']:.0f}% 仓位"
+        )
+    else:
+        parts.append("所有档位已覆盖")
+    return "、".join(parts)
 
 
 def generate_signal(
@@ -209,6 +270,15 @@ def generate_signal(
     real_cash = initial_cash + total_sell - total_buy
     last_price_val = points[-1].close if points else 0
 
+    # Compute position context: which tranches are already covered by real position
+    position_context = _compute_position_context(
+        shares=real_shares,
+        cash=real_cash,
+        price=last_price_val,
+        buy_strategy=config.buy_strategy,
+        inputs=inputs,
+    )
+
     return {
         "symbol": sym,
         "preset_id": preset_id,
@@ -227,6 +297,7 @@ def generate_signal(
             "last_price": last_price_val,
             "avg_cost": total_buy / real_shares if real_shares > 0 else 0,
         },
+        "position_context": position_context,
         "signals": [
             {
                 "action": t.get("action"),
