@@ -3917,8 +3917,12 @@
             if (strategyKey === 'equal_slice') {
                 if (params.step_pct !== null && params.step_pct !== undefined) bits.push(`步长 ${formatCompact(params.step_pct)}%`);
                 if (params.equal_slice_allocation_pct !== null && params.equal_slice_allocation_pct !== undefined) bits.push(`每步 ${formatCompact(params.equal_slice_allocation_pct)}%`);
+                if (params.max_drawdown_pct !== null && params.max_drawdown_pct !== undefined) bits.push(`最大回撤 ${formatCompact(params.max_drawdown_pct)}%`);
             } else if (strategyKey === 'linear_weighted_slice') {
                 if (params.step_pct !== null && params.step_pct !== undefined) bits.push(`步长 ${formatCompact(params.step_pct)}%`);
+                if (params.max_drawdown_pct !== null && params.max_drawdown_pct !== undefined) bits.push(`最大回撤 ${formatCompact(params.max_drawdown_pct)}%`);
+            } else if (strategyKey === 'pyramid_3') {
+                if (params.max_drawdown_pct !== null && params.max_drawdown_pct !== undefined) bits.push(`最大回撤 ${formatCompact(params.max_drawdown_pct)}%`);
             } else if (strategyKey === 'core_dip_dca') {
                 if (params.core_dip_initial_core_pct !== null && params.core_dip_initial_core_pct !== undefined) {
                     bits.push(`初始 ${formatCompact(params.core_dip_initial_core_pct)}%`);
@@ -8039,10 +8043,14 @@
             if (buy === 'equal_slice') {
                 if (ind.step_pct !== undefined && ind.step_pct !== null) parts.push('步长' + formatCompact(ind.step_pct) + '%');
                 if (ind.equal_slice_allocation_pct !== undefined && ind.equal_slice_allocation_pct !== null) parts.push('每步' + formatCompact(ind.equal_slice_allocation_pct) + '%');
+                if (ind.max_drawdown_pct !== undefined && ind.max_drawdown_pct !== null) parts.push('最大回撤' + formatCompact(ind.max_drawdown_pct) + '%');
             } else if (buy === 'linear_weighted_slice') {
                 if (ind.step_pct !== undefined && ind.step_pct !== null) parts.push('步长' + formatCompact(ind.step_pct) + '%');
+                if (ind.max_drawdown_pct !== undefined && ind.max_drawdown_pct !== null) parts.push('最大回撤' + formatCompact(ind.max_drawdown_pct) + '%');
+            } else if (buy === 'pyramid_3') {
+                if (ind.max_drawdown_pct !== undefined && ind.max_drawdown_pct !== null) parts.push('最大回撤' + formatCompact(ind.max_drawdown_pct) + '%');
             }
-            if (buy === 'core_dip_dca') {
+            if (buy === 'pyramid_3') {
                 if (ind.core_dip_start_drawdown_pct !== undefined && ind.core_dip_start_drawdown_pct !== null)
                     parts.push('加仓' + formatCompact(ind.core_dip_start_drawdown_pct) + '-' + formatCompact(ind.core_dip_full_drawdown_pct) + '%');
                 if (ind.core_dip_timing_enabled) parts.push('买点优化');
