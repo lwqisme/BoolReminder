@@ -2221,12 +2221,6 @@ def _apply_real_trades(
             })
 
 
-def _date_component(d: date) -> date:
-    """Normalize datetime.date or datetime.datetime to date."""
-    from datetime import datetime as dt_cls
-    return d.date() if isinstance(d, dt_cls) else d
-
-
 def _simulate_strategy(
     price_points_by_symbol: dict[str, list[PricePoint]],
     targets: list[PortfolioTarget],
@@ -2260,11 +2254,11 @@ def _simulate_strategy(
     }
     executed = {target.symbol: {} for target in targets}
     point_by_day = {
-        symbol: {(_date_component(point.date)): point for point in points}
+        symbol: {point.date.date(): point for point in points}
         for symbol, points in price_points_by_symbol.items()
     }
     trading_index_by_symbol = {
-        symbol: {(_date_component(point.date)): index for index, point in enumerate(points)}
+        symbol: {point.date.date(): index for index, point in enumerate(points)}
         for symbol, points in price_points_by_symbol.items()
     }
     dca_days = {

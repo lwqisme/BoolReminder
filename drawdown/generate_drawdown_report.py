@@ -356,6 +356,9 @@ def build_price_points_from_series(series: list[tuple[datetime, float]]) -> list
     closes = [close for _point_date, close in ordered]
     rolling_peak = -math.inf
     for index, (point_date, close) in enumerate(ordered):
+        # Normalize date to datetime for downstream compatibility
+        if isinstance(point_date, date) and not isinstance(point_date, datetime):
+            point_date = datetime.combine(point_date, datetime.min.time())
         rolling_peak = max(rolling_peak, close)
         drawdown_ath = close / rolling_peak - 1.0
         window_peak = max(closes[max(0, index - 119) : index + 1])
