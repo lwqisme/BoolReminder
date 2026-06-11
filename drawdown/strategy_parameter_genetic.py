@@ -632,7 +632,10 @@ def _random_individual(
         elif field in _SELL_PARAM_RANGES:
             sell_params[field] = _random_param_value(field, _SELL_PARAM_RANGES[field])
         elif field == "sell_allow_same_day_sell":
-            sell_params[field] = random.choice([False, True])
+            if cat_restrict and cat_restrict.sell_allow_same_day_sell:
+                sell_params[field] = cat_restrict.sell_allow_same_day_sell == "true"
+            else:
+                sell_params[field] = random.choice([False, True])
         elif field == "buy_rearm_mode":
             modes = list(BUY_REARM_MODES)
             if cat_restrict and cat_restrict.buy_rearm_mode:
