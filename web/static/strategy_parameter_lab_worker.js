@@ -791,7 +791,9 @@ function markConsumedTranchesFromPosition(state, tranches, executed, strategy) {
   // Mark tranches as consumed based on current invested ratio (cumulative allocation).
   // Mirrors Python _mark_consumed_tranches_from_position.
   if (state.shares <= 0 || !tranches || !tranches.length) return;
-  const marketValue = state.shares * (state.last_price || 0);
+  // state.last_value is refreshed each day before this runs (mirrors Python's state.last_value).
+  // NOTE: state.last_price is never assigned in the JS engine — do not use it here.
+  const marketValue = num(state.last_value, 0);
   const total = state.cash + marketValue;
   if (total <= 0) return;
   const investedRatio = marketValue / total;

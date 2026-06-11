@@ -286,6 +286,117 @@ const packet = {
             ],
         )
 
+    def test_worker_remarks_consumed_tranches_after_ath_reset(self):
+        if shutil.which("node") is None:
+            self.skipTest("node is required for JavaScript worker consumed-tranche re-mark check")
+
+        script = r"""
+const fs = require('fs');
+const vm = require('vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const messages = [];
+const context = {
+  console: { info() {}, warn() {}, error() {} },
+  postMessage(message) { messages.push(message); },
+  performance: { now: () => 0 },
+  setTimeout
+};
+context.self = context;
+vm.createContext(context);
+vm.runInContext(source, context);
+
+const buyFields = [
+  'step_pct', 'equal_slice_allocation_pct', 'core_dip_initial_core_pct',
+  'core_dip_weekly_core_pct', 'core_dip_cash_reserve_pct',
+  'core_dip_start_drawdown_pct', 'core_dip_full_drawdown_pct',
+  'core_dip_timing_enabled', 'core_dip_timing_max_delay_days',
+  'core_dip_timing_rise_threshold_pct', 'core_dip_timing_near_low_pct'
+];
+const sellFields = [
+  'sell_min_profit_pct', 'repair_sell_cooldown_days', 'repair_stage_sell_pct',
+  'grid_rebound_step_pct', 'grid_first_sell_pct', 'grid_second_sell_pct',
+  'grid_min_sell_amount', 'cost_first_profit_pct', 'cost_second_profit_pct',
+  'cost_third_profit_pct', 'cost_first_sell_pct', 'cost_second_sell_pct',
+  'cost_third_sell_pct', 'cost_deleverage_cooldown_days',
+  'sell_allow_same_day_sell', 'cost_min_sell_amount', 'dca_rearm_drawdown_pct',
+  'buy_rearm_mode', 'sell_stage_rearm_drawdown_pct'
+];
+const buyValues = { step_pct: 10, equal_slice_allocation_pct: 10 };
+const packet = {
+  run_id: 'remark-cycle',
+  inputs: {
+    initial_cash: 10000,
+    monthly_contribution: 0,
+    max_drawdown_pct: 60,
+    drawdown_basis: 'ath',
+    trade_fee: 0,
+    hkd_to_usd: 0.128,
+    reserve_position_pct: 0,
+    sell_min_profit_pct: 0,
+    sell_allow_same_day_sell: false,
+    dca_rearm_drawdown_pct: 0,
+    sell_stage_rearm_drawdown_pct: null
+  },
+  tasks: [{
+    key: 'remark_cycle',
+    portfolio_key: 'single',
+    portfolio_label: 'Single',
+    period_key: 'cycle',
+    period_label: 'Cycle',
+    start: '2025-01-01',
+    end: '2025-01-04',
+    symbols: ['TSLA.US'],
+    targets: [{ symbol: 'TSLA.US', weight: 100, name: 'TSLA', max_drawdown_pct: 60 }]
+  }],
+  market_data: {
+    symbols: {
+      'TSLA.US': {
+        dates: ['2025-01-01', '2025-01-02', '2025-01-03', '2025-01-04'],
+        closes: [200, 160, 200, 160]
+      }
+    }
+  },
+  buy_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...buyFields],
+  sell_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...sellFields],
+  candidate_schema: ['candidate_id', 'buy_variant_id', 'sell_variant_id'],
+  buy_variants: [[0, 'buy:equal', 'equal_slice', ...buyFields.map((field) => buyValues[field] ?? null)]],
+  sell_variants: [[0, 'sell:none', 'none', ...sellFields.map(() => null)]],
+  candidate_rows: [[0, 0, 0]],
+  include_trades: true
+};
+(async () => {
+  await context.initRun(packet, 0, packet.run_id, 1);
+  await context.processBatch({ run_id: packet.run_id, worker_index: 0, batch_id: 'b1', candidate_rows: packet.candidate_rows }, 0, packet.run_id);
+  const done = messages.find((message) => message.type === 'batch_done');
+  const trades = done.rows[0].observations[0].trade_log;
+  const buys = trades
+    .filter((trade) => trade.action === 'buy')
+    .map((trade) => [trade.date, Math.round(trade.gross_amount)]);
+  process.stdout.write(JSON.stringify(buys));
+})().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
+"""
+        completed = subprocess.run(
+            ["node", "-e", script, str(WORKER_JS)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        # Day 2 (drawdown 20%) buys tranches 10% and 20%.  Day 3 returns to ATH,
+        # which wipes `executed` — the re-mark pass must flag both tranches as
+        # already covered by the live position so the day-4 re-dip (20% again)
+        # does NOT re-buy them at full size.
+        self.assertEqual(
+            json.loads(completed.stdout),
+            [
+                ["2025-01-02", 1000],
+                ["2025-01-02", 1000],
+            ],
+        )
+
     def test_worker_googl_cost_detail_replay_skips_cooldown_day_sell(self):
         if shutil.which("node") is None:
             self.skipTest("node is required for JavaScript GOOGL replay check")
