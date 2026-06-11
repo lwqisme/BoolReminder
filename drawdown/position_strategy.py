@@ -261,6 +261,7 @@ class SymbolState:
     grid_rebound_last_sell_drawdown_pct: float | None = None
     grid_rebound_last_sell_lot_count: int = 0
     price_rise_grid_anchor_price: float | None = None
+    cost_deleverage_cycle_anchor_price: float | None = None
     price_history: list[PricePoint] = field(default_factory=list)
 
 
@@ -3572,7 +3573,16 @@ def _execute_cost_deleverage_sells(
     current_price_usd = _price_usd(state.symbol, point.close, inputs)
     if avg_cost <= 0:
         return
-    profit_pct = current_price_usd / avg_cost * 100.0 - 100.0
+    # ADR-0004: sell_min_profit_pct is a cost-based no-loss gate; stage thresholds measure
+    # against the cycle anchor, which survives sell-stage rearms and ratchets to the current
+    # price once a full cost_1..cost_3 cycle completes.
+    if current_price_usd < avg_cost * (1.0 + inputs.sell_min_profit_pct / 100.0):
+        return
+    anchor = state.cost_deleverage_cycle_anchor_price
+    if anchor is None or anchor <= 0:
+        anchor = avg_cost
+        state.cost_deleverage_cycle_anchor_price = anchor
+    profit_pct = current_price_usd / anchor * 100.0 - 100.0
     stage = select_cost_deleverage_stage(inputs=inputs, active_marks=state.sell_marks, profit_pct=profit_pct)
     if stage is None:
         return
@@ -3589,6 +3599,9 @@ def _execute_cost_deleverage_sells(
         sell_stage=stage.mark,
     ):
         state.sell_marks.add(stage.mark)
+        if stage.mark == "cost_3":
+            state.sell_marks.clear()
+            state.cost_deleverage_cycle_anchor_price = current_price_usd if state.shares > 0 else None
         state.last_cost_deleverage_sell_trade_index = trade_index
 
 

@@ -650,17 +650,9 @@ function rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy) {
     state.grid_rebound_cycle_anchor_drawdown_pct = null;
     state.grid_rebound_last_sell_drawdown_pct = null;
   }
-  if (sellStrategy === 'price_rise_grid') {
-    // KNOWN ISSUE (documented, intentionally unfixed): nulling the anchor here makes the next
-    // executeSells re-seed it from avgCost (see executeSells). For long-history positions the
-    // averaged cost sits far below the current price, so a deep-drawdown buy with
-    // sell_allow_same_day_sell can trigger an instant same-day sell at the buy price — a
-    // buy→rearm→sell churn during declines. Python's _rearm_position_sell_cycle_after_dca_buy
-    // does NOT reset this anchor (position_strategy.py), so this is a JS/Python divergence.
-    // Candidate fix: keep the anchor, or re-seed with max(avgCost, current price).
-    state.price_rise_grid_anchor_price = null;
-  }
-  if (sellStrategy === 'cost_deleverage') state.cost_deleverage_cycle_anchor_price = null;
+  // ADR-0004: the cycle anchor (price_rise_grid_anchor_price / cost_deleverage_cycle_anchor_price)
+  // survives a sell-stage rearm. Resetting it re-seeded from the diluted average cost, which made
+  // deep-drawdown buys instantly re-trigger same-day sells at the buy price.
   return true;
 }
 
@@ -975,6 +967,10 @@ function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog,
     }
   } else if (sellStrategy === 'cost_deleverage') {
     if (num(inputs.cost_deleverage_cooldown_days) > 0 && state.last_cost_deleverage_sell_trade_index !== null && tradeIndex - state.last_cost_deleverage_sell_trade_index < num(inputs.cost_deleverage_cooldown_days)) return;
+    // ADR-0004: stage thresholds measure against the cycle anchor; sell_min_profit_pct stays a
+    // separate cost-based no-loss gate.
+    const cost = avgCost(state);
+    if (cost <= 0 || current < cost * (1 + num(inputs.sell_min_profit_pct) / 100)) return;
     const anchor = costDeleverageCycleAnchor(state);
     if (anchor <= 0) return;
     const profit = current / anchor * 100 - 100;
@@ -983,7 +979,7 @@ function executeSells(state, point, inputs, buyStrategy, sellStrategy, tradeLog,
       ['cost_2', num(inputs.cost_second_profit_pct), num(inputs.cost_second_sell_pct)],
       ['cost_3', num(inputs.cost_third_profit_pct), num(inputs.cost_third_sell_pct)]
     ]) {
-      if (state.sell_marks[mark] || profit < Math.max(threshold, num(inputs.sell_min_profit_pct))) continue;
+      if (state.sell_marks[mark] || profit < threshold) continue;
       if (sellShares(state, point, state.shares * sellPct / 100, inputs, tradeLog, sellStrategy, threshold, num(inputs.cost_min_sell_amount), mark)) {
         state.sell_marks[mark] = true;
         if (mark === 'cost_3') {

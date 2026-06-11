@@ -613,7 +613,7 @@ const packet = {
         self.assertNotIn(("2025-01-06", 10), sells)
         self.assertNotIn(("2025-01-09", 30), sells)
 
-    def test_cost_deleverage_rearm_buy_resets_cycle_anchor_to_new_average_cost(self):
+    def test_cost_deleverage_rearm_buy_keeps_cycle_anchor(self):
         if shutil.which("node") is None:
             self.skipTest("node is required for JavaScript cost deleverage rearm check")
 
@@ -669,15 +669,15 @@ const packet = {
     period_key: 'cycle',
     period_label: 'Cycle',
     start: '2025-01-01',
-    end: '2025-01-05',
+    end: '2025-01-06',
     symbols: ['GOOG.US'],
     targets: [{ symbol: 'GOOG.US', weight: 100, name: 'GOOG', max_drawdown_pct: 70 }]
   }],
   market_data: {
     symbols: {
       'GOOG.US': {
-        dates: ['2025-01-01', '2025-01-02', '2025-01-03', '2025-01-04', '2025-01-05'],
-        closes: [200, 100, 110, 80, 106]
+        dates: ['2025-01-01', '2025-01-02', '2025-01-03', '2025-01-04', '2025-01-05', '2025-01-06'],
+        closes: [200, 100, 110, 80, 106, 112]
       }
     }
   },
@@ -711,7 +711,10 @@ const packet = {
         rearm_buys = [trade for trade in trades if trade["action"] == "buy" and trade.get("sell_cycle_rearmed")]
 
         self.assertIn(("2025-01-03", 10), sells)
-        self.assertIn(("2025-01-05", 10), sells)
+        # ADR-0004: the cycle anchor (100) survives the rearm buy on 01-04, so 106 (+6% vs
+        # anchor) must not sell; 112 (+12%) re-triggers the re-armed cost_1 stage.
+        self.assertNotIn(("2025-01-05", 10), sells)
+        self.assertIn(("2025-01-06", 10), sells)
         self.assertTrue(rearm_buys)
 
     def test_candidate_null_sell_stage_rearm_uses_dca_rearm_threshold(self):

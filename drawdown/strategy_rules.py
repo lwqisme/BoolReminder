@@ -70,8 +70,10 @@ def select_cost_deleverage_stage(
     active_marks: set[str],
     profit_pct: float,
 ) -> CostDeleverageStage | None:
+    # ADR-0004: profit_pct is measured against the cycle anchor; sell_min_profit_pct is a
+    # separate cost-based gate applied by the caller, so stages trigger on their own threshold.
     for stage in cost_deleverage_stages(inputs):
-        trigger_pct = max(stage.profit_pct, inputs.sell_min_profit_pct)
+        trigger_pct = stage.profit_pct
         if stage.mark in active_marks or profit_pct + 1e-9 < trigger_pct:
             continue
         return stage
