@@ -651,6 +651,13 @@ function rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy) {
     state.grid_rebound_last_sell_drawdown_pct = null;
   }
   if (sellStrategy === 'price_rise_grid') {
+    // KNOWN ISSUE (documented, intentionally unfixed): nulling the anchor here makes the next
+    // executeSells re-seed it from avgCost (see executeSells). For long-history positions the
+    // averaged cost sits far below the current price, so a deep-drawdown buy with
+    // sell_allow_same_day_sell can trigger an instant same-day sell at the buy price — a
+    // buy→rearm→sell churn during declines. Python's _rearm_position_sell_cycle_after_dca_buy
+    // does NOT reset this anchor (position_strategy.py), so this is a JS/Python divergence.
+    // Candidate fix: keep the anchor, or re-seed with max(avgCost, current price).
     state.price_rise_grid_anchor_price = null;
   }
   if (sellStrategy === 'cost_deleverage') state.cost_deleverage_cycle_anchor_price = null;
