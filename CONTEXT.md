@@ -51,6 +51,14 @@ _Avoid_: 未平仓交易、进行中交易
 从 History 或 GA 进化结果保存的策略参数快照。包含完整参数 payload，可按名称检索。
 _Avoid_: 模板、配置快照
 
+**周期锚点 (Cycle Anchor)**:
+卖出阶梯策略（price_rise_grid、cost_deleverage）衡量"涨幅/盈利"的基准价。首次评估时取平均成本；卖档重启只清阶段标记、不重置锚点；完成整轮卖出后锚点上移到当时现价。
+_Avoid_: 基准价、参考价、成本锚
+
+**卖档重启 (Sell-Stage Rearm)**:
+买入时若回撤超过 `sell_stage_rearm_drawdown_pct`，清空已触发的卖出阶段标记，使各档位可再次卖出。不改变周期锚点。
+_Avoid_: 卖出重置、重新武装
+
 **预设回测 (Preset Backtest)**:
 加载一个预设，指定标的和时间区间，重跑策略引擎生成交易记录和图表。
 _Avoid_: 预设模拟、回放
