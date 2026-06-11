@@ -1510,7 +1510,7 @@
                     <label style="margin:12px 0 7px;">卖出策略</label>
                     <div class="check-grid" id="sellStrategies">
                         {% for key, label in sell_strategy_labels.items() %}
-                            <label><input type="checkbox" name="sellStrategy" value="{{ key }}" checked>{{ label }}</label>
+                            <label><input type="checkbox" name="sellStrategy" value="{{ key }}" checked>{{ label }}{% if key == 'cost_deleverage' %}<span class="param-help" data-tooltip="以周期锚点价衡量涨幅分批减仓：锚点首次取持仓平均成本，价格相对锚点的涨幅依次达到一/二/三档盈利阈值时，各卖出对应比例的当前仓位；每档每周期只触发一次，第三档触发后重置档位并以当时价格开启新周期。卖出前还需满足最小盈利门槛（按剩余持仓平均成本）、冷却天数、底仓比例与最小卖出额限制；回撤达到卖档重启阈值会重新解锁已触发档位（锚点保留，ADR-0004）。">?</span>{% endif %}</label>
                         {% endfor %}
                     </div>
                     <label style="margin-top:10px;">核心买点优化
