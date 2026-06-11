@@ -3161,12 +3161,14 @@ def _execute_crossed_tranches(
         current_total = state.cash + _position_value_usd(state.symbol, state.shares, point.close, inputs)
         target_amount = current_total * tranche.allocation_pct / 100.0
         already_executed = executed_thresholds.get(threshold_key, 0.0)
-        if buy_strategy == "pyramid_3":
-            if already_executed > 0:
-                continue
-            gross_amount = min(target_amount, state.cash)
-        else:
-            gross_amount = min(max(0.0, target_amount - already_executed), state.cash)
+        # Fire each tranche once per buy cycle. Recomputing target_amount on the live
+        # current_total made the engine top up already-funded tranches with tiny
+        # (target - already) micro-buys on every up-day as the dip recovered, each paying the
+        # fixed fee. A tranche re-arms only after a drawdown reset/rearm clears
+        # executed_thresholds. Mirrors worker.js executeTranches.
+        if already_executed > 0:
+            continue
+        gross_amount = min(target_amount, state.cash)
         if gross_amount <= 0:
             if buy_strategy == "pyramid_3":
                 executed_thresholds[threshold_key] = 1.0

@@ -768,7 +768,12 @@ function executeTranches(state, point, tranches, executed, inputs, tradeLog, buy
     const currentTotal = state.cash + state.shares * priceUsd(state.symbol, point.close, inputs);
     const target = currentTotal * tranche.allocation_pct / 100;
     const already = executed[key] || 0;
-    if (buyStrategy === 'pyramid_3' && already > 0) continue;
+    // Fire each tranche once per buy cycle. Without this, target is recomputed on the live
+    // currentTotal every day, so as price recovers from the dip the engine keeps topping up
+    // already-funded tranches with tiny (target - already) micro-buys — each paying the fixed
+    // fee. A tranche is "done" once funded; it only re-arms after a drawdown reset/rearm (which
+    // clears `executed` and re-marks via markConsumedTranchesFromPosition).
+    if (already > 0) continue;
     const gross = buyStrategy === 'pyramid_3'
       ? Math.min(target, state.cash)
       : Math.min(Math.max(0, target - already), state.cash);

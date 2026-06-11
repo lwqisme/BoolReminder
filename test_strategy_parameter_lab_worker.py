@@ -277,12 +277,16 @@ const packet = {
             text=True,
         )
 
+        # Tranches now fire once per buy cycle (no top-up rebuys as price recovers), so the
+        # position is drawn down by clean 10% grid-rebound sells with no intervening rebuy:
+        # 100 -> sell 10 -> 90 -> sell 9 -> 81 -> sell 8.1. Previously top-up buys on the
+        # up-days inflated the position, giving 9.916667 / 8.925.
         self.assertEqual(
             json.loads(completed.stdout),
             [
                 ["2025-01-03", "grid_rebound_45.00", 44.99999999999999, 10],
-                ["2025-01-04", "grid_rebound_40.00", 40, 9.916667],
-                ["2025-01-05", "grid_rebound_0.00", 0, 8.925],
+                ["2025-01-04", "grid_rebound_40.00", 40, 9],
+                ["2025-01-05", "grid_rebound_0.00", 0, 8.1],
             ],
         )
 
