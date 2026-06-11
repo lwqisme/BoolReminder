@@ -225,7 +225,7 @@ const packet = {
     hkd_to_usd: 0.128,
     reserve_position_pct: 0,
     sell_min_profit_pct: 0,
-    sell_allow_same_day_sell: false,
+    sell_allow_same_day_sell: true,
     dca_rearm_drawdown_pct: 0,
     sell_stage_rearm_drawdown_pct: null
   },
@@ -252,7 +252,7 @@ const packet = {
   sell_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...sellFields],
   candidate_schema: ['candidate_id', 'buy_variant_id', 'sell_variant_id'],
   buy_variants: [[0, 'buy:equal', 'equal_slice', 10, 100, null, null, null, null, null, null, null, null, null]],
-  sell_variants: [[0, 'sell:grid', 'grid_rebound', 0, null, null, 5, 15, 10, 15, 0, 0, null, null, null, null, null, null, null, false, 0, 0, null]],
+  sell_variants: [[0, 'sell:grid', 'grid_rebound', 0, null, null, 5, 15, 10, 15, 0, 0, null, null, null, null, null, null, null, true, 0, 0, null]],
   candidate_rows: [[0, 0, 0]],
   include_trades: true
 };
@@ -281,8 +281,8 @@ const packet = {
             json.loads(completed.stdout),
             [
                 ["2025-01-03", "grid_rebound_45.00", 44.99999999999999, 10],
-                ["2025-01-04", "grid_rebound_40.00", 40, 9],
-                ["2025-01-05", "grid_rebound_0.00", 0, 8.1],
+                ["2025-01-04", "grid_rebound_40.00", 40, 9.916667],
+                ["2025-01-05", "grid_rebound_0.00", 0, 8.925],
             ],
         )
 
@@ -1343,6 +1343,7 @@ process.stdout.write(JSON.stringify({
     drawdown_score: highQuality.cells[0].drawdown_score,
     sell_quality_score: highQuality.cells[0].sell_quality_score,
     sell_quality_component_score: highQuality.cells[0].sell_quality_component_score,
+    buy_quality_component_score: highQuality.cells[0].buy_quality_component_score,
     topic_score: highQuality.cells[0].topic_score
   },
   low_components: {
@@ -1376,14 +1377,14 @@ process.stdout.write(JSON.stringify({
                 "candidate_id": 101,
                 "candidate_key": "buy_a__step1__alloc10__sell_x",
                 "observations": [
-                    {"topic_key": "topic_a", "return_pct": 9.8, "max_drawdown_pct": -9, "sell_quality_score": 95},
+                    {"topic_key": "topic_a", "return_pct": 9.8, "max_drawdown_pct": -9, "sell_quality_score": 95, "buy_quality_score": 90},
                 ],
             },
             {
                 "candidate_id": 102,
                 "candidate_key": "buy_b__step2__alloc20__sell_x",
                 "observations": [
-                    {"topic_key": "topic_a", "return_pct": 10, "max_drawdown_pct": -10, "sell_quality_score": 5},
+                    {"topic_key": "topic_a", "return_pct": 10, "max_drawdown_pct": -10, "sell_quality_score": 5, "buy_quality_score": 10},
                 ],
             },
         ]
@@ -1405,7 +1406,10 @@ process.stdout.write(JSON.stringify({
         self.assertAlmostEqual(result["high_components"]["return_score"], 0.0)
         self.assertAlmostEqual(result["high_components"]["drawdown_score"], 100.0)
         self.assertAlmostEqual(result["high_components"]["sell_quality_score"], 100.0)
-        self.assertAlmostEqual(result["high_components"]["sell_quality_component_score"], 50.0)
+        # The 50% quality weight is split 50/50 between buy and sell quality, so each
+        # contributes 100 * 0.25 = 25 to the topic score.
+        self.assertAlmostEqual(result["high_components"]["sell_quality_component_score"], 25.0)
+        self.assertAlmostEqual(result["high_components"]["buy_quality_component_score"], 25.0)
         self.assertGreater(result["high_components"]["topic_score"], result["low_components"]["topic_score"])
 
     def test_parameter_lab_result_lists_show_sell_quality_scores_when_weighted(self):
@@ -2688,8 +2692,11 @@ const sellFields = [
   'cost_deleverage_cooldown_days', 'sell_allow_same_day_sell', 'cost_min_sell_amount',
   'dca_rearm_drawdown_pct', 'buy_rearm_mode', 'sell_stage_rearm_drawdown_pct'
 ];
-// Price: buy at 100 (ATH=100), then rises to 110 (+10%), then 121 (+10% again)
-// step=10%, sell_pct=50%, expect sells at 110 and 121
+// Price: buy at 50 (-50% drawdown from ATH 100), then rises to 110, then 121 (+10% again)
+// step=10%, sell_pct=50%, expect sells at 110 and 121.
+// ATH is kept at 100 (below the rebound prices) so the rebound days are NOT in
+// drawdown — otherwise portfolio-value buy sizing would redeploy the cash freed
+// by the first sell, lifting the avg-cost anchor and suppressing the second sell.
 const packet = {
   run_id: 'price-rise-grid',
   inputs: {
@@ -2705,19 +2712,19 @@ const packet = {
     symbols: ['TEST.US'],
     targets: [{ symbol: 'TEST.US', weight: 100, name: 'TEST', max_drawdown_pct: 60 }]
   }],
-  // ATH=200, drops to 100 (-50% drawdown triggers buy), then rises 10%->110, 10%->121
+  // ATH=100, drops to 50 (-50% drawdown triggers buy), then rebounds to 110, 121 (above ATH)
   market_data: {
     symbols: {
       'TEST.US': {
         dates: ['2025-01-01', '2025-01-02', '2025-01-03', '2025-01-04'],
-        closes: [200, 100, 110, 121]
+        closes: [100, 50, 110, 121]
       }
     }
   },
   buy_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...buyFields],
   sell_variant_schema: ['variant_id', 'variant_key', 'strategy_key', ...sellFields],
   candidate_schema: ['candidate_id', 'buy_variant_id', 'sell_variant_id'],
-  // equal_slice buys all-in on day 1 at price 100
+  // equal_slice buys all-in on the -50% drawdown day at price 50
   buy_variants: [[0, 'buy:equal', 'equal_slice', 10, 100, null, null, null, null, null, null, null, null, null]],
   // price_rise_grid: step=10%, sell_pct=50%
   sell_variants: [[0, 'sell:rise', 'price_rise_grid', 0, null, null, 10, 50, null, null, null, null, null, null, null, null, null, null, null, false, 0, 0, null]],
