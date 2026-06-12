@@ -3252,6 +3252,7 @@ def _rearm_buy_tranches_after_repair(
     if drawdown_pct <= 0.50:
         executed_thresholds.clear()
         state.buy_rearm_anchor_drawdown_pct = None
+        state.buy_rearm_drawdown_pct = None
         # Re-mark consumed tranches so the engine doesn't buy already-covered thresholds.
         if tranches:
             _mark_consumed_tranches_from_position(state, tranches, executed_thresholds)

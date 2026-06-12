@@ -1429,6 +1429,7 @@ function simulate(task, baseInputs, candidate) {
         if (drawdownPct(point, inputs) <= 0.5) {
           executed[symbol] = {};
           state.buy_rearm_anchor_drawdown_pct = null;
+          state.buy_rearm_drawdown_pct = null;
         }
         if (
           Object.keys(executed[symbol]).length
