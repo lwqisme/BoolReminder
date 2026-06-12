@@ -7192,7 +7192,19 @@
                 if (Array.isArray(payload.scorecard_portfolio_keys)) { document.querySelectorAll('input[name="scoreTopic"]').forEach((cb) => { cb.checked = payload.scorecard_portfolio_keys.includes(cb.value); }); }
                 if (Array.isArray(payload.scorecard_periods)) { payload.scorecard_periods.forEach(function(p) { const cb = document.querySelector('[data-period="' + p.key + '"][data-field="enabled"]'); if (cb) cb.checked = p.enabled !== false; }); }
                 if (Array.isArray(payload.targets)) { const ta = document.getElementById('portfolioText'); if (ta) ta.value = JSON.stringify(payload.targets); }
-                if (Array.isArray(payload.investment_universe)) { renderUniverseRows(payload.investment_universe); }
+                if (Array.isArray(payload.investment_universe)) {
+                    // Restore per-symbol scorecard-topic checkboxes from saved scorecard_portfolio_keys.
+                    // readInvestmentUniverse() strips `enabled`, so without this merge
+                    // universe rows fall back to server-side defaults on reload.
+                    const enabledKeys = new Set(Array.isArray(payload.scorecard_portfolio_keys) ? payload.scorecard_portfolio_keys : []);
+                    const hasSavedKeys = Array.isArray(payload.scorecard_portfolio_keys);
+                    const universeWithEnabled = payload.investment_universe.map((item) => {
+                        if (!hasSavedKeys || Object.prototype.hasOwnProperty.call(item, 'enabled')) return item;
+                        const sym = String(item.symbol || '').trim().toUpperCase();
+                        return Object.assign({}, item, { enabled: enabledKeys.has(scorecardKeyForSymbol(sym)) });
+                    });
+                    renderUniverseRows(universeWithEnabled);
+                }
                 if (payload.ga_buy_strategy) { const el = document.getElementById('gaBuyStrategy'); if (el) el.value = payload.ga_buy_strategy; }
                 if (payload.ga_sell_strategy) { const el = document.getElementById('gaSellStrategy'); if (el) el.value = payload.ga_sell_strategy; }
                 if (payload.ga_cross_strategy) { const el = document.getElementById('gaCrossStrategy'); if (el) el.value = payload.ga_cross_strategy; }
