@@ -546,6 +546,11 @@ class StrategyParameterRegistryTest(unittest.TestCase):
         self.assertTrue(protected)
         self.assertTrue(all("sellrearm" in item["key"] for item in protected))
         self.assertTrue(all("卖档重启" in item["label"] for item in protected))
+        # All candidates with a buy-tier rearm threshold should label it as "买档重启".
+        rearmed = [item for item in candidates if item.get("dca_rearm_drawdown_pct") is not None]
+        self.assertTrue(rearmed)
+        self.assertTrue(all("买档重启" in item["label"] for item in rearmed))
+        self.assertFalse(any("卖后重启" in item["label"] for item in candidates))
         self.assertTrue(
             all(
                 item["sell_stage_rearm_drawdown_pct"] > item["dca_rearm_drawdown_pct"]

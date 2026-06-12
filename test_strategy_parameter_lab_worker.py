@@ -27,6 +27,13 @@ class StrategyParameterLabWorkerTest(unittest.TestCase):
         self.assertIn("monthlyContributionDays(allDays)", source)
         self.assertIn("dcaDays[symbol] = weeklyDcaDays(points)", source)
 
+    def test_worker_label_uses_buy_stage_rearm_terminology(self):
+        # "卖后重启" was misleading: it controls when *buy* tiers reopen.
+        # Renamed in UI to "买档重启" (paired with the existing "卖档重启" for sell tiers).
+        source = WORKER_JS.read_text(encoding="utf-8")
+        self.assertIn("买档重启", source)
+        self.assertNotIn("卖后重启", source)
+
     def test_worker_returns_candidate_id_key_rows_without_full_candidate_object(self):
         source = WORKER_JS.read_text(encoding="utf-8")
 

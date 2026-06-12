@@ -447,7 +447,7 @@ function buildSellLabel(strategyKey, params, labels = {}, baseInputs = {}) {
   }
   if (strategyKey !== 'none' && params.sell_allow_same_day_sell) label = `${label} / 买入日可卖`;
   if (params.dca_rearm_drawdown_pct !== null && params.dca_rearm_drawdown_pct !== undefined) {
-    label = `${label} / 卖后重启 ${formatCompact(params.dca_rearm_drawdown_pct)}%回撤`;
+    label = `${label} / 买档重启 ${formatCompact(params.dca_rearm_drawdown_pct)}%回撤`;
   }
   if (params.buy_rearm_mode === 'restart_from_rearm') label = `${label} / 重启后从首档`;
   if (params.sell_stage_rearm_drawdown_pct !== null && params.sell_stage_rearm_drawdown_pct !== undefined) {

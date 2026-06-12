@@ -1390,7 +1390,7 @@ def _sell_label(strategy_key: str, params: Mapping[str, object]) -> str:
     if strategy_key != "none" and params.get("sell_allow_same_day_sell"):
         label = f"{label} / 买入日可卖"
     if params.get("dca_rearm_drawdown_pct") is not None:
-        label = f"{label} / 卖后重启 {float(params['dca_rearm_drawdown_pct']):g}%回撤"
+        label = f"{label} / 买档重启 {float(params['dca_rearm_drawdown_pct']):g}%回撤"
     if params.get("buy_rearm_mode") == BUY_REARM_MODE_RESTART_FROM_REARM:
         label = f"{label} / 重启后从首档"
     if params.get("sell_stage_rearm_drawdown_pct") is not None:

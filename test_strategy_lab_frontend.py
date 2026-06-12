@@ -187,7 +187,7 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("预估计算量", html)
         self.assertIn("实际演算", html)
         self.assertIn("解释本次遍历参数", html)
-        self.assertIn("解释卖后重启", html)
+        self.assertIn("解释买档重启", html)
         self.assertIn("三档金字塔：整仓/网格/成本卖出后", html)
         self.assertIn("解释候选组合", html)
         self.assertNotIn("解释粗筛候选", html)
@@ -204,8 +204,9 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("setSelectValue('buyStrategy', 'all')", html)
         self.assertIn("setSelectValue('scoreSellStrategy', 'all')", html)
         self.assertIn("保持评分为全量策略", html)
-        self.assertIn("卖后重启", html)
+        self.assertIn("买档重启", html)
         self.assertIn("卖档重启", html)
+        self.assertNotIn("卖后重启", html)
         self.assertNotIn("第 25 分位数", html)
         self.assertNotIn("强势命中率", html)
         self.assertNotIn("踩坑率", html)
@@ -316,7 +317,7 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("1.4x、2.0x、3.0x、4.0x", html)
         self.assertIn("余额扫入", html)
         self.assertIn("drawdown_boost", html)
-        self.assertIn("卖后重启回撤", html)
+        self.assertIn("买档重启回撤", html)
 
     def test_parameter_lab_page_exposes_full_matrix_worker_flow(self):
         with app.test_client() as client:
@@ -381,7 +382,7 @@ class StrategyLabFrontendTest(unittest.TestCase):
         self.assertIn("优化延迟日", html)
         self.assertIn("大涨阈值", html)
         self.assertIn("近低距离", html)
-        self.assertIn("卖后重启", html)
+        self.assertIn("买档重启", html)
         self.assertIn("LEAPS 信号设置", html)
         self.assertIn('id="leapsSignalToggle"', html)
         self.assertIn("input[type=\"checkbox\"]::before", html)

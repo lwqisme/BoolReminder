@@ -1832,7 +1832,7 @@ def _candidate_label(
     if sell_strategy != "none" and same_day_sell:
         sell_label = f"{sell_label} / 买入日可卖"
     if dca_rearm_drawdown_pct is not None:
-        sell_label = f"{sell_label} / 卖后重启 {float(dca_rearm_drawdown_pct):g}%回撤"
+        sell_label = f"{sell_label} / 买档重启 {float(dca_rearm_drawdown_pct):g}%回撤"
     if sell_stage_rearm_drawdown_pct is not None:
         sell_label = f"{sell_label} / 卖档重启 {float(sell_stage_rearm_drawdown_pct):g}%回撤"
     if buy_rearm_mode == "restart_from_rearm":

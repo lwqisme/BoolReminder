@@ -3615,11 +3615,11 @@ STRATEGY_LAB_TEMPLATE = """
                             <input id="repairStageSellPct" type="number" min="0" max="100" step="0.5" value="{{ default_config.default_repair_stage_sell_pct }}">
                         </div>
                         <div>
-                            <label for="dcaRearmDrawdown">卖后重启回撤 % <button class="metric-help score-info-btn" type="button" aria-label="解释卖后重启回撤" data-tooltip="卖后重启回撤\n控制卖出后的下一轮买入档位何时重新打开；也是卖档重启留空或关闭覆盖时的默认阈值。\n0% 表示卖出后只要仍在当前回撤附近即可重启；5% 表示需要从卖出位置再加深约 5 个百分点。">?</button></label>
+                            <label for="dcaRearmDrawdown">买档重启回撤 % <button class="metric-help score-info-btn" type="button" aria-label="解释买档重启回撤" data-tooltip="买档重启回撤\n控制卖出后《买入档位》何时重新打开；也是卖档重启留空或关闭覆盖时的默认阈值。\n0% 表示卖出后只要仍在当前回撤附近即可重启；5% 表示需要从卖出位置再加深约 5 个百分点。">?</button></label>
                             <input id="dcaRearmDrawdown" type="number" min="0" max="95" step="0.5" value="{{ default_config.default_dca_rearm_drawdown_pct }}">
                         </div>
                         <div>
-                            <label for="sellStageRearmDrawdown">卖档重启回撤 % <button class="metric-help score-info-btn" type="button" aria-label="解释卖档重启回撤" data-tooltip="卖档重启回撤\n只控制后续补仓/定投买入后，是否清空已经卖过的网格、修复或成本卖出档位。\n只有比卖后重启更深时才作为覆盖生效；留空、0、或小于等于卖后重启时，等价于关闭覆盖并使用卖后重启。">?</button></label>
+                            <label for="sellStageRearmDrawdown">卖档重启回撤 % <button class="metric-help score-info-btn" type="button" aria-label="解释卖档重启回撤" data-tooltip="卖档重启回撤\n只控制后续补仓/定投买入后，是否清空已经卖过的网格、修复或成本卖出档位。\n只有比买档重启更深时才作为覆盖生效；留空、0、或小于等于买档重启时，等价于关闭覆盖并使用买档重启。">?</button></label>
                             <input id="sellStageRearmDrawdown" type="number" min="0" max="95" step="0.5" value="{{ default_config.default_sell_stage_rearm_drawdown_pct if default_config.default_sell_stage_rearm_drawdown_pct is not none else '' }}">
                         </div>
                         <div>
@@ -3673,7 +3673,7 @@ STRATEGY_LAB_TEMPLATE = """
                     </div>
                 </div>
             </div>
-            <div class="hint" style="margin-top: 12px;">演算按交易日从早到晚推进，每天只使用截至当天的价格、回撤、现金和持仓状态；不会提前读取未来走势。价格修复到接近 ATH 后会进入下一轮交易周期，买入档位和分档卖出规则可重新触发。卖后重启回撤控制卖出后的下一轮触发门槛：三档金字塔在整仓/网格/成本卖出后，需要从卖出当天再加深这些回撤百分点才重新打开已用过的买入档位；每周定投、工资流定投和核心定投在明显回撤买入后，用同一参数重新打开阶梯修复、网格回弹、成本去杠杆的整仓卖出档位。0% 表示卖出后只要仍在当前回撤附近即可重启。卖出下拉里的“全部卖出策略”现在包含网格回弹卖出，和收益 Top10 保持一致；阶梯修复卖出每次只执行一个修复档，并在卖出后进入交易日冷却期。网格回弹对三档金字塔仍按大 lot 卖出，对其他细切/定投策略按整仓聚合卖出，并使用独立回弹步长、两档卖出比例和最小卖出额控制交易噪音。等距细切、底仓、手续费、汇率和评分权重都可以通过“保存默认值”写入配置，下次打开自动带出。HK 标的按页面汇率折算成 USD。</div>
+            <div class="hint" style="margin-top: 12px;">演算按交易日从早到晚推进，每天只使用截至当天的价格、回撤、现金和持仓状态；不会提前读取未来走势。价格修复到接近 ATH 后会进入下一轮交易周期，买入档位和分档卖出规则可重新触发。买档重启回撤控制卖出后《买入档位》的重新打开门槛：三档金字塔在整仓/网格/成本卖出后，需要从卖出当天再加深这些回撤百分点才重新打开已用过的买入档位；每周定投、工资流定投和核心定投在明显回撤买入后，用同一参数重新打开阶梯修复、网格回弹、成本去杠杆的整仓卖出档位。0% 表示卖出后只要仍在当前回撤附近即可重启。卖出下拉里的“全部卖出策略”现在包含网格回弹卖出，和收益 Top10 保持一致；阶梯修复卖出每次只执行一个修复档，并在卖出后进入交易日冷却期。网格回弹对三档金字塔仍按大 lot 卖出，对其他细切/定投策略按整仓聚合卖出，并使用独立回弹步长、两档卖出比例和最小卖出额控制交易噪音。等距细切、底仓、手续费、汇率和评分权重都可以通过“保存默认值”写入配置，下次打开自动带出。HK 标的按页面汇率折算成 USD。</div>
             </div>
         </div>
             </div>
@@ -3722,7 +3722,7 @@ STRATEGY_LAB_TEMPLATE = """
                     </div>
                     <div class="description-card">
                         <strong>看结果时</strong>
-                        <p>评分页里重点看收益率、最大回撤、现金余额和交易明细中的 drawdown_boost、cash_reserve、idle_cash_sweep 字段；三档金字塔卖出后，会按“卖后重启回撤”重新打开买入档位，定投类策略则用它重新打开整仓修复卖出档位。</p>
+                        <p>评分页里重点看收益率、最大回撤、现金余额和交易明细中的 drawdown_boost、cash_reserve、idle_cash_sweep 字段；三档金字塔卖出后，会按“买档重启回撤”重新打开买入档位，定投类策略则用它重新打开整仓修复卖出档位。</p>
                     </div>
                 </div>
             </details>
@@ -6834,7 +6834,7 @@ STRATEGY_LAB_TEMPLATE = """
                 rows.push({ label: '成本盈利组', values: firstCostSet.length ? (grid.cost_profit_sets || []) : [], formatter: (value) => `[${(value || []).map(pct).join(', ')}]` });
             }
             if ([...selectedSell].some((item) => item !== 'none')) {
-                rows.push({ label: '卖后重启', values: grid.dca_rearm_drawdown_pct || [], formatter: pct });
+                rows.push({ label: '买档重启', values: grid.dca_rearm_drawdown_pct || [], formatter: pct });
                 rows.push({ label: '卖档重启', values: grid.sell_stage_rearm_drawdown_pct || [], formatter: pct });
             }
             const node = document.getElementById('robustCandidateGridSummary');
@@ -6872,7 +6872,7 @@ STRATEGY_LAB_TEMPLATE = """
                 bits.push(`阶梯: 盈利 ${grid.sell_min_profit_pct || []}，冷却 ${grid.repair_sell_cooldown_days || []}，单档 ${grid.repair_stage_sell_pct || []}`);
             }
             if ((data.sell_strategies || []).some((item) => item !== 'none')) {
-                bits.push(`卖后重启: ${grid.dca_rearm_drawdown_pct || []}`);
+                bits.push(`买档重启: ${grid.dca_rearm_drawdown_pct || []}`);
                 bits.push(`卖档重启: ${grid.sell_stage_rearm_drawdown_pct || []}`);
             }
             return bits.join('\\n') || '本次只遍历不卖出策略，无卖出参数。';
@@ -6913,7 +6913,7 @@ STRATEGY_LAB_TEMPLATE = """
                     robustCoreDipBuyParams(candidate)
                 ].filter(Boolean).join(' / ');
                 const dcaRearmParam = candidate.dca_rearm_drawdown_pct !== null && candidate.dca_rearm_drawdown_pct !== undefined
-                    ? `卖后重启 ${pct(candidate.dca_rearm_drawdown_pct)}`
+                    ? `买档重启 ${pct(candidate.dca_rearm_drawdown_pct)}`
                     : '';
                 const sellStageRearmParam = candidate.sell_stage_rearm_drawdown_pct !== null && candidate.sell_stage_rearm_drawdown_pct !== undefined
                     ? `卖档重启 ${pct(candidate.sell_stage_rearm_drawdown_pct)}`
@@ -6927,10 +6927,10 @@ STRATEGY_LAB_TEMPLATE = """
                                 ? robustCostSellParams(candidate)
                                 : '无阶梯参数',
                     dcaRearmParam
-                        ? `${escapeHtml(dcaRearmParam)} ${scoreHelpButton('解释卖后重启', '卖后重启回撤\\n三档金字塔：整仓/网格/成本卖出后，回撤需要从卖出当天再加深这些百分点，已用过的买入档位才会重新打开。\\n定投类策略：后续买入发生在不低于这个回撤的位置时，整仓卖出档位会重新打开。\\n0% 表示卖出后只要仍在当前回撤附近即可重启。')}`
+                        ? `${escapeHtml(dcaRearmParam)} ${scoreHelpButton('解释买档重启', '买档重启回撤\\n三档金字塔：整仓/网格/成本卖出后，回撤需要从卖出当天再加深这些百分点，已用过的买入档位才会重新打开。\\n定投类策略：后续买入发生在不低于这个回撤的位置时，整仓卖出档位会重新打开。\\n0% 表示卖出后只要仍在当前回撤附近即可重启。')}`
                         : '',
                     sellStageRearmParam
-                        ? `${escapeHtml(sellStageRearmParam)} ${scoreHelpButton('解释卖档重启', '卖档重启回撤\\n控制定投/补仓买入后，是否清空整仓卖出档位标记。\\n只有比卖后重启更深时才覆盖；留空、0、或小于等于卖后重启时，等价于关闭覆盖并使用卖后重启。')}`
+                        ? `${escapeHtml(sellStageRearmParam)} ${scoreHelpButton('解释卖档重启', '卖档重启回撤\\n控制定投/补仓买入后，是否清空整仓卖出档位标记。\\n只有比买档重启更深时才覆盖；留空、0、或小于等于买档重启时，等价于关闭覆盖并使用买档重启。')}`
                         : ''
                 ].filter(Boolean).join(' / ');
                 return `
