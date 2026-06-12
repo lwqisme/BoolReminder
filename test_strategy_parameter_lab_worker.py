@@ -34,6 +34,14 @@ class StrategyParameterLabWorkerTest(unittest.TestCase):
         self.assertIn("买档重启", source)
         self.assertNotIn("卖后重启", source)
 
+    def test_worker_supports_drop_from_last_sell_rearm_mode(self):
+        source = WORKER_JS.read_text(encoding="utf-8")
+        # Worker reads the mode from inputs and branches accordingly.
+        self.assertIn("sell_stage_rearm_mode", source)
+        self.assertIn("drop_from_last_sell", source)
+        # Worker records last sell price after a position sell.
+        self.assertIn("last_position_sell_price", source)
+
     def test_worker_returns_candidate_id_key_rows_without_full_candidate_object(self):
         source = WORKER_JS.read_text(encoding="utf-8")
 

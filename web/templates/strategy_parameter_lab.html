@@ -1564,6 +1564,7 @@
                         <label>底仓 %<span class="param-help" data-tooltip="卖出时保留的最低仓位比例。所有卖出策略的卖出数量均受此限制，确保策略不会完全清空持仓。如 10% 表示至少保留 10% 仓位不卖。">?</span><input id="reservePosition" type="number" step="1" value="{{ default_config.default_reserve_position_pct }}"></label>
                         <label>买档重启 %<span class="param-help" data-tooltip="卖出后《买入档位》何时重新打开的回撤阈值。卖出后价格需再次回撤到此深度，买入档位才重新激活。也是卖档重启留空或关闭时的默认覆盖值。0% 表示立刻重启。">?</span><input id="dcaRearmDrawdown" type="number" step="0.5" value="{{ default_config.default_dca_rearm_drawdown_pct }}"></label>
                         <label>卖档重启 %<span class="param-help" data-tooltip="仅控制补仓/定投买入后是否清空已卖过的网格、修复或成本卖出档位。只有比买档重启更深（数值更大）时才作为覆盖生效。留空、0 或小于等于买档重启时关闭覆盖，统一使用买档重启逻辑。">?</span><input id="sellStageRearmDrawdown" type="number" step="0.5" value="{{ default_config.default_sell_stage_rearm_drawdown_pct if default_config.default_sell_stage_rearm_drawdown_pct is not none else '' }}"></label>
+                        <label>卖档重启参考系<span class="param-help" data-tooltip="选 《ATH 回撤》（legacy，默认）：阈值按“买入当天离 ATH 的回撤”衡量。\n选 《距上次卖出跳水》（drop_from_last_sell）：阈值按“当前价相对上次卖出价跳水 N%”衡量，跟卖出锁仓一致，在长期上涨/下跌行情中语义更一致。">?</span><select id="sellStageRearmMode"><option value="legacy"{% if default_config.default_sell_stage_rearm_mode != 'drop_from_last_sell' %} selected{% endif %}>ATH 回撤 (legacy)</option><option value="drop_from_last_sell"{% if default_config.default_sell_stage_rearm_mode == 'drop_from_last_sell' %} selected{% endif %}>距上次卖出跳水</option></select></label>
                         <label>最小盈利 %<span class="param-help" data-tooltip="所有卖出策略的最低盈利门槛。剩余持仓平均成本之上的盈利未达到此值时，即使卖出档位触发也不执行。保护机制，防止微利或亏损时卖出。">?</span><input id="sellMinProfit" type="number" step="0.5" value="{{ default_config.default_sell_min_profit_pct }}"></label>
                         <label>修复冷却<span class="param-help" data-tooltip="阶梯修复卖出后的冷却期（交易日）。一次修复卖出触发后，需等待此天数才能再次触发修复卖出。冷却期内即使条件满足也不会卖出。">?</span><input id="repairSellCooldown" type="number" step="1" value="{{ default_config.default_repair_sell_cooldown_days }}"></label>
                         <label>单档卖出 %<span class="param-help" data-tooltip="阶梯修复每次触发时卖出的当前可卖仓位百分比。">?</span><input id="repairStageSellPct" type="number" step="0.5" value="{{ default_config.default_repair_stage_sell_pct }}"></label>
@@ -3227,6 +3228,7 @@
                 repair_stage_sell_pct: readNumber('repairStageSellPct'),
                 dca_rearm_drawdown_pct: readNumber('dcaRearmDrawdown'),
                 sell_stage_rearm_drawdown_pct: readOptionalNumber('sellStageRearmDrawdown'),
+                sell_stage_rearm_mode: document.getElementById('sellStageRearmMode')?.value || 'legacy',
                 grid_rebound_step_pct: readNumber('gridReboundStep'),
                 grid_sell_pct: readNumber('gridSellPct'),
                 grid_min_sell_amount: readNumber('gridMinSellAmount'),
@@ -7158,6 +7160,7 @@
                     sell_quality_weight_pct: 'sellQualityWeightPct',
                     repair_stage_sell_pct: 'repairStageSellPct', dca_rearm_drawdown_pct: 'dcaRearmDrawdown',
                     sell_stage_rearm_drawdown_pct: 'sellStageRearmDrawdown',
+                    sell_stage_rearm_mode: 'sellStageRearmMode',
                     grid_rebound_step_pct: 'gridReboundStep', grid_sell_pct: 'gridSellPct',
                     grid_min_sell_amount: 'gridMinSellAmount', grid_rebound_cycle_reset: 'gridReboundCycleReset',
                     cost_first_profit_pct: 'costFirstProfitPct', cost_second_profit_pct: 'costSecondProfitPct',
@@ -7239,7 +7242,7 @@
         }
 
         function initAutoSaveListeners() {
-            const saveIds = ['start', 'end', 'initialCash', 'monthlyContribution', 'maxDrawdown', 'stepPct', 'equalSliceAllocation', 'tradeFee', 'hkdToUsd', 'reservePosition', 'sellMinProfit', 'repairSellCooldown', 'repairStageSellPct', 'dcaRearmDrawdown', 'sellStageRearmDrawdown', 'gridReboundStep', 'gridSellPct', 'gridMinSellAmount', 'gridReboundCycleReset', 'costFirstProfitPct', 'costSecondProfitPct', 'costThirdProfitPct', 'costFirstSellPct', 'costSecondSellPct', 'costThirdSellPct', 'costDeleverageCooldown', 'costMinSellAmount', 'coreDipInitialCorePct', 'coreDipWeeklyCorePct', 'coreDipCashReservePct', 'coreDipStartDrawdownPct', 'coreDipFullDrawdownPct', 'coreDipTimingMaxDelayDays', 'coreDipTimingRiseThresholdPct', 'coreDipTimingNearLowPct', 'leapsLowCashThreshold', 'leapsMinDrawdown', 'leapsPremiumBudgetCap', 'leapsTargetDteLabel', 'leapsDrawdownGatePct', 'workerCount', 'drawdownBasis', 'coreDipTimingEnabled', 'coreDipTimingFilter', 'sellQualityWeightPct',
+            const saveIds = ['start', 'end', 'initialCash', 'monthlyContribution', 'maxDrawdown', 'stepPct', 'equalSliceAllocation', 'tradeFee', 'hkdToUsd', 'reservePosition', 'sellMinProfit', 'repairSellCooldown', 'repairStageSellPct', 'dcaRearmDrawdown', 'sellStageRearmDrawdown', 'sellStageRearmMode', 'gridReboundStep', 'gridSellPct', 'gridMinSellAmount', 'gridReboundCycleReset', 'costFirstProfitPct', 'costSecondProfitPct', 'costThirdProfitPct', 'costFirstSellPct', 'costSecondSellPct', 'costThirdSellPct', 'costDeleverageCooldown', 'costMinSellAmount', 'coreDipInitialCorePct', 'coreDipWeeklyCorePct', 'coreDipCashReservePct', 'coreDipStartDrawdownPct', 'coreDipFullDrawdownPct', 'coreDipTimingMaxDelayDays', 'coreDipTimingRiseThresholdPct', 'coreDipTimingNearLowPct', 'leapsLowCashThreshold', 'leapsMinDrawdown', 'leapsPremiumBudgetCap', 'leapsTargetDteLabel', 'leapsDrawdownGatePct', 'workerCount', 'drawdownBasis', 'coreDipTimingEnabled', 'coreDipTimingFilter', 'sellQualityWeightPct',
                 // LEAPS GA
                 'leapsGaStart', 'leapsGaEnd', 'leapsGaPopSize', 'leapsGaGenerations',
                 'leapsGaMutationRate', 'leapsGaCrossoverRate', 'leapsGaSeed',
@@ -8257,6 +8260,7 @@
                 step_pct: 'default_slice_step_pct', equal_slice_allocation_pct: 'default_equal_slice_allocation_pct',
                 dca_rearm_drawdown_pct: 'default_dca_rearm_drawdown_pct',
                 sell_stage_rearm_drawdown_pct: 'default_sell_stage_rearm_drawdown_pct',
+                sell_stage_rearm_mode: 'default_sell_stage_rearm_mode',
                 sell_min_profit_pct: 'default_sell_min_profit_pct',
                 repair_sell_cooldown_days: 'default_repair_sell_cooldown_days',
                 repair_stage_sell_pct: 'default_repair_stage_sell_pct',

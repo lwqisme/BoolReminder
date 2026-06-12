@@ -617,7 +617,7 @@ function recordBuy(state, point, inputs, tradeLog, buyStrategy, sellStrategy, gr
     second_grid_sell_done: false,
     repair_sell_marks: {}
   });
-  const rearmed = rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy);
+  const rearmed = rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy, px);
   tradeLog.push({
     action: 'buy',
     date: point.date,
@@ -640,9 +640,26 @@ function recordBuy(state, point, inputs, tradeLog, buyStrategy, sellStrategy, gr
   return true;
 }
 
-function rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy) {
+function rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy, currentPrice) {
   if (!['repair_step', 'grid_rebound', 'price_rise_grid', 'cost_deleverage'].includes(sellStrategy)) return false;
   if (!Object.keys(state.sell_marks).length) return false;
+  const mode = inputs.sell_stage_rearm_mode || 'legacy';
+  if (mode === 'drop_from_last_sell') {
+    const lastSell = state.last_position_sell_price;
+    if (lastSell == null || lastSell <= 0 || currentPrice == null) return false;
+    const rawThreshold = inputs.sell_stage_rearm_drawdown_pct ?? inputs.dca_rearm_drawdown_pct;
+    const threshold = Math.min(Math.max(0, num(rawThreshold)), num(inputs.max_drawdown_pct));
+    const dropPct = (lastSell - Number(currentPrice)) / lastSell * 100;
+    if (dropPct + 1e-9 < threshold) return false;
+    state.sell_marks = {};
+    state.last_position_sell_price = null;
+    if (sellStrategy === 'grid_rebound') {
+      state.grid_rebound_cycle_anchor_drawdown_pct = null;
+      state.grid_rebound_last_sell_drawdown_pct = null;
+    }
+    return true;
+  }
+  // legacy: ATH-relative drawdown threshold
   const rawThreshold = inputs.sell_stage_rearm_drawdown_pct ?? inputs.dca_rearm_drawdown_pct;
   if (drawdown + 1e-9 < Math.min(Math.max(0, num(rawThreshold)), num(inputs.max_drawdown_pct))) return false;
   state.sell_marks = {};
@@ -871,7 +888,10 @@ function sellShares(state, point, requested, inputs, tradeLog, sellStrategy, tri
   const soldLotSlices = sellQualityLotSlices(state, point, inputs, shares, null);
   reduceLotsFifo(state, shares);
   const sold = recordSell(state, point, shares, inputs, tradeLog, sellStrategy, trigger, basis, stage, soldLotSlices);
-  if (sold) markBuyRearmAfterPositionSell(state, point, inputs);
+  if (sold) {
+    state.last_position_sell_price = priceUsd(state.symbol, point.close, inputs);
+    markBuyRearmAfterPositionSell(state, point, inputs);
+  }
   return sold;
 }
 
@@ -1380,6 +1400,7 @@ function simulate(task, baseInputs, candidate) {
       grid_rebound_last_sell_drawdown_pct: null,
       price_rise_grid_anchor_price: null,
       cost_deleverage_cycle_anchor_price: null,
+      last_position_sell_price: null,
       last_repair_sell_trade_index: null,
       last_cost_deleverage_sell_trade_index: null,
       dca_pending_cash: strategy === 'weekly_dca' ? budget : 0,

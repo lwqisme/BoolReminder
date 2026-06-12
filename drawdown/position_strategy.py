@@ -2850,7 +2850,7 @@ def _execute_weekly_dca(
             remaining_shares=shares,
         )
     )
-    sell_cycle_rearmed = _rearm_position_sell_cycle_after_dca_buy(state, drawdown_pct, inputs, sell_strategy)
+    sell_cycle_rearmed = _rearm_position_sell_cycle_after_dca_buy(state, drawdown_pct, inputs, sell_strategy, current_price=price_usd)
     trade_log.append(
         {
             "action": "buy",
@@ -2922,7 +2922,7 @@ def _execute_salary_flow_dca(
             remaining_shares=shares,
         )
     )
-    sell_cycle_rearmed = _rearm_position_sell_cycle_after_dca_buy(state, drawdown_pct, inputs, sell_strategy)
+    sell_cycle_rearmed = _rearm_position_sell_cycle_after_dca_buy(state, drawdown_pct, inputs, sell_strategy, current_price=price_usd)
     trade_log.append(
         {
             "action": "buy",
@@ -3043,7 +3043,7 @@ def _execute_core_dip_dca(
             remaining_shares=shares,
         )
     )
-    sell_cycle_rearmed = _rearm_position_sell_cycle_after_dca_buy(state, drawdown_pct, inputs, sell_strategy)
+    sell_cycle_rearmed = _rearm_position_sell_cycle_after_dca_buy(state, drawdown_pct, inputs, sell_strategy, current_price=price_usd)
     trade_log.append(
         {
             "action": "buy",
@@ -3083,6 +3083,8 @@ def _rearm_position_sell_cycle_after_dca_buy(
     drawdown_pct: float,
     inputs: StrategyInputs,
     sell_strategy: str,
+    *,
+    current_price: float | None = None,
 ) -> bool:
     if sell_strategy not in POSITION_SELL_REARM_STRATEGIES:
         return False
@@ -3092,9 +3094,7 @@ def _rearm_position_sell_cycle_after_dca_buy(
     if mode == "legacy":
         return _rearm_legacy(state, drawdown_pct, inputs, sell_strategy)
     if mode == "drop_from_last_sell":
-        raise NotImplementedError(
-            "sell_stage_rearm_mode='drop_from_last_sell' is not implemented yet"
-        )
+        return _rearm_drop_from_last_sell(state, current_price, inputs, sell_strategy)
     raise ValueError(f"unknown sell_stage_rearm_mode: {mode!r}")
 
 
@@ -3107,6 +3107,27 @@ def _rearm_legacy(
     if drawdown_pct + 1e-9 < sell_stage_rearm_drawdown_pct(inputs):
         return False
     state.sell_marks.clear()
+    if sell_strategy == "grid_rebound":
+        state.grid_rebound_cycle_anchor_drawdown_pct = None
+        state.grid_rebound_last_sell_drawdown_pct = None
+    return True
+
+
+def _rearm_drop_from_last_sell(
+    state: SymbolState,
+    current_price: float | None,
+    inputs: StrategyInputs,
+    sell_strategy: str,
+) -> bool:
+    last_sell = state.last_position_sell_price
+    if last_sell is None or last_sell <= 0 or current_price is None:
+        return False
+    threshold_pct = sell_stage_rearm_drawdown_pct(inputs)
+    drop_pct = (last_sell - float(current_price)) / last_sell * 100.0
+    if drop_pct + 1e-9 < threshold_pct:
+        return False
+    state.sell_marks.clear()
+    state.last_position_sell_price = None
     if sell_strategy == "grid_rebound":
         state.grid_rebound_cycle_anchor_drawdown_pct = None
         state.grid_rebound_last_sell_drawdown_pct = None
@@ -3223,6 +3244,7 @@ def _execute_crossed_tranches(
             drawdown_pct,
             inputs,
             sell_strategy,
+            current_price=_price_usd(state.symbol, point.close, inputs),
         )
         executed_thresholds[threshold_key] = 1.0 if buy_strategy == "pyramid_3" else already_executed + gross_amount
         trade_log.append(

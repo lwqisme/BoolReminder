@@ -84,7 +84,7 @@ class SellStageRearmModeSwitchTest(unittest.TestCase):
         self.assertTrue(deep)
         self.assertEqual(state.sell_marks, set())
 
-    def test_unknown_mode_raises_not_implemented_error(self):
+    def test_unknown_mode_raises_value_error(self):
         state = SymbolState(
             symbol="X.US", name="X", weight=100, budget=10000, cash=0,
             sell_marks={"cost_1"},
@@ -93,10 +93,99 @@ class SellStageRearmModeSwitchTest(unittest.TestCase):
             max_drawdown_pct=50,
             dca_rearm_drawdown_pct=5,
             sell_stage_rearm_drawdown_pct=15,
+            sell_stage_rearm_mode="bogus_mode_xyz",
+        )
+        with self.assertRaises(ValueError):
+            _rearm_position_sell_cycle_after_dca_buy(state, 20, inputs, "cost_deleverage")
+
+
+class DropFromLastSellModeTest(unittest.TestCase):
+    """Plan A core: rearm fires when current price has dropped >= threshold%
+    below the last position-sell price (cost-anchored, not ATH-anchored)."""
+
+    def _state_with_last_sell(self, last_sell_price: float, marks):
+        state = SymbolState(
+            symbol="X.US", name="X", weight=100, budget=10000, cash=0,
+            sell_marks=set(marks),
+        )
+        state.last_position_sell_price = last_sell_price
+        return state
+
+    def _inputs(self, threshold: float):
+        return StrategyInputs(
+            max_drawdown_pct=50,
+            dca_rearm_drawdown_pct=5,
+            sell_stage_rearm_drawdown_pct=threshold,
             sell_stage_rearm_mode="drop_from_last_sell",
         )
-        with self.assertRaises(NotImplementedError):
-            _rearm_position_sell_cycle_after_dca_buy(state, 20, inputs, "cost_deleverage")
+
+    def test_no_rearm_when_drop_below_threshold(self):
+        # Sold at $100; current $95 = 5% drop, threshold 16.12% → not enough.
+        state = self._state_with_last_sell(last_sell_price=100.0, marks={"cost_1"})
+        rearmed = _rearm_position_sell_cycle_after_dca_buy(
+            state, current_price=95.0, drawdown_pct=99.0, inputs=self._inputs(16.12),
+            sell_strategy="cost_deleverage",
+        )
+        self.assertFalse(rearmed)
+        self.assertEqual(state.sell_marks, {"cost_1"})
+
+    def test_rearm_when_drop_meets_threshold(self):
+        # Sold at $100; current $80 = 20% drop, threshold 16.12% → rearmed.
+        state = self._state_with_last_sell(last_sell_price=100.0, marks={"cost_1", "cost_2"})
+        rearmed = _rearm_position_sell_cycle_after_dca_buy(
+            state, current_price=80.0, drawdown_pct=0.0, inputs=self._inputs(16.12),
+            sell_strategy="cost_deleverage",
+        )
+        self.assertTrue(rearmed)
+        self.assertEqual(state.sell_marks, set())
+        self.assertIsNone(state.last_position_sell_price)
+
+    def test_no_rearm_when_last_sell_price_is_none(self):
+        # Marks present but no recorded sell price (e.g., loaded from old state).
+        state = self._state_with_last_sell(last_sell_price=100.0, marks={"cost_1"})
+        state.last_position_sell_price = None
+        rearmed = _rearm_position_sell_cycle_after_dca_buy(
+            state, current_price=10.0, drawdown_pct=99.0, inputs=self._inputs(16.12),
+            sell_strategy="cost_deleverage",
+        )
+        self.assertFalse(rearmed)
+        self.assertEqual(state.sell_marks, {"cost_1"})
+
+    def test_grid_rebound_clears_cycle_anchor_on_rearm(self):
+        state = self._state_with_last_sell(last_sell_price=100.0, marks={"grid_1"})
+        state.grid_rebound_cycle_anchor_drawdown_pct = 30.0
+        state.grid_rebound_last_sell_drawdown_pct = 20.0
+        rearmed = _rearm_position_sell_cycle_after_dca_buy(
+            state, current_price=80.0, drawdown_pct=0.0, inputs=self._inputs(16.12),
+            sell_strategy="grid_rebound",
+        )
+        self.assertTrue(rearmed)
+        self.assertIsNone(state.grid_rebound_cycle_anchor_drawdown_pct)
+        self.assertIsNone(state.grid_rebound_last_sell_drawdown_pct)
+
+    def test_drop_threshold_uses_dca_rearm_when_sell_stage_left_blank(self):
+        # If sell_stage_rearm_drawdown_pct is None or <= dca, fall back to dca
+        # (matching the legacy semantics, just measured on price drop instead
+        # of ATH drawdown).
+        state = self._state_with_last_sell(last_sell_price=100.0, marks={"cost_1"})
+        inputs = StrategyInputs(
+            max_drawdown_pct=50,
+            dca_rearm_drawdown_pct=10,
+            sell_stage_rearm_drawdown_pct=None,
+            sell_stage_rearm_mode="drop_from_last_sell",
+        )
+        # 8% drop: not enough vs 10% dca threshold
+        rearmed = _rearm_position_sell_cycle_after_dca_buy(
+            state, current_price=92.0, drawdown_pct=0.0, inputs=inputs,
+            sell_strategy="cost_deleverage",
+        )
+        self.assertFalse(rearmed)
+        # 12% drop: meets 10% dca threshold
+        rearmed = _rearm_position_sell_cycle_after_dca_buy(
+            state, current_price=88.0, drawdown_pct=0.0, inputs=inputs,
+            sell_strategy="cost_deleverage",
+        )
+        self.assertTrue(rearmed)
 
 
 if __name__ == "__main__":
