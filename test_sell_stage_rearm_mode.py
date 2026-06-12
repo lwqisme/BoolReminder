@@ -61,9 +61,12 @@ class SellStageRearmModeSwitchTest(unittest.TestCase):
     """Mode switch (Commit 2): default "legacy" preserves existing behavior;
     "drop_from_last_sell" is reserved for the new logic in Commit 3."""
 
-    def test_default_mode_is_legacy(self):
+    def test_default_mode_is_drop_from_last_sell(self):
+        # Plan A commit 4: the rearm logic now defaults to the price-anchored
+        # "drop_from_last_sell" mode. Users who want the old ATH-based behavior
+        # can opt in by selecting "legacy" in the UI.
         inputs = StrategyInputs()
-        self.assertEqual(inputs.sell_stage_rearm_mode, "legacy")
+        self.assertEqual(inputs.sell_stage_rearm_mode, "drop_from_last_sell")
 
     def test_legacy_mode_preserves_existing_rearm_behavior(self):
         # Same setup as the existing _rearm_position_sell_cycle_after_dca_buy contract:

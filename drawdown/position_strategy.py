@@ -169,7 +169,7 @@ class StrategyInputs:
     repair_stage_sell_pct: float = 12.0
     dca_rearm_drawdown_pct: float = 5.0
     sell_stage_rearm_drawdown_pct: float | None = None
-    sell_stage_rearm_mode: str = "legacy"
+    sell_stage_rearm_mode: str = "drop_from_last_sell"
     grid_rebound_step_pct: float = 5.0
     grid_sell_pct: float | None = None
     grid_first_sell_pct: float = 40.0
