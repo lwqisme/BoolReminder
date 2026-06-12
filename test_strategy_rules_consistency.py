@@ -252,12 +252,49 @@ class SellStageRearmDrawdownPctTest(unittest.TestCase):
         )
         self.assertAlmostEqual(sell_stage_rearm_drawdown_pct(inputs), 50.0)
 
-    def test_negative_clamped_to_zero(self):
+    def test_negative_value_falls_back_to_dca(self):
+        # Negative is ≤ dca, so it's treated as "no override" and falls back.
         inputs = StrategyInputs(
             sell_stage_rearm_drawdown_pct=-5.0,
+            dca_rearm_drawdown_pct=8.0,
+            max_drawdown_pct=50.0,
+        )
+        self.assertAlmostEqual(sell_stage_rearm_drawdown_pct(inputs), 8.0)
+
+    def test_negative_dca_floor_to_zero(self):
+        # When dca itself is negative and sell-stage is None, result floors at 0.
+        inputs = StrategyInputs(
+            sell_stage_rearm_drawdown_pct=None,
+            dca_rearm_drawdown_pct=-3.0,
             max_drawdown_pct=50.0,
         )
         self.assertAlmostEqual(sell_stage_rearm_drawdown_pct(inputs), 0.0)
+
+    def test_value_below_dca_falls_back_to_dca(self):
+        # Tooltip contract (web/app.py): "小于等于卖后重启时，等价于关闭覆盖并使用卖后重启".
+        inputs = StrategyInputs(
+            sell_stage_rearm_drawdown_pct=14.07,
+            dca_rearm_drawdown_pct=30.0,
+            max_drawdown_pct=50.0,
+        )
+        self.assertAlmostEqual(sell_stage_rearm_drawdown_pct(inputs), 30.0)
+
+    def test_zero_value_falls_back_to_dca(self):
+        inputs = StrategyInputs(
+            sell_stage_rearm_drawdown_pct=0.0,
+            dca_rearm_drawdown_pct=8.0,
+            max_drawdown_pct=50.0,
+        )
+        self.assertAlmostEqual(sell_stage_rearm_drawdown_pct(inputs), 8.0)
+
+    def test_value_equal_to_dca_falls_back_to_dca(self):
+        # Boundary: equal is treated as "no override" (only strictly greater overrides).
+        inputs = StrategyInputs(
+            sell_stage_rearm_drawdown_pct=8.0,
+            dca_rearm_drawdown_pct=8.0,
+            max_drawdown_pct=50.0,
+        )
+        self.assertAlmostEqual(sell_stage_rearm_drawdown_pct(inputs), 8.0)
 
 
 class SharedFunctionImportTest(unittest.TestCase):

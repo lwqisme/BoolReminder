@@ -172,10 +172,10 @@ def grid_rebound_stages(
 
 
 def sell_stage_rearm_drawdown_pct(inputs: StrategyInputs) -> float:
-    raw_threshold = (
-        inputs.sell_stage_rearm_drawdown_pct
-        if inputs.sell_stage_rearm_drawdown_pct is not None
-        else inputs.dca_rearm_drawdown_pct
-    )
-    threshold = max(0.0, float(raw_threshold))
+    dca_threshold = max(0.0, float(inputs.dca_rearm_drawdown_pct))
+    raw = inputs.sell_stage_rearm_drawdown_pct
+    if raw is None or float(raw) <= dca_threshold:
+        threshold = dca_threshold
+    else:
+        threshold = float(raw)
     return min(threshold, float(inputs.max_drawdown_pct))
