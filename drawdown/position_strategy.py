@@ -262,6 +262,7 @@ class SymbolState:
     grid_rebound_last_sell_lot_count: int = 0
     price_rise_grid_anchor_price: float | None = None
     cost_deleverage_cycle_anchor_price: float | None = None
+    last_position_sell_price: float | None = None
     price_history: list[PricePoint] = field(default_factory=list)
 
 
@@ -3659,6 +3660,7 @@ def _sell_shares(
         sold_lot_slices=sold_lot_slices,
     )
     if sold:
+        state.last_position_sell_price = _price_usd(state.symbol, point.close, inputs)
         _mark_buy_rearm_after_position_sell(state, point, inputs)
     return sold
 
