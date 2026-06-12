@@ -34,10 +34,10 @@ from trade_sync.normalize import canonical_symbol
 
 
 DEFAULT_PORTFOLIO = [
-    {"symbol": "TSM.US", "weight": 40.0, "name": "TSM", "max_drawdown_pct": 40.0},
-    {"symbol": "GOOGL.US", "weight": 30.0, "name": "GOOGL", "max_drawdown_pct": 40.0},
-    {"symbol": "TSLA.US", "weight": 20.0, "name": "TSLA", "max_drawdown_pct": 50.0},
-    {"symbol": "0700.HK", "weight": 10.0, "name": "Tencent", "max_drawdown_pct": 50.0},
+    {"symbol": "TSM.US", "weight": 40.0, "name": "TSM"},
+    {"symbol": "GOOGL.US", "weight": 30.0, "name": "GOOGL"},
+    {"symbol": "TSLA.US", "weight": 20.0, "name": "TSLA"},
+    {"symbol": "0700.HK", "weight": 10.0, "name": "Tencent"},
 ]
 
 STRATEGY_LABELS = {
@@ -94,11 +94,11 @@ SCORECARD_PORTFOLIOS = [
     },
 ]
 DEFAULT_INVESTMENT_UNIVERSE = [
-    {"symbol": "TSM.US", "name": "TSM", "max_drawdown_pct": 40.0},
-    {"symbol": "GOOGL.US", "name": "GOOGL", "max_drawdown_pct": 40.0},
-    {"symbol": "TSLA.US", "name": "TSLA", "max_drawdown_pct": 50.0},
-    {"symbol": "0700.HK", "name": "腾讯", "max_drawdown_pct": 50.0},
-    {"symbol": "QQQ.US", "name": "QQQ", "max_drawdown_pct": 40.0},
+    {"symbol": "TSM.US", "name": "TSM"},
+    {"symbol": "GOOGL.US", "name": "GOOGL"},
+    {"symbol": "TSLA.US", "name": "TSLA"},
+    {"symbol": "0700.HK", "name": "腾讯"},
+    {"symbol": "QQQ.US", "name": "QQQ"},
 ]
 
 SCORECARD_PERIODS = [
@@ -1189,10 +1189,10 @@ def _merge_universe_scorecard_portfolios(
         if not symbol:
             continue
         name = str(item.get("name") or symbol).strip()
-        max_drawdown_pct = _optional_positive_pct(item.get("max_drawdown_pct"))
+        # Do NOT carry max_drawdown_pct into scorecard targets.
+        # Scorecard portfolios (全仓 TSLA etc.) must use the strategy's
+        # global max_drawdown_pct so the GA can evolve it freely.
         target = {"symbol": symbol, "weight": 100.0, "name": name}
-        if max_drawdown_pct is not None:
-            target["max_drawdown_pct"] = max_drawdown_pct
         portfolio = {
             "key": _scorecard_symbol_key(symbol),
             "label": f"全仓 {name}",
