@@ -453,6 +453,10 @@ function buildSellLabel(strategyKey, params, labels = {}, baseInputs = {}) {
   if (params.sell_stage_rearm_drawdown_pct !== null && params.sell_stage_rearm_drawdown_pct !== undefined) {
     label = `${label} / 卖档重启 ${formatCompact(params.sell_stage_rearm_drawdown_pct)}%回撤`;
   }
+  const rearmMode = params.sell_stage_rearm_mode || baseInputs.sell_stage_rearm_mode;
+  if (rearmMode === 'drop_from_last_sell') {
+    label = `${label} / 距上次卖出跳水`;
+  }
   return label;
 }
 

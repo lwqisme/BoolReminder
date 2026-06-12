@@ -191,5 +191,30 @@ class DropFromLastSellModeTest(unittest.TestCase):
         self.assertTrue(rearmed)
 
 
+class StrategyInputsPayloadTest(unittest.TestCase):
+    """Regression: the JS worker only knows what the Python serializer emits.
+
+    Bug found 2026-06-12: _strategy_inputs_payload (and the inline copy at
+    drawdown/position_strategy.py:464) did not include sell_stage_rearm_mode,
+    so packet.inputs.sell_stage_rearm_mode was undefined in the worker, which
+    fell back to 'legacy' via `inputs.sell_stage_rearm_mode || 'legacy'`. GA
+    runs therefore never used drop_from_last_sell even when the UI selected it.
+    """
+
+    def test_payload_emits_sell_stage_rearm_mode(self):
+        from drawdown.position_strategy import _strategy_inputs_payload
+
+        inputs = StrategyInputs(sell_stage_rearm_mode="drop_from_last_sell")
+        payload = _strategy_inputs_payload(inputs)
+        self.assertIn("sell_stage_rearm_mode", payload)
+        self.assertEqual(payload["sell_stage_rearm_mode"], "drop_from_last_sell")
+
+    def test_payload_emits_legacy_mode_when_selected(self):
+        from drawdown.position_strategy import _strategy_inputs_payload
+
+        inputs = StrategyInputs(sell_stage_rearm_mode="legacy")
+        payload = _strategy_inputs_payload(inputs)
+        self.assertEqual(payload["sell_stage_rearm_mode"], "legacy")
+
 if __name__ == "__main__":
     unittest.main()
