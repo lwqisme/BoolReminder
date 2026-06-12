@@ -169,6 +169,7 @@ class StrategyInputs:
     repair_stage_sell_pct: float = 12.0
     dca_rearm_drawdown_pct: float = 5.0
     sell_stage_rearm_drawdown_pct: float | None = None
+    sell_stage_rearm_mode: str = "legacy"
     grid_rebound_step_pct: float = 5.0
     grid_sell_pct: float | None = None
     grid_first_sell_pct: float = 40.0
@@ -3087,6 +3088,22 @@ def _rearm_position_sell_cycle_after_dca_buy(
         return False
     if not state.sell_marks:
         return False
+    mode = inputs.sell_stage_rearm_mode
+    if mode == "legacy":
+        return _rearm_legacy(state, drawdown_pct, inputs, sell_strategy)
+    if mode == "drop_from_last_sell":
+        raise NotImplementedError(
+            "sell_stage_rearm_mode='drop_from_last_sell' is not implemented yet"
+        )
+    raise ValueError(f"unknown sell_stage_rearm_mode: {mode!r}")
+
+
+def _rearm_legacy(
+    state: SymbolState,
+    drawdown_pct: float,
+    inputs: StrategyInputs,
+    sell_strategy: str,
+) -> bool:
     if drawdown_pct + 1e-9 < sell_stage_rearm_drawdown_pct(inputs):
         return False
     state.sell_marks.clear()
