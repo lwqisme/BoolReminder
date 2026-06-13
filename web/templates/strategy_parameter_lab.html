@@ -5405,9 +5405,14 @@
                     mode: 'markers',
                     name,
                     x: items.map((trade) => trade.date),
-                    // 仓位结构图：marker 贴在堆叠面积顶边（组合总值）上，依靠左轴。
-                    // 股价信息仍然可以从 tooltip / 右轴股价线读到。
-                    y: items.map((trade) => yByDate.get(trade.date) || portfolioValues[portfolioValues.length - 1] || 0),
+                    // marker 贴在右轴股价线上（完成价）；仓位信息从 tooltip 里读。
+                    // 股价缺失时退化到堆叠面积顶边位置（避免 marker 丢失）。
+                    y: items.map((trade) => {
+                        const tradePrice = Number(trade.price);
+                        if (usePriceAxisForTrades && Number.isFinite(tradePrice)) return tradePrice;
+                        return yByDate.get(trade.date) || portfolioValues[portfolioValues.length - 1] || 0;
+                    }),
+                    ...(usePriceAxisForTrades ? { yaxis: 'y2' } : {}),
                     text: items.map(tradeTooltip),
                     hovertemplate: '%{text}<extra></extra>',
                     marker: { color, size: 11, symbol, line: { color: lineColor, width: 1 } }
