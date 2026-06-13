@@ -5179,7 +5179,38 @@
         function renderCellTradeRows(cell) {
             const trades = Array.isArray(cell?.trade_log) ? cell.trade_log : [];
             if (!trades.length) return '<tr><td colspan="8">本题目没有交易。</td></tr>';
-            return trades.map((trade) => `
+            // 调试：输出 diagnostic 到 console + window，让用户可以复制给后端调查
+            try {
+                const dbg = {
+                    diag_id: 'cell-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6),
+                    cell_key: cell?.key || cell?.candidate_key || null,
+                    cell_label: cell?.label || null,
+                    buy_strategy: cell?.buy_strategy || cell?.inputs_snapshot?.buy_strategy || null,
+                    sell_strategy: cell?.sell_strategy || cell?.inputs_snapshot?.sell_strategy || null,
+                    candidate_parameters: cell?.candidate_parameters || cell?.parameters || null,
+                    inputs_snapshot: cell?.inputs_snapshot || null,
+                    metrics: cell?.metrics || cell?.summary_metrics || null,
+                    first_trade: trades[0] || null,
+                    trade_count: trades.length
+                };
+                window.__lastCellDiag = dbg;
+                console.warn('[GA-DIAG]', JSON.stringify(dbg, null, 2));
+            } catch (e) { console.warn('[GA-DIAG] dump failed', e); }
+            const snap = cell?.inputs_snapshot || {};
+            const params = cell?.candidate_parameters || cell?.parameters || {};
+            const banner = `
+                <tr style="background:rgba(255,193,7,0.08);">
+                    <td colspan="8" style="padding:8px;font-family:monospace;font-size:11px;line-height:1.5;">
+                        <div style="color:var(--amber);font-weight:600;margin-bottom:4px;">[GA-DIAG] 诊断信息 (已写入 console + window.__lastCellDiag)</div>
+                        <div>buy=<b>${escapeHtml(String(cell?.buy_strategy || snap.buy_strategy || '?'))}</b> sell=<b>${escapeHtml(String(cell?.sell_strategy || snap.sell_strategy || '?'))}</b> key=${escapeHtml(String(cell?.key || cell?.candidate_key || '?'))}</div>
+                        <div>initial_cash=<b>${snap.initial_cash}</b> monthly=<b>${snap.monthly_contribution}</b> reserve=<b>${snap.reserve_position_pct}</b>% basis=<b>${escapeHtml(String(snap.drawdown_basis || '?'))}</b> max_dd=<b>${snap.max_drawdown_pct}</b>% step=<b>${snap.step_pct}</b>%</div>
+                        <div>equal_slice_alloc=<b>${snap.equal_slice_allocation_pct}</b>% grid_step=<b>${snap.grid_rebound_step_pct}</b>% grid_sell=<b>${snap.grid_sell_pct}</b>% min_profit=<b>${snap.sell_min_profit_pct}</b>% grid_min_amount=<b>${snap.grid_min_sell_amount}</b></div>
+                        <div>dca_rearm=<b>${snap.dca_rearm_drawdown_pct}</b>% buy_rearm_mode=<b>${escapeHtml(String(snap.buy_rearm_mode || '?'))}</b> sell_stage_rearm=<b>${snap.sell_stage_rearm_drawdown_pct}</b>%</div>
+                        <div>task=${escapeHtml(String(snap.task_start || '?'))}..${escapeHtml(String(snap.task_end || '?'))} pts=${snap.price_point_count} v0=${snap.first_portfolio_value}</div>
+                        <div style="margin-top:4px;color:var(--muted);">candidate.parameters: ${escapeHtml(JSON.stringify(params))}</div>
+                    </td>
+                </tr>`;
+            return banner + trades.map((trade) => `
                 <tr>
                     <td>${escapeHtml(trade.date || '')}</td>
                     <td>${escapeHtml(trade.action || '')}</td>

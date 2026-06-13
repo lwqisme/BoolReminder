@@ -1508,6 +1508,14 @@ function simulate(task, baseInputs, candidate) {
   };
   if (workerState?.include_trades) result.trade_log = tradeLog;
   if (workerState?.include_trades) {
+    // [GA-DIAG] Capture full candidate object so the trade-detail UI can show what was actually executed.
+    const candidateForDiag = {};
+    for (const key of Object.keys(candidate || {})) {
+      const v = candidate[key];
+      if (typeof v === 'object' && v !== null) continue;
+      candidateForDiag[key] = v;
+    }
+    result.candidate_parameters = candidateForDiag;
     result.inputs_snapshot = {
       buy_strategy: candidate.buy_strategy,
       sell_strategy: candidate.sell_strategy,
@@ -1709,6 +1717,12 @@ async function processBatch(message, workerIndex, runId) {
         };
         if (workerState.include_trades && metrics.trade_log) {
           obs.trade_log = metrics.trade_log;
+          // [GA-DIAG] Pass through diagnostic fields used by renderCellTradeRows banner.
+          if (metrics.inputs_snapshot) obs.inputs_snapshot = metrics.inputs_snapshot;
+          if (metrics.candidate_parameters) obs.candidate_parameters = metrics.candidate_parameters;
+          obs.buy_strategy = candidate.buy_strategy;
+          obs.sell_strategy = candidate.sell_strategy;
+          obs.label = candidate.label;
         }
         if (verifyResult) {
           obs._verify = verifyResult;
