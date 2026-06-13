@@ -1824,11 +1824,11 @@ def _candidate_label(
         cost_profits = cost_profits or (0.0, 0.0, 0.0)
         cost_sells = cost_sells or (0.0, 0.0, 0.0)
         sell_label = (
-            "成本去杠杆 "
+            "成本去杠杆 盈利档 "
             + "/".join(f"{float(profit_value):g}%" for profit_value in cost_profits)
-            + " 盈利 "
-            + "+".join(f"{float(sell_value):g}%" for sell_value in cost_sells)
-            + f" 卖出 {int(cost_cooldown or 0):g}日冷却"
+            + " × 减仓 "
+            + "/".join(f"{float(sell_value):g}%" for sell_value in cost_sells)
+            + f" 冷却 {int(cost_cooldown or 0):g}日"
         )
     else:
         sell_label = SELL_STRATEGY_LABELS[sell_strategy]

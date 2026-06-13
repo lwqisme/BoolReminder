@@ -1379,11 +1379,11 @@ def _sell_label(strategy_key: str, params: Mapping[str, object]) -> str:
             params.get("cost_third_sell_pct") or 0,
         ]
         label = (
-            "成本去杠杆 "
+            "成本去杠杆 盈利档 "
             + "/".join(f"{float(value):g}%" for value in profits)
-            + " 盈利 "
-            + "+".join(f"{float(value):g}%" for value in sells)
-            + f" 卖出 {int(params.get('cost_deleverage_cooldown_days') or 0):g}日冷却"
+            + " × 减仓 "
+            + "/".join(f"{float(value):g}%" for value in sells)
+            + f" 冷却 {int(params.get('cost_deleverage_cooldown_days') or 0):g}日"
         )
     else:
         label = SELL_STRATEGY_LABELS[strategy_key]
