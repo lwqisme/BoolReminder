@@ -75,3 +75,32 @@ assert.ok(/盈利档 25%/.test(messyLabel), `triplet was silently reordered: ${m
 assert.ok(messyLabel.includes('冷却 5日'), `cooldown segment wrong: ${messyLabel}`);
 
 console.log('OK — cost_deleverage label format guarded');
+
+// ----------------------------------------------------------------------
+// Site #2: the inline buildSellLabel inside strategy_parameter_lab.html.
+// The worker version was patched first; the HTML inline copy was missed
+// twice in a row. Catch the drift between the two by extracting just the
+// cost_deleverage branch from the inline copy and asserting the same
+// format invariants.
+// ----------------------------------------------------------------------
+const html = fs.readFileSync(
+  path.join(__dirname, 'web', 'templates', 'strategy_parameter_lab.html'),
+  'utf-8'
+);
+
+// Find every '成本去杠杆' occurrence in label-builder code—all of them must
+// emit the new headers. This guards against future *new* sites being
+// added in the old format.
+const labelLines = html.split('\n').filter((line) => /label\s*=.*成本去杠杆/.test(line));
+assert.ok(labelLines.length >= 1, 'expected at least one inline cost_deleverage label site in HTML');
+labelLines.forEach((line, idx) => {
+  console.log(`html-site-${idx + 1}:`, line.trim().slice(0, 160));
+  assert.ok(line.includes('盈利档'), `inline label site #${idx + 1} missing '盈利档' header: ${line}`);
+  assert.ok(line.includes('减仓'), `inline label site #${idx + 1} missing '减仓' header: ${line}`);
+  assert.ok(line.includes('×') || line.includes('\\u00d7'), `inline label site #${idx + 1} missing '×' separator: ${line}`);
+  assert.ok(!line.includes("join('+')") , `inline label site #${idx + 1} still uses '+' between sell ratios: ${line}`);
+  assert.ok(!/卖出\s*\$\{[^}]+\}日冷却/.test(line) && !line.includes('日冷却`'),
+    `inline label site #${idx + 1} still uses legacy '卖出 N日冷却': ${line}`);
+});
+
+console.log('OK — inline HTML cost_deleverage label sites also guarded');
