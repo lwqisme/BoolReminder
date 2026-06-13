@@ -5414,9 +5414,41 @@
                 };
             };
             const outcomeTraces = leapsOutcomeTraces(options.leapsOutcomes, priceTraces, dates, closesByDate);
+            // 仓位结构图：堆叠面积 = 下层现金（灰） + 上层持仓市值（蓝），顶边 = 组合总值。
+            // Hover 同时显示金额与占总值百分比。
+            const positionValues = dates.map((_d, i) => {
+                const total = Number(portfolioValues[i] || 0);
+                const cash = Number(cashValues[i] || 0);
+                return Math.max(0, total - cash);
+            });
+            const cashHoverText = dates.map((_d, i) => {
+                const total = Number(portfolioValues[i] || 0);
+                const cash = Number(cashValues[i] || 0);
+                const ratio = total > 0 ? (cash / total) * 100 : 0;
+                return `现金: ${money(cash)} (${number(ratio, 1)}%)`;
+            });
+            const positionHoverText = dates.map((_d, i) => {
+                const total = Number(portfolioValues[i] || 0);
+                const cash = Number(cashValues[i] || 0);
+                const position = Math.max(0, total - cash);
+                const ratio = total > 0 ? (position / total) * 100 : 0;
+                return `持仓: ${money(position)} (${number(ratio, 1)}%)`;
+            });
             const traces = [
-                { type: 'scatter', mode: 'lines', name: '组合价值', x: dates, y: portfolioValues, line: { color: '#07689f', width: 2.2 } },
-                { type: 'scatter', mode: 'lines', name: '现金', x: dates, y: cashValues, line: { color: '#00856f', width: 1.9, dash: 'dot' } },
+                {
+                    type: 'scatter', mode: 'lines', name: '现金', stackgroup: 'composition',
+                    x: dates, y: cashValues,
+                    line: { color: '#cfd8dc', width: 0.5 },
+                    fillcolor: 'rgba(207, 216, 220, 0.55)',
+                    text: cashHoverText, hovertemplate: '%{text}<extra></extra>'
+                },
+                {
+                    type: 'scatter', mode: 'lines', name: '持仓市值', stackgroup: 'composition',
+                    x: dates, y: positionValues,
+                    line: { color: '#07689f', width: 0.5 },
+                    fillcolor: 'rgba(7, 104, 159, 0.55)',
+                    text: positionHoverText, hovertemplate: '%{text}<extra></extra>'
+                },
                 ...priceTraces,
                 tradeTrace('buy', '买入', '#ff7e67', 'circle'),
                 tradeTrace('sell', '卖出', '#054d76', 'diamond'),

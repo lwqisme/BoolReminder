@@ -51,6 +51,15 @@ _Avoid_: 未平仓交易、进行中交易
 从 History 或 GA 进化结果保存的策略参数快照。包含完整参数 payload，可按名称检索。
 _Avoid_: 模板、配置快照
 
+**仓位 (Position Allocation)**:
+某一时刻股票市值占组合总值的比例 = `position_value / (cash + position_value)`。
+用于回答"这一档已被持仓占用了吗"——`linear_weighted_slice` / `equal_slice` 在重启后会用 `markConsumedTranchesFromPosition` 检查现有仓位是否已经覆盖某档的累计 allocation_pct，已覆盖的档不会重复买入。
+_Avoid_: 持仓比例、股票占比
+
+**仓位结构图 (Position Composition Chart)**:
+参数实验室单 cell 详情里的堆叠面积图。下层灰色 = 现金，上层蓝色 = 持仓市值，顶边 = 组合总值。买卖 marker 落在顶边上。右轴叠加股价。Hover 显示当日现金/持仓的金额与百分比。
+_Avoid_: 持仓图、买卖点图
+
 **周期锚点 (Cycle Anchor)**:
 卖出阶梯策略（price_rise_grid、cost_deleverage）衡量"涨幅/盈利"的基准价。首次评估时取平均成本；卖档重启只清阶段标记、不重置锚点；完成整轮卖出后锚点上移到当时现价。
 _Avoid_: 基准价、参考价、成本锚
