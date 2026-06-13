@@ -7262,8 +7262,8 @@
                     }
                 });
                 if (payload.drawdown_basis) { const el = document.getElementById('drawdownBasis'); if (el) el.value = payload.drawdown_basis; }
-                if (payload.start) document.getElementById('start').value = payload.start;
-                if (payload.end) document.getElementById('end').value = payload.end;
+                // start/end intentionally NOT restored from localStorage: 近三年窗口需随今天滚动，
+                // 由服务端 default_start/default_end (today - 3y .. today) 渲染。
                 if (payload.sell_allow_same_day_sell !== undefined) { const el = document.getElementById('sellAllowSameDaySell'); if (el) el.checked = Boolean(payload.sell_allow_same_day_sell); }
                 if (payload.core_dip_timing_enabled !== undefined) { const el = document.getElementById('coreDipTimingEnabled'); if (el) el.value = payload.core_dip_timing_enabled ? 'true' : 'false'; }
                 if (payload.core_dip_timing_filter) { const el = document.getElementById('coreDipTimingFilter'); if (el) el.value = payload.core_dip_timing_filter; }
@@ -7320,7 +7320,8 @@
         }
 
         function initAutoSaveListeners() {
-            const saveIds = ['start', 'end', 'initialCash', 'monthlyContribution', 'maxDrawdown', 'stepPct', 'equalSliceAllocation', 'tradeFee', 'hkdToUsd', 'reservePosition', 'sellMinProfit', 'repairSellCooldown', 'repairStageSellPct', 'dcaRearmDrawdown', 'sellStageRearmDrawdown', 'sellStageRearmMode', 'gridReboundStep', 'gridSellPct', 'gridMinSellAmount', 'gridReboundCycleReset', 'costFirstProfitPct', 'costSecondProfitPct', 'costThirdProfitPct', 'costFirstSellPct', 'costSecondSellPct', 'costThirdSellPct', 'costDeleverageCooldown', 'costMinSellAmount', 'coreDipInitialCorePct', 'coreDipWeeklyCorePct', 'coreDipCashReservePct', 'coreDipStartDrawdownPct', 'coreDipFullDrawdownPct', 'coreDipTimingMaxDelayDays', 'coreDipTimingRiseThresholdPct', 'coreDipTimingNearLowPct', 'leapsLowCashThreshold', 'leapsMinDrawdown', 'leapsPremiumBudgetCap', 'leapsTargetDteLabel', 'leapsDrawdownGatePct', 'workerCount', 'drawdownBasis', 'coreDipTimingEnabled', 'coreDipTimingFilter', 'sellQualityWeightPct',
+            // 'start'/'end' deliberately excluded: window must roll with today (服务端渲染 today-3y..today)
+            const saveIds = ['initialCash', 'monthlyContribution', 'maxDrawdown', 'stepPct', 'equalSliceAllocation', 'tradeFee', 'hkdToUsd', 'reservePosition', 'sellMinProfit', 'repairSellCooldown', 'repairStageSellPct', 'dcaRearmDrawdown', 'sellStageRearmDrawdown', 'sellStageRearmMode', 'gridReboundStep', 'gridSellPct', 'gridMinSellAmount', 'gridReboundCycleReset', 'costFirstProfitPct', 'costSecondProfitPct', 'costThirdProfitPct', 'costFirstSellPct', 'costSecondSellPct', 'costThirdSellPct', 'costDeleverageCooldown', 'costMinSellAmount', 'coreDipInitialCorePct', 'coreDipWeeklyCorePct', 'coreDipCashReservePct', 'coreDipStartDrawdownPct', 'coreDipFullDrawdownPct', 'coreDipTimingMaxDelayDays', 'coreDipTimingRiseThresholdPct', 'coreDipTimingNearLowPct', 'leapsLowCashThreshold', 'leapsMinDrawdown', 'leapsPremiumBudgetCap', 'leapsTargetDteLabel', 'leapsDrawdownGatePct', 'workerCount', 'drawdownBasis', 'coreDipTimingEnabled', 'coreDipTimingFilter', 'sellQualityWeightPct',
                 // LEAPS GA
                 'leapsGaStart', 'leapsGaEnd', 'leapsGaPopSize', 'leapsGaGenerations',
                 'leapsGaMutationRate', 'leapsGaCrossoverRate', 'leapsGaSeed',
