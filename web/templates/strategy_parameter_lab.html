@@ -3961,9 +3961,14 @@
                 if (params.sell_allow_same_day_sell) label = `${label} / 买入日可卖`;
                 if (params.dca_rearm_drawdown_pct !== null && params.dca_rearm_drawdown_pct !== undefined && Number(params.dca_rearm_drawdown_pct) > 0) label = `${label} / 买档重启 ${formatCompact(params.dca_rearm_drawdown_pct)}%回撤`;
                 if (params.buy_rearm_mode === 'restart_from_rearm') label = `${label} / 重启后从首档`;
-                if (params.sell_stage_rearm_drawdown_pct !== null && params.sell_stage_rearm_drawdown_pct !== undefined && Number(params.sell_stage_rearm_drawdown_pct) > 0) label = `${label} / 卖档重启 ${formatCompact(params.sell_stage_rearm_drawdown_pct)}%回撤`;
                 const rearmMode = params.sell_stage_rearm_mode || baseInputs.sell_stage_rearm_mode;
-                if (rearmMode === 'drop_from_last_sell') label = `${label} / 距上次卖出跳水`;
+                const hasPct = params.sell_stage_rearm_drawdown_pct !== null && params.sell_stage_rearm_drawdown_pct !== undefined && Number(params.sell_stage_rearm_drawdown_pct) > 0;
+                if (rearmMode === 'drop_from_last_sell') {
+                    if (hasPct) label = `${label} / 卖档重启 距上次卖出跳水 ${formatCompact(params.sell_stage_rearm_drawdown_pct)}%`;
+                    else label = `${label} / 卖档重启 距上次卖出跳水 (退化为买档重启阈值)`;
+                } else if (hasPct) {
+                    label = `${label} / 卖档重启 ATH回撤 ${formatCompact(params.sell_stage_rearm_drawdown_pct)}%`;
+                }
             }
             return label;
         }
@@ -5028,7 +5033,7 @@
                         <tr>
                             <td>
                                 <div class="rank-pair"><span>全局 #${number(row.global_rank, 0)}</span><span>组内 #${number(row.group_rank, 0)}</span></div>
-                                <div class="strategy-name">${escapeHtml(candidate.label || row.group_label || row.key)}${candidate.buy_rearm_mode === 'restart_from_rearm' ? ' <span style="font-size:11px;color:var(--amber);">从首档</span>' : ''}${candidate.buy_rearm_mode === 'cumulative' ? ' <span style="font-size:11px;color:var(--muted);">累计补齐</span>' : ''}${(candidate.sell_stage_rearm_mode || (data && data.inputs && data.inputs.sell_stage_rearm_mode)) === 'drop_from_last_sell' ? ' <span style="font-size:11px;color:var(--cyan);">距上次卖出跳水</span>' : ''}${(candidate.sell_stage_rearm_mode || (data && data.inputs && data.inputs.sell_stage_rearm_mode)) === 'legacy' ? ' <span style="font-size:11px;color:var(--muted);">ATH回撤</span>' : ''}</div>
+                                <div class="strategy-name">${escapeHtml(candidate.label || row.group_label || row.key)}${candidate.buy_rearm_mode === 'restart_from_rearm' ? ' <span style="font-size:11px;color:var(--amber);">从首档</span>' : ''}${candidate.buy_rearm_mode === 'cumulative' ? ' <span style="font-size:11px;color:var(--muted);">累计补齐</span>' : ''}</div>
                                 <div class="strategy-meta">${escapeHtml(scoreLabel)} ${formatParameterRankScore(scoreForRankMethod(row, rankMethod, rankScope), rankMethod)} / Avg return ${pct(row.avg_return_pct)} / Avg DD ${pct(row.avg_drawdown_pct)}${renderSellQualityScoreSummary(row, data)}</div>
                                 <div class="strategy-meta">${escapeHtml(row.buy_strategy || candidate.buy_strategy || '')} + ${escapeHtml(row.sell_strategy || candidate.sell_strategy || '')}</div>
                                 ${showLeaps ? `<div class="leaps-strip">${renderAggregateLeapsBadge(row.leaps_signal || {})}</div>` : ''}

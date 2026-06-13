@@ -450,12 +450,13 @@ function buildSellLabel(strategyKey, params, labels = {}, baseInputs = {}) {
     label = `${label} / 买档重启 ${formatCompact(params.dca_rearm_drawdown_pct)}%回撤`;
   }
   if (params.buy_rearm_mode === 'restart_from_rearm') label = `${label} / 重启后从首档`;
-  if (params.sell_stage_rearm_drawdown_pct !== null && params.sell_stage_rearm_drawdown_pct !== undefined) {
-    label = `${label} / 卖档重启 ${formatCompact(params.sell_stage_rearm_drawdown_pct)}%回撤`;
-  }
   const rearmMode = params.sell_stage_rearm_mode || baseInputs.sell_stage_rearm_mode;
+  const hasPct = params.sell_stage_rearm_drawdown_pct !== null && params.sell_stage_rearm_drawdown_pct !== undefined;
   if (rearmMode === 'drop_from_last_sell') {
-    label = `${label} / 距上次卖出跳水`;
+    if (hasPct) label = `${label} / 卖档重启 距上次卖出跳水 ${formatCompact(params.sell_stage_rearm_drawdown_pct)}%`;
+    else label = `${label} / 卖档重启 距上次卖出跳水 (退化为买档重启阈值)`;
+  } else if (hasPct) {
+    label = `${label} / 卖档重启 ATH回撤 ${formatCompact(params.sell_stage_rearm_drawdown_pct)}%`;
   }
   return label;
 }
