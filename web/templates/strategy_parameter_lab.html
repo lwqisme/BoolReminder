@@ -5379,13 +5379,16 @@
                 const tradeTooltip = (trade) => {
                     const cashAfter = Number.isFinite(Number(trade.cash_after)) ? Number(trade.cash_after) : Number(cashByDate.get(trade.date));
                     const cashPctAfter = Number(trade.cash_pct_after);
+                    // 仓位% = 100% - 现金占比%。cash_pct_after 在引擎里已乘过 100（例如 23.5 代表 23.5%）。
+                    const positionPctAfter = Number.isFinite(cashPctAfter) ? (100 - cashPctAfter) : NaN;
                     const lines = [
                         `${trade.date} ${trade.symbol || ''}`,
                         `股票价格: ${number(trade.price)}`,
                         `${drawdownBasisLabel}: ${pct(trade.drawdown_pct)}`,
                         `交易金额: ${money(trade.gross_amount)}`,
                         `交易后现金: ${Number.isFinite(cashAfter) ? money(cashAfter) : '--'}`,
-                        `交易后现金占比: ${Number.isFinite(cashPctAfter) ? pct(cashPctAfter) : '--'}`
+                        `交易后现金占比: ${Number.isFinite(cashPctAfter) ? pct(cashPctAfter) : '--'}`,
+                        `交易后仓位: ${Number.isFinite(positionPctAfter) ? pct(positionPctAfter) : '--'}`
                     ];
                     if (action === 'buy') {
                         const trancheLabel = buyTrancheIndex(trade);
@@ -5402,12 +5405,9 @@
                     mode: 'markers',
                     name,
                     x: items.map((trade) => trade.date),
-                    y: items.map((trade) => {
-                        const tradePrice = Number(trade.price);
-                        if (usePriceAxisForTrades && Number.isFinite(tradePrice)) return tradePrice;
-                        return yByDate.get(trade.date) || portfolioValues[portfolioValues.length - 1] || 0;
-                    }),
-                    ...(usePriceAxisForTrades ? { yaxis: 'y2' } : {}),
+                    // 仓位结构图：marker 贴在堆叠面积顶边（组合总值）上，依靠左轴。
+                    // 股价信息仍然可以从 tooltip / 右轴股价线读到。
+                    y: items.map((trade) => yByDate.get(trade.date) || portfolioValues[portfolioValues.length - 1] || 0),
                     text: items.map(tradeTooltip),
                     hovertemplate: '%{text}<extra></extra>',
                     marker: { color, size: 11, symbol, line: { color: lineColor, width: 1 } }
@@ -5459,7 +5459,7 @@
                 traces,
                 layout: {
                     title: {
-                        text: '买卖点 / 股价 / 现金余额（交易后）',
+                        text: '仓位结构 / 股价 / 买卖点',
                         x: 0,
                         y: 0.98,
                         xanchor: 'left',
