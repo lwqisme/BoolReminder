@@ -649,11 +649,17 @@ function rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy, currentPrice) {
   if (!['repair_step', 'grid_rebound', 'price_rise_grid', 'cost_deleverage'].includes(sellStrategy)) return false;
   if (!Object.keys(state.sell_marks).length) return false;
   const mode = inputs.sell_stage_rearm_mode || 'legacy';
+  // Mirror Python `sell_stage_rearm_drawdown_pct(inputs)`: when the raw
+  // sell-stage threshold is null OR <= dca threshold, fall back to dca
+  // (parity bug found 2026-06-13 — JS only handled the null case via `??`,
+  // letting drop_from_last_sell trigger at smaller drops than Python did).
+  const dcaThresh = Math.max(0, num(inputs.dca_rearm_drawdown_pct));
+  const rawThreshold = inputs.sell_stage_rearm_drawdown_pct;
+  const effective = (rawThreshold == null || Number(rawThreshold) <= dcaThresh) ? dcaThresh : Number(rawThreshold);
+  const threshold = Math.min(Math.max(0, effective), num(inputs.max_drawdown_pct));
   if (mode === 'drop_from_last_sell') {
     const lastSell = state.last_position_sell_price;
     if (lastSell == null || lastSell <= 0 || currentPrice == null) return false;
-    const rawThreshold = inputs.sell_stage_rearm_drawdown_pct ?? inputs.dca_rearm_drawdown_pct;
-    const threshold = Math.min(Math.max(0, num(rawThreshold)), num(inputs.max_drawdown_pct));
     const dropPct = (lastSell - Number(currentPrice)) / lastSell * 100;
     if (dropPct + 1e-9 < threshold) return false;
     state.sell_marks = {};
@@ -665,8 +671,7 @@ function rearmAfterDcaBuy(state, drawdown, inputs, sellStrategy, currentPrice) {
     return true;
   }
   // legacy: ATH-relative drawdown threshold
-  const rawThreshold = inputs.sell_stage_rearm_drawdown_pct ?? inputs.dca_rearm_drawdown_pct;
-  if (drawdown + 1e-9 < Math.min(Math.max(0, num(rawThreshold)), num(inputs.max_drawdown_pct))) return false;
+  if (drawdown + 1e-9 < threshold) return false;
   state.sell_marks = {};
   if (sellStrategy === 'grid_rebound') {
     state.grid_rebound_cycle_anchor_drawdown_pct = null;

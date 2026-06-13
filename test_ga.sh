@@ -54,6 +54,13 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+echo "--- JavaScript: sell-stage rearm parity (Python <-> JS, drop_from_last_sell) ---"
+if node test_sell_stage_rearm_parity.js 2>&1; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=========================================="
 echo " Results: $PASS passed, $FAIL failed"
