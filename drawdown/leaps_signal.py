@@ -563,10 +563,20 @@ def generate_leaps_signals_for_symbol(
         )
         sell_signals.extend(pos_signals)
 
+    # Effective signal date: align with the last available price date so
+    # weekends / non-trading days don't tag signals with a non-trading date.
+    last_price_date = prices[-1][0]
+    if hasattr(last_price_date, 'date'):
+        last_price_date = last_price_date.date()
+    is_weekend = today.weekday() >= 5
+    effective_signal_date = (
+        last_price_date if (is_weekend and last_price_date < today) else today
+    )
+
     return LeapsSignalResult(
         symbol=sym,
         preset_id=preset_id,
-        signal_date=today,
+        signal_date=effective_signal_date,
         entry_signals=entry_signals,
         sell_signals=sell_signals,
         open_positions=open_positions,
@@ -638,14 +648,39 @@ def append_realtime_price(
     except Exception:
         return daily_prices
 
+    _q = quotes[0]
+
     result = list(daily_prices)
     # Normalize dates to date objects (candles may return datetime)
     from datetime import datetime as dt_cls
     def _to_date(d):
         return d.date() if isinstance(d, dt_cls) else d
     result = [(_to_date(d), p) for d, p in result]
+    is_weekend = today.weekday() >= 5
+
+    # Patch lagging daily candles using quote.timestamp.
+    # Longbridge sometimes hasn't pushed the latest trading day's bar yet,
+    # but quote.last_done already reflects that day's close (timestamp marks
+    # the session). If quote.timestamp.date() is a trading day strictly after
+    # our last candle and <= today, append it.
+    quote_ts = getattr(_q, 'timestamp', None)
+    quote_ts_date = quote_ts.date() if isinstance(quote_ts, dt_cls) else None
+    if (
+        quote_ts_date is not None
+        and quote_ts_date <= today
+        and quote_ts_date.weekday() < 5
+        and (not result or quote_ts_date > result[-1][0])
+    ):
+        result.append((quote_ts_date, realtime_price))
+        return result
+
     if result and result[-1][0] == today:
+        # Today already present (intraday). Refresh price.
         result[-1] = (today, realtime_price)
+    elif is_weekend:
+        # Weekend: do not push date forward to a non-trading day.
+        # Leave series anchored on last trading day.
+        pass
     elif not result or result[-1][0] < today:
         result.append((today, realtime_price))
     return result

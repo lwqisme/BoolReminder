@@ -516,11 +516,16 @@ def build_test_prices(price: float, days: int, start: date | None = None) -> lis
 class AppendRealtimePriceTest(unittest.TestCase):
     """Real-time price append/replace for intraday signal generation."""
 
-    def _mock_quote_ctx(self, *, last_done: float):
+    def _mock_quote_ctx(self, *, last_done: float, timestamp=None,
+                        prev_close=None, post=None, pre=None):
         """Build a mock QuoteContext with quote()."""
         ctx = MagicMock()
         quote_resp = MagicMock()
         quote_resp.last_done = last_done
+        quote_resp.timestamp = timestamp
+        quote_resp.prev_close = prev_close
+        quote_resp.post_market_quote = post
+        quote_resp.pre_market_quote = pre
         ctx.quote.return_value = [quote_resp]
         return ctx
 
@@ -575,6 +580,92 @@ class AppendRealtimePriceTest(unittest.TestCase):
         self.assertEqual(len(result), 3)
         self.assertEqual(result[-1][0], today)
         self.assertAlmostEqual(result[-1][1], 361.85)
+
+    # ── Weekend / lagging-candle regressions ─────────────────────────
+
+    def test_skip_append_on_weekend_when_no_quote_timestamp(self):
+        """On Saturday with no usable quote.timestamp, do not push date forward.
+
+        Series should remain anchored on the last trading day instead of
+        gaining a (Saturday, last_done) entry.
+        """
+        from drawdown.leaps_signal import append_realtime_price
+
+        saturday = date(2026, 6, 13)  # weekday=5
+        daily = [
+            (date(2026, 6, 11), 399.15),
+            (date(2026, 6, 12), 406.43),
+        ]
+        ctx = self._mock_quote_ctx(last_done=406.10, timestamp=None)
+
+        result = append_realtime_price(daily, ctx, "TSLA.US", saturday)
+
+        self.assertEqual(result[-1][0], date(2026, 6, 12))
+        self.assertNotIn(saturday, [d for d, _ in result])
+
+    def test_patch_lagging_candle_using_quote_timestamp(self):
+        """Daily candles miss the most recent trading day but quote.timestamp covers it.
+
+        Reproduces TSLA on 2026-06-13: daily ends 06-11 (Thu) because LB
+        hasn't pushed Friday's bar yet, but quote.last_done=406.43 with
+        timestamp 2026-06-12 IS Friday's close. We must append (Fri, 406.43).
+        """
+        from datetime import datetime
+        from drawdown.leaps_signal import append_realtime_price
+
+        saturday = date(2026, 6, 13)
+        daily = [
+            (date(2026, 6, 10), 381.59),
+            (date(2026, 6, 11), 399.15),  # last bar is Thu; Fri missing
+        ]
+        ctx = self._mock_quote_ctx(
+            last_done=406.43,
+            timestamp=datetime(2026, 6, 12, 20, 0, 0),  # Fri close session
+            prev_close=399.15,
+        )
+
+        result = append_realtime_price(daily, ctx, "TSLA.US", saturday)
+
+        # Fri row patched in; Sat NOT added
+        self.assertEqual(result[-1][0], date(2026, 6, 12))
+        self.assertAlmostEqual(result[-1][1], 406.43)
+        self.assertNotIn(saturday, [d for d, _ in result])
+
+    def test_no_patch_when_quote_timestamp_is_in_future(self):
+        """Defensive: ignore quote.timestamp if it lies after today."""
+        from datetime import datetime
+        from drawdown.leaps_signal import append_realtime_price
+
+        today = date(2026, 6, 11)
+        daily = [(date(2026, 6, 10), 381.59), (date(2026, 6, 11), 399.15)]
+        ctx = self._mock_quote_ctx(
+            last_done=410.0,
+            timestamp=datetime(2026, 6, 15, 0, 0, 0),  # bogus future
+        )
+
+        result = append_realtime_price(daily, ctx, "TSLA.US", today)
+
+        # Replace today's price with realtime, but never append a future date.
+        self.assertEqual(result[-1][0], today)
+        self.assertAlmostEqual(result[-1][1], 410.0)
+
+    def test_no_patch_when_quote_timestamp_is_weekend(self):
+        """quote.timestamp on Sat (e.g. cached weekend snapshot) must not be appended."""
+        from datetime import datetime
+        from drawdown.leaps_signal import append_realtime_price
+
+        saturday = date(2026, 6, 13)
+        daily = [(date(2026, 6, 11), 399.15), (date(2026, 6, 12), 406.43)]
+        ctx = self._mock_quote_ctx(
+            last_done=406.10,
+            timestamp=datetime(2026, 6, 13, 23, 59, 0),  # Saturday
+        )
+
+        result = append_realtime_price(daily, ctx, "TSLA.US", saturday)
+
+        # No Saturday entry.
+        self.assertEqual(result[-1][0], date(2026, 6, 12))
+        self.assertAlmostEqual(result[-1][1], 406.43)
 
 
 if __name__ == "__main__":
