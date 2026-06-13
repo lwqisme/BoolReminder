@@ -3193,6 +3193,21 @@ def _execute_crossed_tranches(
     sell_strategy: str,
 ) -> bool:
     drawdown_pct = point_drawdown_pct(point, inputs)
+    # Initial-cycle anchor for restart_from_rearm: when entering the very first
+    # buy cycle (no shares, no anchor yet) and the current drawdown already crosses
+    # multiple tranches, peg the anchor so only the first tranche fires today and
+    # subsequent tranches require one additional `step` of drawdown each. Without
+    # this, e.g. a 17% first-day drawdown with step=1.21% would fire ~14 tranches
+    # at once and exhaust cash, defeating the "restart from first tranche" intent.
+    if (
+        inputs.buy_rearm_mode == BUY_REARM_MODE_RESTART_FROM_REARM
+        and state.shares <= 0
+        and state.buy_rearm_anchor_drawdown_pct is None
+        and tranches
+    ):
+        first_threshold = min(t.threshold_pct for t in tranches)
+        if drawdown_pct + 1e-9 >= first_threshold and drawdown_pct > first_threshold:
+            state.buy_rearm_anchor_drawdown_pct = drawdown_pct - first_threshold
     anchor_drawdown_pct = _buy_rearm_anchor_drawdown_pct(state)
     bought = False
     for tranche in tranches:

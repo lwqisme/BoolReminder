@@ -785,6 +785,22 @@ function executeDca(state, point, dcaDays, inputs, tradeLog, strategy, sellStrat
 
 function executeTranches(state, point, tranches, executed, inputs, tradeLog, buyStrategy, sellStrategy) {
   const drawdown = drawdownPct(point, inputs);
+  // Initial-cycle anchor for restart_from_rearm: when entering the very first
+  // buy cycle (no shares, no anchor yet) and the current drawdown already crosses
+  // multiple tranches, peg the anchor so only the first tranche fires today and
+  // subsequent tranches require one additional `step` of drawdown each. Mirrors
+  // Python _execute_crossed_tranches.
+  if (
+    inputs.buy_rearm_mode === 'restart_from_rearm'
+    && (state.shares || 0) <= 0
+    && (state.buy_rearm_anchor_drawdown_pct === null || state.buy_rearm_anchor_drawdown_pct === undefined)
+    && tranches && tranches.length
+  ) {
+    const firstThreshold = Math.min.apply(null, tranches.map(function(t) { return num(t.threshold_pct); }));
+    if (drawdown + 1e-9 >= firstThreshold && drawdown > firstThreshold) {
+      state.buy_rearm_anchor_drawdown_pct = drawdown - firstThreshold;
+    }
+  }
   const anchor = Math.max(0, num(state.buy_rearm_anchor_drawdown_pct, 0));
   let bought = false;
   for (const tranche of tranches) {
