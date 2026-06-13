@@ -637,6 +637,24 @@ def append_realtime_price(
 
     Returns:
         Potentially modified price list.
+
+    Notes on Longbridge SecurityQuote semantics (easy to misread):
+        - ``last_done``: latest traded price for the symbol. Its session is
+          identified by ``timestamp`` (UTC). Post-market it equals the
+          regular-session close.
+        - ``prev_close``: close of the *previous trading day* relative to
+          ``last_done`` -- not relative to ``daily_prices[-1]``. So on a
+          Saturday call where ``last_done`` is Friday's close,
+          ``prev_close`` is Thursday's close. Example seen in production
+          on 2026-06-13 (Sat):
+              AAPL: last_done=291.13 (Fri close), prev_close=295.63 (Thu close)
+          That is *not* an inconsistency -- it just means "yesterday relative
+          to last_done". Do NOT use ``prev_close`` to detect lagging daily
+          candles; use ``timestamp.date()`` instead (see patch-lag branch
+          below).
+        - ``post_market_quote.prev_close`` is the regular-session close;
+          ``pre_market_quote.prev_close`` is the prior trading day's close.
+          Each sub-quote refreshes on its own cadence.
     """
     try:
         quotes = quote_ctx.quote([longbridge_symbol])
