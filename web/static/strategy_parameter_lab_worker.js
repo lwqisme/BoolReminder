@@ -441,7 +441,7 @@ function buildSellLabel(strategyKey, params, labels = {}, baseInputs = {}) {
       params.cost_second_sell_pct,
       params.cost_third_sell_pct
     ];
-    label = `成本去杠杆 ${profits.map((value) => `${formatCompact(value)}%`).join('/')} 盈利 ${sells.map((value) => `${formatCompact(value)}%`).join('+')} 卖出 ${formatCompact(Math.trunc(num(params.cost_deleverage_cooldown_days)))}日冷却`;
+    label = `成本去杠杆 盈利档 ${profits.map((value) => `${formatCompact(value)}%`).join('/')} × 减仓 ${sells.map((value) => `${formatCompact(value)}%`).join('/')} 冷却 ${formatCompact(Math.trunc(num(params.cost_deleverage_cooldown_days)))}日`;
   } else {
     label = labels[strategyKey] || strategyKey;
   }

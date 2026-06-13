@@ -61,6 +61,13 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+echo "--- JavaScript: cost_deleverage label format ---"
+if node test_cost_deleverage_label.js 2>&1; then
+    PASS=$((PASS + 1))
+else
+    FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "=========================================="
 echo " Results: $PASS passed, $FAIL failed"
