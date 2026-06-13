@@ -5098,11 +5098,25 @@
             (task?.symbols || []).forEach((symbol) => pushUniqueSymbol(symbols, symbol));
             return symbols;
         }
-        function buildCellPriceTraces(cell, chartDates) {
+        // priceSeriesProvider: (symbol) => { dates, closes } | null
+        // 默认 provider：从 lastParameterPacket.market_data.symbols 读，由 marketSeriesForSymbol 适配。
+        function defaultPriceSeriesProvider(symbol) {
+            const entry = marketSeriesForSymbol(symbol);
+            return entry?.series || null;
+        }
+        function buildCellPriceTraces(cell, chartDates, opts = {}) {
+            const provider = typeof opts.priceSeriesProvider === 'function' ? opts.priceSeriesProvider : defaultPriceSeriesProvider;
+            const symbolHints = Array.isArray(opts.symbolHints) ? opts.symbolHints : null;
             const dateStart = chartDates[0] || '';
             const dateEnd = chartDates[chartDates.length - 1] || '';
             const seen = new Set();
-            return cellChartSymbols(cell).map((symbol) => marketSeriesForSymbol(symbol)).filter((entry) => {
+            const symbols = symbolHints && symbolHints.length
+                ? symbolHints.map((s) => String(s || '').trim()).filter(Boolean)
+                : cellChartSymbols(cell);
+            return symbols.map((symbol) => {
+                const series = provider(symbol);
+                return series ? { symbol, series } : null;
+            }).filter((entry) => {
                 if (!entry || seen.has(entry.symbol)) return false;
                 seen.add(entry.symbol);
                 return true;
@@ -5337,12 +5351,22 @@
             }
             return traces;
         }
+        // 仓位结构 / 股价 / 买卖点 图（共用渲染）。
+        // 调用方负责注入 inputs（drawdown_basis/max_drawdown_pct/step_pct）以及 priceSeriesProvider；
+        // 不再隐式读 lastParameterPacket，便于在 cell 抽屉与预设回测复用。
         function buildCellTradeChartFigure(cell, options = {}) {
-            console.info('[parameter-lab] buildCellTradeChartFigure drawdownBasis:', (lastParameterPacket?.inputs?.drawdown_basis || 'ath'), 'leapsOutcomes:', (options.leapsOutcomes || []).length);
+            const inputs = (options && typeof options.inputs === 'object' && options.inputs)
+                ? options.inputs
+                : (lastParameterPacket?.inputs || {});
+            const drawdownBasis = String(inputs.drawdown_basis || 'ath');
+            console.info('[parameter-lab] buildCellTradeChartFigure drawdownBasis:', drawdownBasis, 'leapsOutcomes:', (options.leapsOutcomes || []).length);
             const dates = cell.series.dates || [];
             const portfolioValues = cell.series.portfolio_values || [];
             const cashValues = cell.series.cash_values || [];
-            const priceTraces = buildCellPriceTraces(cell, dates);
+            const priceTraces = buildCellPriceTraces(cell, dates, {
+                priceSeriesProvider: options.priceSeriesProvider,
+                symbolHints: options.symbolHints,
+            });
             const usePriceAxisForTrades = priceTraces.length > 0;
             const yByDate = new Map(dates.map((date, index) => [date, portfolioValues[index]]));
             const cashByDate = new Map(dates.map((date, index) => [date, cashValues[index]]));
@@ -5350,15 +5374,15 @@
             priceTraces.forEach((trace) => {
                 (trace.x || []).forEach((date, index) => { closesByDate[date] = trace.y?.[index]; });
             });
-            const drawdownBasisLabel = ((lastParameterPacket?.inputs?.drawdown_basis || 'ath') === 'rolling_120') ? '120日回撤' : 'ATH回撤';
+            const drawdownBasisLabel = (drawdownBasis === 'rolling_120') ? '120日回撤' : 'ATH回撤';
             const trades = Array.isArray(cell.trade_log) ? cell.trade_log : [];
+            const showTrancheLabel = options.showTrancheLabel !== false;  // 默认显示；预设回测可关
 
             // Compute tranche index for a buy trade based on strategy and threshold.
             function buyTrancheIndex(trade) {
                 const strategy = trade.buy_strategy || '';
                 const thr = Number(trade.base_threshold_pct);
                 if (!Number.isFinite(thr)) return '';
-                const inputs = (lastParameterPacket && lastParameterPacket.inputs) || {};
                 const maxDd = Math.max(0.0001, Number(inputs.max_drawdown_pct) || 50);
                 const step = Math.max(0.0001, Number(inputs.step_pct) || 5);
                 var thresholds = [];
@@ -5394,8 +5418,13 @@
                         `交易后仓位: ${Number.isFinite(positionPctAfter) ? pct(positionPctAfter) : '--'}`
                     ];
                     if (action === 'buy') {
-                        const trancheLabel = buyTrancheIndex(trade);
-                        if (trancheLabel) lines.push('触发档位: ' + trancheLabel);
+                        if (showTrancheLabel) {
+                            const trancheLabel = buyTrancheIndex(trade);
+                            if (trancheLabel) lines.push('触发档位: ' + trancheLabel);
+                        } else {
+                            const thr = Number(trade.base_threshold_pct);
+                            if (Number.isFinite(thr)) lines.push('触发阈值: ' + thr.toFixed(2) + '%');
+                        }
                         lines.push(`买入股数: ${number(trade.shares, 4)}`);
                     } else {
                         lines.push(`卖出股数: ${number(trade.shares, 4)}`);
@@ -10009,6 +10038,18 @@
             }
         };
 
+        // 将预设 config_payload 里的 default_* 键转换为 buildCellTradeChartFigure 读的 inputs 变量。
+        // 预设回测不显示“第N档”标签（showTrancheLabel=false），仅需 drawdown_basis 跳动词。
+        function presetInputsFromConfig(cp) {
+            cp = cp || {};
+            const pick = (k) => (cp[k] !== undefined ? cp[k] : cp['default_' + k]);
+            return {
+                drawdown_basis: pick('drawdown_basis') || 'ath',
+                max_drawdown_pct: pick('max_drawdown_pct'),
+                step_pct: pick('step_pct') !== undefined ? pick('step_pct') : pick('slice_step_pct'),
+            };
+        }
+
         function drawStockPresetPlotly(resultId) {
             var plotDiv = document.getElementById(resultId + 'Plot');
             if (!plotDiv || !window.Plotly) return;
@@ -10018,69 +10059,37 @@
             var presetIdx = parseInt(parts[1]);
             var strategyIdx = parseInt(parts[2]);
 
-            // We need to re-fetch or cache the data
             if (!window._stockPresetResults || !window._stockPresetResults[presetIdx]) {
                 alert('数据丢失，请重新模拟'); return;
             }
-            var strategies = window._stockPresetResults[presetIdx].strategies || [];
+            var data = window._stockPresetResults[presetIdx];
+            var strategies = data.strategies || [];
             var st = strategies[strategyIdx];
-            if (!st) return;
+            if (!st || !st.series) return;
+
+            // 复用抽屉仓位结构图：后端返回的 strategy.trades 包装为 cell.trade_log。
+            var preset = presetStockCache[presetIdx] || {};
+            var inputs = presetInputsFromConfig(preset.config_payload);
+            var priceSeries = data.price_series || {};
+            var cell = { series: st.series, trade_log: st.trades || [] };
+            var figure = buildCellTradeChartFigure(cell, {
+                inputs: inputs,
+                priceSeriesProvider: function(sym) { return priceSeries[sym] || null; },
+                symbolHints: Object.keys(priceSeries),
+                showTrancheLabel: false,  // 预设记录的参数可能与当前不一致，退化到阈值%
+            });
+            Plotly.react(plotDiv, figure.traces, figure.layout, figure.config);
+
+            // 交易表格：保留原有紧凑列表（抽屉里交易表与图也是分开渲染的）
             var trades = st.trades || [];
-
-            // Build price traces from price_series in API response (not lastParameterPacket)
-            var priceSeries = window._stockPresetResults[presetIdx].price_series || {};
-            var priceColors = ['#d14b2f', '#2563eb', '#059669', '#7c3aed', '#d97706'];
-            var priceTraces = [];
-            var colorIdx = 0;
-            for (var sym in priceSeries) {
-                var ps = priceSeries[sym];
-                if (ps && ps.dates && ps.closes) {
-                    priceTraces.push({
-                        type: 'scatter', mode: 'lines', name: sym + ' 股价',
-                        x: ps.dates, y: ps.closes,
-                        line: { color: priceColors[colorIdx % priceColors.length], width: 2, dash: 'solid' }
-                    });
-                    colorIdx++;
-                }
-            }
-
-            // Buy/sell markers
-            var buyX = [], buyY = [], buyText = [];
-            var sellX = [], sellY = [], sellText = [];
             var tradeTable = '<table style="font-size:11px;"><tr><th>日期</th><th>动作</th><th>标的</th><th>价格</th><th>金额</th><th>股数</th></tr>';
-
             for (var t = 0; t < trades.length; t++) {
                 var tr = trades[t];
-                if (tr.action === 'buy') {
-                    buyX.push(tr.date); buyY.push(tr.price);
-                    buyText.push(tr.date + '<br>买入 ' + tr.symbol + '<br>价格: ' + Number(tr.price).toFixed(2));
-                } else {
-                    sellX.push(tr.date); sellY.push(tr.price);
-                    sellText.push(tr.date + '<br>卖出 ' + tr.symbol + '<br>价格: ' + Number(tr.price).toFixed(2));
-                }
                 tradeTable += '<tr><td>' + escapeHtml(tr.date) + '</td><td>' + escapeHtml(tr.action) + '</td><td>' +
                     escapeHtml(tr.symbol || '') + '</td><td>' + Number(tr.price).toFixed(2) + '</td><td>' +
                     money(tr.gross_amount) + '</td><td>' + Number(tr.shares || 0).toFixed(4) + '</td></tr>';
             }
             tradeTable += '</table>';
-
-            var allTraces = priceTraces.concat([
-                { x: buyX, y: buyY, type: 'scatter', mode: 'markers', name: '买入',
-                    marker: { color: '#059669', size: 10, symbol: 'triangle-up', line: { color: '#fff', width: 1 } },
-                    text: buyText, hoverinfo: 'text' },
-                { x: sellX, y: sellY, type: 'scatter', mode: 'markers', name: '卖出',
-                    marker: { color: '#dc2626', size: 10, symbol: 'triangle-down', line: { color: '#fff', width: 1 } },
-                    text: sellText, hoverinfo: 'text' },
-            ]);
-
-            Plotly.newPlot(plotDiv, allTraces, {
-                margin: { l: 50, r: 20, t: 10, b: 30 },
-                legend: { x: 0, y: 1.15, orientation: 'h', font: { size: 10 } },
-                xaxis: { title: '', rangebreaks: [{pattern: 'day of week', bounds: [6, 1]}] }, yaxis: { title: '价格' },
-                paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
-                hovermode: 'closest',
-            }, { responsive: true, displayModeBar: false });
-
             document.getElementById(resultId + 'Trades').innerHTML = tradeTable;
         }
 
