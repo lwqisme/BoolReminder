@@ -1674,28 +1674,31 @@
                             <label>最大回撤 % (20~50)<div style="display:flex;gap:3px;"><input id="gaB_maxDd" type="number" min="20" max="50" step="2.5" placeholder="20" style="width:50%;"><span>~</span><input id="gaB_maxDdHi" type="number" min="20" max="50" step="2.5" placeholder="50" style="width:50%;"></div></label>
                         </div>
                     </details>
-                    <div style="margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;font-size:12px;">
-                        <label style="display:flex;align-items:center;gap:4px;">重启模式
-                            <select id="gaBuyRearmMode" style="font-size:12px;padding:2px 4px;">
-                                <option value="" selected>Both</option>
-                                <option value="cumulative">累计补齐</option>
-                                <option value="restart_from_rearm">从首档</option>
-                            </select>
-                        </label>
-                        <label style="display:flex;align-items:center;gap:4px;">买入日可卖
-                            <select id="gaSameDaySell" style="font-size:12px;padding:2px 4px;">
-                                <option value="" selected>Both</option>
-                                <option value="false">关闭</option>
-                                <option value="true">开启</option>
-                            </select>
-                        </label>
-                        <label style="display:flex;align-items:center;gap:4px;">买点优化
-                            <select id="gaCoreDipTiming" style="font-size:12px;padding:2px 4px;">
-                                <option value="" selected>Both</option>
-                                <option value="false">关闭</option>
-                                <option value="true">开启</option>
-                            </select>
-                        </label>
+                    <div style="margin-top:10px;padding:8px 10px;border:1px solid var(--amber);border-radius:6px;background:rgba(255,193,7,0.06);">
+                        <div style="font-weight:900;font-size:12px;color:var(--amber);margin-bottom:6px;">🔒 GA 固定项 <span style="font-weight:400;color:var(--muted);">(选定后 GA 不再进化此字段，所有个体强制使用此值)</span></div>
+                        <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;">
+                            <label style="display:flex;align-items:center;gap:4px;">重启模式
+                                <select id="gaBuyRearmMode" style="font-size:12px;padding:2px 4px;">
+                                    <option value="" selected>Both（GA 进化）</option>
+                                    <option value="cumulative">累计补齐（锁定）</option>
+                                    <option value="restart_from_rearm">从首档（锁定）</option>
+                                </select>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;">买入日可卖
+                                <select id="gaSameDaySell" style="font-size:12px;padding:2px 4px;">
+                                    <option value="" selected>Both（GA 进化）</option>
+                                    <option value="false">关闭（锁定）</option>
+                                    <option value="true">开启（锁定）</option>
+                                </select>
+                            </label>
+                            <label style="display:flex;align-items:center;gap:4px;">买点优化
+                                <select id="gaCoreDipTiming" style="font-size:12px;padding:2px 4px;">
+                                    <option value="" selected>Both（GA 进化）</option>
+                                    <option value="false">关闭（锁定）</option>
+                                    <option value="true">开启（锁定）</option>
+                                </select>
+                            </label>
+                        </div>
                     </div>
                     <div id="gaStatus" style="margin-top:8px;font-size:12px;color:var(--muted);min-height:20px;">就绪。</div>
                     <div class="progress" id="gaProgress" style="display:none;">
@@ -8137,6 +8140,17 @@
                 const sellStrats = (paramRanges.sell_fields ? Object.keys(paramRanges.sell_fields) : [child.sell_strategy]) || [child.sell_strategy];
                 child.buy_strategy = buyStrats[Math.floor(Math.random() * buyStrats.length)];
                 child.sell_strategy = sellStrats[Math.floor(Math.random() * sellStrats.length)];
+            }
+
+            // Enforce categorical lock-ins (overrides any inherited/mutated value)
+            if (gaConfig.buy_rearm_mode === 'cumulative' || gaConfig.buy_rearm_mode === 'restart_from_rearm') {
+                child.buy_rearm_mode = gaConfig.buy_rearm_mode;
+            }
+            if (gaConfig.sell_allow_same_day_sell === 'true' || gaConfig.sell_allow_same_day_sell === 'false') {
+                child.sell_allow_same_day_sell = gaConfig.sell_allow_same_day_sell === 'true';
+            }
+            if (gaConfig.core_dip_timing_enabled === 'true' || gaConfig.core_dip_timing_enabled === 'false') {
+                child.core_dip_timing_enabled = gaConfig.core_dip_timing_enabled === 'true';
             }
 
             // Enforce core_dip constraints
