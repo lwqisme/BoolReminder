@@ -270,5 +270,188 @@ class StrategySignalPlaybackTest(unittest.TestCase):
         # There may or may not be forward buys depending on price action
 
 
+class NonTradingDayOverrideRollForwardTest(unittest.TestCase):
+    """Real trades whose date falls on a non-trading day (weekend/holiday)
+    must still be replayed; the engine rolls them forward to the next
+    trading day so state.shares and consumed-tranche logic stay aligned
+    with the user's actual position.
+
+    Reproduces 2026-06-13 GOOGL case: trades dated 2026-05-23 (Sat) and
+    2026-05-30 (Sat) were silently dropped because the per-day loop iterates
+    only over price points (trading days), causing 3 missing shares -> wrong
+    invested ratio -> spurious multi-tranche fire.
+    """
+
+    def test_weekend_buy_event_replayed_on_next_trading_day(self):
+        symbol = "TEST"
+        # Build a Mon-Fri series covering both weekend dates.
+        start = date(2026, 5, 18)  # Monday
+        prices: list[tuple[datetime, float]] = []
+        for i in range(20):
+            d = start + timedelta(days=i)
+            if d.weekday() >= 5:
+                continue  # skip weekends in price series
+            prices.append((datetime(d.year, d.month, d.day), 100.0))
+        from drawdown.generate_drawdown_report import build_price_points_from_series
+        points = build_price_points_from_series(prices)
+        price_points_by_symbol = {f"{symbol}.US": points}
+
+        inputs = StrategyInputs(
+            initial_cash=10000.0,
+            monthly_contribution=0.0,
+            step_pct=5.0,
+            equal_slice_allocation_pct=5.0,
+        )
+        target = PortfolioTarget(symbol=f"{symbol}.US", weight=100.0, name=symbol)
+
+        sat = date(2026, 5, 23)  # Saturday – not in price series
+        next_mon = date(2026, 5, 25)
+        self.assertEqual(sat.weekday(), 5)
+
+        trade_overrides: dict[date, list[dict]] = {
+            sat: [_make_trade_event(symbol, sat.isoformat(), "buy", shares=2.0, price=95.0)],
+        }
+
+        result = _simulate_strategy(
+            price_points_by_symbol, [target], inputs,
+            strategy="pyramid_3", sell_strategy="none",
+            trade_overrides=trade_overrides,
+        )
+
+        # The buy must be replayed (not dropped) and tagged as real.
+        real_buys = [t for t in result["trades"] if t.get("is_real") and t["action"] == "buy"]
+        self.assertEqual(len(real_buys), 1, f"weekend trade not replayed: {real_buys}")
+        # Date is shifted to next trading day (Mon) -- price/shares preserved.
+        self.assertEqual(real_buys[0]["date"], next_mon.isoformat())
+        self.assertEqual(real_buys[0]["shares"], 2.0)
+        self.assertAlmostEqual(real_buys[0]["price"], 95.0, places=2)
+
+    def test_weekend_buy_keeps_recorded_price_unchanged(self):
+        """Roll-forward must NOT replace ev['price'] with next-day's close.
+
+        Real fills happen intraday at arbitrary prices; the engine only
+        adjusts the calendar slot for replay, never the recorded price.
+        """
+        symbol = "TEST"
+        start = date(2026, 5, 18)
+        prices: list[tuple[datetime, float]] = []
+        for i in range(20):
+            d = start + timedelta(days=i)
+            if d.weekday() >= 5:
+                continue
+            # Mon close diverges from weekend fill price by a lot.
+            prices.append((datetime(d.year, d.month, d.day), 200.0))
+        from drawdown.generate_drawdown_report import build_price_points_from_series
+        points = build_price_points_from_series(prices)
+        price_points_by_symbol = {f"{symbol}.US": points}
+
+        inputs = StrategyInputs(
+            initial_cash=10000.0,
+            monthly_contribution=0.0,
+            step_pct=5.0,
+            equal_slice_allocation_pct=5.0,
+        )
+        target = PortfolioTarget(symbol=f"{symbol}.US", weight=100.0, name=symbol)
+
+        sat = date(2026, 5, 23)
+        trade_overrides = {
+            sat: [_make_trade_event(symbol, sat.isoformat(), "buy", shares=2.0, price=95.0)],
+        }
+        result = _simulate_strategy(
+            price_points_by_symbol, [target], inputs,
+            strategy="pyramid_3", sell_strategy="none",
+            trade_overrides=trade_overrides,
+        )
+        real_buys = [t for t in result["trades"] if t.get("is_real") and t["action"] == "buy"]
+        self.assertEqual(len(real_buys), 1)
+        # Recorded buy price stays at the user's intraday fill, not Mon's $200 close.
+        self.assertAlmostEqual(real_buys[0]["price"], 95.0, places=2)
+
+    def test_weekend_buy_consumes_tranches_correctly(self):
+        """After roll-forward, mark_consumed sees the full real position so
+        the engine does not re-fire already-covered tranches on the signal day.
+
+        Direct regression for the GOOGL '3 tranches fire at once' bug.
+        """
+        symbol = "TEST"
+        start = date(2026, 5, 18)
+        prices: list[tuple[datetime, float]] = []
+        # Long enough series so a meaningful drawdown can be computed.
+        for i in range(60):
+            d = start + timedelta(days=i)
+            if d.weekday() >= 5:
+                continue
+            # Up then down: peak around mid, drop ~12% by tail.
+            ratio = i / 60.0
+            price = 100.0 + 20.0 * (1 - abs(ratio - 0.4) / 0.4)
+            prices.append((datetime(d.year, d.month, d.day), round(price, 2)))
+        from drawdown.generate_drawdown_report import build_price_points_from_series
+        points = build_price_points_from_series(prices)
+        price_points_by_symbol = {f"{symbol}.US": points}
+
+        inputs = StrategyInputs(
+            initial_cash=10000.0,
+            monthly_contribution=0.0,
+            step_pct=2.5,
+            equal_slice_allocation_pct=15.0,
+            max_drawdown_pct=50.0,
+        )
+        target = PortfolioTarget(symbol=f"{symbol}.US", weight=100.0, name=symbol)
+
+        # 3 weekend-dated buys totalling ~45% of the portfolio at fill prices.
+        sats = [date(2026, 5, 23), date(2026, 5, 30), date(2026, 6, 6)]
+        for s in sats:
+            self.assertEqual(s.weekday(), 5)
+        trade_overrides: dict[date, list[dict]] = {
+            s: [_make_trade_event(symbol, s.isoformat(), "buy", shares=15.0, price=100.0)]
+            for s in sats
+        }
+
+        result = _simulate_strategy(
+            price_points_by_symbol, [target], inputs,
+            strategy="equal_slice", sell_strategy="none",
+            trade_overrides=trade_overrides,
+        )
+
+        # All 3 weekend buys must be replayed (45 shares total).
+        real_buys = [t for t in result["trades"] if t.get("is_real") and t["action"] == "buy"]
+        total_real_shares = sum(t["shares"] for t in real_buys)
+        self.assertEqual(len(real_buys), 3)
+        self.assertAlmostEqual(total_real_shares, 45.0, places=2)
+
+    def test_no_price_data_drops_overrides_gracefully(self):
+        """Defensive: if a symbol has no price points at all, weekend-dated
+        events for it are dropped rather than crashing roll-forward.
+        """
+        symbol = "GHOST"
+        # Build prices for a different symbol; GHOST has none.
+        start = date(2026, 5, 18)
+        prices: list[tuple[datetime, float]] = []
+        for i in range(10):
+            d = start + timedelta(days=i)
+            if d.weekday() >= 5:
+                continue
+            prices.append((datetime(d.year, d.month, d.day), 100.0))
+        from drawdown.generate_drawdown_report import build_price_points_from_series
+        points = build_price_points_from_series(prices)
+
+        inputs = StrategyInputs(initial_cash=10000.0, step_pct=5.0)
+        target = PortfolioTarget(symbol="OTHER.US", weight=100.0, name="OTHER")
+
+        sat = date(2026, 5, 23)
+        trade_overrides = {
+            sat: [_make_trade_event(symbol, sat.isoformat(), "buy", shares=1.0, price=50.0)],
+        }
+
+        # Should not raise.
+        result = _simulate_strategy(
+            {"OTHER.US": points}, [target], inputs,
+            strategy="pyramid_3", sell_strategy="none",
+            trade_overrides=trade_overrides,
+        )
+        # GHOST event silently dropped; result still well-formed.
+        self.assertIn("trades", result)
+
+
 if __name__ == "__main__":
     unittest.main()

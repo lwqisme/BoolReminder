@@ -2335,6 +2335,46 @@ def _simulate_strategy(
                 bucket = _overrides_by_symbol.setdefault(base, {})
                 bucket.setdefault(dt, []).append(ev)
 
+    # Roll non-trading-day events forward to the next available trading day
+    # so they get replayed by the engine. Real fills happen intraday at
+    # arbitrary prices; here we only need the share/cash bookkeeping to
+    # land on a day the engine actually visits. The event keeps its own
+    # ev["price"] (used by _apply_real_trades), so the recorded buy price
+    # is unaffected by the date shift.
+    #
+    # Resolution: for each (symbol, event_date) pair where event_date is
+    # absent from that symbol's price series, find the smallest trading
+    # day strictly greater than event_date. If none exists, fall back to
+    # the largest trading day strictly less than event_date (so events
+    # past the price series tail still post). Drop the event only when
+    # the symbol has no price data at all.
+    for sym_key, by_day in list(_overrides_by_symbol.items()):
+        # Resolve which symbol's price calendar to use. Overrides may key
+        # by base ("GOOGL") while points key by full ("GOOGL.US").
+        candidates = [
+            sym_key,
+            *(s for s in point_by_day if canonical_symbol(s) == sym_key),
+            *(s for s in point_by_day if (s.rsplit(".", 1)[0] if "." in s else s) == sym_key),
+        ]
+        cal_symbol = next((s for s in candidates if s in point_by_day), None)
+        if cal_symbol is None:
+            continue
+        cal_days = sorted(point_by_day[cal_symbol].keys())
+        if not cal_days:
+            continue
+        rebuilt: dict[date, list[dict[str, object]]] = {}
+        for ev_date, evs in by_day.items():
+            if ev_date in point_by_day[cal_symbol]:
+                rebuilt.setdefault(ev_date, []).extend(evs)
+                continue
+            # Roll forward to next trading day
+            next_day = next((d for d in cal_days if d > ev_date), None)
+            if next_day is None:
+                # Past the tail: fall back to the most recent trading day
+                next_day = cal_days[-1]
+            rebuilt.setdefault(next_day, []).extend(evs)
+        _overrides_by_symbol[sym_key] = rebuilt
+
     for current_day in all_days:
         if inputs.monthly_contribution > 0 and current_day in contribution_days:
             contribution_count += 1
