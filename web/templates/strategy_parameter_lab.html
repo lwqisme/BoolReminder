@@ -1763,6 +1763,23 @@
                 <div id="compareAlertResults" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;"></div>
             </div>
 
+            <!-- ── Preset Management Panel (moved before results for easier preset loading) ── -->
+            <div class="panel" id="presetMgmtPanel" style="margin-top:18px;">
+                <div class="panel-head">
+                    <h2>💾 预设管理</h2>
+                    <div style="display:flex;gap:6px;">
+                        <button id="presetTabLeaps" onclick="switchPresetTab('leaps')" class="primary" style="font-size:12px;">LEAPS 预设</button>
+                        <button id="presetTabStock" onclick="switchPresetTab('stock')" style="font-size:12px;">股票预设</button>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <!-- LEAPS preset list -->
+                    <div id="presetLeapsList" style="display:none;"></div>
+                    <!-- Stock preset list -->
+                    <div id="presetStockList" style="display:none;"></div>
+                </div>
+            </div>
+
             <div class="toolbar">
                 <div class="left">
                     <strong id="resultTitle">尚未运行</strong>
@@ -1931,23 +1948,6 @@
                     </div>
                     <div id="leapsGaBest" style="padding:12px;border-top:1px solid var(--border);"></div>
                     <div id="leapsGaPopulation" style="padding:12px;border-top:1px solid var(--border);"></div>
-                </div>
-            </div>
-
-            <!-- ── Preset Management Panel ─────────────────────────── -->
-            <div class="panel" id="presetMgmtPanel" style="margin-top:18px;">
-                <div class="panel-head">
-                    <h2>💾 预设管理</h2>
-                    <div style="display:flex;gap:6px;">
-                        <button id="presetTabLeaps" onclick="switchPresetTab('leaps')" class="primary" style="font-size:12px;">LEAPS 预设</button>
-                        <button id="presetTabStock" onclick="switchPresetTab('stock')" style="font-size:12px;">股票预设</button>
-                    </div>
-                </div>
-                <div class="panel-body">
-                    <!-- LEAPS preset list -->
-                    <div id="presetLeapsList" style="display:none;"></div>
-                    <!-- Stock preset list -->
-                    <div id="presetStockList" style="display:none;"></div>
                 </div>
             </div>
 
