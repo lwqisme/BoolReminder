@@ -9726,19 +9726,23 @@
             var openX = [], openY = [], openText = [];
             var detailHtml = '';
 
-            // Build price series from trades' price_series
+            // Build price series. Prefer full-window series from backend (covers user-selected
+            // [start, end] regardless of when trades occur); fall back to per-trade slices.
             var allPricePoints = [];
             var symColors = ['#6b7280', '#059669', '#7c3aed', '#dc2626', '#d97706'];
-            var seenDates = {};
-
-            for (var t = 0; t < trades.length; t++) {
-                var tr = trades[t];
-                var ps = tr.price_series || [];
-                for (var pi = 0; pi < ps.length; pi++) {
-                    var key = ps[pi].date;
-                    if (!seenDates[key]) {
-                        seenDates[key] = true;
-                        allPricePoints.push(ps[pi]);
+            if (res.price_series && res.price_series.length) {
+                allPricePoints = res.price_series.slice();
+            } else {
+                var seenDates = {};
+                for (var t = 0; t < trades.length; t++) {
+                    var tr = trades[t];
+                    var ps = tr.price_series || [];
+                    for (var pi = 0; pi < ps.length; pi++) {
+                        var key = ps[pi].date;
+                        if (!seenDates[key]) {
+                            seenDates[key] = true;
+                            allPricePoints.push(ps[pi]);
+                        }
                     }
                 }
             }

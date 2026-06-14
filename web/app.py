@@ -10635,7 +10635,7 @@ def api_strategy_lab_parameter_lab_leaps_simulate():
         fetch_longbridge_daily_candles,
         normalize_longbridge_symbol,
     )
-    from drawdown.leaps_option_ga import run_leaps_simulation
+    from drawdown.leaps_option_ga import run_leaps_simulation, _bollinger_with_ma
 
     payload = request.get_json(silent=True) or {}
     started = time.perf_counter()
@@ -10732,9 +10732,23 @@ def api_strategy_lab_parameter_lab_leaps_simulate():
                 min_entry_date=start_date,
                 symbol=symbol,
             )
+            # Build full price series over user-selected window so the chart
+            # x-axis matches the requested [start, end], not just trade slices.
+            bb_data = _bollinger_with_ma(prices, period=22, std_mult=2.0)
+            bb_by_date = {item["date"]: item.get("band") for item in bb_data}
+            window_series: list[dict[str, object]] = []
+            for d, p in prices:
+                if d < start_date or d > end_date:
+                    continue
+                pt: dict[str, object] = {"date": d.isoformat(), "price": p}
+                band = bb_by_date.get(d)
+                if band is not None:
+                    pt["bollinger_lower"] = band
+                window_series.append(pt)
             results[symbol] = {
                 "trade_details": trades,
                 "trade_count": len(trades),
+                "price_series": window_series,
             }
 
         elapsed_ms = round((time.perf_counter() - started) * 1000, 3)
