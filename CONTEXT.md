@@ -72,3 +72,23 @@ _Avoid_: 卖出重置、重新武装
 **预设回测 (Preset Backtest)**:
 加载一个预设，指定标的和时间区间，重跑策略引擎生成交易记录和图表。
 _Avoid_: 预设模拟、回放
+
+**参数实验室 Tab 导航 (Parameter Lab Tab Navigation)**:
+参数实验室主区的顶部标签页切换。三个 tab：📊 参数回测（运行+矩阵）、💾 预设 & 信号（预设管理+信号配置）、🧬 LEAPS GA（LEAPS GA 进化）。切换不丢状态，活跃 tab 持久化到 localStorage。
+_Avoid_: 页面切换、路由跳转
+
+**移动端参数抽屉 (Mobile Settings Drawer)**:
+980px 以下屏幕，侧栏参数配置区隐藏，左下角 ⚙️ 按钮打开滑入式抽屉。抽屉内容克隆自侧栏 DOM。
+_Avoid_: 移动端设置页、响应式侧栏
+
+**参数实验室 Tab (Parameter Lab Tab)**:
+参数实验室主区顶部的标签页导航，类似 Bilibili 顶栏，点击切换不同内容区。三个 Tab：📊 参数回测（运行矩阵、开销明细）、💾 预设 & 信号（预设管理 + 策略信号配置，合并在独立 Tab 中）、🧬 LEAPS GA（LEAPS 遗传算法进化）。切换时侧栏参数配置保持不变。移动端侧栏隐藏，通过 ⚙️ 悬浮按钮打开抽屉式参数面板。
+_Avoid_: 标签、分页、参数页
+
+**参数实验室 Tab (Parameter Lab Tab)**:
+参数实验室主区的顶栏标签页导航，类似 Bilibili 顶栏。三个 tab：📊 参数回测（矩阵、运行、评分）、💾 预设 & 信号（预设管理 + 策略信号配置）、🧬 LEAPS GA（LEAPS GA 进化）。切换不丢失侧栏状态；活跃 tab 持久化到 localStorage。
+_Avoid_: 页面、分区
+
+**移动端参数抽屉 (Mobile Settings Drawer)**:
+980px 以下屏幕，侧栏隐藏，左下角 ⚙️ 按钮打开滑出抽屉，内含完整参数配置面板。点击遮罩或关闭按钮收起。
+_Avoid_: 移动菜单、手机侧栏

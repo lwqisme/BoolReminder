@@ -8961,12 +8961,30 @@ def _strategy_lab_page_context() -> dict[str, object]:
     lab_config = StrategyLabConfig.from_saved_defaults(strategy_config)
     worker_path = Path(__file__).parent / "static" / "strategy_parameter_lab_worker.js"
     engine_path = Path(__file__).parent / "static" / "leaps_ga_engine.js"
+    css_path = Path(__file__).parent / "static" / "parameter_lab.css"
+    core_js_path = Path(__file__).parent / "static" / "parameter_lab_core.js"
+    matrix_js_path = Path(__file__).parent / "static" / "parameter_lab_matrix.js"
+    preset_signal_js_path = Path(__file__).parent / "static" / "parameter_lab_preset_signal.js"
+    ga_js_path = Path(__file__).parent / "static" / "parameter_lab_ga.js"
+    leaps_ga_js_path = Path(__file__).parent / "static" / "parameter_lab_leaps_ga.js"
     try:
         parameter_lab_worker_version = hashlib.sha256(worker_path.read_bytes()).hexdigest()[:12]
         leaps_ga_engine_version = hashlib.sha256(engine_path.read_bytes()).hexdigest()[:12]
+        parameter_lab_css_version = hashlib.sha256(css_path.read_bytes()).hexdigest()[:12]
+        parameter_lab_core_js_version = hashlib.sha256(core_js_path.read_bytes()).hexdigest()[:12]
+        parameter_lab_matrix_js_version = hashlib.sha256(matrix_js_path.read_bytes()).hexdigest()[:12]
+        parameter_lab_preset_signal_js_version = hashlib.sha256(preset_signal_js_path.read_bytes()).hexdigest()[:12]
+        parameter_lab_ga_js_version = hashlib.sha256(ga_js_path.read_bytes()).hexdigest()[:12]
+        parameter_lab_leaps_ga_js_version = hashlib.sha256(leaps_ga_js_path.read_bytes()).hexdigest()[:12]
     except OSError:
         parameter_lab_worker_version = str(int(time.time()))
         leaps_ga_engine_version = str(int(time.time()))
+        parameter_lab_css_version = str(int(time.time()))
+        parameter_lab_core_js_version = str(int(time.time()))
+        parameter_lab_matrix_js_version = str(int(time.time()))
+        parameter_lab_preset_signal_js_version = str(int(time.time()))
+        parameter_lab_ga_js_version = str(int(time.time()))
+        parameter_lab_leaps_ga_js_version = str(int(time.time()))
     end_date = datetime.now().date()
     start_date = end_date - timedelta(days=365 * 3)
     scorecard_portfolios = _strategy_lab_scorecard_portfolios(lab_config)
@@ -9004,6 +9022,12 @@ def _strategy_lab_page_context() -> dict[str, object]:
         "strategy_registry": strategy_registry_payload(),
         "parameter_lab_worker_url": f"/static/strategy_parameter_lab_worker.js?v={parameter_lab_worker_version}&engine_v={leaps_ga_engine_version}",
         "leaps_ga_engine_version": leaps_ga_engine_version,
+        "parameter_lab_css_version": parameter_lab_css_version,
+        "parameter_lab_core_js_version": parameter_lab_core_js_version,
+        "parameter_lab_matrix_js_version": parameter_lab_matrix_js_version,
+        "parameter_lab_preset_signal_js_version": parameter_lab_preset_signal_js_version,
+        "parameter_lab_ga_js_version": parameter_lab_ga_js_version,
+        "parameter_lab_leaps_ga_js_version": parameter_lab_leaps_ga_js_version,
     }
 
 

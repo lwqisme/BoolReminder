@@ -7343,8 +7343,11 @@
                                     }
                                 }
                                 if (totalBuy > 0) {
+                                    const totalValue = (res.current_state && res.current_state.cash != null) ? res.current_state.cash + res.current_state.market_value : 0;
+                                    const buyPct = totalValue > 0 ? (totalBuy / totalValue * 100).toFixed(1) : '?';
                                     html += '<div style="font-size:11px;color:var(--amber);margin-top:2px;">' +
                                         '💰 买入合计：' + totalBuyShares.toFixed(1) + '股 / $' + totalBuy.toFixed(0) +
+                                        ' (占仓位 ' + buyPct + '%)' +
                                         '</div>';
                                 }
                             }
@@ -7362,9 +7365,14 @@
                                 ' | 均价 $' + (s.avg_cost || 0).toFixed(2) +
                                 '</div>';
                             if (res.initial_cash != null) {
+                                const mcSource = res.monthly_contribution_source || '';
+                                const mcVal = res.monthly_contribution || 0;
+                                const mcLabel = mcSource === 'signal_targets' ? '📋' : mcSource === 'zero_no_signal_targets' ? '🚫' : '⚙️';
+                                const mcText = mcSource === 'zero_no_signal_targets' ? '无月定投' : '$' + Number(mcVal).toFixed(0) + '/月';
                                 html += '<div style="font-size:11px;color:var(--muted);margin-top:1px;">' +
                                     icLabel + ' 初始资金 $' + Number(res.initial_cash).toFixed(0) +
                                     (icSource ? ' (' + (icSource === 'trade_history' ? '交易推算' : icSource === 'signal_targets' ? '信号目标表' : '预设默认') + ')' : '') +
+                                    ' · ' + mcLabel + ' ' + mcText +
                                     '</div>';
                             }
                         }

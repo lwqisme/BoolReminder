@@ -195,8 +195,14 @@ def generate_signal(
         initial_cash = _compute_initial_cash_from_trades(rows, inputs.initial_cash)
         initial_cash_source = "trade_history" if initial_cash != inputs.initial_cash else "preset_default"
     monthly_contribution = _load_target_monthly(sym)
+    monthly_contribution_source = "signal_targets"
     if monthly_contribution is None:
-        monthly_contribution = inputs.monthly_contribution
+        # When signal_targets has no entry for this symbol, monthly contribution
+        # cannot be reliably inferred from trade history (irregular deposits are
+        # indistinguishable from discretionary buys).  Default to 0 instead of the
+        # preset's backtest default (e.g. $1,000/mo) which would inject phantom cash.
+        monthly_contribution = 0.0
+        monthly_contribution_source = "zero_no_signal_targets"
 
     # 4. Determine date range
     trade_dates = sorted({
@@ -349,6 +355,8 @@ def generate_signal(
         },
         "initial_cash": initial_cash,
         "initial_cash_source": initial_cash_source,
+        "monthly_contribution": monthly_contribution,
+        "monthly_contribution_source": monthly_contribution_source,
         "position_context": position_context,
         "signals": all_signals,
         "dry_run": dry_run,
