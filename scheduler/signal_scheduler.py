@@ -77,7 +77,6 @@ class SignalScheduler:
             for sig in r.get("signals", []):
                 status = sig.get("status", "signal")
                 if status == "covered":
-                    # Covered tranche: show as info
                     body_lines.append(
                         f"{symbol}{preset_tag}: [已覆盖] {sig.get('reason', '')}"
                     )
@@ -114,10 +113,11 @@ class SignalScheduler:
                 subject_parts.append(f"{symbol} LEAPS卖出")
 
         subject = "策略信号: " + ", ".join(subject_parts)
-        body = "\n".join(body_lines)
 
         try:
-            self.email_sender.send_report_simple(subject, body, to_emails=self.to_emails)
+            from drawdown.strategy_signal import build_signal_email_html
+            _, html = build_signal_email_html(results)
+            self.email_sender.send_html_email(subject, html, to_emails=self.to_emails)
             logger.info(f"策略信号邮件已发送: {subject}")
         except Exception as e:
             logger.error(f"策略信号邮件发送失败: {e}", exc_info=True)
