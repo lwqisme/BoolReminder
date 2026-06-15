@@ -1288,16 +1288,18 @@
         .hidden { display: none !important; }
         .signal-config-section {
             margin: 0;
-            background: var(--surface);
-            border: 1px solid var(--line);
-            border-radius: var(--radius-sm);
-            box-shadow: var(--shadow);
+            background: var(--liquid-glass-bg);
+            border: var(--liquid-glass-border);
+            border-radius: var(--radius);
+            box-shadow: var(--liquid-glass-shadow);
             overflow: hidden;
+            backdrop-filter: var(--liquid-glass-filter);
+            -webkit-backdrop-filter: var(--liquid-glass-filter);
         }
         .signal-config-head {
             padding: 12px 16px;
-            background: var(--surface-2);
-            border-bottom: 1px solid var(--line);
+            background: rgba(248, 251, 255, 0.52);
+            border-bottom: 1px solid rgba(217, 224, 234, 0.40);
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -1310,8 +1312,8 @@
         .signal-config-section.open .signal-config-body { display: block; }
         .signal-config-section.always-open .signal-config-body { display: block; }
         .signal-config-section.always-open .signal-config-head { cursor: default; }
-        .signal-config-desc { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
-        .signal-actions { margin-top: 8px; display: flex; gap: 8px; align-items: center; }
+        .signal-config-desc { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+        .signal-actions { margin-top: 12px; display: flex; gap: 8px; align-items: center; }
         .signal-run-status { font-size: 12px; color: var(--muted); align-self: center; }
         .preset-type-toggle { display: flex; gap: 6px; }
         .preset-type-btn { font-size: 12px; }
@@ -1492,40 +1494,177 @@
             display: flex;
             align-items: center;
             gap: 8px;
-            padding: 6px 0;
-            border-bottom: 1px solid var(--surface-3);
+            padding: 8px 12px;
+            margin-bottom: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.58);
+            border-radius: var(--radius-sm);
+            background: rgba(255, 255, 255, 0.48);
+            transition: border-color 160ms ease, box-shadow 160ms ease;
         }
-        .signal-binding-row:last-child { border-bottom: none; }
+        .signal-binding-row:hover {
+            border-color: rgba(17, 103, 216, 0.22);
+            box-shadow: 0 2px 8px rgba(17, 103, 216, 0.06);
+        }
+        .signal-binding-row:last-child { margin-bottom: 0; }
         .signal-binding-row select, .signal-binding-row input {
             flex: 1;
             min-width: 0;
             padding: 5px 8px;
-            border: 1px solid var(--line);
-            border-radius: 6px;
+            border: 1px solid rgba(174, 185, 200, 0.50);
+            border-radius: 8px;
             font-size: 13px;
-            background: var(--surface);
+            background: rgba(255, 255, 255, 0.68);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
         }
         .signal-binding-row select { max-width: 140px; }
-        .signal-results {
-            margin-top: 12px;
-            padding: 12px;
-            background: var(--surface-2);
-            border-radius: var(--radius-sm);
+        .signal-binding-arrow {
+            font-family: var(--mono);
             font-size: 13px;
-            max-height: 400px;
+            color: var(--blue);
+            font-weight: 900;
+            flex-shrink: 0;
+        }
+        .signal-binding-preset-name {
+            font-size: 11px;
+            color: var(--muted);
+            white-space: nowrap;
+            max-width: 100px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .signal-results {
+            margin-top: 14px;
+            max-height: 520px;
             overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(174, 185, 200, 0.40) transparent;
         }
+        .signal-results::-webkit-scrollbar { width: 5px; }
+        .signal-results::-webkit-scrollbar-track { background: transparent; }
+        .signal-results::-webkit-scrollbar-thumb { background: rgba(174, 185, 200, 0.40); border-radius: 999px; }
         .signal-result-card {
-            padding: 8px 12px;
+            position: relative;
+            padding: 14px 16px;
             margin-bottom: 8px;
-            border-radius: 8px;
-            border: 1px solid var(--line);
-            background: var(--surface);
+            border: 1px solid rgba(255, 255, 255, 0.58);
+            border-radius: var(--radius-sm);
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.56), rgba(244, 249, 255, 0.34)),
+                rgba(255, 255, 255, 0.28);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+            overflow: hidden;
+            animation: sigCardIn 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
         }
-        .signal-result-card.has-signals { border-left: 3px solid var(--amber); }
-        .signal-result-card.error { border-left: 3px solid var(--red); }
-        .signal-result-card h4 { margin: 0 0 4px; font-size: 13px; }
-        .signal-row { font-family: var(--mono); font-size: 12px; padding: 2px 0; }
+        @keyframes sigCardIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .signal-result-card.has-signals {
+            border-left: 3px solid var(--amber);
+            background:
+                linear-gradient(180deg, rgba(255, 248, 232, 0.40), rgba(255, 255, 255, 0.48)),
+                rgba(255, 255, 255, 0.32);
+        }
+        .signal-result-card.has-signals.has-buy {
+            border-left: 3px solid var(--green);
+            background:
+                linear-gradient(180deg, rgba(236, 253, 245, 0.42), rgba(255, 255, 255, 0.48)),
+                rgba(255, 255, 255, 0.32);
+        }
+        .signal-result-card.has-sell {
+            border-left: 3px solid var(--red);
+        }
+        .signal-result-card.error {
+            border-left: 3px solid var(--red);
+            background:
+                linear-gradient(180deg, rgba(254, 242, 242, 0.38), rgba(255, 255, 255, 0.48)),
+                rgba(255, 255, 255, 0.32);
+        }
+        .signal-result-card h4 {
+            margin: 0 0 6px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .signal-result-card h4 .sig-symbol {
+            font-weight: 900;
+            letter-spacing: 0.02em;
+        }
+        .signal-result-card h4 .sig-preset {
+            font-weight: 400;
+            font-size: 11px;
+            color: var(--muted);
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: rgba(248, 251, 255, 0.72);
+            border: 1px solid rgba(196, 208, 224, 0.36);
+        }
+        .sig-date {
+            font-size: 11px;
+            color: var(--muted);
+            margin-bottom: 6px;
+            font-family: var(--mono);
+        }
+        .sig-param-summary {
+            font-size: 11px;
+            color: var(--muted);
+            margin-top: -2px;
+            margin-bottom: 4px;
+        }
+        .signal-row {
+            font-family: var(--mono);
+            font-size: 12px;
+            padding: 3px 0;
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+        }
+        .signal-row .sig-icon { flex-shrink: 0; }
+        .signal-row .sig-action { font-weight: 900; }
+        .signal-row .sig-detail { color: var(--ink); }
+        .signal-row .sig-reason { color: var(--muted); font-size: 11px; }
+        .signal-row.covered { color: var(--muted); }
+        .signal-row.buy-sig .sig-action { color: var(--green); }
+        .signal-row.sell-sig .sig-action { color: var(--red); }
+        .sig-buy-summary {
+            margin-top: 6px;
+            padding: 6px 10px;
+            border: 1px solid rgba(0, 133, 111, 0.16);
+            border-radius: 8px;
+            background: rgba(236, 253, 245, 0.48);
+            font-size: 12px;
+            color: var(--green);
+            font-weight: 800;
+        }
+        .sig-state-line {
+            font-size: 11px;
+            color: var(--muted);
+            margin-top: 4px;
+            line-height: 1.55;
+        }
+        .sig-state-line .sig-state-label {
+            display: inline-block;
+            min-width: 56px;
+            color: var(--ink);
+            font-weight: 800;
+        }
+        .sig-funding-line {
+            font-size: 11px;
+            color: var(--muted);
+            margin-top: 2px;
+            line-height: 1.55;
+        }
+        .sig-funding-line .sig-source-icon { margin-right: 2px; }
+        .sig-funding-line .sig-funding-label {
+            color: var(--ink);
+            font-weight: 800;
+        }
+        .sig-position-context {
+            font-size: 11px;
+            color: var(--blue);
+            margin-top: 3px;
+        }
         @media (max-width: 980px) {
             .shell { grid-template-columns: 1fr; }
             .side { display: none; }

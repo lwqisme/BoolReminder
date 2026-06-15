@@ -481,12 +481,12 @@
 
             <!-- ── Sub-tab: Signal ──────────────────────────── -->
             <div class="sub-tab-panel" id="subTabSignal">
-                <div class="signal-config-section always-open" id="signalConfigSection">
+                <div class="signal-config-section always-open" id="signalConfigSection" style="position:relative;isolation:isolate;">
                     <div class="signal-config-head">
                         <h3>🔔 策略信号配置</h3>
                     </div>
                     <div class="signal-config-body" id="signalConfigBody">
-                        <p class="signal-config-desc">绑定标的到预设参数组合，每晚 23:00 自动生成交易信号并通过邮件提醒。支持手动 dry-run。</p>
+                        <p class="signal-config-desc">绑定标的到预设参数组合，盘中自动生成交易信号并通过邮件提醒。支持手动 Dry-Run 预览。</p>
                         <div id="signalBindingsList"></div>
                         <div class="signal-actions">
                             <button type="button" onclick="addSignalBinding()">+ 添加绑定</button>
@@ -7216,20 +7216,20 @@
                     '<select onchange="signalBindings[\'' + escapeHtml(sym) + '\'] = this.value; saveSignalBindings();">' +
                     symbols.map(s => '<option value="' + s + '"' + (s === sym ? ' selected' : '') + '>' + s + '</option>').join('') +
                     '</select>' +
-                    '<span style="font-family:var(--mono);font-size:11px;color:var(--muted);">→</span>' +
+                    '<span class="signal-binding-arrow">→</span>' +
                     presetSelectHtml(sym, presetId) +
-                    '<span style="font-size:11px;color:var(--muted);margin-left:4px;">' + escapeHtml(presetLabel) + '</span>' +
+                    '<span class="signal-binding-preset-name">' + escapeHtml(presetLabel) + '</span>' +
                     '<button type="button" class="danger" style="min-height:28px;font-size:12px;padding:2px 8px;" onclick="delete signalBindings[\'' + escapeHtml(sym) + '\']; saveSignalBindings(); renderSignalBindings();">×</button>' +
                     '</div>';
             }
             const boundSymbols = new Set(Object.keys(signalBindings));
             const remaining = symbols.filter(s => !boundSymbols.has(s));
             if (remaining.length > 0 && presetList.length > 0) {
-                html += '<div class="signal-binding-row" style="opacity:0.8;">' +
+                html += '<div class="signal-binding-row" style="opacity:0.7;">' +
                     '<select id="newBindingSymbol" style="max-width:140px;">' +
                     remaining.map(s => '<option value="' + s + '">' + s + '</option>').join('') +
                     '</select>' +
-                    '<span style="font-family:var(--mono);font-size:11px;color:var(--muted);">→</span>' +
+                    '<span class="signal-binding-arrow">→</span>' +
                     newBindingPresetHtml() +
                     '<button type="button" style="min-height:28px;font-size:12px;padding:2px 8px;" onclick="addSignalBinding()">添加</button>' +
                     '</div>';
@@ -7283,7 +7283,7 @@
             btn.disabled = true;
             status.textContent = '运行中...';
             results.classList.remove('hidden');
-            results.innerHTML = '<p style="color:var(--muted);">正在生成信号...</p>';
+            results.innerHTML = '<p style="color:var(--muted);font-size:12px;padding:12px;">⏳ 正在生成信号...</p>';
 
             try {
                 const r = await fetch('/api/strategy-lab/signals/run', {
@@ -7295,7 +7295,8 @@
                 status.textContent = d.success ? '✅ 完成' : '❌ 失败';
                 if (d.results && d.results.length) {
                     let html = '';
-                    for (const res of d.results) {
+                    for (let i = 0; i < d.results.length; i++) {
+                        const res = d.results[i];
                         const hasErr = !!res.error || (res.errors && res.errors.length > 0);
                         const isLeaps = res.entry_signals !== undefined || res.sell_signals !== undefined;
                         const stockSigs = res.signals || [];
@@ -7303,43 +7304,56 @@
                         const leapsSellSigs = res.sell_signals || [];
                         const allSigs = isLeaps ? [...leapsEntrySigs, ...leapsSellSigs] : stockSigs;
                         const hasSig = allSigs.length > 0;
+                        const hasBuy = stockSigs.some(s => s.action === 'buy' && s.status !== 'covered') || leapsEntrySigs.length > 0;
+                        const hasSell = stockSigs.some(s => s.action === 'sell') || leapsSellSigs.length > 0;
                         const errText = res.error || (res.errors && res.errors.length ? res.errors.join('; ') : '');
-                        html += '<div class="signal-result-card' + (hasErr ? ' error' : '') + (hasSig ? ' has-signals' : '') + '">';
-                        html += '<h4>' + escapeHtml(res.symbol) + ' <span style="font-weight:400;color:var(--muted);">' + escapeHtml(res.preset_name || res.preset_id || '') + '</span></h4>';
+                        const cardClass = 'signal-result-card' + (hasErr ? ' error' : '') + (hasSig ? ' has-signals' : '') + (hasBuy ? ' has-buy' : '') + (hasSell ? ' has-sell' : '');
+                        html += '<div class="' + cardClass + '" style="animation-delay:' + (i * 60) + 'ms">';
+                        // Header: symbol + preset pill
+                        html += '<h4><span class="sig-symbol">' + escapeHtml(res.symbol) + '</span>' +
+                            '<span class="sig-preset">' + escapeHtml(res.preset_name || res.preset_id || '') + '</span></h4>';
                         if (res.param_summary) {
-                            html += '<div style="font-size:11px;color:var(--muted);margin-top:-2px;margin-bottom:4px;">' + escapeHtml(res.param_summary) + '</div>';
+                            html += '<div class="sig-param-summary">' + escapeHtml(res.param_summary) + '</div>';
                         }
                         if (hasErr) {
-                            html += '<div style="color:var(--red);">⚠ ' + escapeHtml(errText) + '</div>';
+                            html += '<div style="color:var(--red);font-weight:800;">⚠ ' + escapeHtml(errText) + '</div>';
                         } else if (hasSig) {
                             const weekendNote = res.is_weekend ? ' <span style="color:var(--amber);font-size:11px;">(周末预览)</span>' : '';
-                            html += '<div style="font-size:11px;color:var(--muted);margin-bottom:4px;">' +
-                                (res.effective_date || res.signal_date) + weekendNote + '</div>';
+                            html += '<div class="sig-date">📅 ' + (res.effective_date || res.signal_date) + weekendNote + '</div>';
                             if (isLeaps) {
                                 for (const es of leapsEntrySigs) {
-                                    html += '<div class="signal-row">🟢 LEAPS买入 ' +
-                                        (es.underlying || res.symbol) + ' @ $' + (es.stock_price || '?') +
-                                        ' <span style="color:var(--muted);">(' + escapeHtml(es.reason || '') + ')</span></div>';
+                                    html += '<div class="signal-row buy-sig">' +
+                                        '<span class="sig-icon">🟢</span>' +
+                                        '<span class="sig-action">LEAPS买入</span>' +
+                                        '<span class="sig-detail">' + escapeHtml(es.underlying || res.symbol) + ' @ $' + (es.stock_price || '?') + '</span>' +
+                                        '<span class="sig-reason">(' + escapeHtml(es.reason || '') + ')</span>' +
+                                        '</div>';
                                 }
                                 for (const ss of leapsSellSigs) {
-                                    html += '<div class="signal-row">🔴 LEAPS卖出 S' + (ss.stage || '?') +
-                                        ' ' + (ss.pct_to_sell || '?') + '% @ $' + (ss.stock_price || '?') +
-                                        ' <span style="color:var(--muted);">(' + escapeHtml(ss.reason || '') + ')</span></div>';
+                                    html += '<div class="signal-row sell-sig">' +
+                                        '<span class="sig-icon">🔴</span>' +
+                                        '<span class="sig-action">LEAPS卖出 S' + (ss.stage || '?') + '</span>' +
+                                        '<span class="sig-detail">' + (ss.pct_to_sell || '?') + '% @ $' + (ss.stock_price || '?') + '</span>' +
+                                        '<span class="sig-reason">(' + escapeHtml(ss.reason || '') + ')</span>' +
+                                        '</div>';
                                 }
                             } else {
                                 let totalBuy = 0, totalBuyShares = 0;
                                 for (const sig of stockSigs) {
                                     if (sig.status === 'covered') {
-                                        html += '<div class="signal-row" style="color:var(--muted);">' +
-                                            '✅ ' + escapeHtml(sig.reason || '已覆盖') +
+                                        html += '<div class="signal-row covered">' +
+                                            '<span class="sig-icon">✅</span>' +
+                                            '<span class="sig-reason">' + escapeHtml(sig.reason || '已覆盖') + '</span>' +
                                             '</div>';
                                     } else {
-                                        html += '<div class="signal-row">' +
-                                            (sig.action === 'buy' ? '🟢 买入' : '🔴 卖出') +
-                                            ' ' + (sig.shares || '?') + '股 @ $' + (sig.price || '?') +
-                                            (sig.reason ? ' <span style="color:var(--muted);">(' + escapeHtml(sig.reason) + ')</span>' : '') +
+                                        const isBuy = sig.action === 'buy';
+                                        html += '<div class="signal-row' + (isBuy ? ' buy-sig' : ' sell-sig') + '">' +
+                                            '<span class="sig-icon">' + (isBuy ? '🟢' : '🔴') + '</span>' +
+                                            '<span class="sig-action">' + (isBuy ? '买入' : '卖出') + '</span>' +
+                                            '<span class="sig-detail">' + (sig.shares || '?') + '股 @ $' + (sig.price || '?') + '</span>' +
+                                            (sig.reason ? '<span class="sig-reason">(' + escapeHtml(sig.reason) + ')</span>' : '') +
                                             '</div>';
-                                        if (sig.action === 'buy') {
+                                        if (isBuy) {
                                             totalBuy += (sig.shares || 0) * (sig.price || 0);
                                             totalBuyShares += sig.shares || 0;
                                         }
@@ -7348,42 +7362,39 @@
                                 if (totalBuy > 0) {
                                     const totalValue = (res.current_state && res.current_state.cash != null) ? res.current_state.cash + res.current_state.market_value : 0;
                                     const buyPct = totalValue > 0 ? (totalBuy / totalValue * 100).toFixed(1) : '?';
-                                    html += '<div style="font-size:11px;color:var(--amber);margin-top:2px;">' +
-                                        '💰 买入合计：' + totalBuyShares.toFixed(1) + '股 / $' + totalBuy.toFixed(0) +
-                                        ' (占仓位 ' + buyPct + '%)' +
-                                        '</div>';
+                                    html += '<div class="sig-buy-summary">💰 买入合计：' + totalBuyShares.toFixed(1) + '股 / $' + totalBuy.toFixed(0) + ' · 占仓位 ' + buyPct + '%</div>';
                                 }
                             }
                         } else {
-                            html += '<div style="color:var(--muted);">无信号</div>';
+                            html += '<div style="color:var(--muted);font-size:12px;">— 无信号 —</div>';
                         }
+                        // Position state
                         if (res.current_state) {
                             const s = res.current_state;
-                            const icSource = res.initial_cash_source || '';
-                            const icLabel = icSource === 'trade_history' ? '📈' : icSource === 'signal_targets' ? '📋' : '⚙️';
-                            const icVal = res.initial_cash != null ? res.initial_cash : s.cash + s.market_value - (s.invested || 0);
-                            html += '<div style="font-size:11px;color:var(--muted);margin-top:4px;">' +
-                                '持仓 ' + (s.shares || 0) + '股 | 现金 $' + (s.cash || 0).toFixed(0) +
-                                ' | 市值 $' + (s.market_value || 0).toFixed(0) +
-                                ' | 均价 $' + (s.avg_cost || 0).toFixed(2) +
+                            html += '<div class="sig-state-line">' +
+                                '<span class="sig-state-label">持仓</span>' + (s.shares || 0) + '股' +
+                                ' · 现金 $' + (s.cash || 0).toFixed(0) +
+                                ' · 市值 $' + (s.market_value || 0).toFixed(0) +
+                                ' · 均价 $' + (s.avg_cost || 0).toFixed(2) +
                                 '</div>';
                             if (res.initial_cash != null) {
+                                const icSource = res.initial_cash_source || '';
+                                const icLabel = icSource === 'trade_history' ? '📈' : icSource === 'signal_targets' ? '📋' : '⚙️';
+                                const icSourceText = icSource === 'trade_history' ? '交易推算' : icSource === 'signal_targets' ? '信号目标表' : '预设默认';
                                 const mcSource = res.monthly_contribution_source || '';
                                 const mcVal = res.monthly_contribution || 0;
                                 const mcLabel = mcSource === 'signal_targets' ? '📋' : mcSource === 'zero_no_signal_targets' ? '🚫' : '⚙️';
                                 const mcText = mcSource === 'zero_no_signal_targets' ? '无月定投' : '$' + Number(mcVal).toFixed(0) + '/月';
-                                html += '<div style="font-size:11px;color:var(--muted);margin-top:1px;">' +
-                                    icLabel + ' 初始资金 $' + Number(res.initial_cash).toFixed(0) +
-                                    (icSource ? ' (' + (icSource === 'trade_history' ? '交易推算' : icSource === 'signal_targets' ? '信号目标表' : '预设默认') + ')' : '') +
-                                    ' · ' + mcLabel + ' ' + mcText +
+                                html += '<div class="sig-funding-line">' +
+                                    '<span class="sig-source-icon">' + icLabel + '</span>' +
+                                    '<span class="sig-funding-label">初始</span> $' + Number(res.initial_cash).toFixed(0) +
+                                    ' (' + icSourceText + ')' +
+                                    ' · <span class="sig-source-icon">' + mcLabel + '</span>' + mcText +
                                     '</div>';
                             }
                         }
                         if (res.position_context && res.position_context.summary) {
-                            const pc = res.position_context;
-                            html += '<div style="font-size:11px;color:var(--blue);margin-top:2px;">' +
-                                '📊 ' + escapeHtml(pc.summary) +
-                                '</div>';
+                            html += '<div class="sig-position-context">📊 ' + escapeHtml(res.position_context.summary) + '</div>';
                         }
                         html += '</div>';
                     }
