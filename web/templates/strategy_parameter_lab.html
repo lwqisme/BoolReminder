@@ -4,8 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Parameter Lab - Strategy Lab</title>
-    <style>
-        :root {
+    <link rel="stylesheet" href="/static/parameter_lab.css?v={{ parameter_lab_css_version }}">
+    <!-- All styles in parameter_lab.css — no inline <style> duplication -->
+</head>
+<body>
+<!-- MARKER_BODY_START -->
             --bg: #f6f8fb;
             --surface: #ffffff;
             --surface-2: #f2f5f9;
@@ -1314,6 +1317,110 @@
         .signal-config-head h3 { margin: 0; font-size: 14px; }
         .signal-config-body { padding: 16px; display: none; }
         .signal-config-section.open .signal-config-body { display: block; }
+        /* ── Tab Navigation ─────────────────────────────────────── */
+        .main-tab-nav {
+            display: flex;
+            gap: 0;
+            border-bottom: 1px solid rgba(217, 224, 234, 0.54);
+            background:
+                radial-gradient(circle at 30% 0%, rgba(255, 255, 255, 0.70), transparent 42%),
+                rgba(255, 255, 255, 0.48);
+            backdrop-filter: blur(18px) saturate(1.14);
+            -webkit-backdrop-filter: blur(18px) saturate(1.14);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            padding: 0 12px;
+        }
+        .main-tab-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 18px;
+            border: none;
+            border-bottom: 2.5px solid transparent;
+            border-radius: 0;
+            background: transparent;
+            color: var(--muted);
+            font-size: 14px;
+            font-weight: 900;
+            cursor: pointer;
+            transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+            box-shadow: none;
+            min-height: 42px;
+        }
+        .main-tab-btn:hover {
+            transform: none;
+            color: var(--ink);
+            background: rgba(17, 103, 216, 0.04);
+            box-shadow: none;
+        }
+        .main-tab-btn.active {
+            color: var(--blue);
+            border-bottom-color: var(--blue);
+            background: rgba(17, 103, 216, 0.06);
+        }
+        .main-tab-panel { display: none; }
+        .main-tab-panel.active { display: block; }
+        /* ── Mobile settings drawer ────────────────────────────── */
+        .mobile-settings-toggle {
+            display: none;
+            position: fixed;
+            bottom: 18px;
+            left: 18px;
+            z-index: 55;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: 1px solid rgba(17, 103, 216, 0.28);
+            background: linear-gradient(180deg, #2b7ee8, var(--blue));
+            color: #fff;
+            font-size: 20px;
+            line-height: 1;
+            cursor: pointer;
+            box-shadow: 0 8px 22px rgba(17, 103, 216, 0.28);
+            align-items: center;
+            justify-content: center;
+        }
+        .mobile-settings-toggle:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 28px rgba(17, 103, 216, 0.36);
+        }
+        .mobile-settings-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            background: rgba(15, 23, 42, 0.36);
+        }
+        .mobile-settings-overlay.open { display: block; }
+        .mobile-settings-drawer {
+            position: fixed;
+            top: 0;
+            left: -320px;
+            width: min(320px, 85vw);
+            height: 100vh;
+            z-index: 51;
+            overflow-y: auto;
+            background:
+                linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 249, 255, 0.88)),
+                rgba(255, 255, 255, 0.96);
+            backdrop-filter: blur(22px) saturate(1.18);
+            -webkit-backdrop-filter: blur(22px) saturate(1.18);
+            box-shadow: 8px 0 28px rgba(15, 23, 42, 0.10);
+            transition: left 280ms cubic-bezier(0.22, 1, 0.36, 1);
+            padding: 18px;
+        }
+        .mobile-settings-drawer.open { left: 0; }
+        .mobile-settings-close {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(217, 224, 234, 0.54);
+        }
+        .mobile-settings-close h2 { margin: 0; font-size: 16px; }
         .signal-binding-row {
             display: flex;
             align-items: center;
@@ -1354,7 +1461,8 @@
         .signal-row { font-family: var(--mono); font-size: 12px; padding: 2px 0; }
         @media (max-width: 980px) {
             .shell { grid-template-columns: 1fr; }
-            .side { position: static; height: auto; }
+            .side { display: none; }
+            .mobile-settings-toggle { display: flex; }
             .field-grid, .field-grid.three, .stat-grid, .cost-metrics { grid-template-columns: 1fr; }
             .leaps-mini { grid-template-columns: 1fr 1fr; }
             .runbar { grid-template-columns: 1fr; }
@@ -1408,7 +1516,18 @@
 </head>
 <body>
     <div class="shell">
-        <aside class="side">
+        <!-- ── Mobile settings drawer ──────────────────────────── -->
+        <button class="mobile-settings-toggle" id="mobileSettingsToggle" onclick="openMobileSettings()">⚙️</button>
+        <div class="mobile-settings-overlay" id="mobileSettingsOverlay" onclick="closeMobileSettings()"></div>
+        <div class="mobile-settings-drawer" id="mobileSettingsDrawer">
+            <div class="mobile-settings-close">
+                <h2>⚙️ 参数配置</h2>
+                <button type="button" onclick="closeMobileSettings()">关闭</button>
+            </div>
+            <div id="mobileSettingsContent"></div>
+        </div>
+
+        <aside class="side" id="sidePanel">
             <div class="panel">
                 <div class="panel-head">
                     <h2>Parameter Lab</h2>
@@ -1726,6 +1845,16 @@
                 </div>
             </div>
 
+            <!-- ── Tab Navigation ──────────────────────────────── -->
+            <nav class="main-tab-nav" id="mainTabNav">
+                <button class="main-tab-btn active" data-tab="backtest" onclick="switchMainTab('backtest')">📊 参数回测</button>
+                <button class="main-tab-btn" data-tab="preset-signal" onclick="switchMainTab('preset-signal')">💾 预设 & 信号</button>
+                <button class="main-tab-btn" data-tab="leaps-ga" onclick="switchMainTab('leaps-ga')">🧬 LEAPS GA</button>
+            </nav>
+
+            <!-- ── Tab: Backtest ──────────────────────────────── -->
+            <div class="main-tab-panel active" id="tabBacktest">
+
             <div class="runbar">
                 <div class="status" id="status">
                     <strong>Ready</strong>
@@ -1763,22 +1892,7 @@
                 <div id="compareAlertResults" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;"></div>
             </div>
 
-            <!-- ── Preset Management Panel (moved before results for easier preset loading) ── -->
-            <div class="panel" id="presetMgmtPanel" style="margin-top:18px;">
-                <div class="panel-head">
-                    <h2>💾 预设管理</h2>
-                    <div style="display:flex;gap:6px;">
-                        <button id="presetTabLeaps" onclick="switchPresetTab('leaps')" class="primary" style="font-size:12px;">LEAPS 预设</button>
-                        <button id="presetTabStock" onclick="switchPresetTab('stock')" style="font-size:12px;">股票预设</button>
-                    </div>
-                </div>
-                <div class="panel-body">
-                    <!-- LEAPS preset list -->
-                    <div id="presetLeapsList" style="display:none;"></div>
-                    <!-- Stock preset list -->
-                    <div id="presetStockList" style="display:none;"></div>
-                </div>
-            </div>
+            <!-- ── Preset Management moved to preset-signal tab ── -->
 
             <div class="toolbar">
                 <div class="left">
@@ -1837,30 +1951,65 @@
                 </div>
             </details>
 
-            <div class="signal-config-section" id="signalConfigSection">
-                <div class="signal-config-head" onclick="toggleSignalConfig()">
-                    <h3>🔔 策略信号配置</h3>
-                    <span id="signalConfigToggle" style="font-size:12px;color:var(--muted);">展开 ▸</span>
-                </div>
-                <div class="signal-config-body" id="signalConfigBody">
-                    <p style="margin:0 0 8px;color:var(--muted);font-size:12px;">绑定标的到预设参数组合，每晚 23:00 自动生成交易信号并通过邮件提醒。支持手动 dry-run。</p>
-                    <div id="signalBindingsList"></div>
-                    <div style="margin-top:8px;display:flex;gap:8px;">
-                        <button type="button" onclick="addSignalBinding()">+ 添加绑定</button>
-                        <button class="primary" type="button" onclick="runSignalDryRun()" id="signalRunBtn">▶ Dry-Run</button>
-                        <span id="signalRunStatus" style="font-size:12px;color:var(--muted);align-self:center;"></span>
-                    </div>
-                    <div id="signalResults" class="signal-results hidden"></div>
-                </div>
-            </div>
+            <!-- ── Signal Config moved to preset-signal tab ── -->
 
             <div class="matrix-wrap">
                 <table id="matrixTable">
                     <thead id="matrixHead"><tr><th>策略参数组合</th></tr></thead>
                     <tbody id="matrixBody"><tr><td>尚未运行。</td></tr></tbody>
                 </table>
-            </div>
+            </div> <!-- /matrix-wrap -->
 
+            </div> <!-- /tabBacktest -->
+
+            <!-- ── Tab: Preset & Signal ──────────────────────────── -->
+            <div class="main-tab-panel" id="tabPresetSignal">
+
+            <nav class="sub-tab-nav" id="subTabNav">
+                <button class="sub-tab-btn active" data-subtab="preset" onclick="switchSubTab('preset')">💾 预设管理</button>
+                <button class="sub-tab-btn" data-subtab="signal" onclick="switchSubTab('signal')">🔔 策略信号配置</button>
+            </nav>
+
+            <!-- ── Sub-tab: Preset ──────────────────────────── -->
+            <div class="sub-tab-panel active" id="subTabPreset">
+                <div class="panel" id="presetMgmtPanel">
+                    <div class="panel-head">
+                        <div class="preset-type-toggle">
+                            <button id="presetTabLeaps" onclick="switchPresetTab('leaps')" class="primary preset-type-btn">LEAPS 预设</button>
+                            <button id="presetTabStock" onclick="switchPresetTab('stock')" class="preset-type-btn">股票预设</button>
+                        </div>
+                    </div>
+                    <div class="panel-body">
+                        <div id="presetLeapsList" class="preset-list"></div>
+                        <div id="presetStockList" class="preset-list" style="display:none;"></div>
+                    </div>
+                </div>
+            </div> <!-- /subTabPreset -->
+
+            <!-- ── Sub-tab: Signal ──────────────────────────── -->
+            <div class="sub-tab-panel" id="subTabSignal">
+                <div class="signal-config-section open" id="signalConfigSection">
+                    <div class="signal-config-head" onclick="toggleSignalConfig()">
+                        <h3>🔔 策略信号配置</h3>
+                        <span id="signalConfigToggle" class="signal-config-toggle-text">收起 ▾</span>
+                    </div>
+                    <div class="signal-config-body" id="signalConfigBody">
+                        <p class="signal-config-desc">绑定标的到预设参数组合，每晚 23:00 自动生成交易信号并通过邮件提醒。支持手动 dry-run。</p>
+                        <div id="signalBindingsList"></div>
+                        <div class="signal-actions">
+                            <button type="button" onclick="addSignalBinding()">+ 添加绑定</button>
+                            <button class="primary" type="button" onclick="runSignalDryRun()" id="signalRunBtn">▶ Dry-Run</button>
+                            <span id="signalRunStatus" class="signal-run-status"></span>
+                        </div>
+                        <div id="signalResults" class="signal-results hidden"></div>
+                    </div>
+                </div>
+            </div> <!-- /subTabSignal -->
+
+            </div> <!-- /tabPresetSignal -->
+
+            <!-- ── Tab: LEAPS GA ──────────────────────────────────── -->
+            <div class="main-tab-panel" id="tabLeapsGa">
             <div class="panel" id="leapsGaMainPanel" style="margin-top:18px;">
                 <div class="panel-head"><h2>🧬 LEAPS GA 进化</h2></div>
                 <div class="panel-body">
@@ -1951,6 +2100,10 @@
                 </div>
             </div>
 
+            </div> <!-- /panel leapsGaMainPanel -->
+
+            </div> <!-- /tabLeapsGa -->
+
         </main>
     </div>
 
@@ -2024,6 +2177,67 @@
 
     <script src="/static/vendor/plotly-2.35.2.min.js"></script>
     <script>
+        // ── Tab Navigation & Mobile Drawer ───────────────────────────
+        function switchMainTab(tabId) {
+            var panelId = { 'backtest': 'tabBacktest', 'preset-signal': 'tabPresetSignal', 'leaps-ga': 'tabLeapsGa' }[tabId];
+            document.querySelectorAll('.main-tab-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === tabId);
+            });
+            document.querySelectorAll('.main-tab-panel').forEach(panel => {
+                panel.classList.toggle('active', panel.id === panelId);
+            });
+            try { localStorage.setItem('parameterLabActiveTab', tabId); } catch(e) {}
+        }
+        window.switchMainTab = switchMainTab;
+
+        // ── Sub-tab Navigation (Preset & Signal) ─────────────────────
+        function switchSubTab(subId) {
+            var panelId = { 'preset': 'subTabPreset', 'signal': 'subTabSignal' }[subId];
+            document.querySelectorAll('.sub-tab-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.subtab === subId);
+            });
+            document.querySelectorAll('.sub-tab-panel').forEach(panel => {
+                panel.classList.toggle('active', panel.id === panelId);
+            });
+            try { localStorage.setItem('parameterLabActiveSubTab', subId); } catch(e) {}
+        }
+        window.switchSubTab = switchSubTab;
+
+        // ── Mobile Settings Drawer ─────────────────────────────────
+        var _mobileDrawerInitialized = false;
+        function openMobileSettings() {
+            if (!_mobileDrawerInitialized) {
+                var source = document.getElementById('sidePanel');
+                var target = document.getElementById('mobileSettingsContent');
+                if (source && target) {
+                    target.innerHTML = source.innerHTML;
+                }
+                _mobileDrawerInitialized = true;
+            }
+            document.getElementById('mobileSettingsOverlay').classList.add('open');
+            document.getElementById('mobileSettingsDrawer').classList.add('open');
+        }
+        function closeMobileSettings() {
+            document.getElementById('mobileSettingsOverlay').classList.remove('open');
+            document.getElementById('mobileSettingsDrawer').classList.remove('open');
+        }
+        window.openMobileSettings = openMobileSettings;
+        window.closeMobileSettings = closeMobileSettings;
+
+        // Restore last active tab on page load
+        (function() {
+            try {
+                var saved = localStorage.getItem('parameterLabActiveTab');
+                if (saved && ['backtest', 'preset-signal', 'leaps-ga'].includes(saved)) {
+                    switchMainTab(saved);
+                }
+                var savedSub = localStorage.getItem('parameterLabActiveSubTab');
+                if (savedSub && ['preset', 'signal'].includes(savedSub)) {
+                    switchSubTab(savedSub);
+                }
+            } catch(e) {}
+        })();
+
         const buyStrategyLabels = {{ buy_strategy_labels|tojson }};
         const sellStrategyLabels = {{ sell_strategy_labels|tojson }};
         const scorecardPortfolioLabels = {{ scorecard_portfolio_labels|tojson }};
@@ -9465,8 +9679,8 @@
 
         function switchPresetTab(tab) {
             presetMgmtTab = tab;
-            document.getElementById('presetTabLeaps').className = (tab === 'leaps') ? 'primary' : '';
-            document.getElementById('presetTabStock').className = (tab === 'stock') ? 'primary' : '';
+            document.getElementById('presetTabLeaps').className = (tab === 'leaps') ? 'primary preset-type-btn' : 'preset-type-btn';
+            document.getElementById('presetTabStock').className = (tab === 'stock') ? 'primary preset-type-btn' : 'preset-type-btn';
             document.getElementById('presetLeapsList').style.display = (tab === 'leaps') ? '' : 'none';
             document.getElementById('presetStockList').style.display = (tab === 'stock') ? '' : 'none';
             if (tab === 'leaps') loadPresetLeapsList();
