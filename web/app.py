@@ -11036,7 +11036,15 @@ def api_strategy_signal_run():
     signal_date = date.fromisoformat(signal_date_raw) if signal_date_raw else None
 
     results = generate_all_signals(signal_date=signal_date, dry_run=dry_run)
-    return jsonify({"success": True, "results": results, "dry_run": dry_run})
+
+    email_result = None
+    if not dry_run and results:
+        try:
+            email_result = _send_signal_email(results)
+        except Exception as exc:
+            email_result = {"error": str(exc)}
+
+    return jsonify({"success": True, "results": results, "dry_run": dry_run, "email": email_result})
 
 
 @app.route('/api/strategy-lab/leaps-signals/run', methods=['POST'])
@@ -11088,6 +11096,236 @@ def _serialize_leaps_result(result) -> dict[str, object]:
         if "expiration" in pos:
             pos["expiration"] = pos["expiration"].isoformat() if hasattr(pos["expiration"], "isoformat") else str(pos["expiration"])
     return d
+
+
+def _send_signal_email(results: list[dict[str, object]]) -> dict[str, object]:
+    """Send stock signal results via email."""
+    if config_manager is None:
+        return {"error": "配置管理器未初始化"}
+
+    email_config = config_manager.get_email_config()
+    if not email_config.get("smtp_host") or not email_config.get("to_emails"):
+        return {"error": "邮件配置不完整"}
+
+    from notify.email_sender import EmailSender
+    sender = EmailSender(
+        smtp_host=email_config["smtp_host"],
+        smtp_port=email_config["smtp_port"],
+        smtp_user=email_config["smtp_user"],
+        smtp_password=email_config["smtp_password"],
+        from_email=email_config.get("from_email", ""),
+    )
+
+    # Collect active signals (same logic as SignalScheduler)
+    active = []
+    for r in results:
+        if r.get("error"):
+            continue
+        has_stock = any(s.get("status") == "signal" for s in r.get("signals", []))
+        has_leaps = bool(r.get("entry_signals") or r.get("sell_signals"))
+        if has_stock or has_leaps:
+            active.append(r)
+
+    if not active:
+        return {"skipped": True, "reason": "无有效信号"}
+
+    subject_parts: list[str] = []
+    body_lines: list[str] = []
+    for r in active:
+        symbol = str(r["symbol"])
+        preset_name = str(r.get("preset_name") or r.get("preset_id", ""))
+        preset_tag = f" [{preset_name}]" if preset_name else ""
+        for sig in r.get("signals", []):
+            status = sig.get("status", "signal")
+            if status == "covered":
+                body_lines.append(f"{symbol}{preset_tag}: [已覆盖] {sig.get('reason', '')}")
+                continue
+            action = sig.get("action", "?")
+            price = sig.get("price", "?")
+            reason = sig.get("reason", "")
+            shares = sig.get("shares", "?")
+            line = f"{symbol}{preset_tag}: {action} {shares}股 @ ${price}"
+            if reason:
+                line += f" ({reason})"
+            body_lines.append(line)
+            subject_parts.append(f"{symbol} {action}")
+        for es in r.get("entry_signals", []):
+            price = es.get("stock_price", "?")
+            reason = es.get("reason", "")
+            line = f"{symbol}{preset_tag}: LEAPS买入 @ ${price}"
+            if reason:
+                line += f" ({reason})"
+            body_lines.append(line)
+            subject_parts.append(f"{symbol} LEAPS买入")
+        for ss in r.get("sell_signals", []):
+            price = ss.get("stock_price", "?")
+            stage = ss.get("stage", "?")
+            pct = ss.get("pct_to_sell", "?")
+            reason = ss.get("reason", "")
+            line = f"{symbol}{preset_tag}: LEAPS卖出 S{stage} {pct}% @ ${price}"
+            if reason:
+                line += f" ({reason})"
+            body_lines.append(line)
+            subject_parts.append(f"{symbol} LEAPS卖出")
+
+    subject = "策略信号: " + ", ".join(subject_parts)
+    body = "\n".join(body_lines)
+    to_emails = [str(e).strip() for e in email_config.get("to_emails", []) if str(e).strip()]
+    sender.send_text_email(subject, body, to_emails)
+    return {"sent": True, "to": to_emails}
+
+
+def _send_signal_email(results: list[dict[str, object]]) -> dict[str, object]:
+    """Send stock signal email for all active signals."""
+    if config_manager is None:
+        return {"error": "配置管理器未初始化"}
+
+    email_config = config_manager.get_email_config()
+    if not email_config.get("smtp_host") or not email_config.get("to_emails"):
+        return {"error": "邮件配置不完整"}
+
+    from notify.email_sender import EmailSender
+    sender = EmailSender(
+        smtp_host=email_config["smtp_host"],
+        smtp_port=email_config["smtp_port"],
+        smtp_user=email_config["smtp_user"],
+        smtp_password=email_config["smtp_password"],
+        from_email=email_config.get("from_email", ""),
+    )
+
+    # Collect active signals
+    active: list[dict[str, object]] = []
+    for r in results:
+        if r.get("error"):
+            continue
+        has_stock = any(s.get("status") == "signal" for s in r.get("signals", []))
+        has_leaps = bool(r.get("entry_signals") or r.get("sell_signals"))
+        if has_stock or has_leaps:
+            active.append(r)
+
+    if not active:
+        return {"sent": False, "reason": "no_active_signals"}
+
+    subject_parts: list[str] = []
+    body_lines: list[str] = []
+    for r in active:
+        symbol = str(r["symbol"])
+        preset_name = str(r.get("preset_name") or r.get("preset_id", ""))
+        preset_tag = f" [{preset_name}]" if preset_name else ""
+        has_actionable = False
+        for sig in r.get("signals", []):
+            status = sig.get("status", "signal")
+            if status == "covered":
+                body_lines.append(f"{symbol}{preset_tag}: [已覆盖] {sig.get('reason', '')}")
+                continue
+            has_actionable = True
+            action = sig.get("action", "?")
+            price = sig.get("price", "?")
+            reason = sig.get("reason", "")
+            shares = sig.get("shares", "?")
+            line = f"{symbol}{preset_tag}: {action} {shares}股 @ ${price}"
+            if reason:
+                line += f" ({reason})"
+            body_lines.append(line)
+            subject_parts.append(f"{symbol} {action}")
+        for es in r.get("entry_signals", []):
+            price = es.get("stock_price", "?")
+            reason = es.get("reason", "")
+            line = f"{symbol}{preset_tag}: LEAPS买入 @ ${price}"
+            if reason:
+                line += f" ({reason})"
+            body_lines.append(line)
+            subject_parts.append(f"{symbol} LEAPS买入")
+        for ss in r.get("sell_signals", []):
+            price = ss.get("stock_price", "?")
+            stage = ss.get("stage", "?")
+            pct = ss.get("pct_to_sell", "?")
+            reason = ss.get("reason", "")
+            line = f"{symbol}{preset_tag}: LEAPS卖出 S{stage} {pct}% @ ${price}"
+            if reason:
+                line += f" ({reason})"
+            body_lines.append(line)
+            subject_parts.append(f"{symbol} LEAPS卖出")
+
+    if not subject_parts:
+        return {"sent": False, "reason": "no_actionable_signals"}
+
+    subject = "策略信号: " + ", ".join(subject_parts)
+    body = "\n".join(body_lines)
+    to_emails = [str(e).strip() for e in email_config.get("to_emails", []) if str(e).strip()]
+    sender.send_text_email(subject, body, to_emails)
+    return {"sent": True, "to": to_emails}
+
+
+def _send_signal_email(results: list[dict[str, object]]) -> dict[str, object]:
+    """Send stock+LEAPS signal email."""
+    if config_manager is None:
+        return {"error": "配置管理器未初始化"}
+
+    email_config = config_manager.get_email_config()
+    if not email_config.get("smtp_host") or not email_config.get("to_emails"):
+        return {"error": "邮件配置不完整"}
+
+    from notify.email_sender import EmailSender
+    sender = EmailSender(
+        smtp_host=email_config["smtp_host"],
+        smtp_port=email_config["smtp_port"],
+        smtp_user=email_config["smtp_user"],
+        smtp_password=email_config["smtp_password"],
+        from_email=email_config.get("from_email", ""),
+    )
+
+    # Collect active signals
+    active = []
+    for r in results:
+        if r.get("error"):
+            continue
+        has_stock = any(s.get("status") == "signal" for s in r.get("signals", []))
+        has_leaps = bool(r.get("entry_signals") or r.get("sell_signals"))
+        if has_stock or has_leaps:
+            active.append(r)
+
+    subject_parts: list[str] = []
+    body_lines: list[str] = []
+    if not active:
+        body_lines.append("今日无信号。")
+    for r in active:
+        symbol = str(r["symbol"])
+        preset_name = str(r.get("preset_name") or r.get("preset_id", ""))
+        preset_tag = f" [{preset_name}]" if preset_name else ""
+        for sig in r.get("signals", []):
+            status = sig.get("status", "signal")
+            if status == "covered":
+                body_lines.append(f"{symbol}{preset_tag}: [已覆盖] {sig.get('reason', '')}")
+                continue
+            action = sig.get("action", "?")
+            price = sig.get("price", "?")
+            reason = sig.get("reason", "")
+            shares = sig.get("shares", "?")
+            line = f"{symbol}{preset_tag}: {action} {shares}股 @ ${price}"
+            if reason:
+                line += f" ({reason})"
+            body_lines.append(line)
+            subject_parts.append(f"{symbol} {action}")
+        for es in r.get("entry_signals", []):
+            line = f"{symbol}{preset_tag}: LEAPS买入 @ ${es.get('stock_price', '?')}"
+            if es.get("reason"):
+                line += f" ({es['reason']})"
+            body_lines.append(line)
+            subject_parts.append(f"{symbol} LEAPS买入")
+        for ss in r.get("sell_signals", []):
+            line = f"{symbol}{preset_tag}: LEAPS卖出 S{ss.get('stage', '?')} {ss.get('pct_to_sell', '?')}% @ ${ss.get('stock_price', '?')}"
+            if ss.get("reason"):
+                line += f" ({ss['reason']})"
+            body_lines.append(line)
+            subject_parts.append(f"{symbol} LEAPS卖出")
+
+    subject = "策略信号: " + (", ".join(subject_parts) if subject_parts else "无")
+    body = "\n".join(body_lines)
+
+    to_emails = [str(e).strip() for e in email_config.get("to_emails", []) if str(e).strip()]
+    sender.send_text_email(subject, body, to_emails)
+    return {"sent": True, "to": to_emails}
 
 
 def _send_leaps_signal_email(results: list[dict[str, object]]) -> dict[str, object]:
