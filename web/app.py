@@ -1141,6 +1141,7 @@ INDEX_TEMPLATE = """
         .hero-card.drawdown { background: linear-gradient(135deg, #07689f 0%, #0b75ae 58%, #2563eb 100%); }
         .hero-card.strategy { background: linear-gradient(135deg, #0f766e 0%, #059669 100%); }
         .hero-card.portal { background: linear-gradient(135deg, #334155 0%, #0f172a 100%); }
+        .hero-card.parameter { background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%); }
         .panel {
             background:
                 linear-gradient(180deg, rgba(162, 213, 242, 0.18), transparent 32%),
@@ -1188,6 +1189,10 @@ INDEX_TEMPLATE = """
             <a href="/strategy-lab" class="hero-card strategy">
                 <strong>仓位策略实验室</strong>
                 <span>六套买入策略的组合实时演算</span>
+            </a>
+            <a href="/strategy-lab/parameter-lab" class="hero-card parameter">
+                <strong>参数实验室</strong>
+                <span>策略参数全量演算与遗传算法寻优</span>
             </a>
             <a href="http://aqcloud.ltd" class="hero-card portal" target="_blank">
                 <strong>AQCloud 首页</strong>
