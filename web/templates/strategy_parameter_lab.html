@@ -481,10 +481,9 @@
 
             <!-- ── Sub-tab: Signal ──────────────────────────── -->
             <div class="sub-tab-panel" id="subTabSignal">
-                <div class="signal-config-section open" id="signalConfigSection">
-                    <div class="signal-config-head" onclick="toggleSignalConfig()">
+                <div class="signal-config-section always-open" id="signalConfigSection">
+                    <div class="signal-config-head">
                         <h3>🔔 策略信号配置</h3>
-                        <span id="signalConfigToggle" class="signal-config-toggle-text">收起 ▾</span>
                     </div>
                     <div class="signal-config-body" id="signalConfigBody">
                         <p class="signal-config-desc">绑定标的到预设参数组合，每晚 23:00 自动生成交易信号并通过邮件提醒。支持手动 dry-run。</p>
@@ -692,6 +691,12 @@
             document.querySelectorAll('.sub-tab-panel').forEach(panel => {
                 panel.classList.toggle('active', panel.id === panelId);
             });
+            // Load data when switching to a sub-tab
+            if (subId === 'signal') {
+                Promise.all([loadSignalBindings(), loadPresetList()]).then(() => renderSignalBindings());
+            } else if (subId === 'preset') {
+                if (typeof loadPresetList === 'function') loadPresetList();
+            }
             try { localStorage.setItem('parameterLabActiveSubTab', subId); } catch(e) {}
         }
         window.switchSubTab = switchSubTab;

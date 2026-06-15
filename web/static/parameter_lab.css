@@ -1308,6 +1308,8 @@
         .signal-config-toggle-text { font-size: 12px; color: var(--muted); }
         .signal-config-body { padding: 16px; display: none; }
         .signal-config-section.open .signal-config-body { display: block; }
+        .signal-config-section.always-open .signal-config-body { display: block; }
+        .signal-config-section.always-open .signal-config-head { cursor: default; }
         .signal-config-desc { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
         .signal-actions { margin-top: 8px; display: flex; gap: 8px; align-items: center; }
         .signal-run-status { font-size: 12px; color: var(--muted); align-self: center; }
