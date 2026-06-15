@@ -614,18 +614,16 @@ def build_signal_email_html(results: list[dict[str, object]]) -> tuple[str, str]
         for sig in stock_sigs:
             if sig.get("status") == "covered":
                 reason = sig.get('reason', '已覆盖')
-                reason_esc = reason.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                signals_html += f'<tr><td style="color:#657184;font-size:13px;">✅ {reason_esc}</td><td></td><td></td></tr>'
+                signals_html += f'<tr><td style="color:#657184;font-size:13px;">✅ {_html_esc(reason)}</td><td></td><td></td></tr>'
             else:
                 action = sig.get("action", "?")
                 is_buy = action == "buy"
                 icon = "🟢" if is_buy else "🔴"
                 color = "#00856f" if is_buy else "#d04437"
-                shares = sig.get('shares', '?')
-                price = sig.get('price', '?')
-                reason = sig.get('reason', '')
-                reason_esc = reason.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                signals_html += f'<tr><td style="font-weight:700;color:{color};font-size:13px;">{icon} {action}</td><td style="font-family:monospace;font-size:13px;">{shares}股</td><td style="font-family:monospace;font-size:13px;">@ ${price}</td><td style="color:#657184;font-size:12px;">{reason_esc}</td></tr>'
+                shares = _fmt_num(sig.get('shares', '?'))
+                price = _fmt_price(sig.get('price', '?'))
+                reason = _html_esc(sig.get('reason', ''))
+                signals_html += f'<tr><td style="font-weight:700;color:{color};font-size:13px;">{icon} {_html_esc(_action_label(action))}</td><td style="font-family:monospace;font-size:13px;">{shares}股</td><td style="font-family:monospace;font-size:13px;">@ ${price}</td><td style="color:#657184;font-size:12px;">{reason}</td></tr>'
                 if is_buy:
                     try:
                         total_buy += float(sig.get('shares', 0)) * float(sig.get('price', 0))
@@ -634,18 +632,18 @@ def build_signal_email_html(results: list[dict[str, object]]) -> tuple[str, str]
                         pass
 
         for es in leaps_entry:
-            underlying = es.get('underlying', symbol)
-            stock_price = es.get('stock_price', '?')
-            reason_esc = es.get('reason', '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            signals_html += f'<tr><td style="font-weight:700;color:#00856f;font-size:13px;">🟢 LEAPS买入</td><td style="font-family:monospace;font-size:13px;">{underlying}</td><td style="font-family:monospace;font-size:13px;">@ ${stock_price}</td><td style="color:#657184;font-size:12px;">{reason_esc}</td></tr>'
+            underlying = _html_esc(es.get('underlying', symbol))
+            stock_price = _fmt_price(es.get('stock_price', '?'))
+            reason = _html_esc(es.get('reason', ''))
+            signals_html += f'<tr><td style="font-weight:700;color:#00856f;font-size:13px;">🟢 LEAPS买入</td><td style="font-family:monospace;font-size:13px;">{underlying}</td><td style="font-family:monospace;font-size:13px;">@ ${stock_price}</td><td style="color:#657184;font-size:12px;">{reason}</td></tr>'
             subject_parts.append(f"{symbol} LEAPS买入")
 
         for ss in leaps_sell:
             stage = ss.get('stage', '?')
-            pct = ss.get('pct_to_sell', '?')
-            stock_price = ss.get('stock_price', '?')
-            reason_esc = ss.get('reason', '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            signals_html += f'<tr><td style="font-weight:700;color:#d04437;font-size:13px;">🔴 LEAPS卖出 S{stage}</td><td style="font-family:monospace;font-size:13px;">{pct}%</td><td style="font-family:monospace;font-size:13px;">@ ${stock_price}</td><td style="color:#657184;font-size:12px;">{reason_esc}</td></tr>'
+            pct = _fmt_num(ss.get('pct_to_sell', '?'), 0)
+            stock_price = _fmt_price(ss.get('stock_price', '?'))
+            reason = _html_esc(ss.get('reason', ''))
+            signals_html += f'<tr><td style="font-weight:700;color:#d04437;font-size:13px;">🔴 LEAPS卖出 S{stage}</td><td style="font-family:monospace;font-size:13px;">{pct}%</td><td style="font-family:monospace;font-size:13px;">@ ${stock_price}</td><td style="color:#657184;font-size:12px;">{reason}</td></tr>'
             subject_parts.append(f"{symbol} LEAPS卖出")
 
         buy_summary = ""
@@ -851,6 +849,33 @@ def build_signal_email_html(results: list[dict[str, object]]) -> tuple[str, str]
     return subject, html
 
 
+def _html_esc(s: str) -> str:
+    return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
+
+
+def _fmt_num(v, decimals=1):
+    """Format a number for display in email."""
+    if v is None or v == '?':
+        return '?'
+    try:
+        return f"{float(v):.{decimals}f}"
+    except (ValueError, TypeError):
+        return str(v)
+
+
+def _fmt_price(v):
+    if v is None or v == '?':
+        return '?'
+    try:
+        return f"{float(v):.2f}"
+    except (ValueError, TypeError):
+        return str(v)
+
+
+def _action_label(action):
+    return {"buy": "买入", "sell": "卖出"}.get(str(action), str(action))
+
+
 def build_signal_email_html(results: list[dict[str, object]]) -> tuple[str, str]:
     """Build subject + HTML body for signal email. Returns (subject, html).
 
@@ -925,7 +950,7 @@ def build_signal_email_html(results: list[dict[str, object]]) -> tuple[str, str]
         state_html = ""
         cs = r.get("current_state")
         if cs:
-            state_html = f'<tr><td colspan="4" style="color:#657184;font-size:11px;padding-top:6px;">持仓 {cs.get("shares", 0)}股 · 现金 ${cs.get("cash", 0):.0f} · 市值 ${cs.get("market_value", 0):.0f} · 均价 ${cs.get("avg_cost", 0):.2f}</td></tr>'
+            state_html = f'<tr><td colspan="4" style="color:#657184;font-size:11px;padding-top:6px;">持仓 {_fmt_num(cs.get("shares", 0), 1)}股 · 现金 ${_fmt_price(cs.get("cash", 0))} · 市值 ${_fmt_price(cs.get("market_value", 0))} · 均价 ${_fmt_price(cs.get("avg_cost", 0))}</td></tr>'
             ic = r.get("initial_cash")
             if ic is not None:
                 ic_src = r.get("initial_cash_source", "")
@@ -935,12 +960,12 @@ def build_signal_email_html(results: list[dict[str, object]]) -> tuple[str, str]
                 mc_val = r.get("monthly_contribution", 0)
                 mc_icon = {"signal_targets": "📋", "zero_no_signal_targets": "🚫"}.get(mc_src, "⚙️")
                 mc_text = "无月定投" if mc_src == "zero_no_signal_targets" else f"${mc_val:.0f}/月"
-                state_html += f'<tr><td colspan="4" style="color:#657184;font-size:11px;">{ic_icon} 初始 ${ic:.0f} ({ic_text}) · {mc_icon} {mc_text}</td></tr>'
+                state_html += f'<tr><td colspan="4" style="color:#657184;font-size:11px;">{ic_icon} 初始 ${float(ic):.0f} ({ic_text}) · {mc_icon} {mc_text}</td></tr>'
 
         pc = r.get("position_context")
         pc_html = ""
         if pc and pc.get("summary"):
-            pc_html = f'<tr><td colspan="4" style="color:#1167d8;font-size:11px;">📊 {pc["summary"]}</td></tr>'
+            pc_html = f'<tr><td colspan="4" style="color:#1167d8;font-size:11px;">📊 {_html_esc(pc["summary"])}</td></tr>'
 
         rows_html += f'''
         <div style="border-left:3px solid {border_color};background:{bg_tint}0a;border-radius:10px;margin-bottom:12px;overflow:hidden;">
