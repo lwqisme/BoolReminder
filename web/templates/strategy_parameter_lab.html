@@ -81,7 +81,39 @@
                 </div>
             </div>
 
-            <div class="panel">
+            
+
+        </aside>
+
+        <main class="main">
+            <div class="topbar">
+                <div class="title">
+                    <h1>参数实验室</h1>
+                    <p>Strategy + params full lab</p>
+                </div>
+                <div class="actions">
+                    <a href="/strategy-lab">主实验室</a>
+                    <a href="/">BOLL 首页</a>
+                    <a href="/api/strategy-lab/parameter-lab/registry">Registry JSON</a>
+                </div>
+            </div>
+
+            <!-- ── Tab Navigation ──────────────────────────────── -->
+            <nav class="main-tab-nav" id="mainTabNav">
+                <button class="main-tab-btn active" data-tab="backtest" onclick="switchMainTab('backtest')">📊 参数回测</button>
+                <button class="main-tab-btn" data-tab="preset-signal" onclick="switchMainTab('preset-signal')">💾 预设 & 信号</button>
+                <button class="main-tab-btn" data-tab="score-ga" onclick="switchMainTab('score-ga')">🎯 评分 & GA</button>
+                <button class="main-tab-btn" data-tab="leaps-ga" onclick="switchMainTab('leaps-ga')">🧬 LEAPS GA</button>
+            </nav>
+
+            <!-- ── Tab: Backtest ──────────────────────────────── -->
+            <div class="main-tab-panel active" id="tabBacktest">
+
+            <!-- ── Configuration sections (moved from sidebar) ──── -->
+            <details class="bt-config-details" open>
+                <summary><span>🛰️ LEAPS 信号设置</span></summary>
+                <div class="bt-config-body">
+                    <div class="panel">
                 <div class="panel-head"><h2>LEAPS 信号设置</h2></div>
                 <div class="panel-body">
                     <div class="field-grid">
@@ -100,8 +132,13 @@
                     </div>
                 </div>
             </div>
+                </div>
+            </details>
 
-            <div class="panel">
+            <details class="bt-config-details" open>
+                <summary><span>📋 当前组合</span></summary>
+                <div class="bt-config-body">
+                    <div class="panel">
                 <div class="panel-head"><h2>当前组合</h2></div>
                 <div class="panel-body">
                     <label>当前组合
@@ -109,8 +146,13 @@
                     </label>
                 </div>
             </div>
+                </div>
+            </details>
 
-            <div class="panel">
+            <details class="bt-config-details">
+                <summary><span>🔧 参数基线</span><span class="cost-summary" id="baselineSummary">点击展开编辑</span></summary>
+                <div class="bt-config-body">
+                    <div class="panel">
                 <div class="panel-head"><h2>参数基线</h2></div>
                 <div class="panel-body">
                     <div id="candidateGridSummary" class="candidate-grid-summary"></div>
@@ -159,32 +201,9 @@
                     </div>
                 </div>
             </div>
-
-        </aside>
-
-        <main class="main">
-            <div class="topbar">
-                <div class="title">
-                    <h1>参数实验室</h1>
-                    <p>Strategy + params full lab</p>
                 </div>
-                <div class="actions">
-                    <a href="/strategy-lab">主实验室</a>
-                    <a href="/">BOLL 首页</a>
-                    <a href="/api/strategy-lab/parameter-lab/registry">Registry JSON</a>
-                </div>
-            </div>
+            </details>
 
-            <!-- ── Tab Navigation ──────────────────────────────── -->
-            <nav class="main-tab-nav" id="mainTabNav">
-                <button class="main-tab-btn active" data-tab="backtest" onclick="switchMainTab('backtest')">📊 参数回测</button>
-                <button class="main-tab-btn" data-tab="preset-signal" onclick="switchMainTab('preset-signal')">💾 预设 & 信号</button>
-                <button class="main-tab-btn" data-tab="score-ga" onclick="switchMainTab('score-ga')">🎯 评分 & GA</button>
-                <button class="main-tab-btn" data-tab="leaps-ga" onclick="switchMainTab('leaps-ga')">🧬 LEAPS GA</button>
-            </nav>
-
-            <!-- ── Tab: Backtest ──────────────────────────────── -->
-            <div class="main-tab-panel active" id="tabBacktest">
 
             <div class="runbar">
                 <div class="status" id="status">

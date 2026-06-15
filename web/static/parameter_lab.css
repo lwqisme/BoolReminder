@@ -182,7 +182,7 @@
         }
         .shell {
             display: grid;
-            grid-template-columns: minmax(320px, 392px) minmax(0, 1fr);
+            grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
             min-height: 100vh;
         }
         .side {
@@ -1473,6 +1473,39 @@
         }
         .sg-sub-tab-panel { display: none; }
         .sg-sub-tab-panel.active { display: block; }
+
+        /* ── Backtest config details (collapsible sections) ──── */
+        .bt-config-details {
+            margin-bottom: 12px;
+            border: var(--liquid-glass-border);
+            border-radius: var(--radius);
+            background: rgba(255, 255, 255, 0.62);
+            box-shadow: var(--liquid-glass-shadow);
+            overflow: hidden;
+        }
+        .bt-config-details summary {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            min-height: 42px;
+            padding: 10px 12px;
+            cursor: pointer;
+            font-weight: 900;
+            color: var(--ink);
+            list-style: none;
+        }
+        .bt-config-details summary::-webkit-details-marker { display: none; }
+        .bt-config-details summary::after {
+            content: "+";
+            color: var(--muted);
+            font-family: var(--mono);
+            font-size: 16px;
+        }
+        .bt-config-details[open] summary::after { content: "-"; }
+        .bt-config-body {
+            padding: 0 12px 12px;
+        }
         /* ── Mobile settings drawer ────────────────────────────── */
         .mobile-settings-toggle {
             display: none;
@@ -1716,6 +1749,8 @@
             .runbar { grid-template-columns: 1fr; }
             .topbar { display: grid; }
             .actions { justify-content: flex-start; }
+            .bt-config-details { margin: 8px 0; }
+            .bt-config-body .panel { margin-bottom: 0; }
             .drawer {
                 top: 10px;
                 right: 10px;
