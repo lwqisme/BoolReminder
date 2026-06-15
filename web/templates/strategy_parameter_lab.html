@@ -57,60 +57,6 @@
             </div>
 
             <div class="panel">
-                <div class="panel-head"><h2>评分题目</h2><button type="button" class="ghost" onclick="saveUniverseSymbols()">保存标的库</button></div>
-                <div class="panel-body">
-                    <div id="scoreTopics" class="check-grid">
-                        {% for item in scorecard_portfolios %}
-                            {% if not item.single_symbol %}
-                            <label class="base-topic">
-                                <input type="checkbox" name="scoreTopic" value="{{ item.key }}" {% if item.key in default_scorecard_portfolio_keys %}checked{% endif %}>
-                                {{ item.short_label }}
-                            </label>
-                            {% endif %}
-                        {% endfor %}
-                    </div>
-                    <div class="universe-add">
-                        <label>股票代码
-                            <input id="universeAddSymbol" placeholder="GOOGL.US" onkeydown="if(event.key === 'Enter') addUniverseSymbolFromForm()">
-                        </label>
-                        <label>名称可选
-                            <input id="universeAddName" placeholder="Alphabet" onkeydown="if(event.key === 'Enter') addUniverseSymbolFromForm()">
-                        </label>
-                        <label>最大回撤可选
-                            <input id="universeAddMaxDrawdown" type="number" min="1" max="100" step="0.5" placeholder="50" onkeydown="if(event.key === 'Enter') addUniverseSymbolFromForm()">
-                        </label>
-                        <button type="button" class="ghost" onclick="addUniverseSymbolFromForm()">添加股票</button>
-                    </div>
-                    <details class="universe-format-details">
-                        <summary>Longbridge 股票代码格式</summary>
-                        <div class="universe-format-hint">美股 <code>GOOGL.US</code>，港股 <code>0700.HK</code>，沪市 <code>600519.SH</code>，深市 <code>000001.SZ</code>，新加坡 <code>D05.SI</code>，日本 <code>7203.T</code>；未写后缀时按美股 <code>.US</code> 处理。</div>
-                    </details>
-                    <div class="universe-list-wrap">
-                        <div class="universe-list" role="table" aria-label="默认股票列表">
-                            <div class="universe-header" role="row">
-                                <span aria-hidden="true"></span>
-                                <span role="columnheader">标的</span>
-                                <span class="universe-name-head" role="columnheader">名称</span>
-                                <span class="universe-drawdown-head" role="columnheader">回撤</span>
-                                <span class="universe-action-head" role="columnheader">操作</span>
-                            </div>
-                            <div id="universeGrid" class="universe-rows" role="rowgroup"></div>
-                        </div>
-                    </div>
-                    <div class="period-grid" style="margin-top:10px;">
-                        {% for period in scorecard_periods %}
-                            <div class="period-row">
-                                <input type="checkbox" data-period="{{ period.key }}" data-field="enabled" {% if period.enabled %}checked{% endif %} aria-label="{{ period.label }}">
-                                <label>名称<input data-period="{{ period.key }}" data-field="label" value="{{ period.label }}"></label>
-                                <label>开始<input type="date" data-period="{{ period.key }}" data-field="start" value="{{ period.start }}"></label>
-                                <label>结束<input type="date" data-period="{{ period.key }}" data-field="end" value="{{ period.end }}"></label>
-                            </div>
-                        {% endfor %}
-                    </div>
-                </div>
-            </div>
-
-            <div class="panel">
                 <div class="panel-head"><h2>策略集合</h2><button type="button" class="ghost" onclick="selectAllStrategies()">全选</button></div>
                 <div class="panel-body">
                     <label style="margin-bottom:7px;">买入策略</label>
@@ -214,115 +160,6 @@
                 </div>
             </div>
 
-            <div class="panel">
-                <div class="panel-head">
-                    <h2>遗传算法 (GA)</h2>
-                    <span style="font-family:var(--mono);font-size:12px;color:var(--muted);">进化优化</span>
-                </div>
-                <div class="panel-body">
-                    <div class="field-grid">
-                        <div id="gaSingleStrategyRow">
-                            <label>买入策略<span class="param-help" data-tooltip="选择 GA 要优化的买入策略类型。跨策略模式下此选项隐藏，使用策略集合面板中勾选的所有买入策略。">?</span>
-                                <select id="gaBuyStrategy">
-                                    {% for key, label in buy_strategy_labels.items() %}
-                                    <option value="{{ key }}">{{ label }}</option>
-                                    {% endfor %}
-                                </select>
-                            </label>
-                            <label>卖出策略<span class="param-help" data-tooltip="选择 GA 要优化的卖出策略类型。跨策略模式下此选项隐藏，使用策略集合面板中勾选的所有卖出策略。">?</span>
-                                <select id="gaSellStrategy">
-                                    {% for key, label in sell_strategy_labels.items() %}
-                                    <option value="{{ key }}">{{ label }}</option>
-                                    {% endfor %}
-                                </select>
-                            </label>
-                        </div>
-                        <div id="gaCrossStrategyHint" style="display:none;grid-column:1/-1;padding:6px 8px;border:1px solid rgba(17,103,216,0.16);border-radius:12px;background:rgba(239,246,255,0.6);color:var(--blue);font-size:12px;font-weight:800;">
-                            跨策略模式：使用「策略集合」面板中勾选的策略参与进化。
-                        </div>
-                        <label>跨策略进化<span class="param-help" data-tooltip="开启后，GA 种群中不同买入/卖出策略类型的个体可以在同一代中竞争，策略类型本身也会参与进化和变异。关闭则只优化单策略对的参数。">?</span>
-                            <select id="gaCrossStrategy" onchange="toggleGaStrategyControls()">
-                                <option value="false" selected>关闭 - 单策略模式</option>
-                                <option value="true">开启 - 跨策略竞争</option>
-                            </select>
-                        </label>
-                        <label>策略突变率<span class="param-help" data-tooltip="跨策略模式下，个体切换策略类型（如等距细切→核心定投）的概率。仅在跨策略模式下生效。值越高策略跳变越频繁。">?</span>
-                            <input id="gaStrategyMutationRate" type="number" min="0" max="1" step="0.01" value="0.05">
-                        </label>
-                        <label>种群大小<span class="param-help" data-tooltip="每代保留的候选参数组合数量。种群越大探索范围越广，但每代计算量也越大。典型值 30-100。">?</span>
-                            <input id="gaPopSize" type="number" min="10" max="200" step="10" value="50">
-                        </label>
-                        <label>进化代数<span class="param-help" data-tooltip="遗传算法迭代的世代数。代数越多进化越充分，总计算量 = 种群大小 × 代数。建议从 10-20 代起步。">?</span>
-                            <input id="gaGenerations" type="number" min="5" max="100" step="5" value="20">
-                        </label>
-                        <label>变异率<span class="param-help" data-tooltip="每个参数独立发生随机突变的概率。如 0.15 表示每个参数有 15% 概率被随机替换为其他候选值。过高→随机搜索，过低→早熟收敛。">?</span>
-                            <input id="gaMutationRate" type="number" min="0" max="1" step="0.01" value="0.15">
-                        </label>
-                        <label>交叉率<span class="param-help" data-tooltip="两个父代通过交叉产生子代的概率。如 0.80 表示 80% 子代来自交叉组合，20% 直接复制父代。控制全局探索与局部利用的平衡。">?</span>
-                            <input id="gaCrossoverRate" type="number" min="0" max="1" step="0.01" value="0.80">
-                        </label>
-                        <label>连续变异<span class="param-help" data-tooltip="开启后参数可以变异到候选列表之外的连续值，GA在更大空间内搜索。关闭则只在预设候选值中跳变（离散模式）。">?</span>
-                            <select id="gaContinuousMutation">
-                                <option value="false" selected>关闭 - 离散候选</option>
-                                <option value="true">开启 - 野蛮生长</option>
-                            </select>
-                        </label>
-                        <label>变异幅度 σ<span class="param-help" data-tooltip="连续变异的高斯噪声标准差与当前值的比例。如 0.15 表示 σ = 当前值×15%，值越大变异幅度越猛。仅连续变异模式下生效。">?</span>
-                            <input id="gaSigmaRatio" type="number" min="0.01" max="1" step="0.01" value="0.25">
-                        </label>
-                    </div>
-                    <details style="margin-top:4px;border:1px solid rgba(174,185,200,0.3);border-radius:var(--radius-sm);padding:6px 8px;">
-                        <summary style="cursor:pointer;font-weight:900;font-size:12px;color:var(--ink);">参数范围<span class="param-help" data-tooltip="限制 GA 搜索的参数上下界。留空使用默认范围。对变异阶段生效，连续和离散模式均受约束。">?</span></summary>
-                        <div class="field-grid" style="margin-top:6px;font-size:11px;">
-                            <label>买档重启 % (0~40)<div style="display:flex;gap:3px;"><input id="gaB_dcaRe" type="number" min="0" max="40" step="1" placeholder="0" style="width:50%;"><span>~</span><input id="gaB_dcaReHi" type="number" min="0" max="40" step="1" placeholder="40" style="width:50%;"></div></label>
-                            <label>卖档重启 % (0~50)<div style="display:flex;gap:3px;"><input id="gaB_stgRe" type="number" min="0" max="50" step="1" placeholder="0" style="width:50%;"><span>~</span><input id="gaB_stgReHi" type="number" min="0" max="50" step="1" placeholder="50" style="width:50%;"></div></label>
-                            <label>步长 % (0.5~30)<div style="display:flex;gap:3px;"><input id="gaB_step" type="number" min="0.5" max="30" step="0.5" placeholder="0.5" style="width:50%;"><span>~</span><input id="gaB_stepHi" type="number" min="0.5" max="30" step="0.5" placeholder="30" style="width:50%;"></div></label>
-                            <label>每步投入 % (1~50)<div style="display:flex;gap:3px;"><input id="gaB_alloc" type="number" min="1" max="50" step="1" placeholder="1" style="width:50%;"><span>~</span><input id="gaB_allocHi" type="number" min="1" max="50" step="1" placeholder="50" style="width:50%;"></div></label>
-                            <label>回弹步长 % (1~30)<div style="display:flex;gap:3px;"><input id="gaB_gStp" type="number" min="1" max="30" step="0.5" placeholder="1" style="width:50%;"><span>~</span><input id="gaB_gStpHi" type="number" min="1" max="30" step="0.5" placeholder="30" style="width:50%;"></div></label>
-                            <label>每档卖出 % (5~80)<div style="display:flex;gap:3px;"><input id="gaB_gSel" type="number" min="5" max="80" step="1" placeholder="5" style="width:50%;"><span>~</span><input id="gaB_gSelHi" type="number" min="5" max="80" step="1" placeholder="80" style="width:50%;"></div></label>
-                            <label>网格最小额 $ (0~1000)<div style="display:flex;gap:3px;"><input id="gaB_gMin" type="number" min="0" max="1000" step="10" placeholder="0" style="width:50%;"><span>~</span><input id="gaB_gMinHi" type="number" min="0" max="1000" step="10" placeholder="1000" style="width:50%;"></div></label>
-                            <label>最小盈利 % (1~50)<div style="display:flex;gap:3px;"><input id="gaB_mPrf" type="number" min="1" max="50" step="1" placeholder="1" style="width:50%;"><span>~</span><input id="gaB_mPrfHi" type="number" min="1" max="50" step="1" placeholder="50" style="width:50%;"></div></label>
-                            <label>修复冷却 天 (0~120)<div style="display:flex;gap:3px;"><input id="gaB_rpCd" type="number" min="0" max="120" step="1" placeholder="0" style="width:50%;"><span>~</span><input id="gaB_rpCdHi" type="number" min="0" max="120" step="1" placeholder="120" style="width:50%;"></div></label>
-                            <label>最大回撤 % (20~50)<div style="display:flex;gap:3px;"><input id="gaB_maxDd" type="number" min="20" max="50" step="2.5" placeholder="20" style="width:50%;"><span>~</span><input id="gaB_maxDdHi" type="number" min="20" max="50" step="2.5" placeholder="50" style="width:50%;"></div></label>
-                        </div>
-                    </details>
-                    <div style="margin-top:10px;padding:8px 10px;border:1px solid var(--amber);border-radius:6px;background:rgba(255,193,7,0.06);">
-                        <div style="font-weight:900;font-size:12px;color:var(--amber);margin-bottom:6px;">🔒 GA 固定项 <span style="font-weight:400;color:var(--muted);">(选定后 GA 不再进化此字段，所有个体强制使用此值)</span></div>
-                        <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;">
-                            <label style="display:flex;align-items:center;gap:4px;">重启模式
-                                <select id="gaBuyRearmMode" style="font-size:12px;padding:2px 4px;">
-                                    <option value="" selected>Both（GA 进化）</option>
-                                    <option value="cumulative">累计补齐（锁定）</option>
-                                    <option value="restart_from_rearm">从首档（锁定）</option>
-                                </select>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:4px;">买入日可卖
-                                <select id="gaSameDaySell" style="font-size:12px;padding:2px 4px;">
-                                    <option value="" selected>Both（GA 进化）</option>
-                                    <option value="false">关闭（锁定）</option>
-                                    <option value="true">开启（锁定）</option>
-                                </select>
-                            </label>
-                            <label style="display:flex;align-items:center;gap:4px;">买点优化
-                                <select id="gaCoreDipTiming" style="font-size:12px;padding:2px 4px;">
-                                    <option value="" selected>Both（GA 进化）</option>
-                                    <option value="false">关闭（锁定）</option>
-                                    <option value="true">开启（锁定）</option>
-                                </select>
-                            </label>
-                        </div>
-                    </div>
-                    <div id="gaStatus" style="margin-top:8px;font-size:12px;color:var(--muted);min-height:20px;">就绪。</div>
-                    <div class="progress" id="gaProgress" style="display:none;">
-                        <span id="gaProgressBar" style="width:0%;"></span>
-                    </div>
-                    <div class="actions" style="margin-top:8px;">
-                        <button class="primary" type="button" onclick="runGeneticEvolution()">运行遗传算法</button>
-                        <button class="danger" type="button" onclick="cancelGeneticEvolution()" id="gaCancelBtn" style="display:none;">停止</button>
-                    </div>
-                </div>
-            </div>
-
         </aside>
 
         <main class="main">
@@ -342,6 +179,7 @@
             <nav class="main-tab-nav" id="mainTabNav">
                 <button class="main-tab-btn active" data-tab="backtest" onclick="switchMainTab('backtest')">📊 参数回测</button>
                 <button class="main-tab-btn" data-tab="preset-signal" onclick="switchMainTab('preset-signal')">💾 预设 & 信号</button>
+                <button class="main-tab-btn" data-tab="score-ga" onclick="switchMainTab('score-ga')">🎯 评分 & GA</button>
                 <button class="main-tab-btn" data-tab="leaps-ga" onclick="switchMainTab('leaps-ga')">🧬 LEAPS GA</button>
             </nav>
 
@@ -596,6 +434,186 @@
 
             </div> <!-- /tabLeapsGa -->
 
+            <!-- ── Tab: Score & GA ─────────────────────────────────── -->
+            <div class="main-tab-panel" id="tabScoreGa">
+
+            <nav class="sg-sub-tab-nav" id="sgSubTabNav">
+                <button class="sg-sub-tab-btn active" data-sgsubtab="score" onclick="switchSgSubTab('score')">🎯 评分题目</button>
+                <button class="sg-sub-tab-btn" data-sgsubtab="ga" onclick="switchSgSubTab('ga')">🧬 遗传算法</button>
+            </nav>
+
+            <!-- ── Sub-tab: Score ──────────────────────────────── -->
+            <div class="sg-sub-tab-panel active" id="sgSubTabScore">
+                <div class="panel">
+                    <div class="panel-head"><h2>评分题目</h2><button type="button" class="ghost" onclick="saveUniverseSymbols()">保存标的库</button></div>
+                    <div class="panel-body">
+                        <div id="scoreTopics" class="check-grid">
+                            {% for item in scorecard_portfolios %}
+                                {% if not item.single_symbol %}
+                                <label class="base-topic">
+                                    <input type="checkbox" name="scoreTopic" value="{{ item.key }}" {% if item.key in default_scorecard_portfolio_keys %}checked{% endif %}>
+                                    {{ item.short_label }}
+                                </label>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
+                        <div class="universe-add">
+                            <label>股票代码
+                                <input id="universeAddSymbol" placeholder="GOOGL.US" onkeydown="if(event.key === 'Enter') addUniverseSymbolFromForm()">
+                            </label>
+                            <label>名称可选
+                                <input id="universeAddName" placeholder="Alphabet" onkeydown="if(event.key === 'Enter') addUniverseSymbolFromForm()">
+                            </label>
+                            <label>最大回撤可选
+                                <input id="universeAddMaxDrawdown" type="number" min="1" max="100" step="0.5" placeholder="50" onkeydown="if(event.key === 'Enter') addUniverseSymbolFromForm()">
+                            </label>
+                            <button type="button" class="ghost" onclick="addUniverseSymbolFromForm()">添加股票</button>
+                        </div>
+                        <details class="universe-format-details">
+                            <summary>Longbridge 股票代码格式</summary>
+                            <div class="universe-format-hint">美股 <code>GOOGL.US</code>，港股 <code>0700.HK</code>，沪市 <code>600519.SH</code>，深市 <code>000001.SZ</code>，新加坡 <code>D05.SI</code>，日本 <code>7203.T</code>；未写后缀时按美股 <code>.US</code> 处理。</div>
+                        </details>
+                        <div class="universe-list-wrap">
+                            <div class="universe-list" role="table" aria-label="默认股票列表">
+                                <div class="universe-header" role="row">
+                                    <span aria-hidden="true"></span>
+                                    <span role="columnheader">标的</span>
+                                    <span class="universe-name-head" role="columnheader">名称</span>
+                                    <span class="universe-drawdown-head" role="columnheader">回撤</span>
+                                    <span class="universe-action-head" role="columnheader">操作</span>
+                                </div>
+                                <div id="universeGrid" class="universe-rows" role="rowgroup"></div>
+                            </div>
+                        </div>
+                        <div class="period-grid" style="margin-top:10px;">
+                            {% for period in scorecard_periods %}
+                                <div class="period-row">
+                                    <input type="checkbox" data-period="{{ period.key }}" data-field="enabled" {% if period.enabled %}checked{% endif %} aria-label="{{ period.label }}">
+                                    <label>名称<input data-period="{{ period.key }}" data-field="label" value="{{ period.label }}"></label>
+                                    <label>开始<input type="date" data-period="{{ period.key }}" data-field="start" value="{{ period.start }}"></label>
+                                    <label>结束<input type="date" data-period="{{ period.key }}" data-field="end" value="{{ period.end }}"></label>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div> <!-- /sgSubTabScore -->
+
+            <!-- ── Sub-tab: GA ──────────────────────────────────── -->
+            <div class="sg-sub-tab-panel" id="sgSubTabGa">
+                <div class="panel">
+                    <div class="panel-head">
+                        <h2>遗传算法 (GA)</h2>
+                        <span style="font-family:var(--mono);font-size:12px;color:var(--muted);">进化优化</span>
+                    </div>
+                    <div class="panel-body">
+                        <div class="field-grid">
+                            <div id="gaSingleStrategyRow">
+                                <label>买入策略<span class="param-help" data-tooltip="选择 GA 要优化的买入策略类型。跨策略模式下此选项隐藏，使用策略集合面板中勾选的所有买入策略。">?</span>
+                                    <select id="gaBuyStrategy">
+                                        {% for key, label in buy_strategy_labels.items() %}
+                                        <option value="{{ key }}">{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </label>
+                                <label>卖出策略<span class="param-help" data-tooltip="选择 GA 要优化的卖出策略类型。跨策略模式下此选项隐藏，使用策略集合面板中勾选的所有卖出策略。">?</span>
+                                    <select id="gaSellStrategy">
+                                        {% for key, label in sell_strategy_labels.items() %}
+                                        <option value="{{ key }}">{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </label>
+                            </div>
+                            <div id="gaCrossStrategyHint" style="display:none;grid-column:1/-1;padding:6px 8px;border:1px solid rgba(17,103,216,0.16);border-radius:12px;background:rgba(239,246,255,0.6);color:var(--blue);font-size:12px;font-weight:800;">
+                                跨策略模式：使用「策略集合」面板中勾选的策略参与进化。
+                            </div>
+                            <label>跨策略进化<span class="param-help" data-tooltip="开启后，GA 种群中不同买入/卖出策略类型的个体可以在同一代中竞争，策略类型本身也会参与进化和变异。关闭则只优化单策略对的参数。">?</span>
+                                <select id="gaCrossStrategy" onchange="toggleGaStrategyControls()">
+                                    <option value="false" selected>关闭 - 单策略模式</option>
+                                    <option value="true">开启 - 跨策略竞争</option>
+                                </select>
+                            </label>
+                            <label>策略突变率<span class="param-help" data-tooltip="跨策略模式下，个体切换策略类型（如等距细切→核心定投）的概率。仅在跨策略模式下生效。值越高策略跳变越频繁。">?</span>
+                                <input id="gaStrategyMutationRate" type="number" min="0" max="1" step="0.01" value="0.05">
+                            </label>
+                            <label>种群大小<span class="param-help" data-tooltip="每代保留的候选参数组合数量。种群越大探索范围越广，但每代计算量也越大。典型值 30-100。">?</span>
+                                <input id="gaPopSize" type="number" min="10" max="200" step="10" value="50">
+                            </label>
+                            <label>进化代数<span class="param-help" data-tooltip="遗传算法迭代的世代数。代数越多进化越充分，总计算量 = 种群大小 × 代数。建议从 10-20 代起步。">?</span>
+                                <input id="gaGenerations" type="number" min="5" max="100" step="5" value="20">
+                            </label>
+                            <label>变异率<span class="param-help" data-tooltip="每个参数独立发生随机突变的概率。如 0.15 表示每个参数有 15% 概率被随机替换为其他候选值。过高→随机搜索，过低→早熟收敛。">?</span>
+                                <input id="gaMutationRate" type="number" min="0" max="1" step="0.01" value="0.15">
+                            </label>
+                            <label>交叉率<span class="param-help" data-tooltip="两个父代通过交叉产生子代的概率。如 0.80 表示 80% 子代来自交叉组合，20% 直接复制父代。控制全局探索与局部利用的平衡。">?</span>
+                                <input id="gaCrossoverRate" type="number" min="0" max="1" step="0.01" value="0.80">
+                            </label>
+                            <label>连续变异<span class="param-help" data-tooltip="开启后参数可以变异到候选列表之外的连续值，GA在更大空间内搜索。关闭则只在预设候选值中跳变（离散模式）。">?</span>
+                                <select id="gaContinuousMutation">
+                                    <option value="false" selected>关闭 - 离散候选</option>
+                                    <option value="true">开启 - 野蛮生长</option>
+                                </select>
+                            </label>
+                            <label>变异幅度 σ<span class="param-help" data-tooltip="连续变异的高斯噪声标准差与当前值的比例。如 0.15 表示 σ = 当前值×15%，值越大变异幅度越猛。仅连续变异模式下生效。">?</span>
+                                <input id="gaSigmaRatio" type="number" min="0.01" max="1" step="0.01" value="0.25">
+                            </label>
+                        </div>
+                        <details style="margin-top:4px;border:1px solid rgba(174,185,200,0.3);border-radius:var(--radius-sm);padding:6px 8px;">
+                            <summary style="cursor:pointer;font-weight:900;font-size:12px;color:var(--ink);">参数范围<span class="param-help" data-tooltip="限制 GA 搜索的参数上下界。留空使用默认范围。对变异阶段生效，连续和离散模式均受约束。">?</span></summary>
+                            <div class="field-grid" style="margin-top:6px;font-size:11px;">
+                                <label>买档重启 % (0~40)<div style="display:flex;gap:3px;"><input id="gaB_dcaRe" type="number" min="0" max="40" step="1" placeholder="0" style="width:50%;"><span>~</span><input id="gaB_dcaReHi" type="number" min="0" max="40" step="1" placeholder="40" style="width:50%;"></div></label>
+                                <label>卖档重启 % (0~50)<div style="display:flex;gap:3px;"><input id="gaB_stgRe" type="number" min="0" max="50" step="1" placeholder="0" style="width:50%;"><span>~</span><input id="gaB_stgReHi" type="number" min="0" max="50" step="1" placeholder="50" style="width:50%;"></div></label>
+                                <label>步长 % (0.5~30)<div style="display:flex;gap:3px;"><input id="gaB_step" type="number" min="0.5" max="30" step="0.5" placeholder="0.5" style="width:50%;"><span>~</span><input id="gaB_stepHi" type="number" min="0.5" max="30" step="0.5" placeholder="30" style="width:50%;"></div></label>
+                                <label>每步投入 % (1~50)<div style="display:flex;gap:3px;"><input id="gaB_alloc" type="number" min="1" max="50" step="1" placeholder="1" style="width:50%;"><span>~</span><input id="gaB_allocHi" type="number" min="1" max="50" step="1" placeholder="50" style="width:50%;"></div></label>
+                                <label>回弹步长 % (1~30)<div style="display:flex;gap:3px;"><input id="gaB_gStp" type="number" min="1" max="30" step="0.5" placeholder="1" style="width:50%;"><span>~</span><input id="gaB_gStpHi" type="number" min="1" max="30" step="0.5" placeholder="30" style="width:50%;"></div></label>
+                                <label>每档卖出 % (5~80)<div style="display:flex;gap:3px;"><input id="gaB_gSel" type="number" min="5" max="80" step="1" placeholder="5" style="width:50%;"><span>~</span><input id="gaB_gSelHi" type="number" min="5" max="80" step="1" placeholder="80" style="width:50%;"></div></label>
+                                <label>网格最小额 $ (0~1000)<div style="display:flex;gap:3px;"><input id="gaB_gMin" type="number" min="0" max="1000" step="10" placeholder="0" style="width:50%;"><span>~</span><input id="gaB_gMinHi" type="number" min="0" max="1000" step="10" placeholder="1000" style="width:50%;"></div></label>
+                                <label>最小盈利 % (1~50)<div style="display:flex;gap:3px;"><input id="gaB_mPrf" type="number" min="1" max="50" step="1" placeholder="1" style="width:50%;"><span>~</span><input id="gaB_mPrfHi" type="number" min="1" max="50" step="1" placeholder="50" style="width:50%;"></div></label>
+                                <label>修复冷却 天 (0~120)<div style="display:flex;gap:3px;"><input id="gaB_rpCd" type="number" min="0" max="120" step="1" placeholder="0" style="width:50%;"><span>~</span><input id="gaB_rpCdHi" type="number" min="0" max="120" step="1" placeholder="120" style="width:50%;"></div></label>
+                                <label>最大回撤 % (20~50)<div style="display:flex;gap:3px;"><input id="gaB_maxDd" type="number" min="20" max="50" step="2.5" placeholder="20" style="width:50%;"><span>~</span><input id="gaB_maxDdHi" type="number" min="20" max="50" step="2.5" placeholder="50" style="width:50%;"></div></label>
+                            </div>
+                        </details>
+                        <div style="margin-top:10px;padding:8px 10px;border:1px solid var(--amber);border-radius:6px;background:rgba(255,193,7,0.06);">
+                            <div style="font-weight:900;font-size:12px;color:var(--amber);margin-bottom:6px;">🔒 GA 固定项 <span style="font-weight:400;color:var(--muted);">(选定后 GA 不再进化此字段，所有个体强制使用此值)</span></div>
+                            <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;">
+                                <label style="display:flex;align-items:center;gap:4px;">重启模式
+                                    <select id="gaBuyRearmMode" style="font-size:12px;padding:2px 4px;">
+                                        <option value="" selected>Both（GA 进化）</option>
+                                        <option value="cumulative">累计补齐（锁定）</option>
+                                        <option value="restart_from_rearm">从首档（锁定）</option>
+                                    </select>
+                                </label>
+                                <label style="display:flex;align-items:center;gap:4px;">买入日可卖
+                                    <select id="gaSameDaySell" style="font-size:12px;padding:2px 4px;">
+                                        <option value="" selected>Both（GA 进化）</option>
+                                        <option value="false">关闭（锁定）</option>
+                                        <option value="true">开启（锁定）</option>
+                                    </select>
+                                </label>
+                                <label style="display:flex;align-items:center;gap:4px;">买点优化
+                                    <select id="gaCoreDipTiming" style="font-size:12px;padding:2px 4px;">
+                                        <option value="" selected>Both（GA 进化）</option>
+                                        <option value="false">关闭（锁定）</option>
+                                        <option value="true">开启（锁定）</option>
+                                    </select>
+                                </label>
+                            </div>
+                        </div>
+                        <div id="gaStatus" style="margin-top:8px;font-size:12px;color:var(--muted);min-height:20px;">就绪。</div>
+                        <div class="progress" id="gaProgress" style="display:none;">
+                            <span id="gaProgressBar" style="width:0%;"></span>
+                        </div>
+                        <div id="gaPanelBody"></div>
+                        <div class="actions" style="margin-top:8px;">
+                            <button class="primary" type="button" onclick="runGeneticEvolution()">运行遗传算法</button>
+                            <button class="danger" type="button" onclick="cancelGeneticEvolution()" id="gaCancelBtn" style="display:none;">停止</button>
+                        </div>
+                    </div>
+                </div>
+            </div> <!-- /sgSubTabGa -->
+
+            </div> <!-- /tabScoreGa -->
+
         </main>
     </div>
 
@@ -671,7 +689,7 @@
     <script>
         // ── Tab Navigation & Mobile Drawer ───────────────────────────
         function switchMainTab(tabId) {
-            var panelId = { 'backtest': 'tabBacktest', 'preset-signal': 'tabPresetSignal', 'leaps-ga': 'tabLeapsGa' }[tabId];
+            var panelId = { 'backtest': 'tabBacktest', 'preset-signal': 'tabPresetSignal', 'score-ga': 'tabScoreGa', 'leaps-ga': 'tabLeapsGa' }[tabId];
             document.querySelectorAll('.main-tab-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.tab === tabId);
             });
@@ -681,6 +699,23 @@
             try { localStorage.setItem('parameterLabActiveTab', tabId); } catch(e) {}
         }
         window.switchMainTab = switchMainTab;
+
+        // ── Sub-tab Navigation (Score & GA) ──────────────────────────
+        // Scoped to #tabScoreGa with its own .sg-sub-tab-* classes so it
+        // never collides with the preset-signal .sub-tab-* sub-tabs.
+        function switchSgSubTab(subId) {
+            var panelId = { 'score': 'sgSubTabScore', 'ga': 'sgSubTabGa' }[subId];
+            var root = document.getElementById('tabScoreGa');
+            if (!root) return;
+            root.querySelectorAll('.sg-sub-tab-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.sgsubtab === subId);
+            });
+            root.querySelectorAll('.sg-sub-tab-panel').forEach(panel => {
+                panel.classList.toggle('active', panel.id === panelId);
+            });
+            try { localStorage.setItem('parameterLabActiveScoreGaSubTab', subId); } catch(e) {}
+        }
+        window.switchSgSubTab = switchSgSubTab;
 
         // ── Sub-tab Navigation (Preset & Signal) ─────────────────────
         function switchSubTab(subId) {
@@ -726,12 +761,16 @@
         (function() {
             try {
                 var saved = localStorage.getItem('parameterLabActiveTab');
-                if (saved && ['backtest', 'preset-signal', 'leaps-ga'].includes(saved)) {
+                if (saved && ['backtest', 'preset-signal', 'score-ga', 'leaps-ga'].includes(saved)) {
                     switchMainTab(saved);
                 }
                 var savedSub = localStorage.getItem('parameterLabActiveSubTab');
                 if (savedSub && ['preset', 'signal'].includes(savedSub)) {
                     switchSubTab(savedSub);
+                }
+                var savedSgSub = localStorage.getItem('parameterLabActiveScoreGaSubTab');
+                if (savedSgSub && ['score', 'ga'].includes(savedSgSub)) {
+                    switchSgSubTab(savedSgSub);
                 }
             } catch(e) {}
         })();

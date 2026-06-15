@@ -1431,6 +1431,48 @@
         }
         .sub-tab-panel { display: none; }
         .sub-tab-panel.active { display: block; }
+
+        /* ── Sub-tabs (inside Score & GA) ────────────────────────── */
+        /* Mirror of .sub-tab-* but scoped under #tabScoreGa so the two
+           sub-tab systems never collide (switchSubTab uses global
+           querySelectorAll on .sub-tab-*). */
+        .sg-sub-tab-nav {
+            display: flex;
+            gap: 4px;
+            padding: 4px;
+            background: var(--surface-3);
+            border-radius: 10px;
+            margin-bottom: 16px;
+        }
+        .sg-sub-tab-btn {
+            flex: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 14px;
+            border: none;
+            border-radius: 7px;
+            background: transparent;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 180ms cubic-bezier(0.22, 1, 0.36, 1);
+            box-shadow: none;
+        }
+        .sg-sub-tab-btn:hover {
+            color: var(--ink);
+            background: rgba(255, 255, 255, 0.5);
+        }
+        .sg-sub-tab-btn.active {
+            color: var(--blue);
+            background: var(--surface);
+            box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(17, 103, 216, 0.12);
+            font-weight: 700;
+        }
+        .sg-sub-tab-panel { display: none; }
+        .sg-sub-tab-panel.active { display: block; }
         /* ── Mobile settings drawer ────────────────────────────── */
         .mobile-settings-toggle {
             display: none;
