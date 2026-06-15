@@ -7210,12 +7210,15 @@
             }
             let html = '';
             for (const [sym, presetId] of Object.entries(signalBindings)) {
+                const preset = presetList.find(p => p.id === presetId);
+                const presetLabel = preset ? (preset.name || preset.id) : presetId;
                 html += '<div class="signal-binding-row">' +
                     '<select onchange="signalBindings[\'' + escapeHtml(sym) + '\'] = this.value; saveSignalBindings();">' +
                     symbols.map(s => '<option value="' + s + '"' + (s === sym ? ' selected' : '') + '>' + s + '</option>').join('') +
                     '</select>' +
                     '<span style="font-family:var(--mono);font-size:11px;color:var(--muted);">→</span>' +
                     presetSelectHtml(sym, presetId) +
+                    '<span style="font-size:11px;color:var(--muted);margin-left:4px;">' + escapeHtml(presetLabel) + '</span>' +
                     '<button type="button" class="danger" style="min-height:28px;font-size:12px;padding:2px 8px;" onclick="delete signalBindings[\'' + escapeHtml(sym) + '\']; saveSignalBindings(); renderSignalBindings();">×</button>' +
                     '</div>';
             }
