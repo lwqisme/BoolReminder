@@ -2,20 +2,44 @@
 
 ## Environment & Deployment Topology
 
-BoolReminder runs in a split setup. Respect this boundary:
+BoolReminder is a split setup across TWO hosts. The agent may be invoked on EITHER host, so never assume "this machine" means one specific box — **branch your behavior on which host the agent is currently running on.**
 
-- **Local (this machine)**: code development + unit tests ONLY. Never run the app container or production services here.
-- **Remote server (SSH alias `tct-sh`)**: deployment + online/production testing. All container and service operations happen here.
-- **Sync channel**: the only thing that moves code between local and remote is the `origin/main` git remote, plus SSH for remote commands.
+### Host identities (stable — use these to tell them apart)
 
-Standard shipping workflow:
+| Host | OS | `hostname` | repo path | role |
+|------|----|------------|-----------|------|
+| **Dev (Mac)** | Darwin / macOS | `JohndeMacBook-Air.local` | `/Users/johntaylor/projects/BoolReminder` | development + unit tests |
+| **Server (`tct-sh`)** | Linux | `VM-4-5-ubuntu` | `/home/ubuntu/projects/BoolReminder` | deployment + online testing, runs the container |
 
-1. Local: develop, run unit tests (e.g. `./test_ga.sh` for GA changes).
-2. Local: commit + push → `git add <files> && git commit -m "<msg>" && git push`.
-3. Remote: pull + rebuild + restart → `ssh tct-sh 'cd /home/ubuntu/projects/BoolReminder && git pull && docker compose up --build -d'`.
-4. Remote: smoke-test the deployed service over SSH (curl health endpoints, check logs, etc.).
+Detection rule (run first, every session):
+```bash
+hostname; uname -s
+# JohndeMacBook-Air.local + Darwin      → you are on the DEV Mac
+# VM-4-5-ubuntu          + Linux        → you are on the SERVER (== tct-sh, but possibly via local shell, not SSH)
+```
 
-Use `ssh tct-sh '<cmd>'` for any remote command. Use `scp`/`rsync` only for files not tracked in git.
+### Role boundary (applies regardless of which host the agent runs on)
+
+- Code development + unit tests belong on the **Dev Mac**.
+- The Docker container / production service runs ONLY on the **Server**. Never `docker compose` on the Mac.
+- The only thing that moves code between hosts is the `origin/main` git remote. Use `ssh tct-sh '<cmd>'` to drive the server from the Mac. No `scp`/`rsync` for git-tracked files.
+
+### Standard shipping workflow — branch on where the agent is running
+
+**Case A — agent running on the DEV Mac** (the common case):
+1. Develop + run unit tests locally (e.g. `./test_ga.sh` for GA changes).
+2. `git add <files> && git commit -m "<msg>" && git push`
+3. `ssh tct-sh 'cd /home/ubuntu/projects/BoolReminder && git pull && docker compose up --build -d'`
+4. Smoke-test over SSH: `ssh tct-sh 'curl ... ; docker logs ...'`
+
+**Case B — agent running on the SERVER directly** (e.g. user SSH'd in and is working there):
+1. Develop + run unit tests right there (`./test_ga.sh` etc.) — the repo is the same code.
+2. `git add <files> && git commit -m "<msg>" && git push`
+3. No SSH hop needed — deploy directly: `git pull && docker compose up --build -d` (run from `/home/ubuntu/projects/BoolReminder`).
+4. Smoke-test directly: `curl ... ; docker logs ...` (the service listens on `127.0.0.1:5000` here).
+   ⚠️ Do NOT run unit tests that require the Mac-only environment on the server unless they pass there too.
+
+In both cases the deliverable is identical: code pushed to `origin/main` + container rebuilt on the server + smoke test green. The only difference is whether steps 3–4 need an `ssh tct-sh` prefix.
 
 ## Skills
 
@@ -24,6 +48,8 @@ Before starting any task, always read the full SKILL.md of this skill:
 - Caveman: `/home/ubuntu/.pi/agent/skills/caveman/SKILL.md` — ultra-compressed communication mode (~75% fewer tokens)
 
 Use the `read` tool to load it at the beginning of each conversation.
+
+⚠️ This path exists on the **Server only** (`VM-4-5-ubuntu`). If the agent is running on the Mac, the file won't be present locally — either `ssh tct-sh 'cat /home/ubuntu/.pi/agent/skills/caveman/SKILL.md'` to read it remotely, or skip it on the Mac.
 
 ---
 
@@ -35,14 +61,7 @@ This project values convergent, reuse-first development.
 - Add abstractions only when they remove real duplication or simplify an established pattern.
 - Keep UI and API changes consistent with the surrounding codebase unless the task explicitly calls for a redesign.
 - When a behavior already exists in one place, extend or compose it rather than reimplementing it elsewhere.
-- After completing any code change, automatically commit, push to `origin/main`, then rebuild + restart the Docker container ON THE REMOTE SERVER, and verify. Do not wait for the user to ask. Concretely:
-  ```bash
-  # local
-  git add <files> && git commit -m "<msg>" && git push
-  # remote
-  ssh tct-sh 'cd /home/ubuntu/projects/BoolReminder && git pull && docker compose up --build -d'
-  ```
-  Do NOT run `docker compose` locally — the container lives on `tct-sh` (see topology above).
+- After completing any code change, automatically commit, push to `origin/main`, rebuild + restart the container on the SERVER, and verify — following the topology rules above (Case A on the Mac, Case B on the server). Do not wait for the user to ask. Never run `docker compose` on the Mac; the container lives on `tct-sh` (`VM-4-5-ubuntu`) only.
 
 ## GA Changes — MANDATORY Test Suite
 
@@ -60,10 +79,13 @@ This runs:
 
 **70 tests total. ALL must pass.** Never commit GA changes with failing or skipped tests.
 
-After GA changes: verify the page loads AND the GA packet endpoint works — both over SSH on the remote server, since the service runs on `tct-sh`:
+After GA changes: verify the page loads AND the GA packet endpoint works. Run the checks against the SERVER's `127.0.0.1:5000` — over SSH if the agent is on the Mac (Case A), directly if the agent is already on the server (Case B):
+
   ```bash
   # page must return 200
-  ssh tct-sh 'curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5000/strategy-lab/parameter-lab'
-  # endpoint must report success
-  ssh tct-sh 'curl -s -X POST http://127.0.0.1:5000/api/strategy-lab/parameter-lab/ga-packet -H "Content-Type: application/json" -d "{\"ga_buy_strategy\":\"pyramid_3\",\"ga_sell_strategy\":\"none\",\"start\":\"2026-01-01\",\"end\":\"2026-05-01\",\"ga_population_size\":3}"' | python3 -c "import json,sys; assert json.load(sys.stdin)['success']"
+  #   Case A (Mac):   ssh tct-sh 'curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5000/strategy-lab/parameter-lab'
+  #   Case B (server): curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5000/strategy-lab/parameter-lab
+  # endpoint must report success:
+  #   Case A (Mac):   ssh tct-sh 'curl -s -X POST http://127.0.0.1:5000/api/strategy-lab/parameter-lab/ga-packet -H "Content-Type: application/json" -d "{\"ga_buy_strategy\":\"pyramid_3\",\"ga_sell_strategy\":\"none\",\"start\":\"2026-01-01\",\"end\":\"2026-05-01\",\"ga_population_size\":3}"' | python3 -c "import json,sys; assert json.load(sys.stdin)['success']"
+  #   Case B (server): curl -s -X POST http://127.0.0.1:5000/api/strategy-lab/parameter-lab/ga-packet -H 'Content-Type: application/json' -d '{"ga_buy_strategy":"pyramid_3","ga_sell_strategy":"none","start":"2026-01-01","end":"2026-05-01","ga_population_size":3}' | python3 -c "import json,sys; assert json.load(sys.stdin)['success']"
   ```
