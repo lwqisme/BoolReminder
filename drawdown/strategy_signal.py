@@ -575,280 +575,6 @@ def _signal_reason(trade: dict[str, object]) -> str:
     return f"{strategy} 信号"
 
 
-def build_signal_email_html(results: list[dict[str, object]]) -> tuple[str, str]:
-    """Build subject + HTML body for signal email. Returns (subject, html)."""
-    # Collect active signals
-    active: list[dict[str, object]] = []
-    for r in results:
-        if r.get("error"):
-            continue
-        has_stock = any(s.get("status") == "signal" for s in r.get("signals", []))
-        has_leaps = bool(r.get("entry_signals") or r.get("sell_signals"))
-        if has_stock or has_leaps:
-            active.append(r)
-
-    subject_parts: list[str] = []
-
-    rows_html = ""
-    for r in active:
-        symbol = str(r.get("symbol", "?"))
-        preset_name = str(r.get("preset_name") or r.get("preset_id", ""))
-        stock_sigs = r.get("signals", [])
-        leaps_entry = r.get("entry_signals", [])
-        leaps_sell = r.get("sell_signals", [])
-
-        has_buy = any(s.get("action") == "buy" and s.get("status") != "covered" for s in stock_sigs) or bool(leaps_entry)
-        has_sell = any(s.get("action") == "sell" for s in stock_sigs) or bool(leaps_sell)
-
-        if has_buy:
-            subject_parts.append(f"{symbol} 买入")
-        if has_sell:
-            subject_parts.append(f"{symbol} 卖出")
-
-        border_color = "#00856f" if has_buy else "#d04437" if has_sell else "#d77b00"
-        bg_tint = "#ecfdf5" if has_buy else "#fef2f2" if has_sell else "#fffbeb"
-
-        signals_html = ""
-        total_buy = 0.0
-        total_buy_shares = 0.0
-        for sig in stock_sigs:
-            if sig.get("status") == "covered":
-                reason = sig.get('reason', '已覆盖')
-                signals_html += f'<tr><td style="color:#657184;font-size:13px;">✅ {_html_esc(reason)}</td><td></td><td></td></tr>'
-            else:
-                action = sig.get("action", "?")
-                is_buy = action == "buy"
-                icon = "🟢" if is_buy else "🔴"
-                color = "#00856f" if is_buy else "#d04437"
-                shares = _fmt_num(sig.get('shares', '?'))
-                price = _fmt_price(sig.get('price', '?'))
-                reason = _html_esc(sig.get('reason', ''))
-                signals_html += f'<tr><td style="font-weight:700;color:{color};font-size:13px;">{icon} {_html_esc(_action_label(action))}</td><td style="font-family:monospace;font-size:13px;">{shares}股</td><td style="font-family:monospace;font-size:13px;">@ ${price}</td><td style="color:#657184;font-size:12px;">{reason}</td></tr>'
-                if is_buy:
-                    try:
-                        total_buy += float(sig.get('shares', 0)) * float(sig.get('price', 0))
-                        total_buy_shares += float(sig.get('shares', 0))
-                    except (ValueError, TypeError):
-                        pass
-
-        for es in leaps_entry:
-            underlying = _html_esc(es.get('underlying', symbol))
-            stock_price = _fmt_price(es.get('stock_price', '?'))
-            reason = _html_esc(es.get('reason', ''))
-            signals_html += f'<tr><td style="font-weight:700;color:#00856f;font-size:13px;">🟢 LEAPS买入</td><td style="font-family:monospace;font-size:13px;">{underlying}</td><td style="font-family:monospace;font-size:13px;">@ ${stock_price}</td><td style="color:#657184;font-size:12px;">{reason}</td></tr>'
-            subject_parts.append(f"{symbol} LEAPS买入")
-
-        for ss in leaps_sell:
-            stage = ss.get('stage', '?')
-            pct = _fmt_num(ss.get('pct_to_sell', '?'), 0)
-            stock_price = _fmt_price(ss.get('stock_price', '?'))
-            reason = _html_esc(ss.get('reason', ''))
-            signals_html += f'<tr><td style="font-weight:700;color:#d04437;font-size:13px;">🔴 LEAPS卖出 S{stage}</td><td style="font-family:monospace;font-size:13px;">{pct}%</td><td style="font-family:monospace;font-size:13px;">@ ${stock_price}</td><td style="color:#657184;font-size:12px;">{reason}</td></tr>'
-            subject_parts.append(f"{symbol} LEAPS卖出")
-
-        buy_summary = ""
-        if total_buy > 0:
-            cs = r.get("current_state", {})
-            total_value = (cs.get("cash", 0) or 0) + (cs.get("market_value", 0) or 0)
-            buy_pct = f"{total_buy / total_value * 100:.1f}" if total_value > 0 else "?"
-            buy_summary = f'<tr><td colspan="4" style="padding:6px 10px;background:#ecfdf5;border:1px solid rgba(0,133,111,0.16);border-radius:6px;color:#00856f;font-weight:700;font-size:12px;">💰 买入合计：{total_buy_shares:.1f}股 / ${total_buy:.0f} · 占仓位 {buy_pct}%</td></tr>'
-
-        state_html = ""
-        cs = r.get("current_state")
-        if cs:
-            shares = cs.get('shares', 0)
-            cash = cs.get('cash', 0)
-            mv = cs.get('market_value', 0)
-            avg = cs.get('avg_cost', 0)
-            state_html = f'<tr><td colspan="4" style="color:#657184;font-size:11px;padding-top:6px;">持仓 {shares}股 · 现金 ${cash:.0f} · 市值 ${mv:.0f} · 均价 ${avg:.2f}</td></tr>'
-            ic = r.get("initial_cash")
-            if ic is not None:
-                ic_src = r.get("initial_cash_source", "")
-                ic_icon = {"trade_history": "📈", "signal_targets": "📋"}.get(ic_src, "⚙️")
-                ic_text = {"trade_history": "交易推算", "signal_targets": "信号目标表"}.get(ic_src, "预设默认")
-                mc_src = r.get("monthly_contribution_source", "")
-                mc_val = r.get("monthly_contribution", 0)
-                mc_icon = {"signal_targets": "📋", "zero_no_signal_targets": "🚫"}.get(mc_src, "⚙️")
-                mc_text = "无月定投" if mc_src == "zero_no_signal_targets" else f"${mc_val:.0f}/月"
-                state_html += f'<tr><td colspan="4" style="color:#657184;font-size:11px;">{ic_icon} 初始 ${ic:.0f} ({ic_text}) · {mc_icon} {mc_text}</td></tr>'
-
-        pc_html = ""
-        pc = r.get("position_context")
-        if pc and pc.get("summary"):
-            summary_esc = pc['summary'].replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-            pc_html = f'<tr><td colspan="4" style="color:#1167d8;font-size:11px;">📊 {summary_esc}</td></tr>'
-
-        rows_html += f'''
-        <div style="border-left:3px solid {border_color};background:{bg_tint}0a;border-radius:10px;margin-bottom:12px;overflow:hidden;">
-          <div style="padding:14px 16px;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-              <span style="font-size:16px;font-weight:900;letter-spacing:0.02em;">{symbol}</span>
-              <span style="font-size:11px;color:#657184;padding:2px 8px;border-radius:999px;background:#f4f8fc;border:1px solid #d9e0ea;">{preset_name}</span>
-            </div>
-            <table style="width:100%;border-collapse:collapse;">{signals_html}{buy_summary}{state_html}{pc_html}</table>
-          </div>
-        </div>'''
-
-    if not active:
-        rows_html = '<p style="color:#657184;font-size:13px;text-align:center;padding:20px;">— 今日无信号 —</p>'
-
-    subject = "策略信号: " + (", ".join(subject_parts) if subject_parts else "无")
-    html = f'''<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:20px;background:#f6f8fb;font-family:'Aptos','Noto Sans SC','Microsoft YaHei',sans-serif;color:#111827;">
-<div style="max-width:560px;margin:0 auto;">
-  <div style="margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid #d9e0ea;">
-    <h1 style="margin:0;font-size:18px;font-weight:900;">🔔 策略信号</h1>
-    <p style="margin:4px 0 0;color:#657184;font-size:12px;">自动生成 · 仅供参考</p>
-  </div>
-  {rows_html}
-  <div style="margin-top:16px;padding-top:10px;border-top:1px solid #d9e0ea;color:#657184;font-size:11px;text-align:center;">
-    BoolReminder · 策略信号系统
-  </div>
-</div>
-</body></html>'''
-    return subject, html
-
-
-def build_signal_email_html(results: list[dict[str, object]]) -> tuple[str, str]:
-    """Build subject + HTML body for signal email. Returns (subject, html)."""
-    active: list[dict[str, object]] = []
-    for r in results:
-        if r.get("error"):
-            continue
-        has_stock = any(s.get("status") == "signal" for s in r.get("signals", []))
-        has_leaps = bool(r.get("entry_signals") or r.get("sell_signals"))
-        if has_stock or has_leaps:
-            active.append(r)
-
-    subject_parts: list[str] = []
-
-    rows_html = ""
-    for r in active:
-        symbol = str(r.get("symbol", "?"))
-        preset_name = str(r.get("preset_name") or r.get("preset_id", ""))
-        stock_sigs = r.get("signals", [])
-        leaps_entry = r.get("entry_signals", [])
-        leaps_sell = r.get("sell_signals", [])
-
-        has_buy = any(s.get("action") == "buy" and s.get("status") != "covered" for s in stock_sigs) or bool(leaps_entry)
-        has_sell = any(s.get("action") == "sell" for s in stock_sigs) or bool(leaps_sell)
-
-        if has_buy:
-            subject_parts.append(f"{symbol} 买入")
-        if has_sell:
-            subject_parts.append(f"{symbol} 卖出")
-
-        border_color = "#00856f" if has_buy else "#d04437" if has_sell else "#d77b00"
-        bg_tint = "#ecfdf5" if has_buy else "#fef2f2" if has_sell else "#fffbeb"
-
-        signals_html = ""
-        total_buy = 0.0
-        total_buy_shares = 0.0
-
-        # Stock signals
-        for sig in stock_sigs:
-            if sig.get("status") == "covered":
-                reason = sig.get('reason', '已覆盖')
-                signals_html += f'<tr><td style="color:#657184;font-size:13px;">✅ {reason}</td><td></td><td></td><td></td></tr>'
-            else:
-                action = sig.get("action", "?")
-                is_buy = action == "buy"
-                icon = "🟢" if is_buy else "🔴"
-                color = "#00856f" if is_buy else "#d04437"
-                shares = sig.get('shares', '?')
-                price = sig.get('price', '?')
-                reason = sig.get('reason', '')
-                signals_html += f'<tr><td style="font-weight:700;color:{color};font-size:13px;">{icon} {action}</td><td style="font-family:monospace;font-size:13px;">{shares}股</td><td style="font-family:monospace;font-size:13px;">@ ${price}</td><td style="color:#657184;font-size:12px;">{reason}</td></tr>'
-                if is_buy:
-                    try:
-                        total_buy += float(sig.get('shares', 0)) * float(sig.get('price', 0))
-                        total_buy_shares += float(sig.get('shares', 0))
-                    except (ValueError, TypeError):
-                        pass
-
-        # LEAPS entry
-        for es in leaps_entry:
-            underlying = es.get('underlying', symbol)
-            price = es.get('stock_price', '?')
-            reason = es.get('reason', '')
-            signals_html += f'<tr><td style="font-weight:700;color:#00856f;font-size:13px;">🟢 LEAPS买入</td><td style="font-family:monospace;font-size:13px;">{underlying}</td><td style="font-family:monospace;font-size:13px;">@ ${price}</td><td style="color:#657184;font-size:12px;">{reason}</td></tr>'
-            subject_parts.append(f"{symbol} LEAPS买入")
-
-        # LEAPS sell
-        for ss in leaps_sell:
-            stage = ss.get('stage', '?')
-            pct = ss.get('pct_to_sell', '?')
-            price = ss.get('stock_price', '?')
-            reason = ss.get('reason', '')
-            signals_html += f'<tr><td style="font-weight:700;color:#d04437;font-size:13px;">🔴 LEAPS卖出 S{stage}</td><td style="font-family:monospace;font-size:13px;">{pct}%</td><td style="font-family:monospace;font-size:13px;">@ ${price}</td><td style="color:#657184;font-size:12px;">{reason}</td></tr>'
-            subject_parts.append(f"{symbol} LEAPS卖出")
-
-        # Buy summary
-        buy_summary = ""
-        if total_buy > 0:
-            cs = r.get("current_state", {})
-            total_value = (cs.get("cash", 0) or 0) + (cs.get("market_value", 0) or 0)
-            buy_pct = f"{total_buy / total_value * 100:.1f}" if total_value > 0 else "?"
-            buy_summary = f'<tr><td colspan="4" style="padding:6px 10px;background:#ecfdf5;border:1px solid rgba(0,133,111,0.16);border-radius:6px;color:#00856f;font-weight:700;font-size:12px;">💰 买入合计：{total_buy_shares:.1f}股 / ${total_buy:.0f} · 占仓位 {buy_pct}%</td></tr>'
-
-        # Position state
-        state_html = ""
-        cs = r.get("current_state")
-        if cs:
-            shares = cs.get('shares', 0)
-            cash = cs.get('cash', 0)
-            mv = cs.get('market_value', 0)
-            avg = cs.get('avg_cost', 0)
-            state_html = f'<tr><td colspan="4" style="color:#657184;font-size:11px;padding-top:6px;">持仓 {shares}股 · 现金 ${cash:.0f} · 市值 ${mv:.0f} · 均价 ${avg:.2f}</td></tr>'
-            ic = r.get("initial_cash")
-            if ic is not None:
-                ic_src = r.get("initial_cash_source", "")
-                ic_icon = {"trade_history": "📈", "signal_targets": "📋"}.get(ic_src, "⚙️")
-                ic_text = {"trade_history": "交易推算", "signal_targets": "信号目标表"}.get(ic_src, "预设默认")
-                mc_src = r.get("monthly_contribution_source", "")
-                mc_val = r.get("monthly_contribution", 0)
-                mc_icon = {"signal_targets": "📋", "zero_no_signal_targets": "🚫"}.get(mc_src, "⚙️")
-                mc_text = "无月定投" if mc_src == "zero_no_signal_targets" else f"${mc_val:.0f}/月"
-                state_html += f'<tr><td colspan="4" style="color:#657184;font-size:11px;">{ic_icon} 初始 ${ic:.0f} ({ic_text}) · {mc_icon} {mc_text}</td></tr>'
-
-        pc = r.get("position_context")
-        pc_html = ""
-        if pc and pc.get("summary"):
-            pc_html = f'<tr><td colspan="4" style="color:#1167d8;font-size:11px;">📊 {pc["summary"]}</td></tr>'
-
-        rows_html += f'''
-        <div style="border-left:3px solid {border_color};background:{bg_tint}0a;border-radius:10px;margin-bottom:12px;overflow:hidden;">
-          <div style="padding:14px 16px;">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-              <span style="font-size:16px;font-weight:900;letter-spacing:0.02em;">{symbol}</span>
-              <span style="font-size:11px;color:#657184;padding:2px 8px;border-radius:999px;background:#f4f8fc;border:1px solid #d9e0ea;">{preset_name}</span>
-            </div>
-            <table style="width:100%;border-collapse:collapse;">{signals_html}{buy_summary}{state_html}{pc_html}</table>
-          </div>
-        </div>'''
-
-    if not active:
-        rows_html = '<p style="color:#657184;font-size:13px;text-align:center;padding:20px;">— 今日无信号 —</p>'
-
-    subject = "策略信号: " + (", ".join(subject_parts) if subject_parts else "无")
-    html = f'''<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:20px;background:#f6f8fb;font-family:'Aptos','Noto Sans SC','Microsoft YaHei',sans-serif;color:#111827;">
-<div style="max-width:560px;margin:0 auto;">
-  <div style="margin-bottom:20px;padding-bottom:12px;border-bottom:1px solid #d9e0ea;">
-    <h1 style="margin:0;font-size:18px;font-weight:900;">🔔 策略信号</h1>
-    <p style="margin:4px 0 0;color:#657184;font-size:12px;">自动生成 · 仅供参考</p>
-  </div>
-  {rows_html}
-  <div style="margin-top:16px;padding-top:10px;border-top:1px solid #d9e0ea;color:#657184;font-size:11px;text-align:center;">
-    BoolReminder · 策略信号系统
-  </div>
-</div>
-</body></html>'''
-    return subject, html
-
-
 def _html_esc(s: str) -> str:
     return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;')
 
@@ -918,26 +644,37 @@ def build_signal_email_html(results: list[dict[str, object]]) -> tuple[str, str]
 
         for sig in stock_sigs:
             if sig.get("status") == "covered":
-                signals_html += f'<tr><td style="color:#657184;font-size:13px;">✅ {sig.get("reason", "已覆盖")}</td><td></td><td></td></tr>'
+                signals_html += f'<tr><td style="color:#657184;font-size:13px;">✅ {_html_esc(str(sig.get("reason", "已覆盖")))}</td><td></td><td></td></tr>'
             else:
                 action = sig.get("action", "?")
                 is_buy = action == "buy"
                 icon = "🟢" if is_buy else "🔴"
                 color = "#00856f" if is_buy else "#d04437"
-                signals_html += f'<tr><td style="font-weight:700;color:{color};font-size:13px;">{icon} {action}</td><td style="font-family:monospace;font-size:13px;">{sig.get("shares", "?")}股</td><td style="font-family:monospace;font-size:13px;">@ ${sig.get("price", "?")}</td><td style="color:#657184;font-size:12px;">{sig.get("reason", "")}</td></tr>'
+                shares = _fmt_num(sig.get('shares', '?'))
+                price = _fmt_price(sig.get('price', '?'))
+                reason = _html_esc(str(sig.get('reason', '')))
+                action_label = _html_esc(_action_label(action))
+                signals_html += f'<tr><td style="font-weight:700;color:{color};font-size:13px;white-space:nowrap;">{icon} {action_label}</td><td style="font-family:monospace;font-size:13px;white-space:nowrap;">{shares}股</td><td style="font-family:monospace;font-size:13px;white-space:nowrap;">@ ${price}</td><td style="color:#657184;font-size:12px;word-break:break-word;">{reason}</td></tr>'
                 if is_buy:
                     try:
-                        total_buy += float(sig.get("shares", 0)) * float(sig.get("price", 0))
-                        total_buy_shares += float(sig.get("shares", 0))
+                        total_buy += float(sig.get('shares', 0)) * float(sig.get('price', 0))
+                        total_buy_shares += float(sig.get('shares', 0))
                     except (ValueError, TypeError):
                         pass
 
         for es in leaps_entry:
-            signals_html += f'<tr><td style="font-weight:700;color:#00856f;font-size:13px;">🟢 LEAPS买入</td><td style="font-family:monospace;font-size:13px;">{es.get("underlying", symbol)}</td><td style="font-family:monospace;font-size:13px;">@ ${es.get("stock_price", "?")}</td><td style="color:#657184;font-size:12px;">{es.get("reason", "")}</td></tr>'
+            underlying = _html_esc(str(es.get('underlying', symbol)))
+            stock_price = _fmt_price(es.get('stock_price', '?'))
+            reason = _html_esc(str(es.get('reason', '')))
+            signals_html += f'<tr><td style="font-weight:700;color:#00856f;font-size:13px;white-space:nowrap;">🟢 LEAPS买入</td><td style="font-family:monospace;font-size:13px;white-space:nowrap;">{underlying}</td><td style="font-family:monospace;font-size:13px;white-space:nowrap;">@ ${stock_price}</td><td style="color:#657184;font-size:12px;word-break:break-word;">{reason}</td></tr>'
             subject_parts.append(f"{symbol} LEAPS买入")
 
         for ss in leaps_sell:
-            signals_html += f'<tr><td style="font-weight:700;color:#d04437;font-size:13px;">🔴 LEAPS卖出 S{ss.get("stage", "?")}</td><td style="font-family:monospace;font-size:13px;">{ss.get("pct_to_sell", "?")}%</td><td style="font-family:monospace;font-size:13px;">@ ${ss.get("stock_price", "?")}</td><td style="color:#657184;font-size:12px;">{ss.get("reason", "")}</td></tr>'
+            stage = ss.get('stage', '?')
+            pct = _fmt_num(ss.get('pct_to_sell', '?'), 0)
+            stock_price = _fmt_price(ss.get('stock_price', '?'))
+            reason = _html_esc(str(ss.get('reason', '')))
+            signals_html += f'<tr><td style="font-weight:700;color:#d04437;font-size:13px;white-space:nowrap;">🔴 LEAPS卖出 S{stage}</td><td style="font-family:monospace;font-size:13px;white-space:nowrap;">{pct}%</td><td style="font-family:monospace;font-size:13px;white-space:nowrap;">@ ${stock_price}</td><td style="color:#657184;font-size:12px;word-break:break-word;">{reason}</td></tr>'
             subject_parts.append(f"{symbol} LEAPS卖出")
 
         buy_summary = ""
