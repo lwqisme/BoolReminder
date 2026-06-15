@@ -7353,11 +7353,20 @@
                         }
                         if (res.current_state) {
                             const s = res.current_state;
+                            const icSource = res.initial_cash_source || '';
+                            const icLabel = icSource === 'trade_history' ? '📈' : icSource === 'signal_targets' ? '📋' : '⚙️';
+                            const icVal = res.initial_cash != null ? res.initial_cash : s.cash + s.market_value - (s.invested || 0);
                             html += '<div style="font-size:11px;color:var(--muted);margin-top:4px;">' +
                                 '持仓 ' + (s.shares || 0) + '股 | 现金 $' + (s.cash || 0).toFixed(0) +
                                 ' | 市值 $' + (s.market_value || 0).toFixed(0) +
                                 ' | 均价 $' + (s.avg_cost || 0).toFixed(2) +
                                 '</div>';
+                            if (res.initial_cash != null) {
+                                html += '<div style="font-size:11px;color:var(--muted);margin-top:1px;">' +
+                                    icLabel + ' 初始资金 $' + Number(res.initial_cash).toFixed(0) +
+                                    (icSource ? ' (' + (icSource === 'trade_history' ? '交易推算' : icSource === 'signal_targets' ? '信号目标表' : '预设默认') + ')' : '') +
+                                    '</div>';
+                            }
                         }
                         if (res.position_context && res.position_context.summary) {
                             const pc = res.position_context;

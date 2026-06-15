@@ -187,8 +187,16 @@ def generate_signal(
         return {"symbol": sym, "preset_id": preset_id, "error": "交易记录为空"}
 
     # 3. Load signal targets for initial_cash and monthly_contribution
-    initial_cash = _load_target_allocation(sym, inputs.initial_cash)
-    monthly_contribution = _load_target_monthly(sym, inputs.monthly_contribution)
+    #    When signal_targets has no entry, compute initial_cash from trade history
+    #    instead of using the preset's default (which is often a backtest value like $50K).
+    initial_cash = _load_target_allocation(sym)
+    initial_cash_source = "signal_targets"
+    if initial_cash is None:
+        initial_cash = _compute_initial_cash_from_trades(rows, inputs.initial_cash)
+        initial_cash_source = "trade_history" if initial_cash != inputs.initial_cash else "preset_default"
+    monthly_contribution = _load_target_monthly(sym)
+    if monthly_contribution is None:
+        monthly_contribution = inputs.monthly_contribution
 
     # 4. Determine date range
     trade_dates = sorted({
@@ -339,6 +347,8 @@ def generate_signal(
             "last_price": last_price_val,
             "avg_cost": total_buy / real_shares if real_shares > 0 else 0,
         },
+        "initial_cash": initial_cash,
+        "initial_cash_source": initial_cash_source,
         "position_context": position_context,
         "signals": all_signals,
         "dry_run": dry_run,
@@ -396,8 +406,34 @@ def _serialize_leaps_signal_result(result) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
-def _load_target_allocation(symbol: str, fallback: float) -> float:
-    """Parse signal_targets sheet for the symbol's 初始投入 (initial allocation)."""
+def _compute_initial_cash_from_trades(rows: list[dict], fallback: float) -> float:
+    """Estimate initial_cash from trade history as peak cumulative outflow.
+
+    Walks trades in chronological order, tracking net cash flow.
+    The peak cumulative outflow (= most cash ever committed at once)
+    is a reasonable estimate of the "initial investment" when
+    signal_targets has no entry for this symbol.
+    """
+    cash_flow = 0.0
+    peak_outflow = 0.0
+    for row in sorted(rows, key=lambda r: str(r.get("trade_date", ""))):
+        side = str(row.get("side", "")).lower()
+        shares = float(row.get("shares", 0) or 0)
+        price = float(row.get("price", 0) or 0)
+        amount = float(row.get("amount", 0) or shares * price)
+        if side == "buy":
+            cash_flow -= amount
+        elif side == "sell":
+            cash_flow += amount
+        peak_outflow = max(peak_outflow, -cash_flow)
+    return peak_outflow if peak_outflow > 0 else fallback
+
+
+def _load_target_allocation(symbol: str, fallback: float | None = None) -> float | None:
+    """Parse signal_targets sheet for the symbol's 初始投入 (initial allocation).
+
+    Returns None when symbol not found and no fallback provided.
+    """
     sym_base = symbol.upper()
     sym_short = sym_base.split(".", 1)[0]
     match_keys = {sym_base, sym_short}
@@ -432,11 +468,15 @@ def _load_target_allocation(symbol: str, fallback: float) -> float:
                     return val
             except (TypeError, ValueError):
                 continue
+    # Symbol not found in signal_targets — return None to trigger trade-based computation
     return fallback
 
 
-def _load_target_monthly(symbol: str, fallback: float) -> float:
-    """Parse signal_targets sheet for the symbol's 每月投入 (monthly contribution)."""
+def _load_target_monthly(symbol: str, fallback: float | None = None) -> float | None:
+    """Parse signal_targets sheet for the symbol's 每月投入 (monthly contribution).
+
+    Returns None when symbol not found and no fallback provided.
+    """
     sym_base = symbol.upper()
     sym_short = sym_base.split(".", 1)[0]
     match_keys = {sym_base, sym_short}
@@ -467,6 +507,7 @@ def _load_target_monthly(symbol: str, fallback: float) -> float:
                 return val
             except (TypeError, ValueError):
                 continue
+    # Symbol not found in signal_targets
     return fallback
 
 
