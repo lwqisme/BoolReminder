@@ -1,5 +1,22 @@
 # Agent Development Notes
 
+## Environment & Deployment Topology
+
+BoolReminder runs in a split setup. Respect this boundary:
+
+- **Local (this machine)**: code development + unit tests ONLY. Never run the app container or production services here.
+- **Remote server (SSH alias `tct-sh`)**: deployment + online/production testing. All container and service operations happen here.
+- **Sync channel**: the only thing that moves code between local and remote is the `origin/main` git remote, plus SSH for remote commands.
+
+Standard shipping workflow:
+
+1. Local: develop, run unit tests (e.g. `./test_ga.sh` for GA changes).
+2. Local: commit + push → `git add <files> && git commit -m "<msg>" && git push`.
+3. Remote: pull + rebuild + restart → `ssh tct-sh 'cd /home/ubuntu/projects/BoolReminder && git pull && docker compose up --build -d'`.
+4. Remote: smoke-test the deployed service over SSH (curl health endpoints, check logs, etc.).
+
+Use `ssh tct-sh '<cmd>'` for any remote command. Use `scp`/`rsync` only for files not tracked in git.
+
 ## Skills
 
 Before starting any task, always read the full SKILL.md of this skill:
@@ -18,7 +35,14 @@ This project values convergent, reuse-first development.
 - Add abstractions only when they remove real duplication or simplify an established pattern.
 - Keep UI and API changes consistent with the surrounding codebase unless the task explicitly calls for a redesign.
 - When a behavior already exists in one place, extend or compose it rather than reimplementing it elsewhere.
-- After completing any code change, automatically commit with a concise message, push to origin/main, and rebuild + restart the Docker container: `git add <files> && git commit -m "<msg>" && git push && docker compose up --build -d`. Do not wait for the user to ask.
+- After completing any code change, automatically commit, push to `origin/main`, then rebuild + restart the Docker container ON THE REMOTE SERVER, and verify. Do not wait for the user to ask. Concretely:
+  ```bash
+  # local
+  git add <files> && git commit -m "<msg>" && git push
+  # remote
+  ssh tct-sh 'cd /home/ubuntu/projects/BoolReminder && git pull && docker compose up --build -d'
+  ```
+  Do NOT run `docker compose` locally — the container lives on `tct-sh` (see topology above).
 
 ## GA Changes — MANDATORY Test Suite
 
@@ -36,4 +60,10 @@ This runs:
 
 **70 tests total. ALL must pass.** Never commit GA changes with failing or skipped tests.
 
-After GA changes: verify the page loads (`curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5000/strategy-lab/parameter-lab` must return 200) AND the GA packet endpoint works (`curl -s -X POST http://127.0.0.1:5000/api/strategy-lab/parameter-lab/ga-packet -H 'Content-Type: application/json' -d '{"ga_buy_strategy":"pyramid_3","ga_sell_strategy":"none","start":"2026-01-01","end":"2026-05-01","ga_population_size":3}' | python3 -c "import json,sys; assert json.load(sys.stdin)['success']"`).
+After GA changes: verify the page loads AND the GA packet endpoint works — both over SSH on the remote server, since the service runs on `tct-sh`:
+  ```bash
+  # page must return 200
+  ssh tct-sh 'curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5000/strategy-lab/parameter-lab'
+  # endpoint must report success
+  ssh tct-sh 'curl -s -X POST http://127.0.0.1:5000/api/strategy-lab/parameter-lab/ga-packet -H "Content-Type: application/json" -d "{\"ga_buy_strategy\":\"pyramid_3\",\"ga_sell_strategy\":\"none\",\"start\":\"2026-01-01\",\"end\":\"2026-05-01\",\"ga_population_size\":3}"' | python3 -c "import json,sys; assert json.load(sys.stdin)['success']"
+  ```
