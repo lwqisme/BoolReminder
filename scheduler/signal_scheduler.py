@@ -70,6 +70,8 @@ class SignalScheduler:
         body_lines: list[str] = []
         for r in active:
             symbol = str(r["symbol"])
+            preset_name = str(r.get("preset_name") or r.get("preset_id", ""))
+            preset_tag = f" [{preset_name}]" if preset_name else ""
             # Stock signals
             has_actionable = False
             for sig in r.get("signals", []):
@@ -77,7 +79,7 @@ class SignalScheduler:
                 if status == "covered":
                     # Covered tranche: show as info
                     body_lines.append(
-                        f"{symbol}: [已覆盖] {sig.get('reason', '')}"
+                        f"{symbol}{preset_tag}: [已覆盖] {sig.get('reason', '')}"
                     )
                     continue
                 has_actionable = True
@@ -85,7 +87,7 @@ class SignalScheduler:
                 price = sig.get("price", "?")
                 reason = sig.get("reason", "")
                 shares = sig.get("shares", "?")
-                line = f"{symbol}: {action} {shares}股 @ ${price}"
+                line = f"{symbol}{preset_tag}: {action} {shares}股 @ ${price}"
                 if reason:
                     line += f" ({reason})"
                 body_lines.append(line)
@@ -94,7 +96,7 @@ class SignalScheduler:
             for es in r.get("entry_signals", []):
                 price = es.get("stock_price", "?")
                 reason = es.get("reason", "")
-                line = f"{symbol}: LEAPS买入 @ ${price}"
+                line = f"{symbol}{preset_tag}: LEAPS买入 @ ${price}"
                 if reason:
                     line += f" ({reason})"
                 body_lines.append(line)
@@ -105,7 +107,7 @@ class SignalScheduler:
                 stage = ss.get("stage", "?")
                 pct = ss.get("pct_to_sell", "?")
                 reason = ss.get("reason", "")
-                line = f"{symbol}: LEAPS卖出 S{stage} {pct}% @ ${price}"
+                line = f"{symbol}{preset_tag}: LEAPS卖出 S{stage} {pct}% @ ${price}"
                 if reason:
                     line += f" ({reason})"
                 body_lines.append(line)

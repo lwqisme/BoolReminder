@@ -11114,9 +11114,11 @@ def _send_leaps_signal_email(results: list[dict[str, object]]) -> dict[str, obje
 
     for r in results:
         sym = r.get("symbol", "?")
+        preset_name = r.get("preset_name") or r.get("preset_id", "")
+        preset_tag = f" [{preset_name}]" if preset_name else ""
         errors = r.get("errors", [])
         if errors:
-            lines.append(f"{sym}: 错误 - {', '.join(errors)}")
+            lines.append(f"{sym}{preset_tag}: 错误 - {', '.join(errors)}")
             continue
 
         entry = r.get("entry_signals", [])
@@ -11127,7 +11129,7 @@ def _send_leaps_signal_email(results: list[dict[str, object]]) -> dict[str, obje
             continue
         has_any = True
 
-        lines.append(f"--- {sym} ---")
+        lines.append(f"--- {sym}{preset_tag} ---")
 
         if positions:
             lines.append(f"  持仓: {len(positions)} 笔")

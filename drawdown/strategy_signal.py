@@ -386,6 +386,7 @@ def generate_all_signals(
                     symbol, preset_id, signal_date=signal_date, dry_run=dry_run
                 )
                 result = _serialize_leaps_signal_result(result_obj)
+                result["preset_name"] = (preset or {}).get("name", "")
             else:
                 result = generate_signal(symbol, preset_id, signal_date=signal_date, dry_run=dry_run)
         except Exception as exc:
