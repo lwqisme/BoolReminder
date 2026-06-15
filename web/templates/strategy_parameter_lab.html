@@ -9,81 +9,6 @@
 </head>
 <body>
     <div class="shell">
-        <!-- ── Mobile settings drawer ──────────────────────────── -->
-        <button class="mobile-settings-toggle" id="mobileSettingsToggle" onclick="openMobileSettings()">⚙️</button>
-        <div class="mobile-settings-overlay" id="mobileSettingsOverlay" onclick="closeMobileSettings()"></div>
-        <div class="mobile-settings-drawer" id="mobileSettingsDrawer">
-            <div class="mobile-settings-close">
-                <h2>⚙️ 参数配置</h2>
-                <button type="button" onclick="closeMobileSettings()">关闭</button>
-            </div>
-            <div id="mobileSettingsContent"></div>
-        </div>
-
-        <aside class="side" id="sidePanel">
-            <div class="panel">
-                <div class="panel-head">
-                    <h2>Parameter Lab</h2>
-                    <span style="font-family:var(--mono);font-size:12px;color:var(--muted);">90/10</span>
-                </div>
-                <div class="panel-body">
-                    <div class="field-grid">
-                        <label>开始日期
-                            <input id="start" type="date" value="{{ default_start }}">
-                        </label>
-                        <label>结束日期
-                            <input id="end" type="date" value="{{ default_end }}">
-                        </label>
-                        <label>并发 Worker
-                            <input id="workerCount" type="number" min="1" max="12" step="1" value="4">
-                        </label>
-                        <label>初始资金 USD
-                            <input id="initialCash" type="number" min="1" step="100" value="{{ default_config.default_initial_cash }}">
-                        </label>
-                        <label>月注入 USD
-                            <input id="monthlyContribution" type="number" min="0" step="100" value="{{ default_config.default_monthly_contribution }}">
-                        </label>
-                        <label>最大回撤 %
-                            <input id="maxDrawdown" type="number" min="1" max="100" step="1" value="{{ default_config.default_max_drawdown_pct }}">
-                        </label>
-                        <label>回撤基准
-                            <select id="drawdownBasis">
-                                <option value="ath" {% if default_config.default_drawdown_basis == 'ath' %}selected{% endif %}>ATH</option>
-                                <option value="rolling_120" {% if default_config.default_drawdown_basis == 'rolling_120' %}selected{% endif %}>120D</option>
-                            </select>
-                        </label>
-                    </div>
-                </div>
-            </div>
-
-            <div class="panel">
-                <div class="panel-head"><h2>策略集合</h2><button type="button" class="ghost" onclick="selectAllStrategies()">全选</button></div>
-                <div class="panel-body">
-                    <label style="margin-bottom:7px;">买入策略</label>
-                    <div class="check-grid" id="buyStrategies">
-                        {% for key, label in buy_strategy_labels.items() %}
-                            <label><input type="checkbox" name="buyStrategy" value="{{ key }}" checked>{{ label }}</label>
-                        {% endfor %}
-                    </div>
-                    <label style="margin:12px 0 7px;">卖出策略</label>
-                    <div class="check-grid" id="sellStrategies">
-                        {% for key, label in sell_strategy_labels.items() %}
-                            <label><input type="checkbox" name="sellStrategy" value="{{ key }}" checked>{{ label }}{% if key == 'cost_deleverage' %}<span class="param-help" data-tooltip="以周期锚点价衡量涨幅分批减仓：锚点首次取持仓平均成本，价格相对锚点的涨幅依次达到一/二/三档盈利阈值时，各卖出对应比例的当前仓位；每档每周期只触发一次，第三档触发后重置档位并以当时价格开启新周期。卖出前还需满足最小盈利门槛（按剩余持仓平均成本）、冷却天数、底仓比例与最小卖出额限制；回撤达到卖档重启阈值会重新解锁已触发档位（锚点保留，ADR-0004）。">?</span>{% endif %}</label>
-                        {% endfor %}
-                    </div>
-                    <label style="margin-top:10px;">核心买点优化
-                        <select id="coreDipTimingFilter">
-                            <option value="disabled" selected>关闭</option>
-                            <option value="enabled">开启</option>
-                            <option value="all">全部</option>
-                        </select>
-                    </label>
-                </div>
-            </div>
-
-            
-
-        </aside>
 
         <main class="main">
             <div class="topbar">
@@ -109,13 +34,69 @@
             <!-- ── Tab: Backtest ──────────────────────────────── -->
             <div class="main-tab-panel active" id="tabBacktest">
 
+            <!-- ── Run configuration ──────────────────────────────── -->
+                        <details class="bt-config-details" open>
+                <summary><span>⚙️ 运行配置</span><span style="font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:8px;">日期 · 资金 · 回撤</span></summary>
+                <div class="bt-config-body">
+                    <div class="field-grid">
+                        <label>开始日期
+                            <input id="start" type="date" value="{{ default_start }}">
+                        </label>
+                        <label>结束日期
+                            <input id="end" type="date" value="{{ default_end }}">
+                        </label>
+                        <label>并发 Worker
+                            <input id="workerCount" type="number" min="1" max="12" step="1" value="4">
+                        </label>
+                        <label>初始资金 USD
+                            <input id="initialCash" type="number" min="1" step="100" value="{{ default_config.default_initial_cash }}">
+                        </label>
+                        <label>月注入 USD
+                            <input id="monthlyContribution" type="number" min="0" step="100" value="{{ default_config.default_monthly_contribution }}">
+                        </label>
+                        <label>最大回撤 %
+                            <input id="maxDrawdown" type="number" min="1" max="100" step="1" value="{{ default_config.default_max_drawdown_pct }}">
+                        </label>
+                        <label>回撤基准
+                            <select id="drawdownBasis">
+                                <option value="ath" {% if default_config.default_drawdown_basis == 'ath' %}selected{% endif %}>ATH</option>
+                                <option value="rolling_120" {% if default_config.default_drawdown_basis == 'rolling_120' %}selected{% endif %}>120D</option>
+                            </select>
+                        </label>
+                </div>
+            </div>
+            </details>
+
+                        <details class="bt-config-details" open>
+                <summary><span>♟️ 策略集合</span><button type="button" class="ghost" onclick="selectAllStrategies()" style="margin-left:8px;min-height:24px;padding:2px 8px;font-size:11px;">全选</button></summary>
+                <div class="bt-config-body">
+                    <label style="margin-bottom:7px;">买入策略</label>
+                    <div class="check-grid" id="buyStrategies">
+                        {% for key, label in buy_strategy_labels.items() %}
+                            <label><input type="checkbox" name="buyStrategy" value="{{ key }}" checked>{{ label }}</label>
+                        {% endfor %}
+                    </div>
+                    <label style="margin:12px 0 7px;">卖出策略</label>
+                    <div class="check-grid" id="sellStrategies">
+                        {% for key, label in sell_strategy_labels.items() %}
+                            <label><input type="checkbox" name="sellStrategy" value="{{ key }}" checked>{{ label }}{% if key == 'cost_deleverage' %}<span class="param-help" data-tooltip="以周期锚点价衡量涨幅分批减仓：锚点首次取持仓平均成本，价格相对锚点的涨幅依次达到一/二/三档盈利阈值时，各卖出对应比例的当前仓位；每档每周期只触发一次，第三档触发后重置档位并以当时价格开启新周期。卖出前还需满足最小盈利门槛（按剩余持仓平均成本）、冷却天数、底仓比例与最小卖出额限制；回撤达到卖档重启阈值会重新解锁已触发档位（锚点保留，ADR-0004）。">?</span>{% endif %}</label>
+                        {% endfor %}
+                    </div>
+                    <label style="margin-top:10px;">核心买点优化
+                        <select id="coreDipTimingFilter">
+                            <option value="disabled" selected>关闭</option>
+                            <option value="enabled">开启</option>
+                            <option value="all">全部</option>
+                        </select>
+                    </label>
+                </div>
+            </details>
+
+
             <!-- ── Configuration sections (moved from sidebar) ──── -->
-            <details class="bt-config-details" open>
+                        <details class="bt-config-details" open>
                 <summary><span>🛰️ LEAPS 信号设置</span></summary>
                 <div class="bt-config-body">
-                    <div class="panel">
-                <div class="panel-head"><h2>LEAPS 信号设置</h2></div>
-                <div class="panel-body">
                     <div class="field-grid">
                         <label>低现金阈值 %
                             <input id="leapsLowCashThreshold" type="number" min="0" max="100" step="1" value="12">
@@ -129,32 +110,22 @@
                         <label>目标 DTE 标签
                             <input id="leapsTargetDteLabel" value="18-24M">
                         </label>
-                    </div>
                 </div>
             </div>
-                </div>
             </details>
 
-            <details class="bt-config-details" open>
+                        <details class="bt-config-details" open>
                 <summary><span>📋 当前组合</span></summary>
                 <div class="bt-config-body">
-                    <div class="panel">
-                <div class="panel-head"><h2>当前组合</h2></div>
-                <div class="panel-body">
                     <label>当前组合
                         <textarea id="portfolioText">{{ default_portfolio|tojson }}</textarea>
                     </label>
                 </div>
-            </div>
-                </div>
             </details>
 
-            <details class="bt-config-details">
+                        <details class="bt-config-details">
                 <summary><span>🔧 参数基线</span><span class="cost-summary" id="baselineSummary">点击展开编辑</span></summary>
                 <div class="bt-config-body">
-                    <div class="panel">
-                <div class="panel-head"><h2>参数基线</h2></div>
-                <div class="panel-body">
                     <div id="candidateGridSummary" class="candidate-grid-summary"></div>
                     <div class="field-grid">
                         <label>步长 %<span class="param-help" data-tooltip="回撤买入的档位间距。等距细切按此百分比等距生成买入触发线（如 2.5%、5%、7.5%）；线性递增加权也以此作为档位间距。值越小档位越密集。">?</span><input id="stepPct" type="number" step="0.5" value="{{ default_config.default_slice_step_pct }}"></label>
@@ -198,10 +169,8 @@
                         <label>优化延迟日<span class="param-help" data-tooltip="买点优化最多允许延迟的交易日数量。价格条件不理想时策略会尝试延迟买入；达到此上限后即使条件一般也执行买入，防止无限期等待。">?</span><input id="coreDipTimingMaxDelayDays" type="number" step="1" value="{{ default_config.default_core_dip_timing_max_delay_days }}"></label>
                         <label>大涨阈值 %<span class="param-help" data-tooltip="买点优化的追涨过滤阈值。若当天涨幅达到此阈值，优化器倾向延迟核心买入，避免在高位追涨。">?</span><input id="coreDipTimingRiseThresholdPct" type="number" step="0.1" value="{{ default_config.default_core_dip_timing_rise_threshold_pct }}"></label>
                         <label>近低距离 %<span class="param-help" data-tooltip="买点优化的低位确认阈值。若当前价格距离近期低点不超过此比例，优化器认为价格仍靠近低位，允许买入。">?</span><input id="coreDipTimingNearLowPct" type="number" step="0.1" value="{{ default_config.default_core_dip_timing_near_low_pct }}"></label>
-                    </div>
                 </div>
             </div>
-                </div>
             </details>
 
 
@@ -754,27 +723,6 @@
             try { localStorage.setItem('parameterLabActiveSubTab', subId); } catch(e) {}
         }
         window.switchSubTab = switchSubTab;
-
-        // ── Mobile Settings Drawer ─────────────────────────────────
-        var _mobileDrawerInitialized = false;
-        function openMobileSettings() {
-            if (!_mobileDrawerInitialized) {
-                var source = document.getElementById('sidePanel');
-                var target = document.getElementById('mobileSettingsContent');
-                if (source && target) {
-                    target.innerHTML = source.innerHTML;
-                }
-                _mobileDrawerInitialized = true;
-            }
-            document.getElementById('mobileSettingsOverlay').classList.add('open');
-            document.getElementById('mobileSettingsDrawer').classList.add('open');
-        }
-        function closeMobileSettings() {
-            document.getElementById('mobileSettingsOverlay').classList.remove('open');
-            document.getElementById('mobileSettingsDrawer').classList.remove('open');
-        }
-        window.openMobileSettings = openMobileSettings;
-        window.closeMobileSettings = closeMobileSettings;
 
         // Restore last active tab on page load
         (function() {
