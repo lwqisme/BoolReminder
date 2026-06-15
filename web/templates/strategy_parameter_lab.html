@@ -8664,22 +8664,49 @@
 
             // 买入参数
             var buyParts = [];
-            if (cp.default_slice_step_pct != null) buyParts.push('步长 ' + Number(cp.default_slice_step_pct).toFixed(2) + '%');
-            if (cp.default_equal_slice_allocation_pct != null) buyParts.push('每档仓位 ' + Number(cp.default_equal_slice_allocation_pct).toFixed(1) + '%');
-            if (cp.default_dca_rearm_drawdown_pct != null) buyParts.push('重启回撤 ' + Number(cp.default_dca_rearm_drawdown_pct).toFixed(0) + '%');
+            if (buyKey === 'linear_increasing_slice') {
+                if (cp.default_slice_step_pct != null) buyParts.push('步长 ' + Number(cp.default_slice_step_pct).toFixed(2) + '%');
+                if (cp.default_max_drawdown_pct != null) buyParts.push('最大回撤 ' + Number(cp.default_max_drawdown_pct).toFixed(0) + '%');
+            } else {
+                if (cp.default_slice_step_pct != null) buyParts.push('步长 ' + Number(cp.default_slice_step_pct).toFixed(2) + '%');
+                if (cp.default_equal_slice_allocation_pct != null) buyParts.push('每档仓位 ' + Number(cp.default_equal_slice_allocation_pct).toFixed(1) + '%');
+            }
+            
+            if (cp.default_dca_rearm_drawdown_pct != null) {
+                var rearmStr = '买档重启 ';
+                if (cp.default_buy_rearm_mode === 'revert_to_first') rearmStr += '后从首档 ';
+                rearmStr += Number(cp.default_dca_rearm_drawdown_pct).toFixed(2) + '%回撤';
+                buyParts.push(rearmStr);
+            }
             if (buyParts.length) parts.push('<span style="color:var(--green);">📈</span> 买入: ' + buyParts.join(' | '));
 
             // 卖出参数
             var sellParts = [];
             if (cp.default_sell_min_profit_pct != null) sellParts.push('最低盈利 ' + Number(cp.default_sell_min_profit_pct).toFixed(1) + '%');
             if (cp.default_repair_stage_sell_pct != null) sellParts.push('卖出比例 ' + Number(cp.default_repair_stage_sell_pct).toFixed(0) + '%');
-            if (cp.default_repair_sell_cooldown_days != null) sellParts.push('冷却 ' + Number(cp.default_repair_sell_cooldown_days).toFixed(0) + '天');
+            if (cp.default_repair_sell_cooldown_days != null) sellParts.push('修复冷却 ' + Number(cp.default_repair_sell_cooldown_days).toFixed(0) + '天');
             if (cp.default_grid_rebound_step_pct != null) sellParts.push('回弹步长 ' + Number(cp.default_grid_rebound_step_pct).toFixed(2) + '%');
-            if (cp.default_grid_sell_pct != null) sellParts.push('卖出比例 ' + Number(cp.default_grid_sell_pct).toFixed(1) + '%');
+            if (cp.default_grid_sell_pct != null) sellParts.push('网格卖出比例 ' + Number(cp.default_grid_sell_pct).toFixed(1) + '%');
             if (cp.default_grid_min_sell_amount != null) sellParts.push('最低卖出 $' + Number(cp.default_grid_min_sell_amount).toFixed(0));
-            if (cp.default_sell_stage_rearm_drawdown_pct != null) sellParts.push('档位重启 ' + Number(cp.default_sell_stage_rearm_drawdown_pct).toFixed(0) + '%');
-            if (cp.default_cost_first_profit_pct != null) sellParts.push('三档盈利 ' + [cp.default_cost_first_profit_pct,cp.default_cost_second_profit_pct,cp.default_cost_third_profit_pct].filter(function(x){return x!=null;}).map(function(x){return Number(x).toFixed(0)+'%';}).join('/'));
-            if (sellKey === 'cost_deleverage' && cp.default_cost_deleverage_cooldown_days != null) sellParts.push('冷却 ' + cp.default_cost_deleverage_cooldown_days + '天');
+            
+            // Reconstruct the logic to match the detail style requested
+            if (sellKey === 'cost_deleverage') {
+                var pLevels = [cp.default_cost_first_profit_pct, cp.default_cost_second_profit_pct, cp.default_cost_third_profit_pct].filter(function(x){return x!=null;}).map(function(x){return Number(x).toFixed(1)+'%';});
+                var sLevels = [cp.default_cost_first_sell_pct, cp.default_cost_second_sell_pct, cp.default_cost_third_sell_pct].filter(function(x){return x!=null;}).map(function(x){return Number(x).toFixed(1)+'%';});
+                if (pLevels.length && sLevels.length) sellParts.push('去杠杆 ' + sLevels.join('/') + ' 盈利 ' + pLevels.join('+'));
+                if (cp.default_cost_deleverage_cooldown_days != null) sellParts.push(cp.default_cost_deleverage_cooldown_days + '日冷却');
+                if (cp.default_allow_buy_day_sell) sellParts.push('买入日可卖');
+                else sellParts.push('买入日禁卖');
+            } else {
+                if (cp.default_cost_first_profit_pct != null) sellParts.push('三档盈利 ' + [cp.default_cost_first_profit_pct,cp.default_cost_second_profit_pct,cp.default_cost_third_profit_pct].filter(function(x){return x!=null;}).map(function(x){return Number(x).toFixed(0)+'%';}).join('/'));
+            }
+
+            if (cp.default_sell_stage_rearm_drawdown_pct != null) {
+                var sRearmStr = '卖档重启 ';
+                if (cp.default_sell_stage_rearm_mode === 'drop_from_last_sell') sRearmStr += '距上次卖出跳水 ';
+                sRearmStr += Number(cp.default_sell_stage_rearm_drawdown_pct).toFixed(2) + '%';
+                sellParts.push(sRearmStr);
+            }
             if (sellParts.length) parts.push('<span style="color:var(--red);">📉</span> 卖出: ' + sellParts.join(' | '));
 
             // 其他
