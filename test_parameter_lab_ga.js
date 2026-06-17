@@ -71,11 +71,23 @@ function gaDedupByDisplayStats(finalRows, skipStatsDedup) {
     return deduped;
 }
 
+let gaRandomFn = Math.random;
+function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function() {
+        a |= 0; a = (a + 0x6D2B79F5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+function gaRandom() { return gaRandomFn(); }
+
 function tournamentSelectGa(ranked, tournamentSize) {
     const size = Math.min(tournamentSize, ranked.length);
     let best = ranked[0];
     for (let i = 1; i < size; i++) {
-        const idx = Math.floor(Math.random() * ranked.length);
+        const idx = Math.floor(gaRandom() * ranked.length);
         if (ranked[idx].fit > best.fit) best = ranked[idx];
     }
     return best.ind;
@@ -86,7 +98,7 @@ function crossoverGa(p1, p2) {
         label: p1.label || p2.label, key: p1.key || p2.key };
     for (const k of Object.keys(p1)) {
         if (k === 'key' || k === 'label' || k === 'buy_strategy' || k === 'sell_strategy') continue;
-        child[k] = Math.random() < 0.5 ? p1[k] : p2[k];
+        child[k] = gaRandom() < 0.5 ? p1[k] : p2[k];
     }
     return child;
 }
@@ -167,7 +179,7 @@ function mutateGa(ind, mutationRate, paramRanges, gaConfig, crossEnabled) {
         const lo = Number(b[0]), hi = Number(b[1]);
         const old = Number(currentVal || (lo + hi) / 2);
         const sigma = Math.max(Math.abs(old), 0.01) * sigmaRatio;
-        let val = old + (Math.random() + Math.random() + Math.random() + Math.random() - 2) * sigma * 1.5;
+        let val = old + (gaRandom() + gaRandom() + gaRandom() + gaRandom() - 2) * sigma * 1.5;
         val = Math.max(lo, Math.min(hi, val));
         const prec = precision[field] !== undefined ? precision[field] : 2;
         val = Number(val.toFixed(prec));
@@ -176,39 +188,43 @@ function mutateGa(ind, mutationRate, paramRanges, gaConfig, crossEnabled) {
     }
 
     for (const field of BUY_PARAMETER_FIELDS) {
-        if (Math.random() < mutationRate) {
+        if (gaRandom() < mutationRate) {
             if (continuous && bounds[field]) {
                 child[field] = gaussMutate(field, child[field]);
             } else if (buyRanges[field]) {
                 const vals = gaDiscreteValuesWithinBounds(field, buyRanges[field]);
-                child[field] = vals[Math.floor(Math.random() * vals.length)];
+                child[field] = vals[Math.floor(gaRandom() * vals.length)];
                 if (intFields.has(field)) child[field] = Math.trunc(Number(child[field]));
             }
         }
     }
     for (const field of SELL_PARAMETER_FIELDS) {
-        if (Math.random() < mutationRate) {
+        if (gaRandom() < mutationRate) {
             if (continuous && bounds[field]) {
                 child[field] = gaussMutate(field, child[field]);
             } else if (sellRanges[field]) {
                 const vals = gaDiscreteValuesWithinBounds(field, sellRanges[field]);
-                child[field] = vals[Math.floor(Math.random() * vals.length)];
+                child[field] = vals[Math.floor(gaRandom() * vals.length)];
                 if (intFields.has(field)) child[field] = Math.trunc(Number(child[field]));
             } else if (field === 'sell_allow_same_day_sell') {
                 if (gaConfig.sell_allow_same_day_sell === 'true' || gaConfig.sell_allow_same_day_sell === 'false') {
                     child[field] = gaConfig.sell_allow_same_day_sell === 'true';
                 } else {
-                    child[field] = Math.random() < 0.5;
+                    child[field] = gaRandom() < 0.5;
                 }
             }
         }
     }
 
-    if (crossEnabled && gaConfig.cross_strategy && Math.random() < (gaConfig.strategy_mutation_rate || 0.05)) {
-        const buyStrats = Object.keys(paramRanges.buy_fields || { buy_a: [] });
-        const sellStrats = Object.keys(paramRanges.sell_fields || { sell_x: [] });
-        child.buy_strategy = buyStrats[Math.floor(Math.random() * buyStrats.length)];
-        child.sell_strategy = sellStrats[Math.floor(Math.random() * sellStrats.length)];
+    if (crossEnabled && gaConfig.cross_strategy && gaRandom() < (gaConfig.strategy_mutation_rate || 0.05)) {
+        const buyStrats = (Array.isArray(gaConfig.ga_buy_strategies) && gaConfig.ga_buy_strategies.length)
+            ? gaConfig.ga_buy_strategies
+            : Object.keys(paramRanges.buy_fields || { buy_a: [] });
+        const sellStrats = (Array.isArray(gaConfig.ga_sell_strategies) && gaConfig.ga_sell_strategies.length)
+            ? gaConfig.ga_sell_strategies
+            : Object.keys(paramRanges.sell_fields || { sell_x: [] });
+        child.buy_strategy = buyStrats[Math.floor(gaRandom() * buyStrats.length)];
+        child.sell_strategy = sellStrats[Math.floor(gaRandom() * sellStrats.length)];
     }
     if (child.core_dip_start_drawdown_pct !== undefined && child.core_dip_full_drawdown_pct !== undefined) {
         if (Number(child.core_dip_start_drawdown_pct) > Number(child.core_dip_full_drawdown_pct)) {
@@ -216,7 +232,7 @@ function mutateGa(ind, mutationRate, paramRanges, gaConfig, crossEnabled) {
         }
     }
     enforceGaIndividualBounds(child);
-    child.key = 'test_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+    child.key = 'test_' + Date.now().toString(36) + '_' + gaRandom().toString(36).slice(2, 6);
     child.label = null;
     return child;
 }
@@ -519,6 +535,46 @@ function test_gaDedupByDisplayStats_skips_dedup_in_continuous_mode() {
     console.log('PASS: test_gaDedupByDisplayStats_skips_dedup_in_continuous_mode');
 }
 
+function test_cross_strategy_mutation_uses_selected_strategy_pool() {
+    const ranges = {
+        ...paramRanges,
+        buy_fields: { equal_slice: ['step_pct'], pyramid_3: [], weekly_dca: [], salary_flow_dca: [] },
+        sell_fields: { repair_step: ['sell_min_profit_pct'], none: [], cost_deleverage: [] },
+    };
+    const gaConfig = {
+        continuous_mutation: false,
+        cross_strategy: true,
+        strategy_mutation_rate: 1,
+        ga_buy_strategies: ['equal_slice'],
+        ga_sell_strategies: ['none'],
+    };
+    gaRandomFn = mulberry32(123);
+    for (let i = 0; i < 50; i++) {
+        const child = mutateGa({ buy_strategy: 'pyramid_3', sell_strategy: 'repair_step', step_pct: 5, sell_min_profit_pct: 10 }, 0, ranges, gaConfig, true);
+        assert.strictEqual(child.buy_strategy, 'equal_slice', 'must only mutate into selected buy strategies');
+        assert.strictEqual(child.sell_strategy, 'none', 'must only mutate into selected sell strategies');
+    }
+    gaRandomFn = Math.random;
+    console.log('PASS: test_cross_strategy_mutation_uses_selected_strategy_pool');
+}
+
+function test_seeded_ga_mutation_is_reproducible() {
+    const ind = { buy_strategy: 'equal_slice', sell_strategy: 'repair_step', step_pct: 5, equal_slice_allocation_pct: 5, sell_min_profit_pct: 10 };
+    const gaConfig = { continuous_mutation: false, mutation_sigma_ratio: 0.15, cross_strategy: true, strategy_mutation_rate: 0.5,
+        ga_buy_strategies: ['equal_slice', 'pyramid_3'], ga_sell_strategies: ['repair_step', 'none'] };
+    function run(seed) {
+        gaRandomFn = mulberry32(seed);
+        return Array.from({ length: 10 }, function() {
+            const child = mutateGa(ind, 0.4, paramRanges, gaConfig, true);
+            return [child.buy_strategy, child.sell_strategy, child.step_pct, child.equal_slice_allocation_pct, child.sell_min_profit_pct].join('|');
+        });
+    }
+    assert.deepStrictEqual(run(42), run(42), 'same seed must reproduce the same mutation sequence');
+    assert.notDeepStrictEqual(run(42), run(43), 'different seed should produce a different mutation sequence');
+    gaRandomFn = Math.random;
+    console.log('PASS: test_seeded_ga_mutation_is_reproducible');
+}
+
 // ── LEAPS preset payload builder ──
 function buildLeapsPresetPayload(row, note) {
     const fields = [
@@ -603,6 +659,8 @@ const tests = [
     test_gaDedupByDisplayStats_preserves_unique_entries,
     test_gaDedupByDisplayStats_handles_empty,
     test_gaDedupByDisplayStats_skips_dedup_in_continuous_mode,
+    test_cross_strategy_mutation_uses_selected_strategy_pool,
+    test_seeded_ga_mutation_is_reproducible,
     test_buildLeapsPresetPayload_all_fields,
     test_buildLeapsPresetPayload_no_note,
     test_buildLeapsPresetPayload_excludes_non_leaps_fields,

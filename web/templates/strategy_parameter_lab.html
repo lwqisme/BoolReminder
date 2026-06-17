@@ -546,6 +546,9 @@
                             <label>买卖质量权重 %<span class="param-help" data-tooltip="买卖质量在 GA 适应度评分中的权重百分比。0=纯按收益/回撤排序，值越大买卖质量（买入接近底部、卖出接近顶部）影响越大。权重平分给买入和卖出质量。最大 50%。">?</span>
                                 <input id="gaSellQualityWeightPct" type="number" step="5" min="0" max="50" value="{{ default_config.default_sell_quality_weight_pct }}">
                             </label>
+                            <label>随机种子<span class="param-help" data-tooltip="固定种子后，相同参数多次运行结果完全一致（可复现）。留空则每次随机，结果不可复现。调试或对比策略时建议填固定值。">?</span>
+                                <input id="gaSeed" type="number" step="1" placeholder="空=随机">
+                            </label>
                         </div>
                         <details style="margin-top:4px;border:1px solid rgba(174,185,200,0.3);border-radius:var(--radius-sm);padding:6px 8px;">
                             <summary style="cursor:pointer;font-weight:900;font-size:12px;color:var(--ink);">参数范围<span class="param-help" data-tooltip="限制 GA 搜索的参数上下界。留空使用默认范围。对变异阶段生效，连续和离散模式均受约束。">?</span></summary>
@@ -2001,6 +2004,7 @@
                 ga_crossover_rate: readNumber('gaCrossoverRate'),
                 ga_continuous_mutation: document.getElementById('gaContinuousMutation')?.value || 'false',
                 ga_sigma_ratio: readNumber('gaSigmaRatio'),
+                ga_seed: (document.getElementById('gaSeed')?.value || '').trim() ? readNumber('gaSeed') : null,
                 ga_custom_bounds: (function() {
                     var out = {};
                     ['dcaRe','stgRe','step','alloc','gStp','gSel','mPrf','rpCd'].forEach(function(s) {
@@ -6045,6 +6049,7 @@
                 if (payload.ga_crossover_rate !== undefined) { const el = document.getElementById('gaCrossoverRate'); if (el) el.value = payload.ga_crossover_rate; }
                 if (payload.ga_continuous_mutation) { const el = document.getElementById('gaContinuousMutation'); if (el) el.value = payload.ga_continuous_mutation; }
                 if (payload.ga_sigma_ratio !== undefined) { const el = document.getElementById('gaSigmaRatio'); if (el) el.value = payload.ga_sigma_ratio; }
+                if (payload.ga_seed !== undefined && payload.ga_seed !== null) { const el = document.getElementById('gaSeed'); if (el) el.value = payload.ga_seed; }
                 if (payload.ga_custom_bounds) { restoreGaCustomBounds(payload.ga_custom_bounds); }
                 // LEAPS GA fields
                 var leapsGa = saved.leapsGa || {};
@@ -6094,7 +6099,7 @@
             const sameDayEl = document.getElementById('sellAllowSameDaySell'); if (sameDayEl) sameDayEl.addEventListener('change', autoSaveParameterLabDefaults);
             const leapsGate = document.getElementById('leapsDrawdownGate'); if (leapsGate) leapsGate.addEventListener('change', autoSaveParameterLabDefaults);
             const pfText = document.getElementById('portfolioText'); if (pfText) pfText.addEventListener('input', autoSaveParameterLabDefaults);
-            const gaSaveIds = ['gaBuyStrategy', 'gaSellStrategy', 'gaCrossStrategy', 'gaStrategyMutationRate', 'gaPopSize', 'gaGenerations', 'gaMutationRate', 'gaCrossoverRate', 'gaContinuousMutation', 'gaSigmaRatio', 'gaB_dcaRe', 'gaB_dcaReHi', 'gaB_stgRe', 'gaB_stgReHi', 'gaB_step', 'gaB_stepHi', 'gaB_alloc', 'gaB_allocHi', 'gaB_gStp', 'gaB_gStpHi', 'gaB_gSel', 'gaB_gSelHi', 'gaB_mPrf', 'gaB_mPrfHi', 'gaB_rpCd', 'gaB_rpCdHi', 'gaB_maxDd', 'gaB_maxDdHi'];
+            const gaSaveIds = ['gaBuyStrategy', 'gaSellStrategy', 'gaCrossStrategy', 'gaStrategyMutationRate', 'gaPopSize', 'gaGenerations', 'gaMutationRate', 'gaCrossoverRate', 'gaContinuousMutation', 'gaSigmaRatio', 'gaSeed', 'gaB_dcaRe', 'gaB_dcaReHi', 'gaB_stgRe', 'gaB_stgReHi', 'gaB_step', 'gaB_stepHi', 'gaB_alloc', 'gaB_allocHi', 'gaB_gStp', 'gaB_gStpHi', 'gaB_gSel', 'gaB_gSelHi', 'gaB_mPrf', 'gaB_mPrfHi', 'gaB_rpCd', 'gaB_rpCdHi', 'gaB_maxDd', 'gaB_maxDdHi'];
             gaSaveIds.forEach(function(id) {
                 const el = document.getElementById(id);
                 if (el) { el.addEventListener('input', autoSaveParameterLabDefaults); el.addEventListener('change', autoSaveParameterLabDefaults); }
@@ -6120,6 +6125,11 @@
             cancelParameterLab(false);
             gaCancelled = false;
             progressFloatDismissed = false;
+            // Seed the GA PRNG so runs are reproducible when the user sets a seed;
+            // empty = random each run.
+            const seedRaw = (document.getElementById('gaSeed')?.value || '').trim();
+            const seedVal = seedRaw ? parseInt(seedRaw, 10) : null;
+            gaRandomFn = (seedVal !== null && Number.isFinite(seedVal)) ? mulberry32(seedVal) : Math.random;
             document.getElementById('gaCancelBtn').style.display = '';
             document.getElementById('gaProgress').style.display = '';
             document.getElementById('gaProgressBar').style.width = '0%';
@@ -6145,6 +6155,7 @@
             payload.ga_crossover_rate = parseFloat(document.getElementById('gaCrossoverRate').value) || 0.80;
             payload.ga_continuous_mutation = document.getElementById('gaContinuousMutation').value;
             payload.ga_sigma_ratio = parseFloat(document.getElementById('gaSigmaRatio').value) || 0.15;
+            payload.ga_seed = (document.getElementById('gaSeed')?.value || '').trim() ? parseInt(document.getElementById('gaSeed').value, 10) : null;
             payload.sell_quality_weight_pct = readNumber('gaSellQualityWeightPct');
             payload.ga_parameter_bounds = readGaCustomBounds();
             payload.ga_buy_rearm_mode = document.getElementById('gaBuyRearmMode')?.value || '';
@@ -6161,6 +6172,10 @@
                 if (!data.success) throw new Error(data.message || '准备 GA 数据包失败');
                 const packet = data.packet;
                 const gaConfig = packet.ga_config || {};
+                // Expose the user-selected strategy pools on gaConfig so mutateGa's
+                // cross-strategy mutation only jumps among chosen strategies.
+                gaConfig.ga_buy_strategies = crossEnabled ? (payload.ga_buy_strategies || packet.buy_strategies || []) : [payload.ga_buy_strategy || document.getElementById('gaBuyStrategy').value];
+                gaConfig.ga_sell_strategies = crossEnabled ? (payload.ga_sell_strategies || packet.sell_strategies || []) : [payload.ga_sell_strategy || document.getElementById('gaSellStrategy').value];
                 const paramRanges = packet.ga_parameter_ranges || {};
                 applyGaCustomBounds(paramRanges, payload.ga_parameter_bounds);
                 const activeBoundsLabel = gaActiveBoundsLabel(paramRanges);
@@ -6303,7 +6318,7 @@
                         if (gaCancelled) break;
                         const p1 = tournamentSelectGa(ranked, gaConfig.tournament_size || 4);
                         const p2 = tournamentSelectGa(ranked, gaConfig.tournament_size || 4);
-                        const child = Math.random() < (gaConfig.crossover_rate || 0.8) ? crossoverGa(p1, p2) : { ...p1 };
+                        const child = gaRandom() < (gaConfig.crossover_rate || 0.8) ? crossoverGa(p1, p2) : { ...p1 };
                         nextPop.push(mutateGa(child, gaConfig.mutation_rate || 0.15, paramRanges, gaConfig, crossEnabled));
                     }
                     population = nextPop.slice(0, gaConfig.population_size || 50);
@@ -6732,7 +6747,7 @@
             if (changed || index !== null) {
                 const buyParams = extractGaParams(ind, BUY_PARAMETER_FIELDS);
                 const sellParams = extractGaParams(ind, SELL_PARAMETER_FIELDS);
-                const suffix = index !== null ? '__seed' + index : '__' + Math.random().toString(36).slice(2, 8);
+                const suffix = index !== null ? '__seed' + index : '__' + gaRandom().toString(36).slice(2, 8);
                 ind.key = buildCandidateKey(ind.buy_strategy || '', ind.sell_strategy || '', buyParams, sellParams) + suffix;
                 ind.combination_key = ind.key;
                 ind.buy_variant_key = ind.key;
@@ -6803,11 +6818,24 @@
         }
 
         // ── GA operations (ported from Python) ──────────────────────────────
+        // Seeded RNG so GA runs are reproducible when the user sets a seed.
+        // gaRandomFn is swapped per-run in runGeneticEvolution(); defaults to Math.random.
+        let gaRandomFn = Math.random;
+        function mulberry32(seed) {
+            let a = seed >>> 0;
+            return function() {
+                a |= 0; a = (a + 0x6D2B79F5) | 0;
+                let t = Math.imul(a ^ (a >>> 15), 1 | a);
+                t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+                return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+            };
+        }
+        function gaRandom() { return gaRandomFn(); }
         function tournamentSelectGa(ranked, tournamentSize) {
             const size = Math.min(tournamentSize, ranked.length);
             let best = ranked[0];
             for (let i = 1; i < size; i++) {
-                const idx = Math.floor(Math.random() * ranked.length);
+                const idx = Math.floor(gaRandom() * ranked.length);
                 if (ranked[idx].fit > best.fit) best = ranked[idx];
             }
             return best.ind;
@@ -6818,7 +6846,7 @@
                 label: p1.label || p2.label, key: p1.key || p2.key };
             for (const k of Object.keys(p1)) {
                 if (k === 'key' || k === 'label' || k === 'buy_strategy' || k === 'sell_strategy') continue;
-                child[k] = Math.random() < 0.5 ? p1[k] : p2[k];
+                child[k] = gaRandom() < 0.5 ? p1[k] : p2[k];
             }
             return child;
         }
@@ -6839,7 +6867,7 @@
                 const lo = Number(b[0]), hi = Number(b[1]);
                 const old = Number(currentVal || (lo + hi) / 2);
                 const sigma = Math.max(Math.abs(old), 0.01) * sigmaRatio;
-                let val = old + (Math.random() + Math.random() + Math.random() + Math.random() - 2) * sigma * 1.5; // approx Gaussian
+                let val = old + (gaRandom() + gaRandom() + gaRandom() + gaRandom() - 2) * sigma * 1.5; // approx Gaussian
                 val = Math.max(lo, Math.min(hi, val));
                 const prec = precision[field] !== undefined ? precision[field] : 2;
                 val = Number(val.toFixed(prec));
@@ -6857,18 +6885,18 @@
                 if (sellFields.indexOf('buy_rearm_mode') < 0) sellFields.push('buy_rearm_mode');
             }
             for (const field of buyFields) {
-                if (Math.random() < mutationRate) {
+                if (gaRandom() < mutationRate) {
                     if (continuous && bounds[field]) {
                         child[field] = gaussMutate(field, child[field]);
                     } else if (buyRanges[field]) {
                         const vals = gaDiscreteValuesWithinBounds(field, buyRanges[field], paramRanges);
-                        child[field] = vals[Math.floor(Math.random() * vals.length)];
+                        child[field] = vals[Math.floor(gaRandom() * vals.length)];
                         if (intFields.has(field)) child[field] = Math.trunc(Number(child[field]));
                     }
                 }
             }
             for (const field of sellFields) {
-                if (Math.random() < mutationRate) {
+                if (gaRandom() < mutationRate) {
                     if (continuous && bounds[field]) {
                         child[field] = gaussMutate(field, child[field]);
                     } else if (field === 'buy_rearm_mode') {
@@ -6876,28 +6904,37 @@
                         if (gaConfig.buy_rearm_mode && modes.includes(gaConfig.buy_rearm_mode)) {
                             child[field] = gaConfig.buy_rearm_mode;
                         } else {
-                            child[field] = modes[Math.floor(Math.random() * modes.length)];
+                            child[field] = modes[Math.floor(gaRandom() * modes.length)];
                         }
                     } else if (sellRanges[field]) {
                         const vals = gaDiscreteValuesWithinBounds(field, sellRanges[field], paramRanges);
-                        child[field] = vals[Math.floor(Math.random() * vals.length)];
+                        child[field] = vals[Math.floor(gaRandom() * vals.length)];
                         if (intFields.has(field)) child[field] = Math.trunc(Number(child[field]));
                     } else if (field === 'sell_allow_same_day_sell') {
                         if (gaConfig.sell_allow_same_day_sell === 'true' || gaConfig.sell_allow_same_day_sell === 'false') {
                             child[field] = gaConfig.sell_allow_same_day_sell === 'true';
                         } else {
-                            child[field] = Math.random() < 0.5;
+                            child[field] = gaRandom() < 0.5;
                         }
                     }
                 }
             }
 
-            // Strategy mutation for cross-strategy mode
-            if (crossEnabled && gaConfig.cross_strategy && Math.random() < (gaConfig.strategy_mutation_rate || 0.05)) {
-                const buyStrats = (paramRanges.buy_fields ? Object.keys(paramRanges.buy_fields) : [child.buy_strategy]) || [child.buy_strategy];
-                const sellStrats = (paramRanges.sell_fields ? Object.keys(paramRanges.sell_fields) : [child.sell_strategy]) || [child.sell_strategy];
-                child.buy_strategy = buyStrats[Math.floor(Math.random() * buyStrats.length)];
-                child.sell_strategy = sellStrats[Math.floor(Math.random() * sellStrats.length)];
+            // Strategy mutation for cross-strategy mode — only jump among the
+            // strategies the user actually selected (gaConfig.ga_buy_strategies /
+            // ga_sell_strategies), NOT every strategy known to the registry.
+            // Falling back to registry keys let GA mutate into weekly_dca /
+            // salary_flow_dca / core_dip_dca the user never picked, injecting
+            // noise that prevented the best strategy from converging.
+            if (crossEnabled && gaConfig.cross_strategy && gaRandom() < (gaConfig.strategy_mutation_rate || 0.05)) {
+                const buyStrats = (Array.isArray(gaConfig.ga_buy_strategies) && gaConfig.ga_buy_strategies.length)
+                    ? gaConfig.ga_buy_strategies
+                    : (paramRanges.buy_fields ? Object.keys(paramRanges.buy_fields) : [child.buy_strategy]) || [child.buy_strategy];
+                const sellStrats = (Array.isArray(gaConfig.ga_sell_strategies) && gaConfig.ga_sell_strategies.length)
+                    ? gaConfig.ga_sell_strategies
+                    : (paramRanges.sell_fields ? Object.keys(paramRanges.sell_fields) : [child.sell_strategy]) || [child.sell_strategy];
+                child.buy_strategy = buyStrats[Math.floor(gaRandom() * buyStrats.length)];
+                child.sell_strategy = sellStrats[Math.floor(gaRandom() * sellStrats.length)];
             }
 
             // Enforce categorical lock-ins (overrides any inherited/mutated value)
@@ -6919,7 +6956,7 @@
             }
 
             enforceGaIndividualBounds(child, paramRanges);
-            child.key = 'ga_' + (child.buy_strategy || 'x') + '__' + (child.sell_strategy || 'x') + '__' + Math.random().toString(36).slice(2, 8);
+            child.key = 'ga_' + (child.buy_strategy || 'x') + '__' + (child.sell_strategy || 'x') + '__' + gaRandom().toString(36).slice(2, 8);
             child.label = null; // stale after mutation – regenerate from params
             return child;
         }
