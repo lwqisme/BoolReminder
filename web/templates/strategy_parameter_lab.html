@@ -596,6 +596,14 @@
                             <span id="gaProgressBar" style="width:0%;"></span>
                         </div>
                         <div id="gaPanelBody"></div>
+                        <details id="gaDebugDetails" style="margin-top:8px;border:1px solid rgba(174,185,200,0.35);border-radius:10px;padding:6px 8px;display:none;">
+                            <summary style="cursor:pointer;font-weight:900;font-size:12px;color:var(--muted);">GA 诊断日志</summary>
+                            <div style="display:flex;gap:8px;align-items:center;margin:6px 0;">
+                                <button type="button" class="ghost" onclick="copyGaDebugLog()">复制诊断日志</button>
+                                <span id="gaDebugCopyStatus" style="font-size:12px;color:var(--muted);"></span>
+                            </div>
+                            <pre id="gaDebugLog" style="max-height:260px;overflow:auto;white-space:pre-wrap;font-size:11px;line-height:1.35;background:rgba(15,23,42,0.04);border-radius:8px;padding:8px;margin:0;"></pre>
+                        </details>
                         <div class="actions" style="margin-top:8px;">
                             <button class="primary" type="button" onclick="runGeneticEvolution()">运行遗传算法</button>
                             <button class="danger" type="button" onclick="cancelGeneticEvolution()" id="gaCancelBtn" style="display:none;">停止</button>
@@ -6121,6 +6129,76 @@
             if (hint) hint.style.display = crossEnabled ? '' : 'none';
         }
 
+        let gaDebugLines = [];
+        function resetGaDebugLog() {
+            gaDebugLines = [];
+            const box = document.getElementById('gaDebugDetails');
+            const pre = document.getElementById('gaDebugLog');
+            const status = document.getElementById('gaDebugCopyStatus');
+            if (box) box.style.display = '';
+            if (pre) pre.textContent = '';
+            if (status) status.textContent = '';
+        }
+        function gaDebug(line, data = null) {
+            const text = data === null || data === undefined ? String(line) : (String(line) + ' ' + JSON.stringify(data));
+            gaDebugLines.push(text);
+            const pre = document.getElementById('gaDebugLog');
+            if (pre) {
+                pre.textContent = gaDebugLines.join('\n');
+                pre.scrollTop = pre.scrollHeight;
+            }
+        }
+        async function copyGaDebugLog() {
+            const text = gaDebugLines.join('\n');
+            const status = document.getElementById('gaDebugCopyStatus');
+            try {
+                await navigator.clipboard.writeText(text);
+                if (status) status.textContent = '已复制 ' + number(text.length, 0) + ' 字符';
+            } catch (e) {
+                const pre = document.getElementById('gaDebugLog');
+                if (pre) {
+                    const range = document.createRange();
+                    range.selectNodeContents(pre);
+                    const sel = window.getSelection();
+                    sel.removeAllRanges(); sel.addRange(range);
+                }
+                if (status) status.textContent = '自动复制失败，请手动 Ctrl/Cmd+C';
+            }
+        }
+        function gaPairKey(ind) {
+            return (ind?.buy_strategy || '') + '/' + (ind?.sell_strategy || '');
+        }
+        function gaPairCounts(population) {
+            const counts = {};
+            (population || []).forEach(function(ind) {
+                const key = gaPairKey(ind);
+                counts[key] = (counts[key] || 0) + 1;
+            });
+            return Object.fromEntries(Object.entries(counts).sort(function(a, b) { return b[1] - a[1] || a[0].localeCompare(b[0]); }));
+        }
+        function gaPairBestRows(population, fitnesses, limit = 8) {
+            const best = {};
+            for (let i = 0; i < (population || []).length; i++) {
+                const key = gaPairKey(population[i]);
+                const fit = Number(fitnesses[i] || 0);
+                if (!best[key] || fit > best[key].fitness) best[key] = { pair: key, fitness: fit, label: buildGaStatusLabel(population[i]) };
+            }
+            return Object.values(best).sort(function(a, b) { return b.fitness - a.fitness; }).slice(0, limit).map(function(row) {
+                return { pair: row.pair, fitness: Number(row.fitness.toFixed(3)), label: row.label };
+            });
+        }
+        function gaTrackedPairStats(population, fitnesses, buy, sell) {
+            let count = 0, best = -Infinity, label = '';
+            for (let i = 0; i < (population || []).length; i++) {
+                if (population[i].buy_strategy === buy && population[i].sell_strategy === sell) {
+                    count += 1;
+                    const fit = Number(fitnesses[i] || 0);
+                    if (fit > best) { best = fit; label = buildGaStatusLabel(population[i]); }
+                }
+            }
+            return { count, best: count ? Number(best.toFixed(3)) : null, label };
+        }
+
         async function runGeneticEvolution() {
             cancelParameterLab(false);
             gaCancelled = false;
@@ -6130,6 +6208,8 @@
             const seedRaw = (document.getElementById('gaSeed')?.value || '').trim();
             const seedVal = seedRaw ? parseInt(seedRaw, 10) : null;
             gaRandomFn = (seedVal !== null && Number.isFinite(seedVal)) ? mulberry32(seedVal) : Math.random;
+            resetGaDebugLog();
+            gaDebug('[GA-DEBUG] start', { seed: seedVal, seed_raw: seedRaw || null });
             document.getElementById('gaCancelBtn').style.display = '';
             document.getElementById('gaProgress').style.display = '';
             document.getElementById('gaProgressBar').style.width = '0%';
@@ -6162,6 +6242,23 @@
             payload.ga_sell_allow_same_day_sell = document.getElementById('gaSameDaySell')?.value || '';
             payload.ga_core_dip_timing_enabled = document.getElementById('gaCoreDipTiming')?.value || '';
             payload.parameter_lab_concurrency = readNumber('workerCount');
+            gaDebug('[GA-DEBUG] payload', {
+                cross: payload.ga_cross_strategy,
+                buy_strategy: payload.ga_buy_strategy,
+                sell_strategy: payload.ga_sell_strategy,
+                buy_strategies: payload.ga_buy_strategies || null,
+                sell_strategies: payload.ga_sell_strategies || null,
+                population_size: payload.ga_population_size,
+                generations: payload.ga_generations,
+                mutation_rate: payload.ga_mutation_rate,
+                crossover_rate: payload.ga_crossover_rate,
+                strategy_mutation_rate: payload.ga_strategy_mutation_rate,
+                continuous_mutation: payload.ga_continuous_mutation,
+                sigma: payload.ga_sigma_ratio,
+                sell_quality_weight_pct: payload.sell_quality_weight_pct,
+                scorecard_keys: payload.scorecard_portfolio_keys,
+                periods: payload.scorecard_periods,
+            });
 
             try {
                 setStatus('GA Preparing', '正在从服务端拉取行情与初始种群...', 5);
@@ -6183,6 +6280,13 @@
                     document.getElementById('gaStatus').title = '生效参数范围: ' + activeBoundsLabel;
                 }
                 const totalGenerations = gaConfig.generations || 20;
+                gaDebug('[GA-DEBUG] packet', {
+                    ga_config: gaConfig,
+                    task_count: (packet.tasks || []).length,
+                    tasks: (packet.tasks || []).map(function(t) { return { key: t.key, portfolio_key: t.portfolio_key, period_key: t.period_key, start: t.start, end: t.end }; }),
+                    packet_buy_strategies: packet.buy_strategies || null,
+                    packet_sell_strategies: packet.sell_strategies || null,
+                });
                 const totalSims = (packet.candidate_rows || []).length * (packet.tasks || []).length;
                 document.getElementById('statCandidates').textContent = number(gaConfig.population_size || 50, 0);
                 document.getElementById('statTopics').textContent = number((packet.tasks || []).length, 0);
@@ -6197,6 +6301,11 @@
                     setStatus('GA Error', '初始种群为空。请调整 GA 参数或策略选择后重试。', 0);
                     return;
                 }
+                gaDebug('[GA-DEBUG] initial_population', {
+                    size: candidates.length,
+                    pair_counts: gaPairCounts(candidates),
+                    sample: candidates.slice(0, 12).map(function(ind) { return { pair: gaPairKey(ind), label: buildGaStatusLabel(ind), key: gaParamKey(ind) }; }),
+                });
 
                 // Create worker pool
                 const requested = Math.max(1, Math.min(12, Number(packet.parameter_lab_concurrency || 4)));
@@ -6300,13 +6409,25 @@
                     const genAvgFitness = validFitnesses.length ? validFitnesses.reduce(function(a, b) { return a + b; }, 0) / validFitnesses.length : 0;
                     const genBestIdx = validFitnesses.length ? fitnesses.indexOf(genBestFitness) : 0;
                     if (genBestFitness > bestFitnessEver) { bestFitnessEver = genBestFitness; bestEver = population[genBestIdx]; }
+                    const genBestLabel = population[genBestIdx].label || buildGaStatusLabel(population[genBestIdx]);
                     gaResults.push({
                         generation: gen + 1, best_fitness: genBestFitness, avg_fitness: genAvgFitness,
                         population_size: population.length,
-                        best_label: population[genBestIdx].label || buildGaStatusLabel(population[genBestIdx]),
+                        best_label: genBestLabel,
                         best_buy: population[genBestIdx].buy_strategy,
                         best_sell: population[genBestIdx].sell_strategy,
                         best_key_params: extractGaKeyParams(population[genBestIdx])
+                    });
+                    gaDebug('[GA-DEBUG] generation', {
+                        generation: gen + 1,
+                        best_fitness: Number(genBestFitness.toFixed(3)),
+                        avg_fitness: Number(genAvgFitness.toFixed(3)),
+                        best_pair: gaPairKey(population[genBestIdx]),
+                        best_label: genBestLabel,
+                        pair_counts: gaPairCounts(population),
+                        tracked_equal_cost: gaTrackedPairStats(population, fitnesses, 'equal_slice', 'cost_deleverage'),
+                        tracked_linear_cost: gaTrackedPairStats(population, fitnesses, 'linear_weighted_slice', 'cost_deleverage'),
+                        top_pairs: gaPairBestRows(population, fitnesses, 10),
                     });
 
                     // Elitism + generate next generation
@@ -7028,6 +7149,7 @@
         }
         window.runGeneticEvolution = runGeneticEvolution;
         window.cancelGeneticEvolution = cancelGeneticEvolution;
+        window.copyGaDebugLog = copyGaDebugLog;
         window.toggleGaStrategyControls = toggleGaStrategyControls;
         window.autoSaveParameterLabDefaults = autoSaveParameterLabDefaults;
 
