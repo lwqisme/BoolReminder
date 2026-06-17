@@ -389,15 +389,11 @@ PAIR 5 63.5 equal_slice/cost_deleverage
 - 策略突变限制在用户选择池
 - round-robin robust seed
 - 可复制诊断日志
+- ✅ 两阶段 Cross-Strategy GA（§14–§15，已闭环）
 
 未完成：
 
-- 跨策略 GA 两阶段/分岛式重构。
-
-建议下一步：
-
-- 用用户前端复制的诊断日志确认真实浏览器下 `equal_slice + cost_deleverage` 的死亡路径是否与 harness 一致。
-- 若一致，优先实现“两阶段 Cross-Strategy GA”。
+- （无）跨策略 GA 两阶段重构已完成，见 §15。
 
 ## 14. 浏览器日志确认 + 两阶段实现（2026-06-17）
 
@@ -418,3 +414,41 @@ PAIR 5 63.5 equal_slice/cost_deleverage
 入口：`web/templates/strategy_parameter_lab.html` `runTwoStageCrossStrategyGa`（cross 分支切入 `runGeneticEvolution`）。
 
 待用户浏览器复现验证：seed `123456789`、跨策略、TSLA 1/3/5y，核对 eqcost 爬升进 top-K、Stage2 不再 monoculture、最终 best 显著高于 79.05。
+
+## 15. 三轮迭代收敛到 115.95（2026-06-17）
+
+两阶段上线后经历两轮修复，最终 seed `123456789` / pop 200 / 25 代跨策略得分：
+
+| 版本 | 最终 best | 赢家策略对 | 问题 |
+|------|----------|-----------|------|
+| 单池（旧） | 79.05 | pyramid_3/price_rise_grid（错） | monoculture，eqcost 钉死 66.2 |
+| 两阶段 v1（`bb33e7a`） | 98.86 | equal_slice/cost_deleverage（对） | Stage2 配额冻结 + Stage1 预算过薄 |
+| 两阶段 v2（`c8bb944`） | **115.95** | equal_slice/cost_deleverage（对） | 健康持续爬升，无平台 |
+
+### v1 暴露的两个缺陷
+
+1. **Stage2 冻结**：配额公式 `(pop-top_k)/top_k` = 24/对 → 8 对×24 = 192/200 槽位每代冻结，仅 ~8 个新后代。gen 12–18 卡 95.819、gen 23–36 卡 98.723。配额本应是小「生存下限」，被错写成吃掉整个种群。
+2. **Stage1 预算又薄又浪费**：每对仅 264 evals（eqcost 最后一代还在爬就被截断 90.5→93.4），却把 7920 evals 摊到含 ~45 分垃圾的 30 对。
+
+### v2 修复（提交 `c8bb944`）
+
+1. Stage2 配额改小 floor `clamp(round(P*0.02),2,6)` = 4，~92% 自由繁殖 → 曲线从 100.6 持续爬到 115.95，无长平台。
+2. Stage1 改**两级**：cheap SCREEN 全 30 对（`screen_pop×screen_gens`）筛选 → DEEPEN 把真实预算（`deep_pop×deep_gens`）集中到 top-K finalists。
+
+### 关键证据：DEEPEN 反超坐实「默认筛选误杀 eqcost」诊断
+
+- screen 阶段 eqcost 只排第 6（73.3），被 `linear_weighted_slice/price_rise_grid` 的 82.8 压住。
+- DEEPEN 集中预算后 eqcost 爬到 **100.6，反超所有人 4–20 分**，登顶 finalists。
+- 这证明 §14 的核心结论：纯默认/轻筛选会误杀 eqcost，必须给每个策略对真实进化预算才能显出后发优势。
+
+### 收敛与剩余差距
+
+- Stage2 在 gen ~30 后趋收敛（gen 36→43 仅 +0.2 分），剩余预算产出低。
+- 最终 gen pair_counts：eqcost 141/200，其余 finalists 各 4–8（均 ≥ 配额下限）。这次是 eqcost 凭真实优势自然扩张，非 bug 式 monoculture。
+- 115.95 vs 固定单策略 122 的 ~6 分差距是**结构性代价**：跨策略必须为「发现哪个对最强」付税（Stage1 screen ~1800 evals 摊在 30 对），eqcost 实际只拿到 ~570 evals（固定单策略用满 5000）。用户评估后接受此差距，不再追调。
+
+### 最终状态
+
+已部署（`boll-reminder`），可复现（seed `123456789`）。诊断日志字段：`stage_config`（screen/deep/stage2 预算 + `stage2_min_quota`）、`stage1_screen_bests`、`stage1_deep_bests`、`stage2_finalists`、每代 `stage`。JS 回归测试 32 passed，含防 Stage2 冻结复发的 `test_stage2_quota_floor_stays_small`。
+
+非跨策略模式不受影响。`docs/ga-cross-strategy-diagnosis.md` §13「未完成」项至此关闭。
