@@ -636,6 +636,234 @@ function test_buildLeapsPresetPayload_excludes_non_leaps_fields() {
     console.log('PASS: test_buildLeapsPresetPayload_excludes_non_leaps_fields');
 }
 
+// ── Two-stage cross-strategy GA helpers (extracted copies of template logic) ──
+// These mirror web/templates/strategy_parameter_lab.html so the two-stage GA's
+// pure-logic pieces get unit coverage (worker-bound evaluation is covered by the
+// browser verification step in docs/ga-cross-strategy-diagnosis.md).
+
+function gaPairKey(ind) { return (ind?.buy_strategy || '') + '/' + (ind?.sell_strategy || ''); }
+
+function partitionByPair(population) {
+    const m = new Map();
+    (population || []).forEach(function (ind) {
+        const k = gaPairKey(ind);
+        if (!m.has(k)) m.set(k, []);
+        m.get(k).push(ind);
+    });
+    return m;
+}
+
+// Module-level bound helpers operating on the global paramRanges (the template
+// passes paramRanges explicitly; here it is the module const).
+function _tNumericBounds(field) {
+    const b = paramRanges.bounds[field];
+    if (!b || b.length < 2) return null;
+    const lo = Number(b[0]), hi = Number(b[1]);
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
+    return lo <= hi ? [lo, hi] : [hi, lo];
+}
+function _tNormalize(field, value) {
+    if (value === null || value === undefined || typeof value === 'boolean' || typeof value === 'string') return value;
+    const b = _tNumericBounds(field);
+    const n = Number(value);
+    if (!b || !Number.isFinite(n)) return value;
+    let v = Math.max(b[0], Math.min(b[1], n));
+    const intF = new Set(paramRanges.int_fields || []);
+    if (intF.has(field)) v = Math.trunc(v);
+    else { const prec = paramRanges.precision && paramRanges.precision[field] !== undefined ? paramRanges.precision[field] : 2; v = Number(v.toFixed(prec)); }
+    return v;
+}
+function _tUniform(field) {
+    const b = _tNumericBounds(field);
+    if (!b) return null;
+    return _tNormalize(field, b[0] + gaRandom() * (b[1] - b[0]));
+}
+function _tEnforce(child) {
+    for (const f of BUY_PARAMETER_FIELDS.concat(SELL_PARAMETER_FIELDS)) {
+        if (Object.prototype.hasOwnProperty.call(child, f)) child[f] = _tNormalize(f, child[f]);
+    }
+    return child;
+}
+
+function randomGaIndividual(bs, ss, gaConfig, template) {
+    const ind = { ...(template || {}) };
+    ind.buy_strategy = bs; ind.sell_strategy = ss;
+    const continuous = gaConfig.continuous_mutation || false;
+    const buyRanges = paramRanges.buy_ranges || {};
+    const sellRanges = paramRanges.sell_ranges || {};
+    const buyFields = (paramRanges.buy_fields || {})[bs] || [];
+    let sellFields = (paramRanges.sell_fields || {})[ss] || [];
+    if (ss !== 'none') {
+        if (sellFields.indexOf('sell_allow_same_day_sell') < 0) sellFields.push('sell_allow_same_day_sell');
+        if (sellFields.indexOf('dca_rearm_drawdown_pct') < 0) sellFields.push('dca_rearm_drawdown_pct');
+        if (sellFields.indexOf('sell_stage_rearm_drawdown_pct') < 0) sellFields.push('sell_stage_rearm_drawdown_pct');
+        if (sellFields.indexOf('buy_rearm_mode') < 0) sellFields.push('buy_rearm_mode');
+    }
+    const pickDiscrete = function (field, values) {
+        if (!values || !values.length) return template && template[field] !== undefined ? template[field] : null;
+        return values[Math.floor(gaRandom() * values.length)];
+    };
+    for (const field of buyFields) {
+        if (continuous && _tNumericBounds(field)) ind[field] = _tUniform(field);
+        else if (buyRanges[field]) ind[field] = pickDiscrete(field, buyRanges[field]);
+    }
+    for (const field of sellFields) {
+        if (field === 'buy_rearm_mode') {
+            const modes = sellRanges[field] || ['cumulative', 'restart_from_rearm'];
+            ind[field] = (gaConfig.buy_rearm_mode && modes.indexOf(gaConfig.buy_rearm_mode) >= 0) ? gaConfig.buy_rearm_mode : modes[Math.floor(gaRandom() * modes.length)];
+        } else if (field === 'sell_allow_same_day_sell') {
+            if (gaConfig.sell_allow_same_day_sell === 'true' || gaConfig.sell_allow_same_day_sell === 'false') ind[field] = gaConfig.sell_allow_same_day_sell === 'true';
+            else ind[field] = gaRandom() < 0.5;
+        } else if (continuous && _tNumericBounds(field)) {
+            ind[field] = _tUniform(field);
+        } else if (sellRanges[field]) {
+            ind[field] = pickDiscrete(field, sellRanges[field]);
+        }
+    }
+    if (gaConfig.buy_rearm_mode === 'cumulative' || gaConfig.buy_rearm_mode === 'restart_from_rearm') ind.buy_rearm_mode = gaConfig.buy_rearm_mode;
+    if (gaConfig.sell_allow_same_day_sell === 'true' || gaConfig.sell_allow_same_day_sell === 'false') ind.sell_allow_same_day_sell = gaConfig.sell_allow_same_day_sell === 'true';
+    _tEnforce(ind);
+    return ind;
+}
+
+// Pure-logic Stage-2 quota elitism selector (mirrors runTwoStageCrossStrategyGa).
+function selectQuotaElites(ranked, finalistPairs, minQuota, popSize) {
+    const next = []; const q = {};
+    for (const r of ranked) {
+        if (next.length >= popSize) break;
+        const pk = r.pair;
+        if (finalistPairs.has(pk) && (q[pk] || 0) < minQuota) { next.push(r); q[pk] = (q[pk] || 0) + 1; }
+    }
+    return next;
+}
+
+// Test: partitionByPair groups correctly.
+function test_partition_by_pair() {
+    const pop = [
+        { buy_strategy: 'equal_slice', sell_strategy: 'cost_deleverage' },
+        { buy_strategy: 'pyramid_3', sell_strategy: 'price_rise_grid' },
+        { buy_strategy: 'equal_slice', sell_strategy: 'cost_deleverage' },
+    ];
+    const m = partitionByPair(pop);
+    assert.strictEqual(m.get('equal_slice/cost_deleverage').length, 2);
+    assert.strictEqual(m.get('pyramid_3/price_rise_grid').length, 1);
+    assert.strictEqual(m.size, 2);
+    console.log('PASS: test_partition_by_pair');
+}
+
+// Test: randomGaIndividual locks to the requested pair and respects bounds / categorical lock-ins.
+function test_random_ga_individual_locks_strategy_and_bounds() {
+    gaRandomFn = mulberry32(42);
+    const gaConfig = { continuous_mutation: false, mutation_sigma_ratio: 0.25, buy_rearm_mode: 'cumulative', sell_allow_same_day_sell: 'true' };
+    const template = { buy_strategy: 'equal_slice', sell_strategy: 'repair_step', step_pct: 5, equal_slice_allocation_pct: 5, sell_min_profit_pct: 10 };
+    for (let i = 0; i < 50; i++) {
+        const ind = randomGaIndividual('equal_slice', 'repair_step', gaConfig, template);
+        assert.strictEqual(ind.buy_strategy, 'equal_slice', 'buy strategy must be locked');
+        assert.strictEqual(ind.sell_strategy, 'repair_step', 'sell strategy must be locked');
+        assert.strictEqual(ind.buy_rearm_mode, 'cumulative', 'buy_rearm_mode categorical lock-in');
+        assert.strictEqual(ind.sell_allow_same_day_sell, true, 'sell_allow_same_day_sell categorical lock-in');
+        if (ind.step_pct !== undefined) {
+            assert.ok(ind.step_pct >= 2.5 && ind.step_pct <= 10, 'step_pct within bounds: ' + ind.step_pct);
+        }
+    }
+    console.log('PASS: test_random_ga_individual_locks_strategy_and_bounds');
+}
+
+// Test (core regression): Stage-1 island breeding with crossEnabled=false NEVER
+// escapes the pair — descendants stay (bs, ss). This is the invariant that lets a
+// late-bloomer pair evolve undisturbed instead of being monocultured out.
+function test_stage1_island_breeding_never_escapes_pair() {
+    gaRandomFn = mulberry32(7);
+    const gaConfig = { continuous_mutation: false, mutation_sigma_ratio: 0.2, cross_strategy: true, strategy_mutation_rate: 1.0 };
+    const template = { buy_strategy: 'equal_slice', sell_strategy: 'repair_step', step_pct: 5, equal_slice_allocation_pct: 5, sell_min_profit_pct: 10 };
+    let population = [];
+    for (let i = 0; i < 20; i++) population.push(randomGaIndividual('equal_slice', 'repair_step', gaConfig, template));
+    // fitness gradient on step_pct so selection has signal
+    const fit = function (ind) { return -Math.abs((ind.step_pct || 5) - 7.5); };
+    for (let g = 0; g < 8; g++) {
+        const ranked = population.map(function (ind) { return { ind: ind, fit: fit(ind) }; }).sort(function (a, b) { return b.fit - a.fit; });
+        const next = ranked.slice(0, 3).map(function (r) { return r.ind; });
+        while (next.length < 20) {
+            const p1 = tournamentSelectGa(ranked, 4);
+            const p2 = tournamentSelectGa(ranked, 4);
+            const child = gaRandom() < 0.8 ? crossoverGa(p1, p2) : { ...p1 };
+            next.push(mutateGa(child, 0.2, paramRanges, gaConfig, false));
+        }
+        population = next.slice(0, 20);
+    }
+    for (const ind of population) {
+        assert.strictEqual(ind.buy_strategy, 'equal_slice', 'island leaked buy strategy');
+        assert.strictEqual(ind.sell_strategy, 'repair_step', 'island leaked sell strategy');
+    }
+    console.log('PASS: test_stage1_island_breeding_never_escapes_pair');
+}
+
+// Test: Stage-1 island breeding is reproducible with a fixed seed and diverges with a different seed.
+function test_stage1_island_breeding_reproducible() {
+    const gaConfig = { continuous_mutation: false, mutation_sigma_ratio: 0.2 };
+    const template = { buy_strategy: 'equal_slice', sell_strategy: 'repair_step', step_pct: 5, equal_slice_allocation_pct: 5, sell_min_profit_pct: 10 };
+    const fit = function (ind) { return -Math.abs((ind.step_pct || 5) - 7.5); };
+    function runOnce(seed) {
+        gaRandomFn = mulberry32(seed);
+        let population = [];
+        for (let i = 0; i < 16; i++) population.push(randomGaIndividual('equal_slice', 'repair_step', gaConfig, template));
+        for (let g = 0; g < 5; g++) {
+            const ranked = population.map(function (ind) { return { ind: ind, fit: fit(ind) }; }).sort(function (a, b) { return b.fit - a.fit; });
+            const next = ranked.slice(0, 3).map(function (r) { return r.ind; });
+            while (next.length < 16) {
+                const p1 = tournamentSelectGa(ranked, 4); const p2 = tournamentSelectGa(ranked, 4);
+                const child = gaRandom() < 0.8 ? crossoverGa(p1, p2) : { ...p1 };
+                next.push(mutateGa(child, 0.2, paramRanges, gaConfig, false));
+            }
+            population = next.slice(0, 16);
+        }
+        return population.map(gaParamKey).join('|');
+    }
+    const a1 = runOnce(123456789), a2 = runOnce(123456789);
+    const b1 = runOnce(987654321);
+    assert.strictEqual(a1, a2, 'same seed must reproduce identical island evolution');
+    assert.notStrictEqual(a1, b1, 'different seed must diverge');
+    console.log('PASS: test_stage1_island_breeding_reproducible');
+}
+
+// Test: Stage-2 quota elitism guarantees each finalist pair up to minQuota slots
+// (even when its individuals rank low globally), and never exceeds popSize.
+function test_stage2_quota_elitism_guarantees_min_quota() {
+    const finalistPairs = new Set(['equal_slice/cost_deleverage', 'pyramid_3/price_rise_grid', 'linear_weighted_slice/none']);
+    const minQuota = 5, popSize = 200;
+    // Build ranked: pair A's individuals all rank at the very bottom.
+    const ranked = [];
+    for (let i = 0; i < 20; i++) ranked.push({ pair: 'pyramid_3/price_rise_grid', fit: 100 - i });
+    for (let i = 0; i < 20; i++) ranked.push({ pair: 'linear_weighted_slice/none', fit: 70 - i });
+    for (let i = 0; i < 20; i++) ranked.push({ pair: 'equal_slice/cost_deleverage', fit: 20 - i }); // low / bottom
+    ranked.sort(function (a, b) { return b.fit - a.fit; });
+    const elites = selectQuotaElites(ranked, finalistPairs, minQuota, popSize);
+    const counts = {};
+    elites.forEach(function (r) { counts[r.pair] = (counts[r.pair] || 0) + 1; });
+    assert.ok(elites.length <= popSize, 'must not exceed popSize');
+    // The bottom-ranked finalist pair still receives its full minQuota — anti-monoculture guarantee.
+    assert.strictEqual(counts['equal_slice/cost_deleverage'], minQuota, 'bottom-ranked finalist must still get minQuota');
+    assert.strictEqual(counts['pyramid_3/price_rise_grid'], minQuota);
+    assert.strictEqual(counts['linear_weighted_slice/none'], minQuota);
+    console.log('PASS: test_stage2_quota_elitism_guarantees_min_quota');
+}
+
+// Test: when minQuota * topK would exceed popSize, the selector still caps at popSize
+// and never grants any pair more than minQuota.
+function test_stage2_quota_respects_pop_cap() {
+    const finalistPairs = new Set(['a/x', 'b/y', 'c/z', 'd/w']);
+    const minQuota = 5, popSize = 12; // 5*4 = 20 > 12
+    const ranked = [];
+    for (const p of ['a/x', 'b/y', 'c/z', 'd/w']) for (let i = 0; i < 20; i++) ranked.push({ pair: p, fit: Math.random() * 100 });
+    ranked.sort(function (a, b) { return b.fit - a.fit; });
+    const elites = selectQuotaElites(ranked, finalistPairs, minQuota, popSize);
+    const counts = {};
+    elites.forEach(function (r) { counts[r.pair] = (counts[r.pair] || 0) + 1; });
+    assert.ok(elites.length <= popSize, 'capped at popSize');
+    Object.values(counts).forEach(function (c) { assert.ok(c <= minQuota, 'no pair exceeds minQuota'); });
+    console.log('PASS: test_stage2_quota_respects_pop_cap');
+}
+
 // ── Run ──
 
 const tests = [
@@ -661,6 +889,12 @@ const tests = [
     test_gaDedupByDisplayStats_skips_dedup_in_continuous_mode,
     test_cross_strategy_mutation_uses_selected_strategy_pool,
     test_seeded_ga_mutation_is_reproducible,
+    test_partition_by_pair,
+    test_random_ga_individual_locks_strategy_and_bounds,
+    test_stage1_island_breeding_never_escapes_pair,
+    test_stage1_island_breeding_reproducible,
+    test_stage2_quota_elitism_guarantees_min_quota,
+    test_stage2_quota_respects_pop_cap,
     test_buildLeapsPresetPayload_all_fields,
     test_buildLeapsPresetPayload_no_note,
     test_buildLeapsPresetPayload_excludes_non_leaps_fields,

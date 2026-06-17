@@ -6199,6 +6199,114 @@
             return { count, best: count ? Number(best.toFixed(3)) : null, label };
         }
 
+        // Module-level so both the single-pool loop and the two-stage cross-strategy
+        // GA share one key derivation. (Previously a closure inside runGeneticEvolution.)
+        function gaParamKey(ind) {
+            const bp = {}, sp = {};
+            for (let fi = 0; fi < BUY_PARAMETER_FIELDS.length; fi++) {
+                const f = BUY_PARAMETER_FIELDS[fi];
+                if (ind[f] !== undefined && ind[f] !== null) bp[f] = ind[f];
+            }
+            for (let fi = 0; fi < SELL_PARAMETER_FIELDS.length; fi++) {
+                const f = SELL_PARAMETER_FIELDS[fi];
+                if (ind[f] !== undefined && ind[f] !== null) sp[f] = ind[f];
+            }
+            return buildCandidateKey(ind.buy_strategy || '', ind.sell_strategy || '', bp, sp);
+        }
+
+        // Group a population into a Map<pairKey, ind[]>. Used by the two-stage GA to
+        // build per-pair islands from the backend's round-robin initial population.
+        function partitionByPair(population) {
+            const m = new Map();
+            (population || []).forEach(function (ind) {
+                const k = gaPairKey(ind);
+                if (!m.has(k)) m.set(k, []);
+                m.get(k).push(ind);
+            });
+            return m;
+        }
+
+        // Uniform random value within a field's numeric bounds, respecting precision
+        // and int_fields. Mirrors Python _continuous_init_value. Returns null when the
+        // field has no bounds.
+        function gaUniformInBounds(field, paramRanges) {
+            const b = gaNumericBounds(field, paramRanges);
+            if (!b) return null;
+            const raw = b[0] + gaRandom() * (b[1] - b[0]);
+            return gaNormalizeBoundedValue(field, raw, paramRanges);
+        }
+
+        // Build a fresh random individual locked to (bs, ss), values drawn within the
+        // field ranges/bounds. Mirrors Python _random_individual. `template` supplies
+        // inherited values for fields that have neither bounds nor a discrete range
+        // (so strategy-specific defaults are preserved). Strategy is never mutated here.
+        function randomGaIndividual(bs, ss, paramRanges, gaConfig, template) {
+            const ind = { ...(template || {}) };
+            ind.buy_strategy = bs;
+            ind.sell_strategy = ss;
+            const continuous = gaConfig.continuous_mutation || false;
+            const buyRanges = paramRanges.buy_ranges || {};
+            const sellRanges = paramRanges.sell_ranges || {};
+            const buyFields = (paramRanges.buy_fields || {})[bs] || [];
+            let sellFields = (paramRanges.sell_fields || {})[ss] || [];
+            // Common sell fields — mirror mutateGa / Python _relevant_sell_parameter_fields.
+            if (ss !== 'none') {
+                if (sellFields.indexOf('sell_allow_same_day_sell') < 0) sellFields.push('sell_allow_same_day_sell');
+                if (sellFields.indexOf('dca_rearm_drawdown_pct') < 0) sellFields.push('dca_rearm_drawdown_pct');
+                if (sellFields.indexOf('sell_stage_rearm_drawdown_pct') < 0) sellFields.push('sell_stage_rearm_drawdown_pct');
+                if (sellFields.indexOf('buy_rearm_mode') < 0) sellFields.push('buy_rearm_mode');
+            }
+            const pickDiscrete = function (field, values) {
+                const vals = gaDiscreteValuesWithinBounds(field, values, paramRanges);
+                if (!vals || !vals.length) return template && template[field] !== undefined ? template[field] : null;
+                return vals[Math.floor(gaRandom() * vals.length)];
+            };
+            for (const field of buyFields) {
+                if (continuous && gaNumericBounds(field, paramRanges)) {
+                    ind[field] = gaUniformInBounds(field, paramRanges);
+                } else if (buyRanges[field]) {
+                    ind[field] = pickDiscrete(field, buyRanges[field]);
+                }
+            }
+            for (const field of sellFields) {
+                if (field === 'buy_rearm_mode') {
+                    const modes = sellRanges[field] || ['cumulative', 'restart_from_rearm'];
+                    ind[field] = (gaConfig.buy_rearm_mode && modes.indexOf(gaConfig.buy_rearm_mode) >= 0)
+                        ? gaConfig.buy_rearm_mode
+                        : modes[Math.floor(gaRandom() * modes.length)];
+                } else if (field === 'sell_allow_same_day_sell') {
+                    if (gaConfig.sell_allow_same_day_sell === 'true' || gaConfig.sell_allow_same_day_sell === 'false') {
+                        ind[field] = gaConfig.sell_allow_same_day_sell === 'true';
+                    } else {
+                        ind[field] = gaRandom() < 0.5;
+                    }
+                } else if (continuous && gaNumericBounds(field, paramRanges)) {
+                    ind[field] = gaUniformInBounds(field, paramRanges);
+                } else if (sellRanges[field]) {
+                    ind[field] = pickDiscrete(field, sellRanges[field]);
+                }
+            }
+            // Categorical lock-ins (mirror mutateGa).
+            if (gaConfig.buy_rearm_mode === 'cumulative' || gaConfig.buy_rearm_mode === 'restart_from_rearm') {
+                ind.buy_rearm_mode = gaConfig.buy_rearm_mode;
+            }
+            if (gaConfig.sell_allow_same_day_sell === 'true' || gaConfig.sell_allow_same_day_sell === 'false') {
+                ind.sell_allow_same_day_sell = gaConfig.sell_allow_same_day_sell === 'true';
+            }
+            if (gaConfig.core_dip_timing_enabled === 'true' || gaConfig.core_dip_timing_enabled === 'false') {
+                ind.core_dip_timing_enabled = gaConfig.core_dip_timing_enabled === 'true';
+            }
+            if (ind.core_dip_start_drawdown_pct !== undefined && ind.core_dip_full_drawdown_pct !== undefined) {
+                if (Number(ind.core_dip_start_drawdown_pct) > Number(ind.core_dip_full_drawdown_pct)) {
+                    ind.core_dip_full_drawdown_pct = ind.core_dip_start_drawdown_pct;
+                }
+            }
+            enforceGaIndividualBounds(ind, paramRanges);
+            ind.key = 'ga_' + (bs || 'x') + '__' + (ss || 'x') + '__' + gaRandom().toString(36).slice(2, 8);
+            ind.label = null;
+            return ind;
+        }
+
         async function runGeneticEvolution() {
             cancelParameterLab(false);
             gaCancelled = false;
@@ -6327,18 +6435,6 @@
                 };
 
                 // GA state
-                function gaParamKey(ind) {
-                    const bp = {}, sp = {};
-                    for (let fi = 0; fi < BUY_PARAMETER_FIELDS.length; fi++) {
-                        const f = BUY_PARAMETER_FIELDS[fi];
-                        if (ind[f] !== undefined && ind[f] !== null) bp[f] = ind[f];
-                    }
-                    for (let fi = 0; fi < SELL_PARAMETER_FIELDS.length; fi++) {
-                        const f = SELL_PARAMETER_FIELDS[fi];
-                        if (ind[f] !== undefined && ind[f] !== null) sp[f] = ind[f];
-                    }
-                    return buildCandidateKey(ind.buy_strategy || '', ind.sell_strategy || '', bp, sp);
-                }
                 let population = candidates.slice();
                 let allEvaluated = {};
                 let bestEver = null;
@@ -6347,6 +6443,23 @@
                 const gaWeights = parameterScoreWeights(packet);
 
                 // ── GA EVOLUTION LOOP ────────────────────────────────────────
+                if (crossEnabled) {
+                    // Cross-strategy mode: a single global pool degenerates into an early-
+                    // leader monoculture (see docs/ga-cross-strategy-diagnosis.md). Run a
+                    // two-stage GA instead — Stage 1 evolves each strategy pair in isolation
+                    // so late-bloomer pairs (e.g. equal_slice/cost_deleverage) reach their
+                    // ceiling, Stage 2 deepens the top-K finalists with a per-pair quota.
+                    const stageResult = await runTwoStageCrossStrategyGa({
+                        packet: packet, gaConfig: gaConfig, paramRanges: paramRanges,
+                        workerPacketBase: workerPacketBase, workerCount: workerCount,
+                        gaWeights: gaWeights, candidates: candidates, totalGenerations: totalGenerations
+                    });
+                    allEvaluated = stageResult.allEvaluated;
+                    for (const r of stageResult.gaResults) gaResults.push(r);
+                    bestEver = stageResult.bestEver;
+                    bestFitnessEver = stageResult.bestFitnessEver;
+                    population = stageResult.population || [];
+                } else
                 for (let gen = 0; gen < totalGenerations; gen++) {
                     if (gaCancelled) break;
                     population = population.map(function(ind) {
@@ -6718,6 +6831,270 @@
                     });
                 }
             });
+        }
+
+        // ── Two-stage cross-strategy GA ─────────────────────────────────────
+        // Stage 1: evolve each selected buy/sell pair in ISOLATION (strategy locked,
+        //   no cross-pair mating) so late-bloomer pairs can climb toward their own
+        //   ceiling instead of being starved by an early global leader.
+        // Stage 2: take the top-K pairs by Stage-1 local-best and run a global GA over
+        //   their evolved pools, with cross-strategy mutation re-enabled for hybrid
+        //   discovery AND a per-pair minimum-quota elitism so no finalist is monocultured
+        //   out. See docs/ga-cross-strategy-diagnosis.md for why a single global pool fails.
+        async function runTwoStageCrossStrategyGa(ctx) {
+            const { packet, gaConfig, paramRanges, workerPacketBase, workerCount, gaWeights, candidates, totalGenerations } = ctx;
+            const allEvaluated = {};
+            const gaResults = [];
+            let bestEver = null, bestFitnessEver = -Infinity;
+            const clamp = function (v, lo, hi) { return Math.max(lo, Math.min(hi, v)); };
+            const elitismCount = gaConfig.elitism_count || 3;
+            const tournamentSize = gaConfig.tournament_size || 4;
+            const mutationRate = gaConfig.mutation_rate || 0.15;
+            const crossoverRate = gaConfig.crossover_rate || 0.8;
+
+            // Evaluate any population (mixed pairs): enforce bounds, build worker rows,
+            // run sims, compute weighted fitness, fold best-per-paramKey into allEvaluated,
+            // and update bestEver. Returns { fitnesses, pop } aligned to input order.
+            async function evalPop(population) {
+                const pop = population.map(function (ind) { return enforceGaIndividualBounds({ ...ind }, paramRanges); });
+                const buyVariants = [], sellVariants = [], candidateRows = [];
+                for (let i = 0; i < pop.length; i++) {
+                    const cand = pop[i];
+                    const key = cand.key || ('ga_' + i);
+                    const buyRow = [i, key, cand.buy_strategy || ''];
+                    for (const f of BUY_PARAMETER_FIELDS) buyRow.push(cand[f] !== undefined ? cand[f] : null);
+                    const sellRow = [i, key, cand.sell_strategy || ''];
+                    for (const f of SELL_PARAMETER_FIELDS) sellRow.push(cand[f] !== undefined ? cand[f] : null);
+                    buyVariants.push(buyRow); sellVariants.push(sellRow); candidateRows.push([i, i, i]);
+                }
+                const genPacket = { ...workerPacketBase, buy_variants: buyVariants, sell_variants: sellVariants, candidate_rows: candidateRows };
+                const observations = await evaluatePopulationWithWorkers(genPacket, workerCount, function () { return gaCancelled; });
+                const fitnesses = [];
+                for (let i = 0; i < pop.length; i++) {
+                    const obs = observations.filter(function (o) { return o.candidate_id === i; });
+                    const returns = obs.map(function (o) { return Number(o.return_pct || 0); });
+                    const drawdowns = obs.map(function (o) { return Number(o.max_drawdown_pct || 0); });
+                    const sellQ = obs.map(function (o) { return Number(o.sell_quality_score || 0); });
+                    const buyQ = obs.map(function (o) { return Number(o.buy_quality_score || 0); });
+                    const avgReturn = returns.length ? returns.reduce(function (a, b) { return a + b; }, 0) / returns.length : 0;
+                    const avgDD = drawdowns.length ? drawdowns.reduce(function (a, b) { return a + Math.max(0, -(b || 0)); }, 0) / drawdowns.length : 0;
+                    const avgSellQ = sellQ.length ? sellQ.reduce(function (a, b) { return a + b; }, 0) / sellQ.length : 0;
+                    const avgBuyQ = buyQ.length ? buyQ.reduce(function (a, b) { return a + b; }, 0) / buyQ.length : 0;
+                    let fitness = avgReturn * gaWeights.return + avgDD * gaWeights.drawdown + avgSellQ * gaWeights.sell_quality + avgBuyQ * gaWeights.buy_quality;
+                    if (!isFinite(fitness)) fitness = 0;
+                    fitnesses.push(fitness);
+                    if (fitness > bestFitnessEver) { bestFitnessEver = fitness; bestEver = pop[i]; }
+                    const pk = gaParamKey(pop[i]);
+                    if (!allEvaluated[pk] || fitness > allEvaluated[pk].fitness) {
+                        allEvaluated[pk] = { individual: pop[i], fitness: fitness, avg_return: avgReturn, avg_drawdown: -avgDD, avg_sell_quality: avgSellQ, avg_buy_quality: avgBuyQ, observations: obs };
+                    }
+                }
+                return { fitnesses: fitnesses, pop: pop };
+            }
+
+            // Breed one generation from a ranked list within a single strategy pair
+            // (crossEnabled=false → strategy locked). Returns the next population.
+            function breedIsland(ranked, popSize) {
+                const elites = ranked.slice(0, elitismCount).map(function (r) { return r.ind; });
+                const nextPop = elites.slice();
+                while (nextPop.length < popSize) {
+                    if (gaCancelled) break;
+                    const p1 = tournamentSelectGa(ranked, tournamentSize);
+                    const p2 = tournamentSelectGa(ranked, tournamentSize);
+                    const child = gaRandom() < crossoverRate ? crossoverGa(p1, p2) : { ...p1 };
+                    nextPop.push(mutateGa(child, mutationRate, paramRanges, gaConfig, false));
+                }
+                return nextPop.slice(0, popSize);
+            }
+
+            // ── Budget ──
+            const P = gaConfig.population_size || 50;
+            const G = totalGenerations || gaConfig.generations || 20;
+            const buyStrats = gaConfig.ga_buy_strategies || [];
+            const sellStrats = gaConfig.ga_sell_strategies || [];
+            const allPairs = [];
+            for (const bs of buyStrats) for (const ss of sellStrats) allPairs.push([bs, ss]);
+            const N = allPairs.length || 1;
+            const stage1_pop = clamp(Math.round(P * 0.12), 12, 32);
+            const stage1_gens = clamp(Math.round(G * 0.45), 8, 16);
+            const stage2_pop = P;
+            const stage2_gens = G;
+            const top_k = clamp(Math.round(N * 0.25), 3, 8);
+            // Reserve top_k slots for global breeding (hybrid discovery), split the rest
+            // evenly as each finalist pair's elitism floor. floor + the reserved slots
+            // guarantee quota × top_k < stage2_pop, so Stage 2 always has room to breed.
+            const stage2_min_quota = Math.max(1, Math.floor((stage2_pop - top_k) / top_k));
+            const totalStageGens = stage1_gens + stage2_gens;
+            gaDebug('[GA-DEBUG] stage_config', {
+                stage1_pop: stage1_pop, stage1_gens: stage1_gens,
+                stage2_pop: stage2_pop, stage2_gens: stage2_gens,
+                top_k: top_k, stage2_min_quota: stage2_min_quota, pairs: N,
+                buy_strategies: buyStrats, sell_strategies: sellStrats,
+            });
+
+            // ── Build per-pair islands from the backend's round-robin initial population ──
+            const byPair = partitionByPair(candidates);
+            const islands = [];
+            for (const pair of allPairs) {
+                const bs = pair[0], ss = pair[1];
+                const pairKey = bs + '/' + ss;
+                const seed = (byPair.get(pairKey) || []).slice();
+                const template = seed[0] || { buy_strategy: bs, sell_strategy: ss };
+                if (!seed.length) console.warn('[GA] stage1 island has no backend seed for pair', pairKey);
+                let pool = seed.slice();
+                while (pool.length < stage1_pop) {
+                    pool.push(randomGaIndividual(bs, ss, paramRanges, gaConfig, template));
+                }
+                pool = pool.slice(0, stage1_pop).map(function (ind, i) { return enforceGaIndividualBounds({ ...ind }, paramRanges, i); });
+                islands.push({ bs: bs, ss: ss, pair: pairKey, population: pool, popSize: stage1_pop, localBest: null });
+            }
+
+            // ── Stage 1: per-pair isolated evolution ──
+            let genCounter = 0;
+            for (let gen = 0; gen < stage1_gens; gen++) {
+                if (gaCancelled) break;
+                // Merge all islands into one worker dispatch (wall-clock ∝ total individuals).
+                const merged = [];
+                for (const isl of islands) for (const ind of isl.population) merged.push(ind);
+                const evalRes = await evalPop(merged);
+                if (gaCancelled) break;
+                const fitnesses = evalRes.fitnesses, pop = evalRes.pop;
+                // Write enforced individuals back, then breed each island in isolation.
+                let genBest = -Infinity, genBestInd = null, genSum = 0, genCount = 0;
+                let gi = 0;
+                for (const isl of islands) {
+                    const ranked = [];
+                    for (let li = 0; li < isl.population.length; li++) {
+                        ranked.push({ ind: pop[gi], fit: fitnesses[gi] });
+                        if (fitnesses[gi] > genBest) { genBest = fitnesses[gi]; genBestInd = pop[gi]; }
+                        genSum += fitnesses[gi]; genCount++;
+                        gi++;
+                    }
+                    ranked.sort(function (a, b) { return b.fit - a.fit; });
+                    if (!isl.localBest || ranked[0].fit > isl.localBest.fit) {
+                        isl.localBest = { ind: ranked[0].ind, fit: ranked[0].fit };
+                    }
+                    isl.population = breedIsland(ranked, isl.popSize);
+                }
+                genCounter++;
+                const genAvg = genCount ? genSum / genCount : 0;
+                gaResults.push({
+                    generation: genCounter, stage: 'stage1',
+                    best_fitness: genBest, avg_fitness: genAvg, population_size: merged.length,
+                    best_label: genBestInd ? (genBestInd.label || buildGaStatusLabel(genBestInd)) : '',
+                    best_buy: genBestInd ? genBestInd.buy_strategy : '', best_sell: genBestInd ? genBestInd.sell_strategy : '',
+                    best_key_params: genBestInd ? extractGaKeyParams(genBestInd) : null
+                });
+                gaDebug('[GA-DEBUG] generation', {
+                    generation: genCounter, stage: 'stage1',
+                    best_fitness: Number(genBest.toFixed(3)), avg_fitness: Number(genAvg.toFixed(3)),
+                    best_pair: genBestInd ? gaPairKey(genBestInd) : '',
+                    best_label: genBestInd ? (genBestInd.label || buildGaStatusLabel(genBestInd)) : '',
+                    pair_counts: gaPairCounts(pop),
+                    tracked_equal_cost: gaTrackedPairStats(pop, fitnesses, 'equal_slice', 'cost_deleverage'),
+                    tracked_linear_cost: gaTrackedPairStats(pop, fitnesses, 'linear_weighted_slice', 'cost_deleverage'),
+                    top_pairs: gaPairBestRows(pop, fitnesses, 10),
+                });
+                setStatus('GA Stage1', 'Stage1 第 ' + (gen + 1) + '/' + stage1_gens + ' 代 — 最优: ' + number(bestFitnessEver, 1), 10 + (genCounter / totalStageGens) * 80);
+            }
+
+            // ── Rank pairs by Stage-1 local-best, pick top-K finalists ──
+            const rankedPairs = islands.map(function (isl) {
+                return { pair: isl.pair, bs: isl.bs, ss: isl.ss, best: isl.localBest ? isl.localBest.ind : null, fitness: isl.localBest ? isl.localBest.fit : -Infinity };
+            }).sort(function (a, b) { return b.fitness - a.fitness; });
+            gaDebug('[GA-DEBUG] stage1_pair_local_bests', rankedPairs.map(function (r) {
+                return { pair: r.pair, fitness: Number(r.fitness.toFixed(3)), label: r.best ? (r.best.label || buildGaStatusLabel(r.best)) : '' };
+            }));
+            const finalists = rankedPairs.slice(0, Math.min(top_k, rankedPairs.length));
+            const finalistPairs = new Set(finalists.map(function (f) { return f.pair; }));
+            if (!finalistPairs.size) {
+                return { allEvaluated: allEvaluated, gaResults: gaResults, bestEver: bestEver, bestFitnessEver: bestFitnessEver, population: [] };
+            }
+            gaDebug('[GA-DEBUG] stage2_finalists', finalists.map(function (f) {
+                return { pair: f.pair, fitness: Number(f.fitness.toFixed(3)) };
+            }));
+
+            // ── Stage 2: global GA over finalists' evolved pools, with per-pair quota ──
+            let stage2 = [];
+            const finalistIslands = islands.filter(function (isl) { return finalistPairs.has(isl.pair); });
+            for (const isl of finalistIslands) {
+                for (const ind of isl.population) stage2.push(ind);
+                if (isl.localBest) stage2.push(isl.localBest.ind);
+            }
+            // Dedup by paramKey, then cap/fill to stage2_pop.
+            const seenKeys = new Set();
+            const dedupedStage2 = [];
+            for (const ind of stage2) {
+                const pk = gaParamKey(ind);
+                if (!seenKeys.has(pk)) { seenKeys.add(pk); dedupedStage2.push(ind); }
+            }
+            stage2 = dedupedStage2.slice(0, stage2_pop);
+            // Fill shortfall with random individuals from finalist pairs (keeps strategies on-pool).
+            let fi = 0;
+            while (stage2.length < stage2_pop) {
+                const f = finalists[fi % finalists.length];
+                stage2.push(randomGaIndividual(f.bs, f.ss, paramRanges, gaConfig, { buy_strategy: f.bs, sell_strategy: f.ss }));
+                fi++;
+            }
+            stage2 = stage2.map(function (ind, i) { return enforceGaIndividualBounds({ ...ind }, paramRanges, i); });
+
+            for (let gen = 0; gen < stage2_gens; gen++) {
+                if (gaCancelled) break;
+                const evalRes = await evalPop(stage2);
+                if (gaCancelled) break;
+                const fitnesses = evalRes.fitnesses, pop = evalRes.pop;
+                const ranked = pop.map(function (ind, i) { return { ind: ind, fit: fitnesses[i] }; })
+                    .sort(function (a, b) { return b.fit - a.fit; });
+                const validFits = fitnesses.filter(function (f) { return isFinite(f); });
+                const genBest = validFits.length ? Math.max.apply(null, validFits) : 0;
+                const genAvg = validFits.length ? validFits.reduce(function (a, b) { return a + b; }, 0) / validFits.length : 0;
+                const genBestInd = ranked.length ? ranked[0].ind : null;
+
+                // Per-pair minimum-quota elitism: guarantee each finalist pair keeps up to
+                // stage2_min_quota of its top individuals, preventing monoculture collapse.
+                const nextPop = [];
+                const quotaByPair = {};
+                for (const r of ranked) {
+                    if (nextPop.length >= stage2_pop) break;
+                    const pk = gaPairKey(r.ind);
+                    if (finalistPairs.has(pk) && (quotaByPair[pk] || 0) < stage2_min_quota) {
+                        nextPop.push(r.ind);
+                        quotaByPair[pk] = (quotaByPair[pk] || 0) + 1;
+                    }
+                }
+                // Fill the rest via global tournament breeding; cross-strategy mutation
+                // re-enabled (true) so finalists can recombine into hybrid pairs.
+                while (nextPop.length < stage2_pop) {
+                    if (gaCancelled) break;
+                    const p1 = tournamentSelectGa(ranked, tournamentSize);
+                    const p2 = tournamentSelectGa(ranked, tournamentSize);
+                    const child = gaRandom() < crossoverRate ? crossoverGa(p1, p2) : { ...p1 };
+                    nextPop.push(mutateGa(child, mutationRate, paramRanges, gaConfig, true));
+                }
+                stage2 = nextPop.slice(0, stage2_pop);
+                genCounter++;
+                gaResults.push({
+                    generation: genCounter, stage: 'stage2',
+                    best_fitness: genBest, avg_fitness: genAvg, population_size: stage2.length,
+                    best_label: genBestInd ? (genBestInd.label || buildGaStatusLabel(genBestInd)) : '',
+                    best_buy: genBestInd ? genBestInd.buy_strategy : '', best_sell: genBestInd ? genBestInd.sell_strategy : '',
+                    best_key_params: genBestInd ? extractGaKeyParams(genBestInd) : null
+                });
+                gaDebug('[GA-DEBUG] generation', {
+                    generation: genCounter, stage: 'stage2',
+                    best_fitness: Number(genBest.toFixed(3)), avg_fitness: Number(genAvg.toFixed(3)),
+                    best_pair: genBestInd ? gaPairKey(genBestInd) : '',
+                    best_label: genBestInd ? (genBestInd.label || buildGaStatusLabel(genBestInd)) : '',
+                    pair_counts: gaPairCounts(pop),
+                    tracked_equal_cost: gaTrackedPairStats(pop, fitnesses, 'equal_slice', 'cost_deleverage'),
+                    tracked_linear_cost: gaTrackedPairStats(pop, fitnesses, 'linear_weighted_slice', 'cost_deleverage'),
+                    top_pairs: gaPairBestRows(pop, fitnesses, 10),
+                });
+                setStatus('GA Stage2', 'Stage2 第 ' + (gen + 1) + '/' + stage2_gens + ' 代 — 最优: ' + number(bestFitnessEver, 1), 10 + (genCounter / totalStageGens) * 80);
+            }
+
+            if (!bestEver && stage2.length) bestEver = stage2[0];
+            return { allEvaluated: allEvaluated, gaResults: gaResults, bestEver: bestEver, bestFitnessEver: bestFitnessEver, population: stage2 };
         }
 
         function readGaCustomBounds() {
