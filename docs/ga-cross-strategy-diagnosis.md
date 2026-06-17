@@ -398,3 +398,23 @@ PAIR 5 63.5 equal_slice/cost_deleverage
 
 - 用用户前端复制的诊断日志确认真实浏览器下 `equal_slice + cost_deleverage` 的死亡路径是否与 harness 一致。
 - 若一致，优先实现“两阶段 Cross-Strategy GA”。
+
+## 14. 浏览器日志确认 + 两阶段实现（2026-06-17）
+
+用户提供真实浏览器诊断日志（`galogs.log`，`population_size=200`），死亡路径与 harness 一致且更极端：
+
+- `pyramid_3/price_rise_grid` 第 2 代吞掉 200 中的 169 个，之后 24 代基本 monoculture，天花板 ~79.05。
+- `equal_slice/cost_deleverage` 全程 best 钉死 66.218（默认参数），靠策略突变零星回播，从未连续进化。
+- 坐实 §9 根因：全局锦标赛过早淘汰潜力策略对。并发现文档 §10 方案 A 的「默认种子筛选」是错的（eqcost 默认 66 < pyramid_3 默认 76.5，纯默认筛选同样误杀 eqcost）。
+
+实现修正后的两阶段 Cross-Strategy GA（提交 `bb33e7a`，纯 JS，后端不改）：
+
+- **Stage1**：每个选中策略对独立岛内进化（策略锁死、无跨对交配），每代一次 worker 派发覆盖全部对；让 eqcost 这类后发策略爬升后公平排名。
+- **Stage2**：按 Stage1 local-best 取 top-K finalists，全局深挖，开启低率跨策略突变 + 每对最低配额 elitism 防 monoculture。
+- 预算由 `population_size`/`generations` 推导（~1.6–1.9x），全部走 seeded `gaRandom()` 保可复现；非跨策略模式不动。
+- 诊断日志新增 `stage_config`、`stage1_pair_local_bests`、每代 `stage` 字段。
+- JS 回归测试：岛内隔离、可复现、Stage2 配额。
+
+入口：`web/templates/strategy_parameter_lab.html` `runTwoStageCrossStrategyGa`（cross 分支切入 `runGeneticEvolution`）。
+
+待用户浏览器复现验证：seed `123456789`、跨策略、TSLA 1/3/5y，核对 eqcost 爬升进 top-K、Stage2 不再 monoculture、最终 best 显著高于 79.05。
