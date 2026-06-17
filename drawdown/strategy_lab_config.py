@@ -42,6 +42,7 @@ DEFAULT_STRATEGY_LAB_DEFAULTS: dict[str, object] = {
     "default_dca_rearm_drawdown_pct": 5,
     "default_sell_stage_rearm_drawdown_pct": 15,
     "default_sell_stage_rearm_mode": "drop_from_last_sell",
+    "default_buy_rearm_mode": "cumulative",
     "default_grid_rebound_step_pct": 5,
     "default_grid_sell_pct": 40,
     "default_grid_first_sell_pct": 40,
@@ -118,6 +119,7 @@ class StrategyLabConfig:
     dca_rearm_drawdown_pct: float = 5.0
     sell_stage_rearm_drawdown_pct: float | None = 15.0
     sell_stage_rearm_mode: str = "drop_from_last_sell"
+    buy_rearm_mode: str = "cumulative"
     grid_rebound_step_pct: float = 5.0
     grid_sell_pct: float = 40.0
     grid_first_sell_pct: float = 40.0
@@ -180,6 +182,7 @@ class StrategyLabConfig:
                 float(_default("default_sell_stage_rearm_drawdown_pct")),
             ),
             sell_stage_rearm_mode=_read_text(raw, "default_sell_stage_rearm_mode"),
+            buy_rearm_mode=_read_text(raw, "default_buy_rearm_mode"),
             grid_rebound_step_pct=_read_float(raw, "default_grid_rebound_step_pct"),
             grid_sell_pct=_read_default_grid_sell_pct(raw),
             grid_first_sell_pct=_read_float(raw, "default_grid_first_sell_pct"),
@@ -281,6 +284,10 @@ class StrategyLabConfig:
             sell_stage_rearm_mode=str(
                 payload.get("sell_stage_rearm_mode", base_config.sell_stage_rearm_mode)
                 or base_config.sell_stage_rearm_mode
+            ),
+            buy_rearm_mode=str(
+                payload.get("buy_rearm_mode", base_config.buy_rearm_mode)
+                or base_config.buy_rearm_mode
             ),
             grid_rebound_step_pct=_read_float(
                 payload,
@@ -517,6 +524,7 @@ class StrategyLabConfig:
             dca_rearm_drawdown_pct=self.dca_rearm_drawdown_pct,
             sell_stage_rearm_drawdown_pct=sell_stage_rearm,
             sell_stage_rearm_mode=self.sell_stage_rearm_mode,
+            buy_rearm_mode=self.buy_rearm_mode,
             grid_rebound_step_pct=self.grid_rebound_step_pct,
             grid_sell_pct=self.grid_sell_pct,
             grid_first_sell_pct=self.grid_first_sell_pct,
@@ -583,6 +591,7 @@ class StrategyLabConfig:
             "default_dca_rearm_drawdown_pct": self.dca_rearm_drawdown_pct,
             "default_sell_stage_rearm_drawdown_pct": self.sell_stage_rearm_drawdown_pct,
             "default_sell_stage_rearm_mode": self.sell_stage_rearm_mode,
+            "default_buy_rearm_mode": self.buy_rearm_mode,
             "default_grid_rebound_step_pct": self.grid_rebound_step_pct,
             "default_grid_sell_pct": self.grid_sell_pct,
             "default_grid_first_sell_pct": self.grid_first_sell_pct,
