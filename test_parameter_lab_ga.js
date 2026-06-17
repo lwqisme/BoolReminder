@@ -864,6 +864,26 @@ function test_stage2_quota_respects_pop_cap() {
     console.log('PASS: test_stage2_quota_respects_pop_cap');
 }
 
+// Regression guard for the Stage-2 freeze bug: the per-pair quota floor must stay
+// SMALL so the bulk of the population breeds freely. With the old formula
+// (pop-top_k)/top_k = 24, 8 pairs × 24 = 192 of 200 slots froze every generation
+// (only 8 new children bred), stalling the climb. The new formula clamps to a tiny
+// floor; assert it leaves most of the population for breeding.
+function test_stage2_quota_floor_stays_small() {
+    const P = 200, top_k = 8;
+    // Mirror the template's stage2_min_quota formula exactly.
+    const clamp = function (v, lo, hi) { return Math.max(lo, Math.min(hi, v)); };
+    const minQuota = clamp(Math.round(P * 0.02), 2, 6);
+    assert.strictEqual(minQuota, 4, 'expected floor of 4 for pop=200');
+    const reserved = minQuota * top_k;
+    const bredSlots = P - reserved;
+    assert.ok(bredSlots > P * 0.7, 'most of Stage 2 must breed (reserved=' + reserved + ', bred=' + bredSlots + ')');
+    // Old buggy formula would have frozen 192 — guard it never returns that.
+    const oldBuggy = Math.max(1, Math.floor((P - top_k) / top_k));
+    assert.ok(minQuota < oldBuggy, 'new floor must be smaller than the old freeze-inducing quota');
+    console.log('PASS: test_stage2_quota_floor_stays_small');
+}
+
 // ── Run ──
 
 const tests = [
@@ -895,6 +915,7 @@ const tests = [
     test_stage1_island_breeding_reproducible,
     test_stage2_quota_elitism_guarantees_min_quota,
     test_stage2_quota_respects_pop_cap,
+    test_stage2_quota_floor_stays_small,
     test_buildLeapsPresetPayload_all_fields,
     test_buildLeapsPresetPayload_no_note,
     test_buildLeapsPresetPayload_excludes_non_leaps_fields,

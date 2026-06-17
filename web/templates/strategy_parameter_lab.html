@@ -6908,6 +6908,11 @@
             }
 
             // ── Budget ──
+            // Two-tier Stage 1: a cheap SCREEN over all N pairs (cheap per-pair budget),
+            // then a DEEPEN pass that concentrates a real budget on the top-K finalists.
+            // Spreading a full budget across all 30 pairs starved late bloomers (e.g.
+            // equal_slice/cost_deleverage got only 264 evals vs the 5000 a fixed single-
+            // strategy run dedicates) while wasting evals on ~45-point junk pairs.
             const P = gaConfig.population_size || 50;
             const G = totalGenerations || gaConfig.generations || 20;
             const buyStrats = gaConfig.ga_buy_strategies || [];
@@ -6915,18 +6920,22 @@
             const allPairs = [];
             for (const bs of buyStrats) for (const ss of sellStrats) allPairs.push([bs, ss]);
             const N = allPairs.length || 1;
-            const stage1_pop = clamp(Math.round(P * 0.12), 12, 32);
-            const stage1_gens = clamp(Math.round(G * 0.45), 8, 16);
+            const screen_pop = clamp(Math.round(P * 0.06), 8, 16);
+            const screen_gens = clamp(Math.round(G * 0.18), 3, 6);
+            const deep_pop = clamp(Math.round(P * 0.22), 24, 64);
+            const deep_gens = clamp(Math.round(G * 0.5), 8, 18);
             const stage2_pop = P;
             const stage2_gens = G;
             const top_k = clamp(Math.round(N * 0.25), 3, 8);
-            // Reserve top_k slots for global breeding (hybrid discovery), split the rest
-            // evenly as each finalist pair's elitism floor. floor + the reserved slots
-            // guarantee quota × top_k < stage2_pop, so Stage 2 always has room to breed.
-            const stage2_min_quota = Math.max(1, Math.floor((stage2_pop - top_k) / top_k));
-            const totalStageGens = stage1_gens + stage2_gens;
+            // Stage-2 per-pair quota is a SMALL survival FLOOR (anti-monoculture), NOT a
+            // population-consuming reservation. A large quota froze ~96% of Stage 2 each
+            // generation (only ~8 new children bred) and stalled the climb at 95.8/98.7.
+            // Keep the floor tiny so the bulk of Stage 2 breeds freely.
+            const stage2_min_quota = clamp(Math.round(P * 0.02), 2, 6);
+            const totalStageGens = screen_gens + deep_gens + stage2_gens;
             gaDebug('[GA-DEBUG] stage_config', {
-                stage1_pop: stage1_pop, stage1_gens: stage1_gens,
+                screen_pop: screen_pop, screen_gens: screen_gens,
+                deep_pop: deep_pop, deep_gens: deep_gens,
                 stage2_pop: stage2_pop, stage2_gens: stage2_gens,
                 top_k: top_k, stage2_min_quota: stage2_min_quota, pairs: N,
                 buy_strategies: buyStrats, sell_strategies: sellStrats,
@@ -6941,68 +6950,79 @@
                 const seed = (byPair.get(pairKey) || []).slice();
                 const template = seed[0] || { buy_strategy: bs, sell_strategy: ss };
                 if (!seed.length) console.warn('[GA] stage1 island has no backend seed for pair', pairKey);
-                let pool = seed.slice();
-                while (pool.length < stage1_pop) {
-                    pool.push(randomGaIndividual(bs, ss, paramRanges, gaConfig, template));
-                }
-                pool = pool.slice(0, stage1_pop).map(function (ind, i) { return enforceGaIndividualBounds({ ...ind }, paramRanges, i); });
-                islands.push({ bs: bs, ss: ss, pair: pairKey, population: pool, popSize: stage1_pop, localBest: null });
+                islands.push({ bs: bs, ss: ss, pair: pairKey, population: seed, localBest: null });
             }
 
-            // ── Stage 1: per-pair isolated evolution ──
+            // Resize an island to `popSize`: keep existing members (carry forward evolved
+            // individuals across phases), top up with random same-pair individuals, or
+            // truncate if shrinking. Always keeps at least the localBest if known.
+            function resizeIsland(isl, popSize) {
+                let pool = isl.population.slice();
+                const template = pool[0] || { buy_strategy: isl.bs, sell_strategy: isl.ss };
+                if (isl.localBest) pool.unshift(isl.localBest.ind);
+                while (pool.length < popSize) pool.push(randomGaIndividual(isl.bs, isl.ss, paramRanges, gaConfig, template));
+                isl.population = pool.slice(0, popSize).map(function (ind, i) { return enforceGaIndividualBounds({ ...ind }, paramRanges, i); });
+                isl.popSize = popSize;
+            }
+
+            // Evolve a set of islands in isolation for `gens` generations, one merged
+            // worker dispatch per generation. Updates each island's population + localBest.
             let genCounter = 0;
-            for (let gen = 0; gen < stage1_gens; gen++) {
-                if (gaCancelled) break;
-                // Merge all islands into one worker dispatch (wall-clock ∝ total individuals).
-                const merged = [];
-                for (const isl of islands) for (const ind of isl.population) merged.push(ind);
-                const evalRes = await evalPop(merged);
-                if (gaCancelled) break;
-                const fitnesses = evalRes.fitnesses, pop = evalRes.pop;
-                // Write enforced individuals back, then breed each island in isolation.
-                let genBest = -Infinity, genBestInd = null, genSum = 0, genCount = 0;
-                let gi = 0;
-                for (const isl of islands) {
-                    const ranked = [];
-                    for (let li = 0; li < isl.population.length; li++) {
-                        ranked.push({ ind: pop[gi], fit: fitnesses[gi] });
-                        if (fitnesses[gi] > genBest) { genBest = fitnesses[gi]; genBestInd = pop[gi]; }
-                        genSum += fitnesses[gi]; genCount++;
-                        gi++;
+            async function runIslandPhase(phaseIslands, popSize, gens, stageLabel) {
+                for (const isl of phaseIslands) resizeIsland(isl, popSize);
+                for (let gen = 0; gen < gens; gen++) {
+                    if (gaCancelled) break;
+                    const merged = [];
+                    for (const isl of phaseIslands) for (const ind of isl.population) merged.push(ind);
+                    const evalRes = await evalPop(merged);
+                    if (gaCancelled) break;
+                    const fitnesses = evalRes.fitnesses, pop = evalRes.pop;
+                    let genBest = -Infinity, genBestInd = null, genSum = 0, genCount = 0, gi = 0;
+                    for (const isl of phaseIslands) {
+                        const ranked = [];
+                        for (let li = 0; li < isl.population.length; li++) {
+                            ranked.push({ ind: pop[gi], fit: fitnesses[gi] });
+                            if (fitnesses[gi] > genBest) { genBest = fitnesses[gi]; genBestInd = pop[gi]; }
+                            genSum += fitnesses[gi]; genCount++;
+                            gi++;
+                        }
+                        ranked.sort(function (a, b) { return b.fit - a.fit; });
+                        if (!isl.localBest || ranked[0].fit > isl.localBest.fit) {
+                            isl.localBest = { ind: ranked[0].ind, fit: ranked[0].fit };
+                        }
+                        isl.population = breedIsland(ranked, isl.popSize);
                     }
-                    ranked.sort(function (a, b) { return b.fit - a.fit; });
-                    if (!isl.localBest || ranked[0].fit > isl.localBest.fit) {
-                        isl.localBest = { ind: ranked[0].ind, fit: ranked[0].fit };
-                    }
-                    isl.population = breedIsland(ranked, isl.popSize);
+                    genCounter++;
+                    const genAvg = genCount ? genSum / genCount : 0;
+                    gaResults.push({
+                        generation: genCounter, stage: stageLabel,
+                        best_fitness: genBest, avg_fitness: genAvg, population_size: merged.length,
+                        best_label: genBestInd ? (genBestInd.label || buildGaStatusLabel(genBestInd)) : '',
+                        best_buy: genBestInd ? genBestInd.buy_strategy : '', best_sell: genBestInd ? genBestInd.sell_strategy : '',
+                        best_key_params: genBestInd ? extractGaKeyParams(genBestInd) : null
+                    });
+                    gaDebug('[GA-DEBUG] generation', {
+                        generation: genCounter, stage: stageLabel,
+                        best_fitness: Number(genBest.toFixed(3)), avg_fitness: Number(genAvg.toFixed(3)),
+                        best_pair: genBestInd ? gaPairKey(genBestInd) : '',
+                        best_label: genBestInd ? (genBestInd.label || buildGaStatusLabel(genBestInd)) : '',
+                        pair_counts: gaPairCounts(pop),
+                        tracked_equal_cost: gaTrackedPairStats(pop, fitnesses, 'equal_slice', 'cost_deleverage'),
+                        tracked_linear_cost: gaTrackedPairStats(pop, fitnesses, 'linear_weighted_slice', 'cost_deleverage'),
+                        top_pairs: gaPairBestRows(pop, fitnesses, 10),
+                    });
+                    setStatus('GA ' + stageLabel, stageLabel + ' 第 ' + (gen + 1) + '/' + gens + ' 代 — 最优: ' + number(bestFitnessEver, 1), 10 + (genCounter / totalStageGens) * 80);
                 }
-                genCounter++;
-                const genAvg = genCount ? genSum / genCount : 0;
-                gaResults.push({
-                    generation: genCounter, stage: 'stage1',
-                    best_fitness: genBest, avg_fitness: genAvg, population_size: merged.length,
-                    best_label: genBestInd ? (genBestInd.label || buildGaStatusLabel(genBestInd)) : '',
-                    best_buy: genBestInd ? genBestInd.buy_strategy : '', best_sell: genBestInd ? genBestInd.sell_strategy : '',
-                    best_key_params: genBestInd ? extractGaKeyParams(genBestInd) : null
-                });
-                gaDebug('[GA-DEBUG] generation', {
-                    generation: genCounter, stage: 'stage1',
-                    best_fitness: Number(genBest.toFixed(3)), avg_fitness: Number(genAvg.toFixed(3)),
-                    best_pair: genBestInd ? gaPairKey(genBestInd) : '',
-                    best_label: genBestInd ? (genBestInd.label || buildGaStatusLabel(genBestInd)) : '',
-                    pair_counts: gaPairCounts(pop),
-                    tracked_equal_cost: gaTrackedPairStats(pop, fitnesses, 'equal_slice', 'cost_deleverage'),
-                    tracked_linear_cost: gaTrackedPairStats(pop, fitnesses, 'linear_weighted_slice', 'cost_deleverage'),
-                    top_pairs: gaPairBestRows(pop, fitnesses, 10),
-                });
-                setStatus('GA Stage1', 'Stage1 第 ' + (gen + 1) + '/' + stage1_gens + ' 代 — 最优: ' + number(bestFitnessEver, 1), 10 + (genCounter / totalStageGens) * 80);
             }
 
-            // ── Rank pairs by Stage-1 local-best, pick top-K finalists ──
+            // ── Stage 1a: cheap screen over ALL pairs ──
+            await runIslandPhase(islands, screen_pop, screen_gens, 'stage1_screen');
+
+            // ── Rank pairs by local-best, pick top-K finalists ──
             const rankedPairs = islands.map(function (isl) {
                 return { pair: isl.pair, bs: isl.bs, ss: isl.ss, best: isl.localBest ? isl.localBest.ind : null, fitness: isl.localBest ? isl.localBest.fit : -Infinity };
             }).sort(function (a, b) { return b.fitness - a.fitness; });
-            gaDebug('[GA-DEBUG] stage1_pair_local_bests', rankedPairs.map(function (r) {
+            gaDebug('[GA-DEBUG] stage1_screen_bests', rankedPairs.map(function (r) {
                 return { pair: r.pair, fitness: Number(r.fitness.toFixed(3)), label: r.best ? (r.best.label || buildGaStatusLabel(r.best)) : '' };
             }));
             const finalists = rankedPairs.slice(0, Math.min(top_k, rankedPairs.length));
@@ -7010,13 +7030,23 @@
             if (!finalistPairs.size) {
                 return { allEvaluated: allEvaluated, gaResults: gaResults, bestEver: bestEver, bestFitnessEver: bestFitnessEver, population: [] };
             }
+
+            // ── Stage 1b: deepen only the finalists (concentrate the real budget) ──
+            const finalistIslands = islands.filter(function (isl) { return finalistPairs.has(isl.pair); });
+            await runIslandPhase(finalistIslands, deep_pop, deep_gens, 'stage1_deep');
+
+            // Re-rank finalists by their DEEPENED local-best, then log.
+            const deepRanked = finalistIslands.map(function (isl) {
+                return { pair: isl.pair, fitness: isl.localBest ? isl.localBest.fit : -Infinity };
+            }).sort(function (a, b) { return b.fitness - a.fitness; });
+            gaDebug('[GA-DEBUG] stage1_deep_bests', deepRanked.map(function (r) {
+                return { pair: r.pair, fitness: Number(r.fitness.toFixed(3)) };
+            }));
             gaDebug('[GA-DEBUG] stage2_finalists', finalists.map(function (f) {
-                return { pair: f.pair, fitness: Number(f.fitness.toFixed(3)) };
             }));
 
             // ── Stage 2: global GA over finalists' evolved pools, with per-pair quota ──
             let stage2 = [];
-            const finalistIslands = islands.filter(function (isl) { return finalistPairs.has(isl.pair); });
             for (const isl of finalistIslands) {
                 for (const ind of isl.population) stage2.push(ind);
                 if (isl.localBest) stage2.push(isl.localBest.ind);
