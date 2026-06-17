@@ -13,7 +13,7 @@ import json
 import math
 import random
 from dataclasses import dataclass, field, replace
-from typing import Callable, Iterable, Mapping
+from typing import Callable, Iterable, Iterator, Mapping
 
 from drawdown.position_strategy import (
     BUY_REARM_MODE_CUMULATIVE,
@@ -557,31 +557,42 @@ def _initialize_population(
     # random continuous fill below can spread individuals across the full bound range.
     use_discrete_seeds = not (cat_restrict and cat_restrict.continuous_mutation)
     if use_discrete_seeds:
+        seed_streams: list[tuple[str, str, list[str], list[str], Iterator[dict[str, object]]]] = []
         for bs in buy_strategies:
-            if len(population) >= population_size:
-                break
             for ss in sell_strategies:
                 if not cross_strategy and (bs != buy_strategies[0] or ss != sell_strategies[0]):
                     continue
-                if len(population) >= population_size:
-                    break
                 buy_fields = all_buy_fields.get(bs, [])
                 sell_fields = all_sell_fields.get(ss, [])
-                for seed_params in _generate_seeded_params(bs, ss, base_inputs, buy_fields, sell_fields):
-                    if len(population) >= population_size:
-                        break
-                    # Apply categorical restriction
-                    if cat_restrict:
-                        if cat_restrict.buy_rearm_mode and "buy_rearm_mode" in seed_params:
-                            seed_params["buy_rearm_mode"] = cat_restrict.buy_rearm_mode
-                        if cat_restrict.sell_allow_same_day_sell and "sell_allow_same_day_sell" in seed_params:
-                            seed_params["sell_allow_same_day_sell"] = cat_restrict.sell_allow_same_day_sell == "true"
-                    ind = Individual(bs, ss,
-                        buy_params={k: v for k, v in seed_params.items() if k in buy_fields},
-                        sell_params={k: v for k, v in seed_params.items() if k in sell_fields})
-                    if ind.key not in seen_keys:
-                        seen_keys.add(ind.key)
-                        population.append(ind)
+                seed_streams.append((bs, ss, buy_fields, sell_fields, iter(_generate_seeded_params(bs, ss, base_inputs, buy_fields, sell_fields))))
+
+        # Cross-strategy regression guard: do NOT let the first strategy pair consume
+        # all robust seeds. Rotate across pairs so every selected combo gets a chance
+        # to contribute its known-good seeds (e.g. equal_slice + cost_deleverage).
+        while seed_streams and len(population) < population_size:
+            next_streams: list[tuple[str, str, list[str], list[str], Iterator[dict[str, object]]]] = []
+            for bs, ss, buy_fields, sell_fields, seed_iter in seed_streams:
+                if len(population) >= population_size:
+                    next_streams.append((bs, ss, buy_fields, sell_fields, seed_iter))
+                    continue
+                try:
+                    seed_params = next(seed_iter)
+                except StopIteration:
+                    continue
+                next_streams.append((bs, ss, buy_fields, sell_fields, seed_iter))
+                # Apply categorical restriction
+                if cat_restrict:
+                    if cat_restrict.buy_rearm_mode and "buy_rearm_mode" in seed_params:
+                        seed_params["buy_rearm_mode"] = cat_restrict.buy_rearm_mode
+                    if cat_restrict.sell_allow_same_day_sell and "sell_allow_same_day_sell" in seed_params:
+                        seed_params["sell_allow_same_day_sell"] = cat_restrict.sell_allow_same_day_sell == "true"
+                ind = Individual(bs, ss,
+                    buy_params={k: v for k, v in seed_params.items() if k in buy_fields},
+                    sell_params={k: v for k, v in seed_params.items() if k in sell_fields})
+                if ind.key not in seen_keys:
+                    seen_keys.add(ind.key)
+                    population.append(ind)
+            seed_streams = next_streams
 
     # Fill rest with random
     max_attempts = population_size * 10

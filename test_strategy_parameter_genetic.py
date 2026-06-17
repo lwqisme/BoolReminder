@@ -221,6 +221,25 @@ class GeneticPopulationTest(unittest.TestCase):
         self.assertGreaterEqual(len(buy_strategies), 1)
         self.assertGreaterEqual(len(sell_strategies), 1)
 
+    def test_cross_strategy_init_round_robins_robust_seeds_across_combos(self):
+        """Regression: cross-strategy init must not let early strategy pairs consume
+        all robust seeds. With many selected combos and population=50, equal_slice +
+        cost_deleverage must receive more than its one default row so the GA can
+        evaluate the strong region that single-strategy mode finds."""
+        buys = ["equal_slice", "linear_weighted_slice", "pyramid_3", "core_dip_dca", "weekly_dca", "salary_flow_dca"]
+        sells = ["none", "repair_step", "grid_rebound", "price_rise_grid", "cost_deleverage"]
+        buy_f = {b: _relevant_buy_parameter_fields(b) for b in buys}
+        sell_f = {s: _relevant_sell_parameter_fields(s, self.inputs, buys[0]) for s in sells}
+        pop = _initialize_population(
+            buys, sells, buy_f, sell_f, self.inputs, 50,
+            cross_strategy=True,
+            cat_restrict=EvolutionConfig(population_size=50, cross_strategy=True, seed=123456789),
+        )
+        target = [ind for ind in pop if ind.buy_strategy == "equal_slice" and ind.sell_strategy == "cost_deleverage"]
+        self.assertGreaterEqual(len(target), 2, "equal_slice+cost_deleverage should get default + at least one robust seed")
+        self.assertTrue(any(ind.buy_params.get("step_pct") is not None for ind in target))
+        self.assertTrue(any(ind.sell_params.get("cost_first_profit_pct") is not None for ind in target))
+
 
 class GeneticEvolutionTest(unittest.TestCase):
 
