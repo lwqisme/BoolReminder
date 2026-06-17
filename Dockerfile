@@ -6,7 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true \
     && apt-get update \
-    && apt-get install -y curl \
+    && apt-get install -y curl nodejs \
     && rm -rf /var/lib/apt/lists/*
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 

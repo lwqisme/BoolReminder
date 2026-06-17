@@ -44,6 +44,7 @@ from drawdown.position_strategy import (
     _scorecard_symbol_key,
 )
 from drawdown.strategy_lab_config import StrategyLabConfig
+from drawdown.worker_bridge import run_simulations as worker_run_simulations, WorkerBridgeError
 from drawdown.strategy_parameter_genetic import (
     EvolutionConfig,
     make_fitness_fn,
@@ -10951,6 +10952,176 @@ def api_strategy_lab_delete_preset(preset_id: str):
     return jsonify({"success": True})
 
 
+def _preset_variant_row(variant_id, variant_key, strategy_key, inputs, fields):
+    """组装一行 variant row（对齐 PARAMETER_LAB_*_VARIANT_SCHEMA）。"""
+    row = [variant_id, variant_key, strategy_key]
+    for field in fields:
+        row.append(getattr(inputs, field, None))
+    return row
+
+
+def _build_preset_sim_packet(normalized: dict[str, object], base_config) -> dict[str, object]:
+    """把预设回测请求组装成 worker v3 packet（单候选 + 365 天 warmup）。
+
+    复用参数实验室/GA 的同一份 worker：market_data 携带 start-365d..end 的完整序列，
+    worker 内部 rebuildPricePoints(...,365) 用 warmup 算回撤、只在窗口内交易——
+    从而与 GA 单元格回放逐笔对齐。
+    """
+    from datetime import date as date_cls, timedelta
+    from drawdown.position_strategy import (
+        build_longbridge_quote_context,
+        fetch_longbridge_daily_candles,
+        candle_datetime,
+        build_price_points_from_series,
+    )
+
+    buy_strategy = (normalized.get("buy_strategies") or [normalized.get("buy_strategy")])[0]
+    sell_strategy = (normalized.get("sell_strategies") or [normalized.get("sell_strategy")])[0]
+    if not buy_strategy or not sell_strategy:
+        raise ValueError("预设缺少 buy/sell 策略。")
+
+    lab_config = StrategyLabConfig.from_runtime_payload(normalized, base_config)
+    inputs = lab_config.to_strategy_inputs()
+    inputs_payload = _strategy_inputs_payload(inputs)
+
+    targets = normalized.get("targets") or []
+    if not targets:
+        raise ValueError("预设缺少标的。")
+    target0 = targets[0]
+    symbol = str(target0.get("symbol") or "")
+    if not symbol:
+        raise ValueError("预设标的无 symbol。")
+
+    start = date_cls.fromisoformat(str(normalized.get("start")))
+    end = date_cls.fromisoformat(str(normalized.get("end")))
+    warmup_start = start - timedelta(days=365)
+
+    quote_ctx = build_longbridge_quote_context()
+    candles = fetch_longbridge_daily_candles(quote_ctx, symbol, warmup_start, end)
+    if not candles:
+        raise ValueError(f"无法获取 {symbol} 的行情数据。")
+    series = [(candle_datetime(c).replace(tzinfo=None), float(c.close)) for c in candles]
+    points = build_price_points_from_series(series)
+    if not points:
+        raise ValueError(f"无法构建 {symbol} 的价格序列。")
+
+    # market_data：完整序列（含 warmup），worker 自行隔离
+    dates_full = [p.date.date().isoformat() for p in points]
+    closes_full = [p.close for p in points]
+
+    # price_series：窗口内（含预计算的 drawdown）供前端图表
+    window_points = [p for p in points if p.date.date() >= start]
+    price_series = {
+        symbol: {
+            "dates": [p.date.date().isoformat() for p in window_points],
+            "closes": [p.close for p in window_points],
+            "drawdowns": [p.drawdown_ath * 100.0 for p in window_points],
+            "drawdowns_120": [p.drawdown_120 * 100.0 for p in window_points],
+        }
+    }
+
+    task_targets = [
+        {
+            "symbol": str(t.get("symbol")),
+            "weight": float(t.get("weight") or 100),
+            "name": str(t.get("name") or t.get("symbol")),
+            "max_drawdown_pct": t.get("max_drawdown_pct"),
+        }
+        for t in targets
+    ]
+    task = {
+        "key": "preset_0",
+        "portfolio_key": "preset",
+        "period_key": "window",
+        "portfolio_label": symbol,
+        "period_label": f"{start.isoformat()}..{end.isoformat()}",
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "symbols": [str(t.get("symbol")) for t in targets],
+        "targets": task_targets,
+    }
+
+    buy_variants = [_preset_variant_row(0, "bv0", buy_strategy, inputs, BUY_PARAMETER_FIELDS)]
+    sell_variants = [_preset_variant_row(0, "sv0", sell_strategy, inputs, SELL_PARAMETER_FIELDS)]
+    candidate_rows = [[0, 0, 0, "c0"]]
+
+    packet = {
+        "run_id": "preset_sim",
+        "inputs": inputs_payload,
+        "market_data": {"symbols": {symbol: {"dates": dates_full, "closes": closes_full}}},
+        "tasks": [task],
+        "buy_variants": buy_variants,
+        "sell_variants": sell_variants,
+        "buy_variant_schema": list(PARAMETER_LAB_BUY_VARIANT_SCHEMA),
+        "sell_variant_schema": list(PARAMETER_LAB_SELL_VARIANT_SCHEMA),
+        "candidate_schema": list(PARAMETER_LAB_CANDIDATE_SCHEMA),
+        "registry": strategy_registry_payload(),
+        "include_trades": True,
+        "include_series": True,
+    }
+    return {
+        "packet": packet,
+        "candidate_rows": candidate_rows,
+        "inputs": inputs,
+        "buy_strategy": buy_strategy,
+        "sell_strategy": sell_strategy,
+        "symbol": symbol,
+        "price_series": price_series,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+    }
+
+
+def _preset_observation_to_result(ctx: dict[str, object], obs: dict[str, object]) -> dict[str, object]:
+    """把 worker observation 映射成预设回测 UI 期望的结构。"""
+    inputs = ctx["inputs"]
+    buy_strategy = ctx["buy_strategy"]
+    sell_strategy = ctx["sell_strategy"]
+    series = obs.get("series") or {}
+    portfolio_values = series.get("portfolio_values") or []
+    final_value = float(portfolio_values[-1]) if portfolio_values else float(inputs.initial_cash)
+    contribution_count = int(obs.get("contribution_count") or 0)
+    monthly = float(inputs.monthly_contribution)
+    total_contributed = float(inputs.initial_cash) + monthly * contribution_count
+    profit = final_value - total_contributed
+    metrics = {
+        "final_value": final_value,
+        "total_contributed": total_contributed,
+        "profit": profit,
+        "monthly_contribution": inputs.monthly_contribution,
+        "contribution_count": contribution_count,
+        "contributed_cash": monthly * contribution_count,
+        "return_pct": obs.get("return_pct", 0),
+        "max_drawdown_pct": obs.get("max_drawdown_pct", 0),
+        "trade_count": obs.get("trade_count", 0),
+    }
+    label = obs.get("label") or f"{STRATEGY_LABELS.get(buy_strategy, buy_strategy)} / {SELL_STRATEGY_LABELS.get(sell_strategy, sell_strategy)}"
+    return {
+        "strategies": [{
+            "key": f"{buy_strategy}__{sell_strategy}",
+            "buy_strategy": buy_strategy,
+            "sell_strategy": sell_strategy,
+            "label": label,
+            "metrics": metrics,
+            "series": series,
+            "trades": obs.get("trade_log") or [],
+        }],
+        "price_series": ctx["price_series"],
+        "range": {"start": ctx["start"], "end": ctx["end"]},
+    }
+
+
+def _run_preset_sim_via_worker(normalized: dict[str, object]) -> dict[str, object]:
+    """走 JS worker bridge 跑预设回测（与 GA/参数实验室同一引擎）。"""
+    base_config = _get_position_strategy_config()
+    ctx = _build_preset_sim_packet(normalized, base_config)
+    rows = worker_run_simulations(ctx["packet"], ctx["candidate_rows"])
+    observations = rows[0].get("observations") or []
+    if not observations:
+        raise WorkerBridgeError("worker 未返回 observation。")
+    return _preset_observation_to_result(ctx, observations[0])
+
+
 @app.route('/api/strategy-lab/parameter-lab/stock-simulate', methods=['POST'])
 def api_strategy_lab_parameter_lab_stock_simulate():
     """Run a stock strategy backtest from a saved preset."""
@@ -11007,10 +11178,19 @@ def api_strategy_lab_parameter_lab_stock_simulate():
     if "targets" not in normalized and "default_targets" in config_payload:
         normalized["targets"] = config_payload["default_targets"]
 
+    # 模拟引擎：默认走 JS worker（与 GA/参数实验室同一引擎，含 365 天 warmup，
+    # 消除 Python simulate_portfolio 与 worker 的双引擎/warmup 分歧）。
+    # 设 PRESET_SIM_ENGINE=python 可回退旧 Python 路径用于对照。
+    engine = os.environ.get("PRESET_SIM_ENGINE", "worker").strip().lower()
     try:
-        result = _run_strategy_lab_payload(normalized)
+        if engine == "python":
+            result = _run_strategy_lab_payload(normalized)
+        else:
+            result = _run_preset_sim_via_worker(normalized)
     except ValueError as exc:
         return _json_error(str(exc), 400)
+    except WorkerBridgeError as exc:
+        return _json_error(f"worker 引擎失败: {exc}", 500)
     except Exception as exc:
         return _json_error(f"策略演算失败: {exc}", 500)
 
