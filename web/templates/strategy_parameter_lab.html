@@ -9323,16 +9323,19 @@
             var row = document.getElementById('stockPresetRow' + index);
             var arrow = document.getElementById('stockPresetArrow' + index);
             if (!row) return;
-            var next = row.nextElementSibling;
-            if (next && next.classList.contains('stock-preset-detail')) {
+            // Look up the detail row by id — it may sit after sim-result rows
+            // inserted by renderStockSimResults, so nextElementSibling is unreliable.
+            var existing = document.getElementById('stockPresetDetail' + index);
+            if (existing) {
                 // Collapse
-                next.remove();
+                existing.remove();
                 if (arrow) arrow.textContent = '▶';
                 return;
             }
             // Expand
             if (arrow) arrow.textContent = '▼';
             var detailRow = document.createElement('tr');
+            detailRow.id = 'stockPresetDetail' + index;
             detailRow.className = 'stock-preset-detail';
             detailRow.style.background = 'rgba(37,99,235,0.04)';
             var p = presetStockCache[index];
