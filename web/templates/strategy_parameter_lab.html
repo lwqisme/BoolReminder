@@ -494,6 +494,12 @@
                     </div>
                     <div class="panel-body">
                         <div class="field-grid">
+                            <label>初始资金 USD<span class="param-help" data-tooltip="GA 回测的初始资金。与「参数回测」页同名字段双向同步，保持一致才能让 GA 结果与单独回测互相验证。">?</span>
+                                <input id="gaInitialCash" type="number" min="1" step="100" value="{{ default_config.default_initial_cash }}">
+                            </label>
+                            <label>月注入 USD<span class="param-help" data-tooltip="GA 回测每月追加资金。与「参数回测」页同名字段双向同步，保持一致才能让 GA 结果与单独回测互相验证。">?</span>
+                                <input id="gaMonthlyContribution" type="number" min="0" step="100" value="{{ default_config.default_monthly_contribution }}">
+                            </label>
                             <div id="gaSingleStrategyRow">
                                 <label>买入策略<span class="param-help" data-tooltip="选择 GA 要优化的买入策略类型。跨策略模式下此选项隐藏，使用策略集合面板中勾选的所有买入策略。">?</span>
                                     <select id="gaBuyStrategy">
@@ -6114,8 +6120,27 @@
             });
         }
 
+        // GA-page 初始资金 / 月注入 与「参数回测」页同名字段双向同步。
+        // 单一真值：任一处修改都同步到另一处，保证 GA 与单独回测用同一组资金参数，
+        // 从而 GA 结果能用同样日期在回测页复现验证。
+        function syncGaCapitalFields() {
+            const pairs = [['gaInitialCash', 'initialCash'], ['gaMonthlyContribution', 'monthlyContribution']];
+            pairs.forEach(function([gaId, btId]) {
+                const ga = document.getElementById(gaId);
+                const bt = document.getElementById(btId);
+                if (!ga || !bt) return;
+                // 初始以回测页（已 restore）为准
+                ga.value = bt.value;
+                ga.addEventListener('input', function() { bt.value = ga.value; autoSaveParameterLabDefaults(); });
+                ga.addEventListener('change', function() { bt.value = ga.value; autoSaveParameterLabDefaults(); });
+                bt.addEventListener('input', function() { ga.value = bt.value; });
+                bt.addEventListener('change', function() { ga.value = bt.value; });
+            });
+        }
+
         initAutoSaveListeners();
         restoreParameterLabDefaults();
+        syncGaCapitalFields();
         toggleGaStrategyControls();  // init GA panel state on load
 
         // ── Genetic Algorithm EVOLVE mode (client-side worker pool) ───────
