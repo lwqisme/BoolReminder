@@ -426,17 +426,25 @@ function gridSellPct(params) {
 function buildBuyLabel(strategyKey, params, labels = {}) {
   const label = labels[strategyKey] || strategyKey;
   const bits = [];
-  if (params.step_pct !== null && params.step_pct !== undefined) bits.push(`步长 ${formatCompact(params.step_pct)}%`);
-  if (params.equal_slice_allocation_pct !== null && params.equal_slice_allocation_pct !== undefined) bits.push(`每步 ${formatCompact(params.equal_slice_allocation_pct)}%`);
-  if (params.core_dip_initial_core_pct !== null && params.core_dip_initial_core_pct !== undefined) {
-    bits.push(`初始 ${formatCompact(params.core_dip_initial_core_pct)}%`);
-    bits.push(`周投 ${formatCompact(params.core_dip_weekly_core_pct)}%`);
-    bits.push(`现金垫 ${formatCompact(params.core_dip_cash_reserve_pct)}%`);
-    bits.push(`加仓 ${formatCompact(params.core_dip_start_drawdown_pct)}-${formatCompact(params.core_dip_full_drawdown_pct)}%`);
-    if (params.core_dip_timing_enabled) {
-      bits.push(`买点优化 延迟${formatCompact(Math.trunc(num(params.core_dip_timing_max_delay_days)))}日 大涨${formatCompact(params.core_dip_timing_rise_threshold_pct)}% 近低${formatCompact(params.core_dip_timing_near_low_pct)}%`);
-    } else {
-      bits.push('买点优化 关闭');
+  // Gate each parameter block on the buy strategy: preset-sim variant rows pack
+  // ALL buy fields from StrategyInputs (see _preset_variant_row), so checking
+  // field presence alone leaks e.g. core_dip params onto an equal_slice label.
+  if (strategyKey === 'equal_slice') {
+    if (params.step_pct != null) bits.push(`步长 ${formatCompact(params.step_pct)}%`);
+    if (params.equal_slice_allocation_pct != null) bits.push(`每步 ${formatCompact(params.equal_slice_allocation_pct)}%`);
+  } else if (strategyKey === 'linear_weighted_slice') {
+    if (params.step_pct != null) bits.push(`步长 ${formatCompact(params.step_pct)}%`);
+  } else if (strategyKey === 'core_dip_dca') {
+    if (params.core_dip_initial_core_pct != null) {
+      bits.push(`初始 ${formatCompact(params.core_dip_initial_core_pct)}%`);
+      bits.push(`周投 ${formatCompact(params.core_dip_weekly_core_pct)}%`);
+      bits.push(`现金垫 ${formatCompact(params.core_dip_cash_reserve_pct)}%`);
+      bits.push(`加仓 ${formatCompact(params.core_dip_start_drawdown_pct)}-${formatCompact(params.core_dip_full_drawdown_pct)}%`);
+      if (params.core_dip_timing_enabled) {
+        bits.push(`买点优化 延迟${formatCompact(Math.trunc(num(params.core_dip_timing_max_delay_days)))}日 大涨${formatCompact(params.core_dip_timing_rise_threshold_pct)}% 近低${formatCompact(params.core_dip_timing_near_low_pct)}%`);
+      } else {
+        bits.push('买点优化 关闭');
+      }
     }
   }
   return bits.length ? `${label} (${bits.join(' / ')})` : label;
