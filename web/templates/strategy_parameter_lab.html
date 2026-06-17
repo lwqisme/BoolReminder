@@ -543,6 +543,9 @@
                             <label>变异幅度 σ<span class="param-help" data-tooltip="连续变异的高斯噪声标准差与当前值的比例。如 0.15 表示 σ = 当前值×15%，值越大变异幅度越猛。仅连续变异模式下生效。">?</span>
                                 <input id="gaSigmaRatio" type="number" min="0.01" max="1" step="0.01" value="0.25">
                             </label>
+                            <label>买卖质量权重 %<span class="param-help" data-tooltip="买卖质量在 GA 适应度评分中的权重百分比。0=纯按收益/回撤排序，值越大买卖质量（买入接近底部、卖出接近顶部）影响越大。权重平分给买入和卖出质量。最大 50%。">?</span>
+                                <input id="gaSellQualityWeightPct" type="number" step="5" min="0" max="50" value="{{ default_config.default_sell_quality_weight_pct }}">
+                            </label>
                         </div>
                         <details style="margin-top:4px;border:1px solid rgba(174,185,200,0.3);border-radius:var(--radius-sm);padding:6px 8px;">
                             <summary style="cursor:pointer;font-weight:900;font-size:12px;color:var(--ink);">参数范围<span class="param-help" data-tooltip="限制 GA 搜索的参数上下界。留空使用默认范围。对变异阶段生效，连续和离散模式均受约束。">?</span></summary>
@@ -6010,6 +6013,7 @@
                 // start/end intentionally NOT restored from localStorage: 近三年窗口需随今天滚动，
                 // 由服务端 default_start/default_end (today - 3y .. today) 渲染。
                 if (payload.sell_allow_same_day_sell !== undefined) { const el = document.getElementById('sellAllowSameDaySell'); if (el) el.checked = Boolean(payload.sell_allow_same_day_sell); }
+                if (payload.sell_quality_weight_pct !== undefined) { const gel = document.getElementById('gaSellQualityWeightPct'); if (gel) gel.value = payload.sell_quality_weight_pct; }
                 if (payload.core_dip_timing_enabled !== undefined) { const el = document.getElementById('coreDipTimingEnabled'); if (el) el.value = payload.core_dip_timing_enabled ? 'true' : 'false'; }
                 if (payload.core_dip_timing_filter) { const el = document.getElementById('coreDipTimingFilter'); if (el) el.value = payload.core_dip_timing_filter; }
                 if (payload.leapsDrawdownGatePct !== undefined) { const el = document.getElementById('leapsDrawdownGatePct'); if (el) el.value = payload.leapsDrawdownGatePct; }
@@ -6066,7 +6070,7 @@
 
         function initAutoSaveListeners() {
             // 'start'/'end' deliberately excluded: window must roll with today (服务端渲染 today-3y..today)
-            const saveIds = ['initialCash', 'monthlyContribution', 'maxDrawdown', 'stepPct', 'equalSliceAllocation', 'tradeFee', 'hkdToUsd', 'reservePosition', 'sellMinProfit', 'repairSellCooldown', 'repairStageSellPct', 'dcaRearmDrawdown', 'sellStageRearmDrawdown', 'sellStageRearmMode', 'gridReboundStep', 'gridSellPct', 'gridMinSellAmount', 'gridReboundCycleReset', 'costFirstProfitPct', 'costSecondProfitPct', 'costThirdProfitPct', 'costFirstSellPct', 'costSecondSellPct', 'costThirdSellPct', 'costDeleverageCooldown', 'costMinSellAmount', 'coreDipInitialCorePct', 'coreDipWeeklyCorePct', 'coreDipCashReservePct', 'coreDipStartDrawdownPct', 'coreDipFullDrawdownPct', 'coreDipTimingMaxDelayDays', 'coreDipTimingRiseThresholdPct', 'coreDipTimingNearLowPct', 'leapsLowCashThreshold', 'leapsMinDrawdown', 'leapsPremiumBudgetCap', 'leapsTargetDteLabel', 'leapsDrawdownGatePct', 'workerCount', 'drawdownBasis', 'coreDipTimingEnabled', 'coreDipTimingFilter', 'sellQualityWeightPct',
+            const saveIds = ['initialCash', 'monthlyContribution', 'maxDrawdown', 'stepPct', 'equalSliceAllocation', 'tradeFee', 'hkdToUsd', 'reservePosition', 'sellMinProfit', 'repairSellCooldown', 'repairStageSellPct', 'dcaRearmDrawdown', 'sellStageRearmDrawdown', 'sellStageRearmMode', 'gridReboundStep', 'gridSellPct', 'gridMinSellAmount', 'gridReboundCycleReset', 'costFirstProfitPct', 'costSecondProfitPct', 'costThirdProfitPct', 'costFirstSellPct', 'costSecondSellPct', 'costThirdSellPct', 'costDeleverageCooldown', 'costMinSellAmount', 'coreDipInitialCorePct', 'coreDipWeeklyCorePct', 'coreDipCashReservePct', 'coreDipStartDrawdownPct', 'coreDipFullDrawdownPct', 'coreDipTimingMaxDelayDays', 'coreDipTimingRiseThresholdPct', 'coreDipTimingNearLowPct', 'leapsLowCashThreshold', 'leapsMinDrawdown', 'leapsPremiumBudgetCap', 'leapsTargetDteLabel', 'leapsDrawdownGatePct', 'workerCount', 'drawdownBasis', 'coreDipTimingEnabled', 'coreDipTimingFilter', 'sellQualityWeightPct', 'gaSellQualityWeightPct',
                 // LEAPS GA
                 'leapsGaStart', 'leapsGaEnd', 'leapsGaPopSize', 'leapsGaGenerations',
                 'leapsGaMutationRate', 'leapsGaCrossoverRate', 'leapsGaSeed',
@@ -6141,6 +6145,7 @@
             payload.ga_crossover_rate = parseFloat(document.getElementById('gaCrossoverRate').value) || 0.80;
             payload.ga_continuous_mutation = document.getElementById('gaContinuousMutation').value;
             payload.ga_sigma_ratio = parseFloat(document.getElementById('gaSigmaRatio').value) || 0.15;
+            payload.sell_quality_weight_pct = readNumber('gaSellQualityWeightPct');
             payload.ga_parameter_bounds = readGaCustomBounds();
             payload.ga_buy_rearm_mode = document.getElementById('gaBuyRearmMode')?.value || '';
             payload.ga_sell_allow_same_day_sell = document.getElementById('gaSameDaySell')?.value || '';
