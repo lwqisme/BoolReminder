@@ -52,6 +52,27 @@ self.onmessage = (event) => {
         postRunError(error, startRunId, Number(message.worker_index || 0));
       });
   }
+  if (message.type === 'signal_sim') {
+    const signalRunId = messageRunId;
+    try {
+      const packet = message.packet || {};
+      const taskContexts = buildTaskContexts(packet);
+      if (!taskContexts.length) throw new Error('signal_sim: 无可用 task。');
+      const task = taskContexts[0];
+      const candidateRows = Array.isArray(message.candidate_rows) ? message.candidate_rows : [[0, 0, 0, 'c0']];
+      const candidate = inflateCandidate(packet, candidateRows[0] || [0, 0, 0, 'c0']);
+      const inputs = packet.inputs || {};
+      const overrides = message.trade_overrides || {};
+      const signalDate = String(message.engine_signal_date || '');
+      const result = simulateSignal(task, inputs, candidate, overrides, signalDate);
+      postMessage({
+        type: 'signal_done', run_id: signalRunId, worker_index: Number(message.worker_index || 0),
+        signal_trades: result.signal_trades, final_state: result.final_state
+      });
+    } catch (error) {
+      postRunError(error, signalRunId, Number(message.worker_index || 0));
+    }
+  }
   if (message.type === 'batch') {
     const batchRunId = messageRunId;
     processBatch(message, Number(message.worker_index || 0), batchRunId)
@@ -1580,6 +1601,196 @@ function simulate(task, baseInputs, candidate) {
     };
   }
   return result;
+}
+
+// ── Signal mode: real-trade replay + engine-only-on-signal-date ──────────
+// Mirrors Python _simulate_strategy / _apply_real_trades (position_strategy.py).
+// Reuses the same primitives as simulate() so engine behavior is identical to
+// GA / preset backtest; only the day-loop gating + real-trade replay differ.
+function applyRealTrades(state, events, point, inputs, tradeLog, strategy, sellStrategy) {
+  for (const ev of (Array.isArray(events) ? events : [])) {
+    const side = String(ev && ev.side || '').toLowerCase();
+    const shares = num(ev && ev.shares);
+    const price = num(ev && ev.price) || num(point.close);
+    if (shares <= 0 || price <= 0) continue;
+    const gross = shares * price;
+    const fee = Math.min(num(inputs.trade_fee, 0.35), gross);
+    if (side === 'buy') {
+      const net = gross + fee; // buyer pays fee on top (mirrors Python)
+      state.shares += shares;
+      state.cash -= net;
+      state.invested += gross;
+      state.fees += fee;
+      state.trades += 1;
+      state.buy_trades += 1;
+      state.max_shares = Math.max(num(state.max_shares), state.shares);
+      state.lots.push({
+        threshold_pct: 0,
+        buy_drawdown_pct: 0,
+        buy_price_usd: price,
+        buy_date: point.date,
+        initial_shares: shares,
+        remaining_shares: shares,
+        first_grid_sell_done: false,
+        second_grid_sell_done: false,
+        repair_sell_marks: {}
+      });
+      tradeLog.push({
+        action: 'buy', date: point.date, symbol: state.symbol,
+        buy_strategy: strategy, sell_strategy: sellStrategy,
+        threshold_pct: 0, drawdown_pct: null,
+        price, price_usd: price, display_price: price, display_price_usd: price,
+        gross_amount: gross, fee, net_amount: net, shares, allocation_pct: 0,
+        is_real: true, reason: '真实交易', event: ev
+      });
+    } else if (side === 'sell') {
+      const net = gross - fee;
+      state.shares -= shares;
+      if (state.shares < 1e-10) state.shares = 0;
+      state.cash += net;
+      state.sold_gross += gross;
+      state.fees += fee;
+      state.trades += 1;
+      state.sell_trades += 1;
+      let remaining = shares;
+      for (const lot of (state.lots || [])) {
+        if (remaining <= 0) break;
+        const sold = Math.min(num(lot.remaining_shares), remaining);
+        lot.remaining_shares = num(lot.remaining_shares) - sold;
+        remaining -= sold;
+      }
+      tradeLog.push({
+        action: 'sell', date: point.date, symbol: state.symbol,
+        buy_strategy: strategy, sell_strategy: sellStrategy,
+        threshold_pct: 0, drawdown_pct: null,
+        price, price_usd: price, display_price: price, display_price_usd: price,
+        gross_amount: gross, fee, net_amount: net, shares, allocation_pct: 0,
+        is_real: true, reason: '真实交易', event: ev
+      });
+    }
+    state.last_value = state.shares * priceUsd(state.symbol, point.close, inputs);
+  }
+}
+
+// Roll non-trading-day override events forward to the next trading day
+// (mirrors Python _simulate_strategy's roll-forward in position_strategy.py).
+function rollOverridesToDate(overrides, allDays) {
+  const daySet = new Set(allDays);
+  const sorted = allDays.slice().sort();
+  const rolled = {};
+  for (const [dayStr, events] of Object.entries(overrides || {})) {
+    if (daySet.has(dayStr)) {
+      (rolled[dayStr] || (rolled[dayStr] = [])).push(...events);
+      continue;
+    }
+    let next = sorted.find((d) => d > dayStr);
+    if (next === undefined) next = sorted[sorted.length - 1]; // past tail → last trading day
+    if (next === undefined) continue;
+    (rolled[next] || (rolled[next] = [])).push(...events);
+  }
+  return rolled;
+}
+
+function simulateSignal(task, baseInputs, candidate, tradeOverrides, signalDate) {
+  const inputs = candidateInputs(baseInputs, candidate);
+  const strategy = candidate.buy_strategy;
+  const sellStrategy = candidate.sell_strategy;
+  const pointByDay = task.pointByDay || {};
+  const allDays = task.allDays || [];
+  const contribDays = task.contribDays || new Set();
+  const dcaDays = task.dcaDays || {};
+  const tradingIndex = task.tradingIndex || {};
+  const overrides = rollOverridesToDate(tradeOverrides || {}, allDays);
+
+  const states = {};
+  for (const target of task.targets) {
+    const budget = num(inputs.initial_cash) * num(target.weight) / 100;
+    states[target.symbol] = {
+      symbol: target.symbol, weight: num(target.weight), budget, cash: budget,
+      shares: 0, invested: 0, fees: 0, trades: 0, buy_trades: 0, sell_trades: 0,
+      sold_gross: 0, max_shares: 0, last_value: 0, lots: [], sell_marks: {},
+      grid_rebound_cycle_anchor_drawdown_pct: null, grid_rebound_last_sell_drawdown_pct: null,
+      price_rise_grid_anchor_price: null, cost_deleverage_cycle_anchor_price: null,
+      last_position_sell_price: null, last_repair_sell_trade_index: null,
+      last_cost_deleverage_sell_trade_index: null,
+      dca_pending_cash: strategy === 'weekly_dca' ? budget : 0,
+      core_dip_pending_cash: 0, core_dip_pending_days: 0, recent_points: [],
+      price_points: task.price_points?.[target.symbol] || [],
+      buy_rearm_drawdown_pct: null, buy_rearm_anchor_drawdown_pct: null
+    };
+  }
+  const executed = Object.fromEntries(task.targets.map((t) => [t.symbol, {}]));
+  const tranchesBySymbol = Object.fromEntries(
+    task.targets.map((t) => [t.symbol, buildTranches({ ...inputs, max_drawdown_pct: targetMaxDrawdown(task.targets, t.symbol, inputs) }, strategy)])
+  );
+  const tradeLog = [];
+  for (const day of allDays) {
+    if (num(inputs.monthly_contribution) > 0 && contribDays.has(day)) {
+      for (const target of task.targets) {
+        const contribution = num(inputs.monthly_contribution) * num(target.weight) / 100;
+        const st = states[target.symbol];
+        st.cash += contribution; st.budget += contribution;
+        if (strategy === 'weekly_dca') st.dca_pending_cash += contribution;
+      }
+    }
+    for (const [symbol, dayPoints] of Object.entries(pointByDay)) {
+      const point = dayPoints[day];
+      if (!point) continue;
+      const state = states[symbol];
+      state.recent_points = (state.recent_points || []).concat([point]).slice(-5);
+      state.last_value = state.shares * priceUsd(symbol, point.close, inputs);
+      const tradeIndex = tradingIndex[symbol][day];
+
+      // 1) Real trades on this day → replay, skip engine (mirrors Python).
+      const dayOverrides = overrides[day];
+      if (dayOverrides && dayOverrides.length) {
+        applyRealTrades(state, dayOverrides, point, inputs, tradeLog, strategy, sellStrategy);
+        continue;
+      }
+      // 2) Skip engine on historical days before the signal date (mirrors Python
+      //    last_trade_date = signalDate - 1; current_day <= last_trade_date → continue).
+      if (day < signalDate) continue;
+
+      // 3) Signal date → run engine (identical to simulate()'s body).
+      let bought = false;
+      if (['weekly_dca', 'salary_flow_dca', 'core_dip_dca'].includes(strategy)) {
+        bought = executeDca(state, point, dcaDays[symbol] || new Set(), inputs, tradeLog, strategy, sellStrategy);
+      } else {
+        if (drawdownPct(point, inputs) <= 0.5) {
+          executed[symbol] = {};
+          state.buy_rearm_anchor_drawdown_pct = null;
+          state.buy_rearm_drawdown_pct = null;
+        }
+        if (
+          Object.keys(executed[symbol]).length
+          && state.buy_rearm_drawdown_pct !== null
+          && state.buy_rearm_drawdown_pct !== undefined
+          && drawdownPct(point, inputs) + 1e-9 >= state.buy_rearm_drawdown_pct
+        ) {
+          executed[symbol] = {};
+          state.buy_rearm_anchor_drawdown_pct = inputs.buy_rearm_mode === 'restart_from_rearm' ? drawdownPct(point, inputs) : null;
+          state.buy_rearm_drawdown_pct = null;
+        }
+        const tranches = tranchesBySymbol[symbol] || [];
+        if (!Object.keys(executed[symbol]).length) {
+          markConsumedTranchesFromPosition(state, tranches, executed[symbol], strategy);
+        }
+        bought = executeTranches(state, point, tranches, executed[symbol], inputs, tradeLog, strategy, sellStrategy);
+      }
+      if (!bought || (bought && sellStrategy !== 'none' && Boolean(inputs.sell_allow_same_day_sell))) {
+        executeSells(state, point, inputs, strategy, sellStrategy, tradeLog, tradeIndex);
+      }
+    }
+  }
+  const signalTrades = tradeLog.filter((t) => !t.is_real && t.date === signalDate);
+  const firstState = states[task.targets[0] && task.targets[0].symbol] || {};
+  return {
+    signal_trades: signalTrades,
+    final_state: {
+      symbol: firstState.symbol, shares: firstState.shares, cash: firstState.cash,
+      invested: firstState.invested, market_value: firstState.last_value
+    }
+  };
 }
 
 async function initRun(packet, workerIndex, runId, declaredTotal) {

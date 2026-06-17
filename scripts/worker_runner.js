@@ -127,6 +127,21 @@ async function main() {
   const candidateRows = Array.isArray(req.candidate_rows) ? req.candidate_rows : [];
   const runId = String(packet.run_id || 'bridged');
 
+  // 信号模式：单候选，真实交易回放 + 仅信号日引擎运行。
+  if (req.mode === 'signal') {
+    const signalDate = String(req.engine_signal_date || '');
+    const overrides = req.trade_overrides || {};
+    sandbox.self.onmessage({
+      data: {
+        type: 'signal_sim', run_id: runId, worker_index: 0,
+        packet, candidate_rows: candidateRows.length ? candidateRows : [[0, 0, 0, 'c0']],
+        trade_overrides: overrides, engine_signal_date: signalDate,
+      },
+    });
+    const done = await waitFor('signal_done', 300000);
+    return { success: true, signal_trades: done.signal_trades || [], final_state: done.final_state || {} };
+  }
+
   // start
   sandbox.self.onmessage({ data: { type: 'start', run_id: runId, worker_index: 0, total_simulations: candidateRows.length, packet } });
   await waitFor('ready', 30000);

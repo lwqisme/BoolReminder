@@ -98,6 +98,67 @@ def run_simulations(
     return rows
 
 
+def run_signal(
+    packet: dict[str, Any],
+    trade_overrides: dict[str, list[dict[str, Any]]],
+    engine_signal_date: str,
+    *,
+    timeout: int = _DEFAULT_TIMEOUT,
+) -> dict[str, Any]:
+    """驱动 worker 信号模式：真实交易回放 + 仅信号日引擎运行。
+
+    ``trade_overrides`` 键为 ISO 日期字符串（``date.isoformat()``），值为该日真实
+    交易事件列表（``{side, shares, price, ...}``）。返回 ``{signal_trades, final_state}``，
+    ``signal_trades`` 即引擎在信号日触发的买卖（非真实交易）。
+    """
+    request = {
+        "mode": "signal",
+        "packet": packet,
+        "candidate_rows": packet.get("candidate_rows") or [[0, 0, 0, "c0"]],
+        "trade_overrides": trade_overrides,
+        "engine_signal_date": str(engine_signal_date),
+    }
+    payload = (json.dumps(request) + "\n").encode("utf-8")
+
+    try:
+        proc = subprocess.run(
+            [_node_bin(), str(_RUNNER_PATH)],
+            input=payload,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise WorkerBridgeError(f"worker 信号模式执行超时（{timeout}s）") from exc
+    except FileNotFoundError as exc:
+        raise WorkerBridgeError(f"无法启动 node：{exc}") from exc
+
+    if proc.returncode != 0:
+        stderr_tail = (proc.stderr or b"").decode("utf-8", errors="replace")[-800:]
+        err = _try_parse_error(proc.stdout) or stderr_tail
+        raise WorkerBridgeError(f"worker 信号模式退出码 {proc.returncode}: {err}")
+
+    try:
+        resp = json.loads(proc.stdout.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        stderr_tail = (proc.stderr or b"").decode("utf-8", errors="replace")[-800:]
+        raise WorkerBridgeError(
+            f"worker 信号模式返回非 JSON：{exc}；stdout 尾={proc.stdout[-400:]!r}；stderr 尾={stderr_tail}"
+        )
+
+    if not resp.get("success"):
+        raise WorkerBridgeError(
+            "worker 信号模式报错: " + str(resp.get("error"))
+            + (" | recent=" + str(resp.get("recent_messages")) if resp.get("recent_messages") else "")
+        )
+
+    return {
+        "signal_trades": resp.get("signal_trades") or [],
+        "final_state": resp.get("final_state") or {},
+    }
+
+
 def _try_parse_error(stdout: bytes) -> str:
     try:
         resp = json.loads(stdout.decode("utf-8"))

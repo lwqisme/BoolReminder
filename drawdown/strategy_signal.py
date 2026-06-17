@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections import defaultdict
 from dataclasses import replace
 from datetime import date, datetime, timedelta
@@ -21,11 +22,21 @@ from drawdown.position_strategy import (
     PortfolioTarget,
     StrategyInputs,
     _simulate_strategy,
+    _strategy_inputs_payload,
     build_strategy_tranches,
     parse_portfolio_targets,
 )
 from drawdown.strategy_lab_config import StrategyLabConfig
 from drawdown.strategy_lab_history import load_experiment_preset, presets_dir
+from drawdown.strategy_parameter_registry import (
+    BUY_PARAMETER_FIELDS,
+    SELL_PARAMETER_FIELDS,
+    PARAMETER_LAB_BUY_VARIANT_SCHEMA,
+    PARAMETER_LAB_SELL_VARIANT_SCHEMA,
+    PARAMETER_LAB_CANDIDATE_SCHEMA,
+    strategy_registry_payload,
+)
+from drawdown.worker_bridge import run_signal as worker_run_signal, WorkerBridgeError
 from trade_sync.normalize import canonical_symbol
 from trade_sync.store import (
     BY_SYMBOL_DIR,
@@ -141,6 +152,65 @@ def _format_position_summary(
     return "、".join(parts)
 
 
+def _variant_row(variant_id: int, variant_key: str, strategy_key: str, inputs: StrategyInputs, fields) -> list:
+    """Assemble one variant row aligned to PARAMETER_LAB_*_VARIANT_SCHEMA."""
+    row = [variant_id, variant_key, strategy_key]
+    for field in fields:
+        row.append(getattr(inputs, field, None))
+    return row
+
+
+def _build_signal_worker_packet(
+    longbridge_sym: str,
+    sym: str,
+    target: PortfolioTarget,
+    points: list,
+    inputs: StrategyInputs,
+    buy_strategy: str,
+    sell_strategy: str,
+    first_trade_date: date,
+    effective_signal_date: date,
+) -> dict[str, Any]:
+    """Build a single-candidate v3 worker packet for signal mode.
+
+    market_data carries the full series (warmup + window); the worker's
+    rebuildPricePoints(...,365) uses warmup for drawdown and only iterates
+    [first_trade_date, signal_date] (real-trade replay + signal-day engine).
+    """
+    dates_full = [p.date.date().isoformat() for p in points]
+    closes_full = [p.close for p in points]
+    task = {
+        "key": "signal_0",
+        "portfolio_key": "signal",
+        "period_key": "window",
+        "portfolio_label": sym,
+        "period_label": f"{first_trade_date.isoformat()}..{effective_signal_date.isoformat()}",
+        "start": first_trade_date.isoformat(),
+        "end": effective_signal_date.isoformat(),
+        "symbols": [longbridge_sym],
+        "targets": [{
+            "symbol": target.symbol,
+            "weight": float(target.weight),
+            "name": target.name or target.symbol,
+            "max_drawdown_pct": target.max_drawdown_pct,
+        }],
+    }
+    return {
+        "run_id": "signal_sim",
+        "inputs": _strategy_inputs_payload(inputs),
+        "market_data": {"symbols": {longbridge_sym: {"dates": dates_full, "closes": closes_full}}},
+        "tasks": [task],
+        "buy_variants": [_variant_row(0, "bv0", buy_strategy, inputs, BUY_PARAMETER_FIELDS)],
+        "sell_variants": [_variant_row(0, "sv0", sell_strategy, inputs, SELL_PARAMETER_FIELDS)],
+        "buy_variant_schema": list(PARAMETER_LAB_BUY_VARIANT_SCHEMA),
+        "sell_variant_schema": list(PARAMETER_LAB_SELL_VARIANT_SCHEMA),
+        "candidate_schema": list(PARAMETER_LAB_CANDIDATE_SCHEMA),
+        "candidate_rows": [[0, 0, 0, "c0"]],
+        "registry": strategy_registry_payload(),
+        "include_trades": True,
+    }
+
+
 def generate_signal(
     symbol: str,
     preset_id: str,
@@ -216,8 +286,10 @@ def generate_signal(
     first_trade_date = date.fromisoformat(trade_dates[0])
     end_date = today
 
-    # Fetch prices from first trade to today (plus buffer)
-    fetch_start = first_trade_date - timedelta(days=30)
+    # Fetch prices from first trade to today (plus buffer).
+    # 365-day warmup before first_trade_date so the worker computes drawdown with
+    # the same warmup semantics as GA/preset backtest (engine一致性).
+    fetch_start = first_trade_date - timedelta(days=365)
     fetch_end = end_date + timedelta(days=1)
 
     # 5. Fetch prices
@@ -253,7 +325,9 @@ def generate_signal(
     is_weekend = today.weekday() >= 5
     effective_signal_date = last_price_date if (is_weekend and last_price_date < today) else today
 
-    # 7. Run simulation: real trades for history, engine only on effective_signal_date
+    # 7. Run simulation: real trades for history, engine only on effective_signal_date.
+    #    默认走 JS worker（与 GA/预设回测同一引擎 + 365d warmup）；SIGNAL_SIM_ENGINE=python
+    #    回退旧 Python _simulate_strategy 用于对照/回滚。
     effective_inputs = replace(inputs, initial_cash=initial_cash, monthly_contribution=monthly_contribution)
 
     target = PortfolioTarget(
@@ -264,26 +338,32 @@ def generate_signal(
     )
 
     price_points_by_symbol = {longbridge_sym: points}
+    signal_date_iso = effective_signal_date.isoformat()
+    engine = os.environ.get("SIGNAL_SIM_ENGINE", "worker").strip().lower()
 
-    # Engine skips all days ≤ engine_start, runs only on effective_signal_date
-    engine_start = effective_signal_date - timedelta(days=1)
-
-    result = _simulate_strategy(
-        price_points_by_symbol,
-        [target],
-        effective_inputs,
-        strategy=config.buy_strategy,
-        sell_strategy=config.sell_strategy,
-        trade_overrides=dict(trade_overrides),
-        last_trade_date=engine_start,
-    )
-
-    # 8. Extract signals for effective_signal_date
-
-    signal_trades = [
-        t for t in result.get("trades", [])
-        if t.get("date") == effective_signal_date.isoformat() and not t.get("is_real")
-    ]
+    if engine == "python":
+        engine_start = effective_signal_date - timedelta(days=1)
+        result = _simulate_strategy(
+            price_points_by_symbol,
+            [target],
+            effective_inputs,
+            strategy=config.buy_strategy,
+            sell_strategy=config.sell_strategy,
+            trade_overrides=dict(trade_overrides),
+            last_trade_date=engine_start,
+        )
+        signal_trades = [
+            t for t in result.get("trades", [])
+            if t.get("date") == signal_date_iso and not t.get("is_real")
+        ]
+    else:
+        signal_packet = _build_signal_worker_packet(
+            longbridge_sym, sym, target, points, effective_inputs,
+            config.buy_strategy, config.sell_strategy, first_trade_date, effective_signal_date,
+        )
+        overrides_iso = {d.isoformat(): events for d, events in trade_overrides.items()}
+        bridge_result = worker_run_signal(signal_packet, overrides_iso, signal_date_iso)
+        signal_trades = bridge_result.get("signal_trades") or []
 
     # Compute actual position from real trades only (before engine signals)
     real_shares = sum(
