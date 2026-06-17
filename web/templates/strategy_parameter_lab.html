@@ -6315,12 +6315,18 @@
                 const finalRows = Object.values(allEvaluated).sort(function(a, b) { return b.fitness - a.fitness; });
                 console.log('[GA] allEvaluated entries:', finalRows.length, 'unique param keys');
 
-                // Dedup by avg stats only: same results → indistinguishable in UI → keep best fitness
+                // Dedup by avg stats only: same results → indistinguishable in UI → keep best fitness.
+                // In continuous (野蛮生长) mode we deliberately SKIP this dedup: the whole point of
+                // continuous mutation is to explore the parameter space, and collapsing rows that
+                // happen to share avg_return/drawdown/quality (rounded to 1 decimal) hides the very
+                // parameter diversity the user asked for. allEvaluated is already unique by paramKey.
                 const dedupedRows = [];
                 const seenSignatures = {};
                 let dupesDropped = 0;
+                const skipStatsDedup = Boolean(gaConfig.continuous_mutation);
                 for (let ri = 0; ri < finalRows.length; ri++) {
                     const item = finalRows[ri];
+                    if (skipStatsDedup) { dedupedRows.push(item); continue; }
                     const sig = (item.avg_return || 0).toFixed(1) + '|' + (item.avg_drawdown || 0).toFixed(1) + '|' + (item.avg_sell_quality || 0).toFixed(1) + '|' + (item.avg_buy_quality || 0).toFixed(1);
                     if (!seenSignatures[sig]) {
                         seenSignatures[sig] = true;
@@ -6330,6 +6336,7 @@
                     }
                 }
                 if (dupesDropped) console.log('[GA] dedup: ' + finalRows.length + ' → ' + dedupedRows.length + ' rows (' + dupesDropped + ' duplicates removed by same avg stats)');
+                if (skipStatsDedup) console.log('[GA] continuous mode: stats-dedup skipped, showing all ' + dedupedRows.length + ' unique param keys');
 
                 // Collect per-topic scores for ranking
                 const topicScores = {};  // topic_key -> [{key, return_pct, max_drawdown_pct, sell_quality_score}, ...]

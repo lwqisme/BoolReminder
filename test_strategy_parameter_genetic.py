@@ -98,6 +98,74 @@ class GeneticPopulationTest(unittest.TestCase):
         pop = _initialize_population(["pyramid_3"], ["none"], buy_f, sell_f, self.inputs, 10)
         self.assertTrue(any(ind.buy_params == {} and ind.sell_params == {} for ind in pop))
 
+    def test_continuous_mutation_initial_population_uses_continuous_values(self):
+        """野蛮生长 (continuous_mutation) must seed the initial population with
+        continuous uniform values, not the discrete ROBUST_* grid — otherwise the
+        GA starts from a tiny corner of the search space and every run collapses
+        to near-identical params (regression: TSLA equal_slice+cost_deleverage)."""
+        buy_f = {"equal_slice": _relevant_buy_parameter_fields("equal_slice")}
+        sell_f = {"cost_deleverage": _relevant_sell_parameter_fields("cost_deleverage", self.inputs, "equal_slice")}
+        cfg = EvolutionConfig(population_size=30, continuous_mutation=True)
+        pop = _initialize_population(["equal_slice"], ["cost_deleverage"], buy_f, sell_f, self.inputs, 30, cat_restrict=cfg)
+        self.assertEqual(len(pop), 30)
+        # step_pct discrete grid is {2.5, 5.0, 10.0}; continuous init must escape it.
+        steps = {ind.buy_params.get("step_pct") for ind in pop}
+        self.assertFalse(steps <= {2.5, 5.0, 10.0}, f"continuous init still on discrete grid: {sorted(steps)}")
+        # cost_first_profit_pct discrete grid starts at 8.0 only; continuous must spread.
+        c1p = {ind.sell_params.get("cost_first_profit_pct") for ind in pop}
+        self.assertGreater(len(c1p), 3, f"cost_first_profit_pct not diversified: {sorted(c1p)}")
+
+    def test_discrete_mode_initial_population_unchanged(self):
+        """Discrete (non-continuous) mode must keep using the ROBUST_* seed grid."""
+        buy_f = {"equal_slice": _relevant_buy_parameter_fields("equal_slice")}
+        sell_f = {"cost_deleverage": _relevant_sell_parameter_fields("cost_deleverage", self.inputs, "equal_slice")}
+        cfg = EvolutionConfig(population_size=20, continuous_mutation=False)
+        pop = _initialize_population(["equal_slice"], ["cost_deleverage"], buy_f, sell_f, self.inputs, 20, cat_restrict=cfg)
+        steps = {ind.buy_params.get("step_pct") for ind in pop if ind.buy_params.get("step_pct") is not None}
+        self.assertTrue(steps <= {2.5, 5.0, 10.0}, f"discrete init leaked continuous values: {sorted(steps)}")
+
+    def test_continuous_mutation_initial_population_uses_continuous_values(self):
+        """Regression: 野蛮生长 mode must seed the initial population with continuous
+        (uniform-within-bounds) values, not the discrete ROBUST_* grid. Previously
+        _initialize_population passed continuous_mutation=cross_strategy and False
+        (always False) and the discrete seed grid dominated, so every GA run started
+        from the same handful of discrete points and results looked identical."""
+        buy_f = {"equal_slice": _relevant_buy_parameter_fields("equal_slice")}
+        sell_f = {"cost_deleverage": _relevant_sell_parameter_fields("cost_deleverage", self.inputs, "equal_slice")}
+        cfg = EvolutionConfig(population_size=30, continuous_mutation=True)
+        pop = _initialize_population(
+            ["equal_slice"], ["cost_deleverage"], buy_f, sell_f, self.inputs, 30,
+            cross_strategy=False, cat_restrict=cfg,
+        )
+        self.assertEqual(len(pop), 30)
+        # cost_first_profit_pct discrete grid is {8.0, 10.0, 15.0}; with continuous
+        # init uniform over [8, 15] we must see values outside that grid.
+        c1p_values = [ind.sell_params.get("cost_first_profit_pct") for ind in pop if ind.sell_params.get("cost_first_profit_pct") is not None]
+        discrete_grid = {8.0, 10.0, 15.0}
+        off_grid = [v for v in c1p_values if v not in discrete_grid]
+        self.assertGreater(len(off_grid), 10, f"expected >10 off-grid continuous c1p values, got {off_grid} from {c1p_values}")
+        # step_pct discrete grid is {2.5, 5.0, 10.0}; continuous init over [2.5, 10].
+        step_values = [ind.buy_params.get("step_pct") for ind in pop if ind.buy_params.get("step_pct") is not None]
+        step_grid = {2.5, 5.0, 10.0}
+        off_grid_step = [v for v in step_values if v not in step_grid]
+        self.assertGreater(len(off_grid_step), 10, f"expected >10 off-grid continuous step values, got {off_grid_step} from {step_values}")
+
+    def test_discrete_mutation_initial_population_uses_discrete_grid(self):
+        """Discrete mode must keep using the ROBUST_* grid for initial population."""
+        buy_f = {"equal_slice": _relevant_buy_parameter_fields("equal_slice")}
+        sell_f = {"cost_deleverage": _relevant_sell_parameter_fields("cost_deleverage", self.inputs, "equal_slice")}
+        cfg = EvolutionConfig(population_size=30, continuous_mutation=False)
+        pop = _initialize_population(
+            ["equal_slice"], ["cost_deleverage"], buy_f, sell_f, self.inputs, 30,
+            cross_strategy=False, cat_restrict=cfg,
+        )
+        self.assertEqual(len(pop), 30)
+        step_grid = {2.5, 5.0, 10.0}
+        for ind in pop:
+            sp = ind.buy_params.get("step_pct")
+            if sp is not None:
+                self.assertIn(sp, step_grid, f"discrete mode step_pct {sp} outside grid")
+
     def test_crossover_preserves_strategy_keys(self):
         buy_f = {"equal_slice": _relevant_buy_parameter_fields("equal_slice")}
         sell_f = {"grid_rebound": _relevant_sell_parameter_fields("grid_rebound", self.inputs, "equal_slice")}

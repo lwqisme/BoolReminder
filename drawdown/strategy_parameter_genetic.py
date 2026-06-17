@@ -551,32 +551,37 @@ def _initialize_population(
                 seen_keys.add(default_ind.key)
                 population.append(default_ind)
 
-    # Seed 2-4: Best known parameter sets (capped to avoid exceeding pop size)
-    for bs in buy_strategies:
-        if len(population) >= population_size:
-            break
-        for ss in sell_strategies:
-            if not cross_strategy and (bs != buy_strategies[0] or ss != sell_strategies[0]):
-                continue
+    # Seed 2-4: Best known parameter sets (capped to avoid exceeding pop size).
+    # In continuous-mutation (野蛮生长) mode the discrete seed grid would dominate the
+    # initial population and starve the GA of continuous diversity — skip it so the
+    # random continuous fill below can spread individuals across the full bound range.
+    use_discrete_seeds = not (cat_restrict and cat_restrict.continuous_mutation)
+    if use_discrete_seeds:
+        for bs in buy_strategies:
             if len(population) >= population_size:
                 break
-            buy_fields = all_buy_fields.get(bs, [])
-            sell_fields = all_sell_fields.get(ss, [])
-            for seed_params in _generate_seeded_params(bs, ss, base_inputs, buy_fields, sell_fields):
+            for ss in sell_strategies:
+                if not cross_strategy and (bs != buy_strategies[0] or ss != sell_strategies[0]):
+                    continue
                 if len(population) >= population_size:
                     break
-                # Apply categorical restriction
-                if cat_restrict:
-                    if cat_restrict.buy_rearm_mode and "buy_rearm_mode" in seed_params:
-                        seed_params["buy_rearm_mode"] = cat_restrict.buy_rearm_mode
-                    if cat_restrict.sell_allow_same_day_sell and "sell_allow_same_day_sell" in seed_params:
-                        seed_params["sell_allow_same_day_sell"] = cat_restrict.sell_allow_same_day_sell == "true"
-                ind = Individual(bs, ss,
-                    buy_params={k: v for k, v in seed_params.items() if k in buy_fields},
-                    sell_params={k: v for k, v in seed_params.items() if k in sell_fields})
-                if ind.key not in seen_keys:
-                    seen_keys.add(ind.key)
-                    population.append(ind)
+                buy_fields = all_buy_fields.get(bs, [])
+                sell_fields = all_sell_fields.get(ss, [])
+                for seed_params in _generate_seeded_params(bs, ss, base_inputs, buy_fields, sell_fields):
+                    if len(population) >= population_size:
+                        break
+                    # Apply categorical restriction
+                    if cat_restrict:
+                        if cat_restrict.buy_rearm_mode and "buy_rearm_mode" in seed_params:
+                            seed_params["buy_rearm_mode"] = cat_restrict.buy_rearm_mode
+                        if cat_restrict.sell_allow_same_day_sell and "sell_allow_same_day_sell" in seed_params:
+                            seed_params["sell_allow_same_day_sell"] = cat_restrict.sell_allow_same_day_sell == "true"
+                    ind = Individual(bs, ss,
+                        buy_params={k: v for k, v in seed_params.items() if k in buy_fields},
+                        sell_params={k: v for k, v in seed_params.items() if k in sell_fields})
+                    if ind.key not in seen_keys:
+                        seen_keys.add(ind.key)
+                        population.append(ind)
 
     # Fill rest with random
     max_attempts = population_size * 10
@@ -586,7 +591,7 @@ def _initialize_population(
         bs, ss = _pick_strategies()
         ind = _random_individual(bs, ss,
             all_buy_fields.get(bs, []), all_sell_fields.get(ss, []), base_inputs,
-            continuous_mutation=cross_strategy and False,
+            continuous_mutation=bool(cat_restrict and cat_restrict.continuous_mutation),
             cat_restrict=cat_restrict)
         if ind.key not in seen_keys:
             seen_keys.add(ind.key)
@@ -598,6 +603,7 @@ def _initialize_population(
         bs, ss = _pick_strategies()
         ind = _random_individual(bs, ss,
             all_buy_fields.get(bs, []), all_sell_fields.get(ss, []), base_inputs,
+            continuous_mutation=bool(cat_restrict and cat_restrict.continuous_mutation),
             cat_restrict=cat_restrict)
         unique_key = f"{ind.key}__pad{suffix}"
         object.__setattr__(ind, "key", unique_key)

@@ -59,7 +59,8 @@ function gaParamKey(ind) {
     }
     return buildCandidateKey(ind.buy_strategy || '', ind.sell_strategy || '', bp, sp);
 }
-function gaDedupByDisplayStats(finalRows) {
+function gaDedupByDisplayStats(finalRows, skipStatsDedup) {
+    if (skipStatsDedup) return finalRows.slice();
     const deduped = [];
     const seen = {};
     for (let ri = 0; ri < finalRows.length; ri++) {
@@ -504,6 +505,20 @@ function test_gaDedupByDisplayStats_handles_empty() {
     console.log('PASS: test_gaDedupByDisplayStats_handles_empty');
 }
 
+function test_gaDedupByDisplayStats_skips_dedup_in_continuous_mode() {
+    // 野蛮生长 mode: same avg stats but different params must ALL survive so the
+    // user can see parameter-space diversity (regression: TSLA equal_slice+cost_deleverage
+    // collapsed every run to one row because cost tiers never triggered).
+    const rows = [
+        { avg_return: 310.19, avg_drawdown: -36.47, avg_sell_quality: 84.57, fitness: 90, label: 'a' },
+        { avg_return: 310.19, avg_drawdown: -36.47, avg_sell_quality: 84.57, fitness: 85, label: 'b' },
+        { avg_return: 310.19, avg_drawdown: -36.47, avg_sell_quality: 84.57, fitness: 80, label: 'c' },
+    ];
+    const deduped = gaDedupByDisplayStats(rows, true /* skipStatsDedup */);
+    assert.strictEqual(deduped.length, 3, 'continuous mode must keep all unique-param rows');
+    console.log('PASS: test_gaDedupByDisplayStats_skips_dedup_in_continuous_mode');
+}
+
 // ── LEAPS preset payload builder ──
 function buildLeapsPresetPayload(row, note) {
     const fields = [
@@ -587,6 +602,7 @@ const tests = [
     test_gaDedupByDisplayStats_removes_duplicate_stats,
     test_gaDedupByDisplayStats_preserves_unique_entries,
     test_gaDedupByDisplayStats_handles_empty,
+    test_gaDedupByDisplayStats_skips_dedup_in_continuous_mode,
     test_buildLeapsPresetPayload_all_fields,
     test_buildLeapsPresetPayload_no_note,
     test_buildLeapsPresetPayload_excludes_non_leaps_fields,
