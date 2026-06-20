@@ -46,6 +46,12 @@ from .store import (
     snapshot_path,
     save_nport_snapshot,
     nport_snapshot_path,
+    load_latest_portfolios,
+    load_latest_daily_snapshot,
+    list_nport_snapshots,
+    load_nport_snapshot,
+    list_daily_snapshots,
+    load_daily_snapshot,
 )
 
 __all__ = [
@@ -63,4 +69,10 @@ __all__ = [
     "parse_nport_holdings",
     "save_nport_snapshot",
     "nport_snapshot_path",
+    "load_latest_portfolios",
+    "load_latest_daily_snapshot",
+    "list_nport_snapshots",
+    "load_nport_snapshot",
+    "list_daily_snapshots",
+    "load_daily_snapshot",
 ]

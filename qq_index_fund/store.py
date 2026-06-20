@@ -25,6 +25,15 @@ from typing import Optional
 
 from .fetch_holdings import Holding
 
+
+def _read_json(path: str) -> Optional[dict]:
+    """安全读取 JSON 文件；不存在或损坏返回 None。"""
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
 logger = logging.getLogger(__name__)
 
 # 项目数据根目录（data/ 与本模块的相对位置固定）。
@@ -185,3 +194,95 @@ def save_portfolios(
             json.dump(payload, fh, ensure_ascii=False, indent=2)
     logger.info("Saved QQ-index portfolios -> %s", paths[0])
     return paths
+
+
+# ---------------- 读取（供 web 页面使用） ----------------
+
+
+def load_latest_portfolios(data_dir: Optional[str] = None) -> Optional[dict]:
+    """读取最新派生组合快照（latest.json）。无则返回 None。"""
+    base = data_dir or _DEFAULT_DATA_DIR
+    return _read_json(os.path.join(base, "portfolios", "latest.json"))
+
+
+def load_latest_daily_snapshot(data_dir: Optional[str] = None) -> Optional[dict]:
+    """读取最近一份 stockanalysis 每日快照（按文件名日期降序）。"""
+    base = data_dir or _DEFAULT_DATA_DIR
+    hdir = os.path.join(base, "holdings")
+    if not os.path.isdir(hdir):
+        return None
+    files = sorted(
+        (f for f in os.listdir(hdir) if f.endswith(".json")),
+        reverse=True,
+    )
+    if not files:
+        return None
+    return _read_json(os.path.join(hdir, files[0]))
+
+
+def _nport_dir(data_dir: Optional[str] = None) -> str:
+    return os.path.join(data_dir or _DEFAULT_DATA_DIR, "nport")
+
+
+def list_nport_snapshots(data_dir: Optional[str] = None) -> list[dict]:
+    """
+    列出所有 N-PORT 历史快照的摘要（按报告期降序）。
+
+    每条含 repd_date / filing_date / count / ticker_resolved / top10（前10 ticker）。
+    """
+    ndir = _nport_dir(data_dir)
+    if not os.path.isdir(ndir):
+        return []
+    out: list[dict] = []
+    for name in os.listdir(ndir):
+        if not name.endswith(".json"):
+            continue
+        snap = _read_json(os.path.join(ndir, name))
+        if not snap:
+            continue
+        holdings = snap.get("holdings", [])
+        holdings_sorted = sorted(holdings, key=lambda h: h.get("val_usd", 0), reverse=True)
+        top10 = [
+            {
+                "rank": h.get("rank"),
+                "ticker": h.get("ticker"),
+                "symbol": h.get("symbol"),
+                "name": h.get("name"),
+                "pct_val": h.get("pct_val"),
+            }
+            for h in holdings_sorted[:10]
+        ]
+        out.append({
+            "repd_date": snap.get("repd_date") or name[:-5],
+            "filing_date": snap.get("filing_date"),
+            "accession": snap.get("accession"),
+            "count": snap.get("count"),
+            "ticker_resolved": snap.get("ticker_resolved"),
+            "top10": top10,
+        })
+    out.sort(key=lambda x: x["repd_date"], reverse=True)
+    return out
+
+
+def load_nport_snapshot(repd_date: str, data_dir: Optional[str] = None) -> Optional[dict]:
+    """读取指定报告期的 N-PORT 完整快照。"""
+    path = nport_snapshot_path(repd_date, data_dir)
+    return _read_json(path)
+
+
+def list_daily_snapshots(data_dir: Optional[str] = None) -> list[str]:
+    """列出每日快照的日期（降序），供历史浏览。"""
+    base = data_dir or _DEFAULT_DATA_DIR
+    hdir = os.path.join(base, "holdings")
+    if not os.path.isdir(hdir):
+        return []
+    return sorted(
+        (f[:-5] for f in os.listdir(hdir) if f.endswith(".json")),
+        reverse=True,
+    )
+
+
+def load_daily_snapshot(day: str, data_dir: Optional[str] = None) -> Optional[dict]:
+    """读取指定日期的每日快照。"""
+    base = data_dir or _DEFAULT_DATA_DIR
+    return _read_json(os.path.join(base, "holdings", f"{day}.json"))

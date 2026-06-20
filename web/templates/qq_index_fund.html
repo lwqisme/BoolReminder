@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QQ 指数基金 · QQQ Top10</title>
+    <style>
+        :root {
+            --paper: #fafafa;
+            --sky: #a2d5f2;
+            --blue: #07689f;
+            --bg: #e9f6fc;
+            --panel: #fafafa;
+            --border: #c7e4f5;
+            --ink: #06324c;
+            --muted: #58778d;
+            --accent: #ff7e67;
+            --accent-strong: #e8644f;
+            --shadow: 0 20px 48px rgba(7, 104, 159, 0.18);
+            --paper-shadow: 0 12px 30px rgba(7, 104, 159, 0.12);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; min-height: 100vh;
+            background:
+                radial-gradient(circle at 10% 0%, rgba(162, 213, 242, 0.78), transparent 34%),
+                radial-gradient(circle at 92% 8%, rgba(255, 126, 103, 0.24), transparent 30%),
+                linear-gradient(180deg, #fafafa 0%, #e9f6fc 48%, #d9effa 100%);
+            color: var(--ink);
+            font-family: "Aptos", "IBM Plex Sans", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+            font-size: 14px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 26px; }
+        .header {
+            display: flex; justify-content: space-between; align-items: flex-start;
+            gap: 18px; margin-bottom: 20px; padding: 24px;
+            border: 1px solid rgba(162, 213, 242, 0.48); border-radius: 8px;
+            background: linear-gradient(135deg, rgba(255, 126, 103, 0.22), transparent 34%),
+                        linear-gradient(115deg, #07689f 0%, #0b75ae 58%, #a2d5f2 100%);
+            color: #fafafa; box-shadow: var(--shadow);
+        }
+        .header-title { margin: 0; font-size: 26px; line-height: 1.15; }
+        .header-sub { margin: 8px 0 0; color: #eaf6fc; font-size: 13px; line-height: 1.5; }
+        .header-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+        .btn {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-height: 36px; padding: 8px 14px;
+            background: linear-gradient(180deg, #ff8c77, var(--accent-strong));
+            color: #fafafa; border: 1px solid var(--accent); border-radius: 7px;
+            cursor: pointer; text-decoration: none; font-weight: 700; font-size: 13px;
+            white-space: nowrap; box-shadow: 0 8px 16px rgba(255, 126, 103, 0.24);
+        }
+        .btn:hover { background: linear-gradient(180deg, #ff9b89, #df5f4a); }
+        .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+        .btn-secondary { background: rgba(250,250,250,0.12); color: #fafafa; border-color: rgba(250,250,250,0.36); box-shadow: none; }
+        .btn-secondary:hover { background: rgba(250,250,250,0.22); }
+        .btn-green { background: linear-gradient(180deg, #4ade80, #16a34a); border-color: #22c55e; box-shadow: 0 8px 16px rgba(34,197,94,0.24); }
+        .btn-green:hover { background: linear-gradient(180deg, #6ee7a0, #15803d); }
+        .panel {
+            background: linear-gradient(180deg, rgba(162,213,242,0.18), transparent 32%), var(--panel);
+            border: 1px solid var(--border); border-radius: 8px; padding: 20px;
+            margin-bottom: 16px; box-shadow: var(--paper-shadow);
+        }
+        .panel h2 { margin: 0 0 4px; font-size: 18px; }
+        .panel .meta { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+        .status { padding: 11px 13px; margin-bottom: 16px; border-radius: 8px; display: none; border: 1px solid transparent; }
+        .status.show { display: block; }
+        .status.success { background: #eaf6fc; color: #07547f; border-color: #a2d5f2; }
+        .status.error { background: #ffe5df; color: #b94d3b; border-color: #ffb2a3; }
+        .status.info { background: #fff7e6; color: #92500a; border-color: #ffd591; }
+        .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 760px) { .two-col { grid-template-columns: 1fr; } .header { flex-direction: column; align-items: flex-start; } }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+        th { color: var(--muted); font-weight: 600; font-size: 12px; }
+        td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+        tr:hover td { background: rgba(162,213,242,0.18); }
+        .ticker { font-weight: 700; color: var(--blue); }
+        .muted { color: var(--muted); }
+        .chip { display: inline-block; padding: 2px 8px; margin: 2px 3px 2px 0; border-radius: 10px;
+                background: rgba(7,104,159,0.1); color: var(--blue); font-size: 12px; font-weight: 600; }
+        .chip .pct { color: var(--muted); font-weight: 500; margin-left: 4px; }
+        .timeline-item { padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px;
+                         margin-bottom: 10px; background: #fff; cursor: pointer; transition: box-shadow 120ms; }
+        .timeline-item:hover { box-shadow: var(--paper-shadow); }
+        .timeline-item.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(255,126,103,0.25); }
+        .timeline-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+        .timeline-date { font-weight: 700; font-size: 15px; }
+        .timeline-stats { color: var(--muted); font-size: 12px; }
+        .detail-box { margin-top: 12px; display: none; }
+        .detail-box.show { display: block; }
+        .legend { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.6; }
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.4);
+                   border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: -2px; margin-right: 6px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .empty { color: var(--muted); font-style: italic; padding: 18px 0; text-align: center; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <div>
+            <h1 class="header-title">QQ 指数基金 · QQQ Top10</h1>
+            <p class="header-sub">抓取 QQQ 成分股 Top10，构建等权 / 市值加权两种组合 · 当前层 stockanalysis + 历史层 SEC N-PORT</p>
+        </div>
+        <div class="header-actions">
+            <a href="/" class="btn btn-secondary">BOLL 首页</a>
+            <button id="btn-refresh-current" class="btn btn-green" onclick="refreshCurrent()">刷新当前快照</button>
+            <button id="btn-refresh-nport" class="btn" onclick="refreshNportLatest()">抓最新 N-PORT</button>
+            <button id="btn-backfill" class="btn btn-secondary" onclick="backfillNport()">回溯全部 N-PORT</button>
+        </div>
+    </div>
+
+    <div id="status" class="status"></div>
+
+    <!-- 当前快照 -->
+    <div class="panel">
+        <h2>当前快照（stockanalysis.com）</h2>
+        <div class="meta" id="current-meta">{{ current_meta }}</div>
+        {% if current_holdings %}
+        <div class="two-col">
+            <div>
+                <h3 style="margin:0 0 8px; font-size:14px; color:var(--muted);">qq_top10_equal · 等权</h3>
+                <table>
+                    <thead><tr><th>#</th><th>代码</th><th class="num">权重</th></tr></thead>
+                    <tbody>
+                    {% for t in portfolios_equal %}
+                        <tr><td>{{ loop.index }}</td><td class="ticker">{{ t.symbol }}</td><td class="num">{{ t.weight }}%</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div>
+                <h3 style="margin:0 0 8px; font-size:14px; color:var(--muted);">qq_top10_weighted · 市值加权</h3>
+                <table>
+                    <thead><tr><th>#</th><th>代码</th><th class="num">权重</th></tr></thead>
+                    <tbody>
+                    {% for t in portfolios_weighted %}
+                        <tr><td>{{ loop.index }}</td><td class="ticker">{{ t.symbol }}</td><td class="num">{{ t.weight }}%</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <details style="margin-top:14px;">
+            <summary style="cursor:pointer; color:var(--blue); font-size:13px;">展开完整 Top{{ current_holdings|length }} 持仓（{{ current_holdings|length }} 只）</summary>
+            <table style="margin-top:8px;">
+                <thead><tr><th>#</th><th>代码</th><th>名称</th><th class="num">权重%</th><th>Longbridge</th></tr></thead>
+                <tbody>
+                {% for h in current_holdings %}
+                    <tr><td>{{ h.rank }}</td><td class="ticker">{{ h.ticker }}</td><td>{{ h.name }}</td><td class="num">{{ h.weight_pct }}</td><td class="muted">{{ h.symbol }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </details>
+        {% else %}
+        <div class="empty">尚无当前快照。点上方"刷新当前快照"抓取。</div>
+        {% endif %}
+        <div class="legend">当前层每日抓取 stockanalysis.com 的 QQQ 持仓页面（服务端渲染 HTML，零依赖），捕捉季内权重漂移与临时增删。</div>
+    </div>
+
+    <!-- N-PORT 历史 -->
+    <div class="panel">
+        <h2>历史快照（SEC EDGAR N-PORT-P · 季度）</h2>
+        <div class="meta">共 {{ nport_snapshots|length }} 份季度快照{% if nport_snapshots %}，报告期 {{ nport_snapshots[-1].repd_date }} ~ {{ nport_snapshots[0].repd_date }}{% endif %} · 用于回测任意时间段</div>
+        {% if nport_snapshots %}
+        <div id="timeline">
+            {% for s in nport_snapshots %}
+            <div class="timeline-item" onclick="toggleDetail('{{ s.repd_date }}', this)">
+                <div class="timeline-head">
+                    <span class="timeline-date">{{ s.repd_date }} <span class="muted" style="font-size:12px;">(申报 {{ s.filing_date }})</span></span>
+                    <span class="timeline-stats">{{ s.count }} 持仓 · {{ s.ticker_resolved }} 个 ticker 已解析</span>
+                </div>
+                <div style="margin-top:6px;">
+                    {% for h in s.top10 %}
+                    <span class="chip">{{ h.ticker or '??' }}<span class="pct">{{ '%.2f'|format(h.pct_val) }}%</span></span>
+                    {% endfor %}
+                </div>
+                <div class="detail-box" id="detail-{{ s.repd_date }}"></div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty">尚无 N-PORT 历史快照。点上方"抓最新 N-PORT"或"回溯全部 N-PORT"。</div>
+        {% endif %}
+        <div class="legend">历史层抓取 SEC EDGAR 的 N-PORT-P 季度申报（QQQ CIK 0001067839），2019 年起可回溯，含当时完整持仓。ticker 由 name 归一化匹配 + CUSIP override 解析；未解析（??）多为历史改名公司。点击条目展开完整持仓。</div>
+    </div>
+</div>
+
+<script>
+function showStatus(type, msg) {
+    const el = document.getElementById('status');
+    el.className = 'status show ' + type;
+    el.textContent = msg;
+}
+function clearStatus() { document.getElementById('status').className = 'status'; }
+
+async function postAction(url, btnId, busyText) {
+    const btn = document.getElementById(btnId);
+    const orig = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>' + busyText;
+    clearStatus();
+    try {
+        const resp = await fetch(url, { method: 'POST' });
+        const data = await resp.json();
+        if (data.success) {
+            showStatus('success', data.message || '完成，正在刷新页面…');
+            setTimeout(() => location.reload(), 800);
+        } else {
+            showStatus('error', data.message || '操作失败');
+            btn.disabled = false; btn.innerHTML = orig;
+        }
+    } catch (e) {
+        showStatus('error', '请求失败: ' + e);
+        btn.disabled = false; btn.innerHTML = orig;
+    }
+}
+function refreshCurrent() { return postAction('/api/qq-index-fund/refresh-current', 'btn-refresh-current', '抓取中…'); }
+function refreshNportLatest() { return postAction('/api/qq-index-fund/refresh-nport-latest', 'btn-refresh-nport', '抓取中…'); }
+function backfillNport() {
+    if (!confirm('回溯全部 N-PORT 约需 15-30 秒（27 份申报），确认开始？')) return;
+    return postAction('/api/qq-index-fund/refresh-nport-all', 'btn-backfill', '回溯中…');
+}
+
+const loaded = {};
+async function toggleDetail(repdDate, el) {
+    const box = document.getElementById('detail-' + repdDate);
+    document.querySelectorAll('.timeline-item').forEach(i => i.classList.remove('active'));
+    el.classList.add('active');
+    if (box.classList.contains('show')) { box.classList.remove('show'); return; }
+    if (!loaded[repdDate]) {
+        box.innerHTML = '<span class="muted">加载中…</span>';
+        try {
+            const resp = await fetch('/api/qq-index-fund/nport/' + repdDate);
+            const data = await resp.json();
+            if (!data.success) throw new Error(data.message);
+            const hs = data.snapshot.holdings.sort((a,b) => b.val_usd - a.val_usd);
+            loaded[repdDate] = '<table><thead><tr><th>#</th><th>代码</th><th>名称</th>' +
+                '<th class="num">占NAV%</th><th class="num">市值USD</th><th>CUSIP</th></tr></thead><tbody>' +
+                hs.map(h => '<tr><td>'+h.rank+'</td><td class="ticker">'+(h.ticker||'??')+'</td><td>'+h.name+'</td>' +
+                '<td class="num">'+(h.pct_val?h.pct_val.toFixed(2):'-')+'</td>' +
+                '<td class="num">'+(h.val_usd?Math.round(h.val_usd).toLocaleString():'-')+'</td>' +
+                '<td class="muted">'+(h.cusip||'-')+'</td></tr>').join('') +
+                '</tbody></table>';
+        } catch (e) { loaded[repdDate] = '<span class="muted">加载失败: '+e+'</span>'; }
+    }
+    box.innerHTML = loaded[repdDate];
+    box.classList.add('show');
+}
+</script>
+</body>
+</html>

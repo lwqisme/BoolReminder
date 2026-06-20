@@ -1144,6 +1144,7 @@ INDEX_TEMPLATE = """
         .hero-card.strategy { background: linear-gradient(135deg, #0f766e 0%, #059669 100%); }
         .hero-card.portal { background: linear-gradient(135deg, #334155 0%, #0f172a 100%); }
         .hero-card.parameter { background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%); }
+        .hero-card.qqindex { background: linear-gradient(135deg, #b45309 0%, #d97706 58%, #f59e0b 100%); }
         .panel {
             background:
                 linear-gradient(180deg, rgba(162, 213, 242, 0.18), transparent 32%),
@@ -1195,6 +1196,10 @@ INDEX_TEMPLATE = """
             <a href="/strategy-lab/parameter-lab" class="hero-card parameter">
                 <strong>参数实验室</strong>
                 <span>策略参数全量演算与遗传算法寻优</span>
+            </a>
+            <a href="/qq-index-fund" class="hero-card qqindex">
+                <strong>QQ 指数基金</strong>
+                <span>QQQ Top10 等权/加权组合 · N-PORT 历史快照</span>
             </a>
             <a href="http://aqcloud.ltd" class="hero-card portal" target="_blank">
                 <strong>AQCloud 首页</strong>
@@ -11726,6 +11731,122 @@ def api_option_quote():
 
     except Exception as e:
         return jsonify({"success": False, "message": f"查询失败: {str(e)}"}), 500
+
+
+# ===================== QQ 指数基金 =====================
+
+def _qq_index_page_context() -> dict[str, object]:
+    """组装 QQ 指数基金页面上下文。"""
+    from qq_index_fund import (
+        load_latest_portfolios,
+        load_latest_daily_snapshot,
+        list_nport_snapshots,
+    )
+    daily = load_latest_daily_snapshot()
+    portfolios = load_latest_portfolios() or {}
+    portfolios_data = portfolios.get("portfolios", {}) if portfolios else {}
+    equal = portfolios_data.get("qq_top10_equal", [])
+    weighted = portfolios_data.get("qq_top10_weighted", [])
+
+    current_holdings = []
+    current_meta = "尚无当前快照"
+    if daily:
+        current_holdings = daily.get("holdings", [])
+        current_meta = (
+            f"快照日期 {daily.get('as_of_date', '-')} · 来源 {daily.get('source', '-')} · "
+            f"{daily.get('count', len(current_holdings))} 只持仓 · 抓取于 {daily.get('fetched_at', '-')[:19]}"
+        )
+    return {
+        "current_meta": current_meta,
+        "current_holdings": current_holdings,
+        "portfolios_equal": equal,
+        "portfolios_weighted": weighted,
+        "nport_snapshots": list_nport_snapshots(),
+    }
+
+
+@app.route('/qq-index-fund')
+def qq_index_fund_page():
+    """QQ 指数基金页面：QQQ Top10 等权/加权组合 + N-PORT 历史快照。"""
+    response = app.make_response(render_template("qq_index_fund.html", **_qq_index_page_context()))
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+@app.route('/api/qq-index-fund/nport/<repd_date>')
+def api_qq_index_nport_detail(repd_date: str):
+    """获取指定报告期的 N-PORT 完整快照。"""
+    from qq_index_fund import load_nport_snapshot
+    snap = load_nport_snapshot(repd_date)
+    if not snap:
+        return jsonify({"success": False, "message": f"未找到报告期 {repd_date} 的快照"}), 404
+    return jsonify({"success": True, "snapshot": snap})
+
+
+@app.route('/api/qq-index-fund/refresh-current', methods=['POST'])
+def api_qq_index_refresh_current():
+    """抓取 stockanalysis 当前快照并落盘。"""
+    try:
+        from qq_index_fund import fetch_qqq_holdings, save_snapshot, build_portfolios, save_portfolios
+        holdings = fetch_qqq_holdings()
+        snap_path = save_snapshot(holdings)
+        portfolios = build_portfolios(holdings)
+        save_portfolios(portfolios)
+        return jsonify({
+            "success": True,
+            "message": f"已抓取 {len(holdings)} 只持仓（{holdings[0].ticker}…），快照已更新。",
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "message": f"抓取失败: {e}"}), 500
+
+
+@app.route('/api/qq-index-fund/refresh-nport-latest', methods=['POST'])
+def api_qq_index_refresh_nport_latest():
+    """抓取最新一份 SEC N-PORT 快照并落盘。"""
+    try:
+        from qq_index_fund import fetch_nport_filings, fetch_nport_snapshot, build_ticker_index, save_nport_snapshot
+        filings = fetch_nport_filings()
+        if not filings:
+            return jsonify({"success": False, "message": "未找到任何 N-PORT 申报"}), 404
+        latest = filings[-1]
+        index = build_ticker_index()
+        snapshot = fetch_nport_snapshot(latest, index)
+        save_nport_snapshot(snapshot)
+        return jsonify({
+            "success": True,
+            "message": f"已抓取 N-PORT（报告期 {snapshot['repd_date']}），{snapshot['count']} 持仓，"
+                       f"{snapshot['ticker_resolved']} 个 ticker 已解析。",
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "message": f"抓取失败: {e}"}), 500
+
+
+@app.route('/api/qq-index-fund/refresh-nport-all', methods=['POST'])
+def api_qq_index_refresh_nport_all():
+    """回溯全部 SEC N-PORT 快照并落盘（约 27 份，耗时较长）。"""
+    try:
+        from qq_index_fund import fetch_nport_filings, fetch_nport_snapshot, build_ticker_index, save_nport_snapshot
+        filings = fetch_nport_filings()
+        index = build_ticker_index()
+        saved = 0
+        for f in filings:
+            try:
+                snapshot = fetch_nport_snapshot(f, index)
+                save_nport_snapshot(snapshot)
+                saved += 1
+            except Exception as inner:
+                print(f"N-PORT {f.filing_date} 抓取失败: {inner}")
+        return jsonify({
+            "success": True,
+            "message": f"回溯完成：{saved}/{len(filings)} 份 N-PORT 快照已落盘。",
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "message": f"回溯失败: {e}"}), 500
 
 
 if __name__ == '__main__':
