@@ -16,26 +16,36 @@ Strategy Lab / drawdown 逻辑解耦，不引入 longbridge / bs4 等依赖。
   - Invesco 官方 CSV 端点：HTTP 406（WAF 封锁），不可用。
   - en.wikipedia.org/wiki/Nasdaq-100：仅 IPv6 路由且不通（curl 000），不可用。
   - nasdaq.com holdings：HTTP 200 但数据由 JS 注入，HTML 内无内联成分，较脆。
+  - Yahoo/yfinance：HTTP 403 被墙，不可用。
 
 关于"回测某段时间"与"精准跟踪"
 ------------------------------
-本模块每次抓取都会落盘一条带 as_of_date 的完整快照（Top25）。回测需要
-"某时点成分"序列，因此正确的做法是从现在起**定期累积快照**，未来任意
-被快照覆盖的日期都能重算 Top10。注意：
-  - 本模块无法重建"今天之前"的历史成分（上述历史/变更源在该机器不可达）。
-  - QQQ 跟踪 Nasdaq-100；中途临时增删（如新股上市当日纳入）只有靠高频
-    快照才能捕捉——这正是本模块为定时调度而设计的原因。
+两层抓取互补：
+  - 当前层（fetch_holdings，stockanalysis）：每日快照 Top25，捕捉季内漂移与
+    临时增删（如新股上市当日纳入）。从现在起定期累积。
+  - 历史层（edgar_nport，SEC N-PORT-P）：季度末完整持仓，2019-11 起可回溯，
+    用于回测任意历史时间段。QQQ 的 N-PORT-P 是季度申报（非月度）。
 """
 
 from .fetch_holdings import (
     Holding,
     fetch_qqq_holdings,
 )
+from .edgar_nport import (
+    NportFiling,
+    NportHolding,
+    fetch_nport_filings,
+    fetch_nport_snapshot,
+    build_ticker_index,
+    parse_nport_holdings,
+)
 from .store import (
     save_snapshot,
     build_portfolios,
     save_portfolios,
     snapshot_path,
+    save_nport_snapshot,
+    nport_snapshot_path,
 )
 
 __all__ = [
@@ -45,4 +55,12 @@ __all__ = [
     "build_portfolios",
     "save_portfolios",
     "snapshot_path",
+    "NportFiling",
+    "NportHolding",
+    "fetch_nport_filings",
+    "fetch_nport_snapshot",
+    "build_ticker_index",
+    "parse_nport_holdings",
+    "save_nport_snapshot",
+    "nport_snapshot_path",
 ]

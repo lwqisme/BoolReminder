@@ -121,6 +121,40 @@ def build_portfolios(
     return {"qq_top10_equal": equal, "qq_top10_weighted": weighted}
 
 
+def nport_snapshot_path(repd_date: str, data_dir: Optional[str] = None) -> str:
+    """返回某月度 N-PORT 快照文件路径（按报告期 repd_date 命名）。"""
+    base = data_dir or _DEFAULT_DATA_DIR
+    return os.path.join(base, "nport", f"{repd_date}.json")
+
+
+def save_nport_snapshot(
+    snapshot: dict,
+    *,
+    data_dir: Optional[str] = None,
+) -> str:
+    """
+    落盘一份 N-PORT 历史快照（按报告期 repd_date 幂等覆盖）。
+
+    与每日 stockanalysis 快照分开存（nport/ 子目录），互不干扰。
+    用于回测任意历史时间段的成分股序列。
+
+    Returns:
+        写入的快照文件路径。
+    """
+    repd = snapshot.get("repd_date") or snapshot.get("filing_date")
+    if not repd:
+        raise ValueError("N-PORT snapshot missing repd_date/filing_date.")
+    path = nport_snapshot_path(repd, data_dir)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(snapshot, fh, ensure_ascii=False, indent=2)
+    logger.info(
+        "Saved N-PORT snapshot -> %s (repd=%s, %d holdings)",
+        path, repd, snapshot.get("count", 0),
+    )
+    return path
+
+
 def save_portfolios(
     portfolios: dict[str, list[dict]],
     *,
