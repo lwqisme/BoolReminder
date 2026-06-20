@@ -260,8 +260,8 @@
 
     <!-- 回测 -->
     <div class="panel">
-        <h2>回测（filing_date 再平衡 · 等权 / 加权双曲线）</h2>
-        <div class="meta">按 N-PORT 申报日再平衡（无前视偏差）· 段内股数追踪漂移 · 价格为 Longbridge 前复权日 K · 起始 NAV 归一化为 1.0</div>
+        <h2>回测（filing_date 再平衡 · 等权 / 加权 / QQQ 基准）</h2>
+        <div class="meta">按 N-PORT 申报日再平衡（无前视偏差）· 段内股数追踪漂移 · 价格为 Longbridge 前复权日 K · 起始 NAV 归一化为 1.0 · 虚线为 QQQ 完整 100 只基准对照</div>
         <div class="bt-controls">
             <div>
                 <label for="bt-start">起始日</label>
@@ -369,12 +369,13 @@ async function runBacktest() {
 
 function renderBacktest(r) {
     const stats = document.getElementById('bt-stats');
-    const eq = r.total_return_equal, wt = r.total_return_weighted;
-    const fmt = v => (v>=0?'+':'') + v.toFixed(2) + '%';
-    const cls = v => v >= 0 ? 'val pos' : 'val neg';
+    const eq = r.total_return_equal, wt = r.total_return_weighted, qqq = r.total_return_qqq;
+    const fmt = v => (v==null?'-':(v>=0?'+':'') + v.toFixed(2) + '%');
+    const cls = v => v == null ? 'val pos' : (v >= 0 ? 'val pos' : 'val neg');
     stats.innerHTML =
         statBox('等权总收益', fmt(eq), cls(eq)) +
         statBox('加权总收益', fmt(wt), cls(wt)) +
+        statBox('QQQ 基准', fmt(qqq), cls(qqq)) +
         statBox('交易日', r.dates.length, 'val pos') +
         statBox('再平衡', r.rebalance_count + ' 次', 'val pos') +
         statBox('成分股', r.symbols_used.length + ' 只', 'val pos');
@@ -384,11 +385,16 @@ function renderBacktest(r) {
         line: { color: '#000', width: 2 }, hovertemplate: '%{x}<br>等权 %{y:.4f}<extra></extra>' };
     const wtTrace = { x: r.dates, y: r.nav_weighted, name: '加权', mode: 'lines',
         line: { color: '#888', width: 2, dash: 'dot' }, hovertemplate: '%{x}<br>加权 %{y:.4f}<extra></extra>' };
+    const qqqTrace = { x: r.dates, y: r.nav_qqq, name: 'QQQ 基准', mode: 'lines',
+        line: { color: '#fff', width: 2, dash: 'dash' },  // 白色虚线在黑背景外不好辨
+        hovertemplate: '%{x}<br>QQQ %{y:.4f}<extra></extra>' };
+    // QQQ 用浅灰实线更清晰
+    qqqTrace.line = { color: '#bbb', width: 1.5, dash: 'longdash' };
     // 再平衡标记
     const rbDates = r.rebalances.map(b => b.apply_date);
     const rbY = r.rebalances.map(b => {
         const i = r.dates.indexOf(b.apply_date);
-        return i >= 0 ? Math.max(r.nav_equal[i], r.nav_weighted[i]) : null;
+        return i >= 0 ? Math.max(r.nav_equal[i], r.nav_weighted[i], r.nav_qqq[i]||0) : null;
     });
     const rbTrace = { x: rbDates, y: rbY, name: '再平衡', mode: 'markers',
         marker: { symbol: 'triangle-up', size: 9, color: '#000', line: { width: 0 } },
@@ -403,7 +409,7 @@ function renderBacktest(r) {
         legend: { orientation: 'h', y: 1.12, bgcolor: 'rgba(0,0,0,0)' },
         showlegend: true,
     };
-    Plotly.newPlot('bt-chart', [eqTrace, wtTrace, rbTrace], layout, { displayModeBar: false, responsive: true });
+    Plotly.newPlot('bt-chart', [eqTrace, wtTrace, qqqTrace, rbTrace], layout, { displayModeBar: false, responsive: true });
 
     const notes = document.getElementById('bt-notes');
     notes.textContent = (r.notes || []).join(' ｜ ');

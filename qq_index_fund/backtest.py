@@ -60,8 +60,10 @@ class BacktestResult:
     dates: list[str]
     nav_equal: list[float]
     nav_weighted: list[float]
+    nav_qqq: list[float]            # QQQ 原始曲线（前复权，归一化到 1.0）作基准对照
     total_return_equal: float
     total_return_weighted: float
+    total_return_qqq: float
     rebalances: list[RebalanceEvent]
     symbols_used: list[str]
     notes: list[str] = field(default_factory=list)
@@ -73,8 +75,10 @@ class BacktestResult:
             "dates": self.dates,
             "nav_equal": self.nav_equal,
             "nav_weighted": self.nav_weighted,
+            "nav_qqq": self.nav_qqq,
             "total_return_equal": round(self.total_return_equal, 4),
             "total_return_weighted": round(self.total_return_weighted, 4),
+            "total_return_qqq": round(self.total_return_qqq, 4),
             "rebalance_count": len(self.rebalances),
             "rebalances": [
                 {
@@ -303,11 +307,17 @@ def fetch_prices(
     start: date,
     end: date,
     quote_ctx=None,
+    *,
+    include_qqq: bool = False,
 ) -> dict[str, dict[str, float]]:
     """
     为每个 symbol 抓取 [start, end] 前复权日 K，返回 {symbol: {date_iso: close}}。
     quote_ctx 为 None 时自动构建（需 Longbridge 凭证）。
+    include_qqq=True 时额外抓 QQQ.US 作基准对照（不参与组合）。
     """
+    syms = list(symbols)
+    if include_qqq and "QQQ.US" not in syms:
+        syms.append("QQQ.US")
     from drawdown.generate_drawdown_report import (
         build_longbridge_quote_context,
         fetch_longbridge_daily_candles,
@@ -319,7 +329,7 @@ def fetch_prices(
         quote_ctx = build_longbridge_quote_context()
 
     out: dict[str, dict[str, float]] = {}
-    for sym in symbols:
+    for sym in syms:
         try:
             candles = fetch_longbridge_daily_candles(quote_ctx, sym, start, end)
         except Exception as exc:
@@ -396,7 +406,7 @@ def run_backtest(
 
     # 价格抓取区间向前扩几天，确保再平衡对齐日有价
     fetch_start = start - timedelta(days=10)
-    prices = fetch_prices(sorted(candidate_symbols), fetch_start, end, quote_ctx=quote_ctx)
+    prices = fetch_prices(sorted(candidate_symbols), fetch_start, end, quote_ctx=quote_ctx, include_qqq=True)
 
     # 交易日历 = 所有 symbol 价格日期的并集，落在 [start, end]
     day_set: set[str] = set()
@@ -420,20 +430,64 @@ def run_backtest(
     nav_equal = simulate(trading_days, prices, rebalances, "equal")
     nav_weighted = simulate(trading_days, prices, rebalances, "weighted")
 
+    # QQQ 基准曲线：前复权收盘价归一化到首个交易日=1.0，缺失日前向填充，
+    # 与组合曲线共享同一交易日历。QQQ 本身不参与组合。
+    qqq_series = prices.get("QQQ.US", {})
+    nav_qqq = _normalize_benchmark(qqq_series, trading_days)
+    if not qqq_series:
+        notes.append("QQQ 基准价格未取到，对照曲线为空。")
+
     def total_ret(series: list[float]) -> float:
         if not series or series[0] <= 0:
             return 0.0
         return (series[-1] / series[0] - 1.0) * 100.0
 
+    # symbols_used 为组合成分（不含 QQQ 基准）
+    portfolio_symbols = sorted(s for s in prices.keys() if s != "QQQ.US")
     return BacktestResult(
         start=start.isoformat(),
         end=end.isoformat(),
         dates=trading_days,
         nav_equal=nav_equal,
         nav_weighted=nav_weighted,
+        nav_qqq=nav_qqq,
         total_return_equal=total_ret(nav_equal),
         total_return_weighted=total_ret(nav_weighted),
+        total_return_qqq=total_ret(nav_qqq),
         rebalances=rebalances,
-        symbols_used=sorted(prices.keys()),
+        symbols_used=portfolio_symbols,
         notes=notes,
     )
+
+
+def _normalize_benchmark(
+    series: dict[str, float],
+    trading_days: list[str],
+) -> list[float]:
+    """
+    将基准（如 QQQ）前复权收盘价归一化为 NAV 曲线：首个交易日=1.0。
+    缺失日按最近已知价前向填充（与组合模拟的 last_price 一致）。
+    无任何价格时返回与交易日等长的 1.0 列表（基准缺省）。
+    """
+    if not series:
+        return [1.0] * len(trading_days)
+    # 最近已知价（≤ 当日）
+    def last_known(on_date: str) -> Optional[float]:
+        best = None
+        for d, c in series.items():
+            if d <= on_date and (best is None or d > best[0]):
+                best = (d, c)
+        return best[1] if best else None
+
+    out: list[float] = []
+    base: Optional[float] = None
+    for d in trading_days:
+        p = last_known(d)
+        if p is None:
+            # 该日尚无价（极少见，区间起始前扩了10天）；沿用前值或占位
+            out.append(out[-1] if out else 1.0)
+            continue
+        if base is None:
+            base = p
+        out.append(round(p / base, 6) if base else 1.0)
+    return out
