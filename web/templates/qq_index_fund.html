@@ -151,7 +151,22 @@
         .empty { color: var(--muted); font-style: italic; padding: 18px 0; text-align: center; }
         /* 像素分隔条 */
         hr.px { border: 0; height: 4px; background: repeating-linear-gradient(90deg, #000 0 4px, transparent 0 8px); margin: 12px 0; }
+        /* 回测 */
+        .bt-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 14px; }
+        .bt-controls label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 3px; color: var(--muted); }
+        .bt-controls input[type=date] {
+            font-family: inherit; font-size: 13px; padding: 5px 8px;
+            border: 2px solid var(--ink); background: var(--paper); box-shadow: 2px 2px 0 0 #000;
+        }
+        .bt-stats { display: flex; flex-wrap: wrap; gap: 18px; margin: 12px 0; }
+        .bt-stat { border: 2px solid var(--ink); padding: 8px 14px; background: var(--paper); box-shadow: 3px 3px 0 0 #000; }
+        .bt-stat .lbl { font-size: 10px; text-transform: uppercase; color: var(--muted); letter-spacing: 0.5px; }
+        .bt-stat .val { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+        .bt-stat .val.pos { color: #000; }
+        .bt-stat .val.neg { background: var(--ink); color: var(--paper); padding: 0 4px; }
+        #bt-chart { width: 100%; height: 420px; border: 2px solid var(--ink); background: var(--paper); box-shadow: 3px 3px 0 0 #000; }
     </style>
+    <script src="/static/vendor/plotly-2.35.2.min.js"></script>
 </head>
 <body>
 <div class="container">
@@ -200,7 +215,7 @@
             </div>
         </div>
         <details style="margin-top:14px;">
-            <summary style="cursor:pointer; color:var(--blue); font-size:13px;">展开完整 Top{{ current_holdings|length }} 持仓（{{ current_holdings|length }} 只）</summary>
+            <summary style="cursor:pointer; color:var(--ink); font-size:13px; font-weight:700;">展开完整 Top{{ current_holdings|length }} 持仓（{{ current_holdings|length }} 只）</summary>
             <table style="margin-top:8px;">
                 <thead><tr><th>#</th><th>代码</th><th>名称</th><th class="num">权重%</th><th>Longbridge</th></tr></thead>
                 <tbody>
@@ -241,6 +256,26 @@
         <div class="empty">尚无 N-PORT 历史快照。点上方"抓最新 N-PORT"或"回溯全部 N-PORT"。</div>
         {% endif %}
         <div class="legend">历史层抓取 SEC EDGAR 的 N-PORT-P 季度申报（QQQ CIK 0001067839），2019 年起可回溯，含当时完整持仓。ticker 由 name 归一化匹配 + CUSIP override 解析；未解析（??）多为历史改名公司。点击条目展开完整持仓。</div>
+    </div>
+
+    <!-- 回测 -->
+    <div class="panel">
+        <h2>回测（filing_date 再平衡 · 等权 / 加权双曲线）</h2>
+        <div class="meta">按 N-PORT 申报日再平衡（无前视偏差）· 段内股数追踪漂移 · 价格为 Longbridge 前复权日 K · 起始 NAV 归一化为 1.0</div>
+        <div class="bt-controls">
+            <div>
+                <label for="bt-start">起始日</label>
+                <input type="date" id="bt-start" value="{{ bt_default_start }}">
+            </div>
+            <div>
+                <label for="bt-end">结束日</label>
+                <input type="date" id="bt-end" value="{{ bt_default_end }}">
+            </div>
+            <button id="btn-backtest" class="btn btn-green" onclick="runBacktest()">运行回测</button>
+        </div>
+        <div id="bt-stats" class="bt-stats" style="display:none;"></div>
+        <div id="bt-chart"></div>
+        <div id="bt-notes" class="legend"></div>
     </div>
 </div>
 
@@ -303,6 +338,79 @@ async function toggleDetail(repdDate, el) {
     }
     box.innerHTML = loaded[repdDate];
     box.classList.add('show');
+}
+
+async function runBacktest() {
+    const btn = document.getElementById('btn-backtest');
+    const orig = btn.innerHTML;
+    const start = document.getElementById('bt-start').value;
+    const end = document.getElementById('bt-end').value;
+    if (!start || !end) { showStatus('error', '请选择起止日期'); return; }
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>回测中…';
+    clearStatus();
+    document.getElementById('bt-stats').style.display = 'none';
+    Plotly.purge('bt-chart');
+    document.getElementById('bt-notes').textContent = '';
+    try {
+        const resp = await fetch('/api/qq-index-fund/backtest', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ start, end }),
+        });
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.message || '回测失败');
+        renderBacktest(data.result);
+        showStatus('success', '回测完成：' + data.result.dates.length + ' 个交易日，' + data.result.rebalance_count + ' 次再平衡');
+    } catch (e) {
+        showStatus('error', '回测失败: ' + e.message);
+    } finally {
+        btn.disabled = false; btn.innerHTML = orig;
+    }
+}
+
+function renderBacktest(r) {
+    const stats = document.getElementById('bt-stats');
+    const eq = r.total_return_equal, wt = r.total_return_weighted;
+    const fmt = v => (v>=0?'+':'') + v.toFixed(2) + '%';
+    const cls = v => v >= 0 ? 'val pos' : 'val neg';
+    stats.innerHTML =
+        statBox('等权总收益', fmt(eq), cls(eq)) +
+        statBox('加权总收益', fmt(wt), cls(wt)) +
+        statBox('交易日', r.dates.length, 'val pos') +
+        statBox('再平衡', r.rebalance_count + ' 次', 'val pos') +
+        statBox('成分股', r.symbols_used.length + ' 只', 'val pos');
+    stats.style.display = 'flex';
+
+    const eqTrace = { x: r.dates, y: r.nav_equal, name: '等权', mode: 'lines',
+        line: { color: '#000', width: 2 }, hovertemplate: '%{x}<br>等权 %{y:.4f}<extra></extra>' };
+    const wtTrace = { x: r.dates, y: r.nav_weighted, name: '加权', mode: 'lines',
+        line: { color: '#888', width: 2, dash: 'dot' }, hovertemplate: '%{x}<br>加权 %{y:.4f}<extra></extra>' };
+    // 再平衡标记
+    const rbDates = r.rebalances.map(b => b.apply_date);
+    const rbY = r.rebalances.map(b => {
+        const i = r.dates.indexOf(b.apply_date);
+        return i >= 0 ? Math.max(r.nav_equal[i], r.nav_weighted[i]) : null;
+    });
+    const rbTrace = { x: rbDates, y: rbY, name: '再平衡', mode: 'markers',
+        marker: { symbol: 'triangle-up', size: 9, color: '#000', line: { width: 0 } },
+        hovertemplate: '再平衡 %{x}<extra></extra>' };
+
+    const layout = {
+        paper_bgcolor: '#fff', plot_bgcolor: '#fff',
+        font: { family: 'IBM Plex Mono, Consolas, monospace', size: 12, color: '#000' },
+        margin: { l: 50, r: 20, t: 30, b: 40 },
+        xaxis: { gridcolor: '#ddd', linecolor: '#000', mirror: true, tickfont: { size: 10 } },
+        yaxis: { title: 'NAV (起始=1.0)', gridcolor: '#ddd', linecolor: '#000', mirror: true, tickfont: { size: 10 } },
+        legend: { orientation: 'h', y: 1.12, bgcolor: 'rgba(0,0,0,0)' },
+        showlegend: true,
+    };
+    Plotly.newPlot('bt-chart', [eqTrace, wtTrace, rbTrace], layout, { displayModeBar: false, responsive: true });
+
+    const notes = document.getElementById('bt-notes');
+    notes.textContent = (r.notes || []).join(' ｜ ');
+}
+
+function statBox(lbl, val, valCls) {
+    return '<div class="bt-stat"><div class="lbl">' + lbl + '</div><div class="' + valCls + '">' + val + '</div></div>';
 }
 </script>
 </body>

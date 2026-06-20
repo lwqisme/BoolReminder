@@ -60,11 +60,13 @@ _EDGAR_HEADERS = {
 # 请求间隔（秒）。SEC 政策 ≤10 req/s，留余量。
 _REQUEST_GAP = 0.15
 
-# CUSIP → ticker 手工 override：处理 N-PORT 里 name 相同但实为不同类别的股票。
+# CUSIP → ticker 手工 override：处理 N-PORT 里 name 相同但实为不同类别的股票，
+# 或 SEC company_tickers.json title 与 N-PORT name 因重注册标记(/NEW /DE)不匹配的情况。
 # CUSIP 是公开标识符，此处仅做映射不涉及授权数据。
 _CUSIP_OVERRIDES: dict[str, str] = {
     "02079K305": "GOOG",   # Alphabet Class C
     "02079K107": "GOOGL",  # Alphabet Class A
+    "22160K105": "COST",   # Costco — SEC 名册带 "/NEW" 标记，name 匹配失败
 }
 
 
@@ -160,8 +162,10 @@ def download_nport_xml(accession: str, cik: str = QQQ_CIK) -> str:
 # ---------- ticker 解析 ----------
 
 def _norm_name(name: str) -> str:
-    """公司名归一化：去标点、去法律后缀、小写、压空白。"""
+    """公司名归一化：去标点、去法律后缀、去重注册标记、小写、压空白。"""
     s = name.lower()
+    # 去重注册/州标记，如 "/NEW"、"/DE"、"/MD"（SEC 名册常见，N-PORT 通常无）
+    s = re.sub(r"\s*/[a-z]+\b", " ", s)
     s = re.sub(r"[.,&']", " ", s)
     s = re.sub(r"\b(inc|corp|corporation|co|ltd|limited|plc|holdings|group|the|class)\b", " ", s)
     s = re.sub(r"[^a-z0-9 ]", " ", s)

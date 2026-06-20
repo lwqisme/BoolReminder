@@ -11762,6 +11762,8 @@ def _qq_index_page_context() -> dict[str, object]:
         "portfolios_equal": equal,
         "portfolios_weighted": weighted,
         "nport_snapshots": list_nport_snapshots(),
+        "bt_default_start": (date.today() - timedelta(days=365)).isoformat(),
+        "bt_default_end": date.today().isoformat(),
     }
 
 
@@ -11783,6 +11785,29 @@ def api_qq_index_nport_detail(repd_date: str):
     if not snap:
         return jsonify({"success": False, "message": f"未找到报告期 {repd_date} 的快照"}), 404
     return jsonify({"success": True, "snapshot": snap})
+
+
+@app.route('/api/qq-index-fund/backtest', methods=['POST'])
+def api_qq_index_backtest():
+    """运行 QQ 指数基金回测：filing_date 再平衡，等权+加权双曲线。"""
+    try:
+        from qq_index_fund import run_backtest
+        payload = request.get_json(silent=True) or {}
+        start_raw = str(payload.get("start", "")).strip()
+        end_raw = str(payload.get("end", "")).strip()
+        if not start_raw or not end_raw:
+            return jsonify({"success": False, "message": "请提供 start 和 end 日期"}), 400
+        start = date.fromisoformat(start_raw)
+        end = date.fromisoformat(end_raw)
+        if end <= start:
+            return jsonify({"success": False, "message": "结束日必须晚于起始日"}), 400
+        result = run_backtest(start, end)
+        return jsonify({"success": True, "result": result.to_dict()})
+    except ValueError as e:
+        return jsonify({"success": False, "message": str(e)}), 400
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "message": f"回测失败: {e}"}), 500
 
 
 @app.route('/api/qq-index-fund/refresh-current', methods=['POST'])

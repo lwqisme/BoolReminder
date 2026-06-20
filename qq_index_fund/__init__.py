@@ -53,6 +53,12 @@ from .store import (
     list_daily_snapshots,
     load_daily_snapshot,
 )
+from .backtest import (
+    run_backtest,
+    BacktestResult,
+    RebalanceEvent,
+    derive_top10_weights,
+)
 
 __all__ = [
     "Holding",
@@ -75,4 +81,8 @@ __all__ = [
     "load_nport_snapshot",
     "list_daily_snapshots",
     "load_daily_snapshot",
+    "run_backtest",
+    "BacktestResult",
+    "RebalanceEvent",
+    "derive_top10_weights",
 ]
