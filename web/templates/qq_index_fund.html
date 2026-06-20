@@ -5,95 +5,152 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>QQ 指数基金 · QQQ Top10</title>
     <style>
+        /* ===== 黑白像素风 · monochrome pixel ===== */
         :root {
-            --paper: #fafafa;
-            --sky: #a2d5f2;
-            --blue: #07689f;
-            --bg: #e9f6fc;
-            --panel: #fafafa;
-            --border: #c7e4f5;
-            --ink: #06324c;
-            --muted: #58778d;
-            --accent: #ff7e67;
-            --accent-strong: #e8644f;
-            --shadow: 0 20px 48px rgba(7, 104, 159, 0.18);
-            --paper-shadow: 0 12px 30px rgba(7, 104, 159, 0.12);
+            --ink: #000000;
+            --paper: #ffffff;
+            --bg: #c7c7c7;
+            --bg2: #b0b0b0;
+            --panel: #ffffff;
+            --muted: #6b6b6b;
+            --line: #000000;
+            --shade: #d9d9d9;
+            --shade2: #9a9a9a;
+            --hl: #000000;
+            --hl-ink: #ffffff;
+            --accent: #000000;   /* 全黑白，accent 即黑色块 */
+            --shadow: 6px 6px 0 0 #000000;
+            --paper-shadow: 4px 4px 0 0 #000000;
+            --px: 0;
         }
         * { box-sizing: border-box; }
+        html { -webkit-font-smoothing: none; }
         body {
             margin: 0; min-height: 100vh;
-            background:
-                radial-gradient(circle at 10% 0%, rgba(162, 213, 242, 0.78), transparent 34%),
-                radial-gradient(circle at 92% 8%, rgba(255, 126, 103, 0.24), transparent 30%),
-                linear-gradient(180deg, #fafafa 0%, #e9f6fc 48%, #d9effa 100%);
+            background-color: var(--bg);
+            background-image:
+                /* 棋盘 dither 底纹 */
+                conic-gradient(from 0deg at 50% 50%, #c0c0c0 25%, #b5b5b5 0 50%, #c0c0c0 0 75%, #b5b5b5 0);
+            background-size: 6px 6px;
             color: var(--ink);
-            font-family: "Aptos", "IBM Plex Sans", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+            font-family: "PxPlus IBM VGA8", "IBM Plex Mono", "Consolas", "Menlo", "Noto Sans Mono CJK SC", "Microsoft YaHei", monospace;
             font-size: 14px;
+            letter-spacing: 0.2px;
+        }
+        /* 顶部/底部像素描边带 */
+        body::before {
+            content: ""; display: block; height: 6px;
+            background: repeating-linear-gradient(90deg, #000 0 6px, #fff 6px 12px);
         }
         .container { max-width: 1200px; margin: 0 auto; padding: 26px; }
+
         .header {
             display: flex; justify-content: space-between; align-items: flex-start;
-            gap: 18px; margin-bottom: 20px; padding: 24px;
-            border: 1px solid rgba(162, 213, 242, 0.48); border-radius: 8px;
-            background: linear-gradient(135deg, rgba(255, 126, 103, 0.22), transparent 34%),
-                        linear-gradient(115deg, #07689f 0%, #0b75ae 58%, #a2d5f2 100%);
-            color: #fafafa; box-shadow: var(--shadow);
+            gap: 18px; margin-bottom: 20px; padding: 18px 20px;
+            border: 3px solid var(--line); border-radius: 0;
+            background: var(--ink); color: var(--paper);
+            box-shadow: var(--shadow);
+            position: relative;
         }
-        .header-title { margin: 0; font-size: 26px; line-height: 1.15; }
-        .header-sub { margin: 8px 0 0; color: #eaf6fc; font-size: 13px; line-height: 1.5; }
+        .header::after {
+            content: ""; position: absolute; left: 0; right: 0; bottom: -3px; height: 3px;
+            background: repeating-linear-gradient(90deg, #000 0 4px, #fff 0 8px);
+            pointer-events: none;
+        }
+        .header-title {
+            margin: 0; font-size: 24px; line-height: 1.15; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 1px;
+            text-shadow: 2px 2px 0 #555;
+        }
+        .header-sub { margin: 8px 0 0; color: #cfcfcf; font-size: 12px; line-height: 1.5; }
         .header-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
         .btn {
             display: inline-flex; align-items: center; justify-content: center;
-            min-height: 36px; padding: 8px 14px;
-            background: linear-gradient(180deg, #ff8c77, var(--accent-strong));
-            color: #fafafa; border: 1px solid var(--accent); border-radius: 7px;
-            cursor: pointer; text-decoration: none; font-weight: 700; font-size: 13px;
-            white-space: nowrap; box-shadow: 0 8px 16px rgba(255, 126, 103, 0.24);
+            min-height: 34px; padding: 6px 12px;
+            background: var(--paper); color: var(--ink);
+            border: 2px solid var(--line); border-radius: 0;
+            cursor: pointer; text-decoration: none;
+            font-family: inherit; font-weight: 700; font-size: 12px;
+            text-transform: uppercase; letter-spacing: 0.5px;
+            white-space: nowrap; box-shadow: 3px 3px 0 0 #000;
         }
-        .btn:hover { background: linear-gradient(180deg, #ff9b89, #df5f4a); }
-        .btn:disabled { opacity: 0.55; cursor: not-allowed; }
-        .btn-secondary { background: rgba(250,250,250,0.12); color: #fafafa; border-color: rgba(250,250,250,0.36); box-shadow: none; }
-        .btn-secondary:hover { background: rgba(250,250,250,0.22); }
-        .btn-green { background: linear-gradient(180deg, #4ade80, #16a34a); border-color: #22c55e; box-shadow: 0 8px 16px rgba(34,197,94,0.24); }
-        .btn-green:hover { background: linear-gradient(180deg, #6ee7a0, #15803d); }
+        .btn:hover { background: var(--ink); color: var(--paper); transform: translate(1px,1px); box-shadow: 2px 2px 0 0 #000; }
+        .btn:active { transform: translate(3px,3px); box-shadow: 0 0 0 0 #000; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: 3px 3px 0 0 #000; }
+        .btn-secondary { background: transparent; color: var(--paper); border-color: var(--paper); box-shadow: 3px 3px 0 0 #fff; }
+        .btn-secondary:hover { background: var(--paper); color: var(--ink); }
+        .btn-green { background: var(--paper); color: var(--ink); border-style: double; border-width: 4px; box-shadow: 3px 3px 0 0 #fff; }
+        .btn-green:hover { background: var(--ink); color: var(--paper); border-color: var(--paper); }
+
         .panel {
-            background: linear-gradient(180deg, rgba(162,213,242,0.18), transparent 32%), var(--panel);
-            border: 1px solid var(--border); border-radius: 8px; padding: 20px;
+            background: var(--panel);
+            border: 3px solid var(--line); border-radius: 0; padding: 16px 18px;
             margin-bottom: 16px; box-shadow: var(--paper-shadow);
         }
-        .panel h2 { margin: 0 0 4px; font-size: 18px; }
+        .panel h2 {
+            margin: 0 0 4px; font-size: 16px; text-transform: uppercase; letter-spacing: 1px;
+            border-bottom: 2px solid var(--ink); padding-bottom: 6px;
+        }
         .panel .meta { color: var(--muted); font-size: 12px; margin-bottom: 14px; }
-        .status { padding: 11px 13px; margin-bottom: 16px; border-radius: 8px; display: none; border: 1px solid transparent; }
+        .status {
+            padding: 10px 12px; margin-bottom: 16px; border-radius: 0; display: none;
+            border: 2px solid var(--ink); font-weight: 700;
+        }
         .status.show { display: block; }
-        .status.success { background: #eaf6fc; color: #07547f; border-color: #a2d5f2; }
-        .status.error { background: #ffe5df; color: #b94d3b; border-color: #ffb2a3; }
-        .status.info { background: #fff7e6; color: #92500a; border-color: #ffd591; }
+        .status.success { background: var(--paper); color: var(--ink); }
+        .status.error { background: var(--ink); color: var(--paper); }
+        .status.info { background: var(--shade); color: var(--ink); }
         .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
         @media (max-width: 760px) { .two-col { grid-template-columns: 1fr; } .header { flex-direction: column; align-items: flex-start; } }
-        table { width: 100%; border-collapse: collapse; font-size: 13px; }
-        th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); }
-        th { color: var(--muted); font-weight: 600; font-size: 12px; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        th, td { text-align: left; padding: 5px 8px; border-bottom: 1px dashed var(--ink); }
+        th { color: var(--ink); font-weight: 700; font-size: 11px; text-transform: uppercase;
+             border-bottom: 2px solid var(--ink); background: var(--shade); }
+        tr:nth-child(even) td { background: #f3f3f3; }
+        tr:hover td { background: var(--ink); color: var(--paper); }
+        tr:hover td .ticker, tr:hover td .muted { color: var(--paper); }
         td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-        tr:hover td { background: rgba(162,213,242,0.18); }
-        .ticker { font-weight: 700; color: var(--blue); }
+        .ticker { font-weight: 700; color: var(--ink); }
         .muted { color: var(--muted); }
-        .chip { display: inline-block; padding: 2px 8px; margin: 2px 3px 2px 0; border-radius: 10px;
-                background: rgba(7,104,159,0.1); color: var(--blue); font-size: 12px; font-weight: 600; }
-        .chip .pct { color: var(--muted); font-weight: 500; margin-left: 4px; }
-        .timeline-item { padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px;
-                         margin-bottom: 10px; background: #fff; cursor: pointer; transition: box-shadow 120ms; }
-        .timeline-item:hover { box-shadow: var(--paper-shadow); }
-        .timeline-item.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(255,126,103,0.25); }
+        .chip {
+            display: inline-block; padding: 2px 7px; margin: 2px 3px 2px 0; border-radius: 0;
+            background: var(--paper); color: var(--ink); font-size: 11px; font-weight: 700;
+            border: 1px solid var(--ink); box-shadow: 2px 2px 0 0 #000;
+        }
+        .chip .pct { color: var(--muted); font-weight: 400; margin-left: 4px; }
+        .timeline-item {
+            padding: 10px 12px; border: 2px solid var(--ink); border-radius: 0;
+            margin-bottom: 10px; background: var(--paper); cursor: pointer;
+            box-shadow: 3px 3px 0 0 #000; transition: transform 80ms steps(2);
+        }
+        .timeline-item:hover { background: var(--shade); transform: translate(1px,1px); box-shadow: 2px 2px 0 0 #000; }
+        .timeline-item.active { background: var(--ink); color: var(--paper); }
+        .timeline-item.active .muted, .timeline-item.active .timeline-stats { color: #cfcfcf; }
+        .timeline-item.active .chip { background: var(--paper); color: var(--ink); }
         .timeline-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-        .timeline-date { font-weight: 700; font-size: 15px; }
-        .timeline-stats { color: var(--muted); font-size: 12px; }
+        .timeline-date { font-weight: 700; font-size: 14px; letter-spacing: 0.5px; }
+        .timeline-stats { color: var(--muted); font-size: 11px; }
         .detail-box { margin-top: 12px; display: none; }
         .detail-box.show { display: block; }
-        .legend { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.6; }
-        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.4);
-                   border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: -2px; margin-right: 6px; }
+        .legend {
+            font-size: 11px; color: var(--muted); margin-top: 10px; line-height: 1.6;
+            border-top: 1px dashed var(--shade2); padding-top: 8px;
+        }
+        .spinner {
+            display: inline-block; width: 12px; height: 12px;
+            background:
+                linear-gradient(#000,#000) 0 0/3px 3px no-repeat,
+                linear-gradient(#000,#000) 100% 100%/3px 3px no-repeat,
+                linear-gradient(#000,#000) 0 100%/3px 3px no-repeat,
+                linear-gradient(#000,#000) 100% 0/3px 3px no-repeat;
+            vertical-align: -1px; margin-right: 6px;
+            animation: blink 0.6s steps(2) infinite;
+        }
+        @keyframes blink { 50% { opacity: 0.15; } }
         @keyframes spin { to { transform: rotate(360deg); } }
         .empty { color: var(--muted); font-style: italic; padding: 18px 0; text-align: center; }
+        /* 像素分隔条 */
+        hr.px { border: 0; height: 4px; background: repeating-linear-gradient(90deg, #000 0 4px, transparent 0 8px); margin: 12px 0; }
     </style>
 </head>
 <body>
