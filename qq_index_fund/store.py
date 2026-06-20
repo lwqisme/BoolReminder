@@ -270,6 +270,53 @@ def load_nport_snapshot(repd_date: str, data_dir: Optional[str] = None) -> Optio
     return _read_json(path)
 
 
+# ---------------- 招募书（485BPOS）历史快照 ----------------
+
+
+def prospectus_snapshot_path(repd_date: str, data_dir: Optional[str] = None) -> str:
+    """招募书历史快照路径（按报告期命名，与 N-PORT 分目录存）。"""
+    base = data_dir or _DEFAULT_DATA_DIR
+    return os.path.join(base, "prospectus", f"{repd_date}.json")
+
+
+def save_prospectus_snapshot(
+    snapshot: dict,
+    *,
+    data_dir: Optional[str] = None,
+) -> str:
+    """落盘一份招募书历史快照（按报告期幂等覆盖）。"""
+    repd = snapshot.get("repd_date") or snapshot.get("filing_date")
+    if not repd:
+        raise ValueError("Prospectus snapshot missing repd_date/filing_date.")
+    path = prospectus_snapshot_path(repd, data_dir)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(snapshot, fh, ensure_ascii=False, indent=2)
+    logger.info(
+        "Saved prospectus snapshot -> %s (repd=%s, %d holdings)",
+        path, repd, snapshot.get("count", 0),
+    )
+    return path
+
+
+def load_prospectus_snapshots_raw(data_dir: Optional[str] = None) -> list[dict]:
+    """读取全部招募书快照（含完整 holdings），按报告期升序。"""
+    import os
+    base = data_dir or _DEFAULT_DATA_DIR
+    pdir = os.path.join(base, "prospectus")
+    if not os.path.isdir(pdir):
+        return []
+    out: list[dict] = []
+    for name in os.listdir(pdir):
+        if not name.endswith(".json"):
+            continue
+        snap = _read_json(os.path.join(pdir, name))
+        if snap and snap.get("repd_date") and snap.get("holdings"):
+            out.append(snap)
+    out.sort(key=lambda s: s["repd_date"])
+    return out
+
+
 def list_daily_snapshots(data_dir: Optional[str] = None) -> list[str]:
     """列出每日快照的日期（降序），供历史浏览。"""
     base = data_dir or _DEFAULT_DATA_DIR

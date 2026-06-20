@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Optional
 
-from .store import _DEFAULT_DATA_DIR, _read_json
+from .store import _DEFAULT_DATA_DIR, _read_json, load_prospectus_snapshots_raw
 
 logger = logging.getLogger(__name__)
 
@@ -126,22 +126,30 @@ def derive_top10_weights(
     由一份快照的 holdings 派生 Top10 目标权重。
 
     Args:
-        holdings: N-PORT 快照 holdings 列表（含 val_usd / pct_val / symbol）。
+        holdings: holdings 列表。N-PORT 用 val_usd/pct_val/symbol；
+                  招募书用 value/symbol（无 pct_val，加权按 value 归一化）。
         mode: 'equal' 或 'weighted'。
 
     Returns:
         [(symbol, weight_pct), ...] 权重已归一化到合计 100。
         跳过 symbol 为空的成分（改名/退市），对剩余再归一化。
     """
-    ordered = sorted(holdings, key=lambda h: h.get("val_usd", 0), reverse=True)
+    def sort_key(h: dict) -> float:
+        return float(h.get("val_usd") or h.get("value") or 0)
+    ordered = sorted(holdings, key=sort_key, reverse=True)
     top = [h for h in ordered[:TOP_N] if h.get("symbol")]
     if not top:
         return []
 
     if mode == "equal":
         raw = [(h["symbol"], 1.0) for h in top]
-    else:  # weighted
-        raw = [(h["symbol"], float(h.get("pct_val", 0) or 0)) for h in top]
+    else:  # weighted: 优先 pct_val，否则按 value
+        raw = []
+        for h in top:
+            w = h.get("pct_val")
+            if w is None:
+                w = h.get("value") or 0
+            raw.append((h["symbol"], float(w)))
         if sum(w for _, w in raw) <= 0:
             raw = [(s, 1.0) for s, _ in raw]
 
@@ -371,9 +379,14 @@ def run_backtest(
         ValueError: 无可用 N-PORT 快照覆盖 start 之前（早于 2019-11）。
     """
     notes: list[str] = []
+    # 合并：N-PORT 季度快照（2019+）+ 招募书年度快照（1999-2018，补 N-PORT 之前）。
     snapshots = load_nport_snapshots_raw(data_dir)
+    prospectus_snaps = load_prospectus_snapshots_raw(data_dir)
+    if prospectus_snaps:
+        snapshots = snapshots + prospectus_snaps
+        notes.append(f"数据层：N-PORT {len(load_nport_snapshots_raw(data_dir))} 份（季度）+ 招募书 {len(prospectus_snaps)} 份（年度，补 2019 前）。")
     if not snapshots:
-        raise ValueError("无 N-PORT 历史快照，请先运行回溯。")
+        raise ValueError("无历史快照，请先运行 --nport 与 --prospectus 回溯。")
 
     earliest_filing = snapshots[0]["filing_date"]
     initial_available = [s for s in snapshots if s["filing_date"] <= start.isoformat()]

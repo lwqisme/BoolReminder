@@ -14,12 +14,21 @@ import logging
 import sys
 
 from .fetch_holdings import fetch_qqq_holdings
-from .store import build_portfolios, save_portfolios, save_snapshot, save_nport_snapshot
+from .store import (
+    build_portfolios, save_portfolios, save_snapshot,
+    save_nport_snapshot, save_prospectus_snapshot,
+)
 from .edgar_nport import (
     fetch_nport_filings,
     fetch_nport_snapshot,
     build_ticker_index,
 )
+from .prospectus import (
+    PROSPECTUS_FILINGS,
+    fetch_prospectus_snapshot,
+    verify_prospectus_holdings,
+)
+from .backtest import load_nport_snapshots_raw
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +90,38 @@ def _run_nport(args) -> int:
     return 0
 
 
+def _run_prospectus(args) -> int:
+    """抓取 SEC 485BPOS 招募书历史快照（1999-2018 年度，补 N-PORT 之前）。"""
+    print(f"\n=== 回溯 {len(PROSPECTUS_FILINGS)} 份招募书 (485BPOS) ===")
+    ticker_index = build_ticker_index()
+    # 双重验证：用已有 N-PORT 快照交叉核对
+    nport_snaps = load_nport_snapshots_raw()
+    paths = []
+    saved = 0
+    for acc, doc, fdate in PROSPECTUS_FILINGS:
+        try:
+            snapshot = fetch_prospectus_snapshot(acc, doc, fdate, ticker_index)
+            # 只落盘解析出 ≥15 持仓的（过滤掉解析失败的早期/特殊格式）
+            if snapshot["count"] < 15:
+                print(f"  {fdate} (repd={snapshot['repd_date']}): 仅 {snapshot['count']} 持仓，跳过（疑似格式不兼容）")
+                continue
+            top = sorted(snapshot["holdings"], key=lambda h: h.get("value", 0), reverse=True)[:10]
+            verify = verify_prospectus_holdings(snapshot, nport_snaps)
+            print(f"  {fdate} (repd={snapshot['repd_date']}): {snapshot['count']} 持仓, "
+                  f"{snapshot['ticker_resolved']} 已解析 | 验证: {verify['notes'][0]}")
+            print(f"     Top3: {', '.join(h['ticker'] or '??' for h in top[:3])}")
+            if not args.dry_run:
+                save_prospectus_snapshot(snapshot)
+                saved += 1
+        except Exception as exc:
+            print(f"  {fdate}: ERROR {exc}")
+    if args.dry_run:
+        print("\n[dry-run] 未落盘。")
+    else:
+        print(f"\n已落盘 {saved} 份招募书快照 -> data/qq_index_fund/prospectus/")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m qq_index_fund",
@@ -103,6 +144,10 @@ def main(argv: list[str] | None = None) -> int:
         help="仅抓最新一份 N-PORT（配合 --nport）。",
     )
     parser.add_argument(
+        "--prospectus", action="store_true",
+        help="抓取 SEC 485BPOS 招募书历史快照（1999-2018 年度，补 N-PORT 之前）。",
+    )
+    parser.add_argument(
         "-v", "--verbose", action="store_true",
         help="输出调试日志。",
     )
@@ -117,30 +162,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.nport_latest:
             args.nport = True
         return _run_nport(args)
+    if args.prospectus:
+        return _run_prospectus(args)
     return _run_current(args)
-
-    print(f"\n=== QQQ Holdings (top {len(holdings)}) ===")
-    print(f"{'#':>2} {'Ticker':6} {'Weight':>7}  {'Symbol':10} Name")
-    for h in holdings:
-        print(f"{h.rank:>2} {h.ticker:6} {h.weight_pct:>6.2f}%  {h.symbol:10} {h.name}")
-
-    portfolios = build_portfolios(holdings)
-    print("\n=== qq_top10_equal (等权) ===")
-    for t in portfolios["qq_top10_equal"]:
-        print(f"  {t['symbol']:10} {t['weight']:>6.2f}%  {t['name']}")
-    print("\n=== qq_top10_weighted (市值加权, 归一化到 100%) ===")
-    for t in portfolios["qq_top10_weighted"]:
-        print(f"  {t['symbol']:10} {t['weight']:>6.2f}%  {t['name']}")
-
-    if args.dry_run:
-        print("\n[dry-run] 未落盘。")
-        return 0
-
-    snap = save_snapshot(holdings)
-    ports = save_portfolios(portfolios)
-    print(f"\n快照: {snap}")
-    print(f"组合: {ports[0]}")
-    return 0
 
 
 if __name__ == "__main__":
