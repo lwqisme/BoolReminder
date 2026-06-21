@@ -1,10 +1,15 @@
 """广发全球精选股票(QDII)A 270023 历史持仓抓取与解析.
 
-数据源: 天天基金 FundArchivesDatas 接口 (季度披露的前十大重仓股).
-  http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=270023&topline=10&year=YYYY&month=
+数据源: 天天基金 FundArchivesDatas 接口.
+  http://fundf10.eastmoney.com/FundArchivesDatas.aspx?type=jjcc&code=270023&topline=500&year=YYYY&month=
 
-该接口一次返回某年全部 4 个季度的前十大持仓表 (季报披露, 每季度末截止).
-半年报/年报的全量持仓需走 cninfo, 这里只取季报 Top10 (足以做风格/选股分析).
+该接口一次返回某年全部 4 个季度的股票投资明细表, 每季度末截止.
+关键: topline 控制每份报告返回的行数上限——
+  - 一季报 / 三季报: 基金仅披露前十大重仓股, 故 topline 不影响 (恒为 ~10 行).
+  - 半年报 (Q2, 截止 06-30) / 年报 (Q4, 截止 12-31): 基金披露"全部"持仓,
+    topline=10 只截前十大, topline 设大 (如 500) 即拿到全量持仓明细
+    (270023 半年报约 45-55 只, 合计占净值 ~75-85%).
+因此默认 topline=500, 半年报/年报得全量, 季报仍为前十 (不受影响).
 """
 from __future__ import annotations
 
@@ -18,6 +23,8 @@ import requests
 
 CACHE_DIR = Path(__file__).resolve().parent / "cache"
 DEFAULT_CODE = "270023"
+# topline 设大, 让半年报(Q2)/年报(Q4)拿全量持仓; 季报(Q1/Q3)只披露前十不受影响.
+DEFAULT_TOPLINE = 500
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
 
 
@@ -42,16 +49,22 @@ class QuarterHoldings:
     def label(self) -> str:
         return f"{self.year}Q{self.quarter}"
 
+    @property
+    def is_full(self) -> bool:
+        """半年报(Q2)/年报(Q4)披露全量持仓; 一季报/三季报仅前十大."""
+        return self.quarter in (2, 4)
 
-def fetch_year_html(code: str, year: int, cache: bool = True) -> str:
+
+def fetch_year_html(code: str, year: int, cache: bool = True, topline: int = DEFAULT_TOPLINE) -> str:
     cache_dir = CACHE_DIR
     cache_dir.mkdir(parents=True, exist_ok=True)
-    fp = cache_dir / f"cc_{code}_{year}.html"
+    # 缓存键含 topline, 避免旧 top10 缓存与全量缓存混淆.
+    fp = cache_dir / f"cc_{code}_{year}_top{topline}.html"
     if cache and fp.exists():
         return fp.read_text(encoding="utf-8")
     url = (
         "http://fundf10.eastmoney.com/FundArchivesDatas.aspx"
-        f"?type=jjcc&code={code}&topline=10&year={year}&month="
+        f"?type=jjcc&code={code}&topline={topline}&year={year}&month="
     )
     r = requests.get(url, headers={"User-Agent": UA}, timeout=20)
     r.encoding = "utf-8"
@@ -106,12 +119,12 @@ def parse_holdings(html: str) -> list[QuarterHoldings]:
     return out
 
 
-def fetch_all(code: str = DEFAULT_CODE, years: range | list[int] | None = None) -> list[QuarterHoldings]:
+def fetch_all(code: str = DEFAULT_CODE, years: range | list[int] | None = None, topline: int = DEFAULT_TOPLINE) -> list[QuarterHoldings]:
     if years is None:
         years = range(2021, 2027)
     all_q: list[QuarterHoldings] = []
     for y in years:
-        html = fetch_year_html(code, y, cache=True)
+        html = fetch_year_html(code, y, cache=True, topline=topline)
         all_q.extend(parse_holdings(html))
         time.sleep(0.3)
     all_q.sort(key=lambda x: (x.year, x.quarter))
@@ -133,4 +146,5 @@ if __name__ == "__main__":
     for q in qs:
         top3 = ", ".join(f"{h.code}({h.weight_pct:.1f}%)" for h in q.holdings[:3])
         tot = sum(h.weight_pct for h in q.holdings)
-        print(f"{q.label} {q.as_of}  top10合计={tot:5.1f}%  头三: {top3}")
+        kind = "全量" if q.is_full else "前十"
+        print(f"{q.label} {q.as_of}  [{kind}] {len(q.holdings)}只 合计={tot:5.1f}%  头三: {top3}")

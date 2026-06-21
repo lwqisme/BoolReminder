@@ -15,11 +15,12 @@ def main():
     out = Path(__file__).resolve().parent / "holdings_270023.csv"
     with out.open("w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
-        w.writerow(["季度", "截止日期", "序号", "股票代码", "股票名称",
+        w.writerow(["季度", "截止日期", "披露类型", "序号", "股票代码", "股票名称",
                     "占净值比例%", "持股数_万股", "持仓市值_万元人民币"])
         for q in qs:
+            kind = "全量" if q.is_full else "前十"
             for h in q.holdings:
-                w.writerow([q.label, q.as_of, h.rank, h.code, h.name,
+                w.writerow([q.label, q.as_of, kind, h.rank, h.code, h.name,
                             f"{h.weight_pct:.2f}", h.shares_wan, h.value_wan_rmb])
             if not q.holdings:
                 w.writerow([q.label, q.as_of, "", "(无披露)", "", "", "", ""])

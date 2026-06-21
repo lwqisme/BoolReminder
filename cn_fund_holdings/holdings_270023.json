@@ -170,6 +170,230 @@
         "weight_pct": 3.48,
         "shares_wan": 326.95,
         "value_wan_rmb": 17139.06
+      },
+      {
+        "rank": 11,
+        "code": "TSM",
+        "name": "台积电",
+        "weight_pct": 3.19,
+        "shares_wan": 20.25,
+        "value_wan_rmb": 15718.97
+      },
+      {
+        "rank": 12,
+        "code": "AMAT",
+        "name": "应用材料",
+        "weight_pct": 2.74,
+        "shares_wan": 14.7,
+        "value_wan_rmb": 13522.8
+      },
+      {
+        "rank": 13,
+        "code": "01024",
+        "name": "快手-W",
+        "weight_pct": 2.6,
+        "shares_wan": 79.17,
+        "value_wan_rmb": 12832.6
+      },
+      {
+        "rank": 14,
+        "code": "00354",
+        "name": "中国软件国际",
+        "weight_pct": 2.58,
+        "shares_wan": 1080.0,
+        "value_wan_rmb": 12724.83
+      },
+      {
+        "rank": 15,
+        "code": "SQ",
+        "name": "Block Inc-A",
+        "weight_pct": 2.57,
+        "shares_wan": 8.06,
+        "value_wan_rmb": 12686.56
+      },
+      {
+        "rank": 16,
+        "code": "LRCX",
+        "name": "拉姆研究",
+        "weight_pct": 2.51,
+        "shares_wan": 2.94,
+        "value_wan_rmb": 12358.55
+      },
+      {
+        "rank": 17,
+        "code": "META",
+        "name": "Meta Platforms Inc-A",
+        "weight_pct": 2.32,
+        "shares_wan": 5.1,
+        "value_wan_rmb": 11458.75
+      },
+      {
+        "rank": 18,
+        "code": "02382",
+        "name": "舜宇光学科技",
+        "weight_pct": 2.24,
+        "shares_wan": 54.0,
+        "value_wan_rmb": 11026.39
+      },
+      {
+        "rank": 19,
+        "code": "03690",
+        "name": "美团-W",
+        "weight_pct": 2.08,
+        "shares_wan": 38.45,
+        "value_wan_rmb": 10250.71
+      },
+      {
+        "rank": 20,
+        "code": "09618",
+        "name": "京东集团-SW",
+        "weight_pct": 2.06,
+        "shares_wan": 40.0,
+        "value_wan_rmb": 10164.69
+      },
+      {
+        "rank": 21,
+        "code": "WOLF",
+        "name": "Wolfspeed Inc",
+        "weight_pct": 1.98,
+        "shares_wan": 15.39,
+        "value_wan_rmb": 9738.19
+      },
+      {
+        "rank": 22,
+        "code": "FUTU",
+        "name": "富途控股",
+        "weight_pct": 1.95,
+        "shares_wan": 8.31,
+        "value_wan_rmb": 9617.06
+      },
+      {
+        "rank": 23,
+        "code": "06855",
+        "name": "亚盛医药-B",
+        "weight_pct": 1.53,
+        "shares_wan": 192.61,
+        "value_wan_rmb": 7532.55
+      },
+      {
+        "rank": 24,
+        "code": "NOW",
+        "name": "现在服务公司",
+        "weight_pct": 1.22,
+        "shares_wan": 1.69,
+        "value_wan_rmb": 5999.75
+      },
+      {
+        "rank": 25,
+        "code": "06865",
+        "name": "福莱特玻璃",
+        "weight_pct": 1.08,
+        "shares_wan": 200.0,
+        "value_wan_rmb": 5325.31
+      },
+      {
+        "rank": 26,
+        "code": "MRNA",
+        "name": "Moderna Inc",
+        "weight_pct": 1.0,
+        "shares_wan": 3.26,
+        "value_wan_rmb": 4946.69
+      },
+      {
+        "rank": 27,
+        "code": "02150",
+        "name": "奈雪的茶",
+        "weight_pct": 0.94,
+        "shares_wan": 350.0,
+        "value_wan_rmb": 4657.17
+      },
+      {
+        "rank": 28,
+        "code": "03718",
+        "name": "北控城市资源",
+        "weight_pct": 0.86,
+        "shares_wan": 5100.0,
+        "value_wan_rmb": 4243.61
+      },
+      {
+        "rank": 29,
+        "code": "KLIC",
+        "name": "库力索法工业",
+        "weight_pct": 0.8,
+        "shares_wan": 10.0,
+        "value_wan_rmb": 3953.58
+      },
+      {
+        "rank": 30,
+        "code": "01209",
+        "name": "华润万象生活",
+        "weight_pct": 0.79,
+        "shares_wan": 87.98,
+        "value_wan_rmb": 3890.92
+      },
+      {
+        "rank": 31,
+        "code": "02600",
+        "name": "中国铝业",
+        "weight_pct": 0.7,
+        "shares_wan": 900.0,
+        "value_wan_rmb": 3467.28
+      },
+      {
+        "rank": 32,
+        "code": "09888",
+        "name": "百度集团-SW",
+        "weight_pct": 0.69,
+        "shares_wan": 20.5,
+        "value_wan_rmb": 3401.29
+      },
+      {
+        "rank": 33,
+        "code": "06969",
+        "name": "思摩尔国际",
+        "weight_pct": 0.58,
+        "shares_wan": 79.8,
+        "value_wan_rmb": 2858.52
+      },
+      {
+        "rank": 34,
+        "code": "02357",
+        "name": "中航科工",
+        "weight_pct": 0.56,
+        "shares_wan": 648.5,
+        "value_wan_rmb": 2773.56
+      },
+      {
+        "rank": 35,
+        "code": "02171",
+        "name": "科济药业-B",
+        "weight_pct": 0.55,
+        "shares_wan": 120.0,
+        "value_wan_rmb": 2734.91
+      },
+      {
+        "rank": 36,
+        "code": "06601",
+        "name": "朝云集团",
+        "weight_pct": 0.15,
+        "shares_wan": 110.4,
+        "value_wan_rmb": 755.1
+      },
+      {
+        "rank": 37,
+        "code": "02163",
+        "name": "远大住工",
+        "weight_pct": 0.06,
+        "shares_wan": 20.28,
+        "value_wan_rmb": 275.73
+      },
+      {
+        "rank": 38,
+        "code": "06622",
+        "name": "兆科眼科-B",
+        "weight_pct": 0.01,
+        "shares_wan": 4.7,
+        "value_wan_rmb": 45.99
       }
     ]
   },
@@ -344,6 +568,166 @@
         "weight_pct": 4.01,
         "shares_wan": 16.04,
         "value_wan_rmb": 14718.95
+      },
+      {
+        "rank": 11,
+        "code": "U",
+        "name": "Unity Software Inc",
+        "weight_pct": 3.94,
+        "shares_wan": 15.87,
+        "value_wan_rmb": 14466.42
+      },
+      {
+        "rank": 12,
+        "code": "XPEV",
+        "name": "小鹏汽车",
+        "weight_pct": 2.89,
+        "shares_wan": 33.05,
+        "value_wan_rmb": 10603.84
+      },
+      {
+        "rank": 13,
+        "code": "MRNA",
+        "name": "Moderna Inc",
+        "weight_pct": 2.25,
+        "shares_wan": 5.09,
+        "value_wan_rmb": 8246.77
+      },
+      {
+        "rank": 14,
+        "code": "COIN",
+        "name": "Coinbase Global Inc-A",
+        "weight_pct": 2.08,
+        "shares_wan": 4.74,
+        "value_wan_rmb": 7629.72
+      },
+      {
+        "rank": 15,
+        "code": "SE",
+        "name": "Sea Ltd ADR",
+        "weight_pct": 1.64,
+        "shares_wan": 4.23,
+        "value_wan_rmb": 6037.28
+      },
+      {
+        "rank": 16,
+        "code": "02380",
+        "name": "中国电力",
+        "weight_pct": 1.26,
+        "shares_wan": 1081.9,
+        "value_wan_rmb": 4643.95
+      },
+      {
+        "rank": 17,
+        "code": "SQ",
+        "name": "Block Inc-A",
+        "weight_pct": 1.24,
+        "shares_wan": 4.41,
+        "value_wan_rmb": 4536.62
+      },
+      {
+        "rank": 18,
+        "code": "00354",
+        "name": "中国软件国际",
+        "weight_pct": 1.06,
+        "shares_wan": 469.8,
+        "value_wan_rmb": 3902.54
+      },
+      {
+        "rank": 19,
+        "code": "09868",
+        "name": "小鹏汽车-W",
+        "weight_pct": 1.06,
+        "shares_wan": 25.58,
+        "value_wan_rmb": 3896.32
+      },
+      {
+        "rank": 20,
+        "code": "02171",
+        "name": "科济药业-B",
+        "weight_pct": 0.88,
+        "shares_wan": 143.25,
+        "value_wan_rmb": 3220.83
+      },
+      {
+        "rank": 21,
+        "code": "02015",
+        "name": "理想汽车-W",
+        "weight_pct": 0.7,
+        "shares_wan": 25.58,
+        "value_wan_rmb": 2566.17
+      },
+      {
+        "rank": 22,
+        "code": "02150",
+        "name": "奈雪的茶",
+        "weight_pct": 0.67,
+        "shares_wan": 350.0,
+        "value_wan_rmb": 2449.53
+      },
+      {
+        "rank": 23,
+        "code": "06865",
+        "name": "福莱特玻璃",
+        "weight_pct": 0.61,
+        "shares_wan": 68.8,
+        "value_wan_rmb": 2227.53
+      },
+      {
+        "rank": 24,
+        "code": "06855",
+        "name": "亚盛医药-B",
+        "weight_pct": 0.55,
+        "shares_wan": 87.75,
+        "value_wan_rmb": 2023.19
+      },
+      {
+        "rank": 25,
+        "code": "01801",
+        "name": "信达生物",
+        "weight_pct": 0.32,
+        "shares_wan": 29.4,
+        "value_wan_rmb": 1159.81
+      },
+      {
+        "rank": 26,
+        "code": "02273",
+        "name": "固生堂",
+        "weight_pct": 0.31,
+        "shares_wan": 33.54,
+        "value_wan_rmb": 1121.57
+      },
+      {
+        "rank": 27,
+        "code": "02251",
+        "name": "鹰瞳科技-B",
+        "weight_pct": 0.25,
+        "shares_wan": 31.58,
+        "value_wan_rmb": 914.6
+      },
+      {
+        "rank": 28,
+        "code": "03718",
+        "name": "北控城市资源",
+        "weight_pct": 0.23,
+        "shares_wan": 1964.4,
+        "value_wan_rmb": 851.23
+      },
+      {
+        "rank": 29,
+        "code": "01119",
+        "name": "创梦天地",
+        "weight_pct": 0.21,
+        "shares_wan": 153.52,
+        "value_wan_rmb": 784.49
+      },
+      {
+        "rank": 30,
+        "code": "02279",
+        "name": "雍禾医疗",
+        "weight_pct": 0.0,
+        "shares_wan": 0.45,
+        "value_wan_rmb": 5.86
       }
     ]
   },
@@ -518,6 +902,198 @@
         "weight_pct": 3.1,
         "shares_wan": 2.14,
         "value_wan_rmb": 6823.28
+      },
+      {
+        "rank": 11,
+        "code": "BEAM",
+        "name": "Beam Therapeutics Inc",
+        "weight_pct": 2.91,
+        "shares_wan": 24.67,
+        "value_wan_rmb": 6409.9
+      },
+      {
+        "rank": 12,
+        "code": "AMZN",
+        "name": "亚马逊",
+        "weight_pct": 2.72,
+        "shares_wan": 8.42,
+        "value_wan_rmb": 6003.35
+      },
+      {
+        "rank": 13,
+        "code": "XPEV",
+        "name": "小鹏汽车",
+        "weight_pct": 2.15,
+        "shares_wan": 22.26,
+        "value_wan_rmb": 4741.99
+      },
+      {
+        "rank": 14,
+        "code": "SNOW",
+        "name": "Snowflake Inc-A",
+        "weight_pct": 2.1,
+        "shares_wan": 4.95,
+        "value_wan_rmb": 4622.01
+      },
+      {
+        "rank": 15,
+        "code": "RBLX",
+        "name": "Roblox Corp-A",
+        "weight_pct": 2.04,
+        "shares_wan": 20.36,
+        "value_wan_rmb": 4490.08
+      },
+      {
+        "rank": 16,
+        "code": "MAR",
+        "name": "万豪国际",
+        "weight_pct": 1.37,
+        "shares_wan": 3.32,
+        "value_wan_rmb": 3030.74
+      },
+      {
+        "rank": 17,
+        "code": "02015",
+        "name": "理想汽车-W",
+        "weight_pct": 1.04,
+        "shares_wan": 17.54,
+        "value_wan_rmb": 2293.5
+      },
+      {
+        "rank": 18,
+        "code": "U",
+        "name": "Unity Software Inc",
+        "weight_pct": 1.03,
+        "shares_wan": 9.15,
+        "value_wan_rmb": 2260.05
+      },
+      {
+        "rank": 19,
+        "code": "00354",
+        "name": "中国软件国际",
+        "weight_pct": 0.98,
+        "shares_wan": 315.0,
+        "value_wan_rmb": 2163.16
+      },
+      {
+        "rank": 20,
+        "code": "PANW",
+        "name": "派拓网络",
+        "weight_pct": 0.95,
+        "shares_wan": 0.63,
+        "value_wan_rmb": 2087.47
+      },
+      {
+        "rank": 21,
+        "code": "AMD",
+        "name": "超威半导体",
+        "weight_pct": 0.88,
+        "shares_wan": 3.78,
+        "value_wan_rmb": 1938.54
+      },
+      {
+        "rank": 22,
+        "code": "SE",
+        "name": "Sea Ltd ADR",
+        "weight_pct": 0.79,
+        "shares_wan": 3.86,
+        "value_wan_rmb": 1733.51
+      },
+      {
+        "rank": 23,
+        "code": "02150",
+        "name": "奈雪的茶",
+        "weight_pct": 0.75,
+        "shares_wan": 291.9,
+        "value_wan_rmb": 1660.04
+      },
+      {
+        "rank": 24,
+        "code": "02171",
+        "name": "科济药业-B",
+        "weight_pct": 0.74,
+        "shares_wan": 130.75,
+        "value_wan_rmb": 1634.75
+      },
+      {
+        "rank": 25,
+        "code": "WDAY",
+        "name": "Workday Inc-A",
+        "weight_pct": 0.73,
+        "shares_wan": 1.71,
+        "value_wan_rmb": 1606.2
+      },
+      {
+        "rank": 26,
+        "code": "MOS",
+        "name": "美盛",
+        "weight_pct": 0.7,
+        "shares_wan": 4.86,
+        "value_wan_rmb": 1540.3
+      },
+      {
+        "rank": 27,
+        "code": "09868",
+        "name": "小鹏汽车-W",
+        "weight_pct": 0.57,
+        "shares_wan": 11.57,
+        "value_wan_rmb": 1250.67
+      },
+      {
+        "rank": 28,
+        "code": "COIN",
+        "name": "Coinbase Global Inc-A",
+        "weight_pct": 0.41,
+        "shares_wan": 2.89,
+        "value_wan_rmb": 911.65
+      },
+      {
+        "rank": 29,
+        "code": "02273",
+        "name": "固生堂",
+        "weight_pct": 0.39,
+        "shares_wan": 25.53,
+        "value_wan_rmb": 851.49
+      },
+      {
+        "rank": 30,
+        "code": "01119",
+        "name": "创梦天地",
+        "weight_pct": 0.38,
+        "shares_wan": 171.08,
+        "value_wan_rmb": 848.57
+      },
+      {
+        "rank": 31,
+        "code": "DDOG",
+        "name": "Datadog Inc-A",
+        "weight_pct": 0.34,
+        "shares_wan": 1.16,
+        "value_wan_rmb": 743.19
+      },
+      {
+        "rank": 32,
+        "code": "06865",
+        "name": "福莱特玻璃",
+        "weight_pct": 0.33,
+        "shares_wan": 31.1,
+        "value_wan_rmb": 734.06
+      },
+      {
+        "rank": 33,
+        "code": "NET",
+        "name": "Cloudflare Inc-A",
+        "weight_pct": 0.22,
+        "shares_wan": 1.63,
+        "value_wan_rmb": 479.4
+      },
+      {
+        "rank": 34,
+        "code": "02251",
+        "name": "鹰瞳科技-B",
+        "weight_pct": 0.21,
+        "shares_wan": 31.58,
+        "value_wan_rmb": 453.72
       }
     ]
   },
@@ -692,6 +1268,206 @@
         "weight_pct": 3.59,
         "shares_wan": 26.97,
         "value_wan_rmb": 7345.56
+      },
+      {
+        "rank": 11,
+        "code": "AMZN",
+        "name": "亚马逊",
+        "weight_pct": 2.96,
+        "shares_wan": 10.35,
+        "value_wan_rmb": 6057.3
+      },
+      {
+        "rank": 12,
+        "code": "MRNA",
+        "name": "Moderna Inc",
+        "weight_pct": 2.59,
+        "shares_wan": 4.23,
+        "value_wan_rmb": 5291.78
+      },
+      {
+        "rank": 13,
+        "code": "PANW",
+        "name": "派拓网络",
+        "weight_pct": 1.83,
+        "shares_wan": 3.84,
+        "value_wan_rmb": 3734.69
+      },
+      {
+        "rank": 14,
+        "code": "DDOG",
+        "name": "Datadog Inc-A",
+        "weight_pct": 1.53,
+        "shares_wan": 6.13,
+        "value_wan_rmb": 3138.19
+      },
+      {
+        "rank": 15,
+        "code": "CRWD",
+        "name": "CrowdStrike Holdings Inc-A",
+        "weight_pct": 1.32,
+        "shares_wan": 3.67,
+        "value_wan_rmb": 2694.08
+      },
+      {
+        "rank": 16,
+        "code": "RBLX",
+        "name": "Roblox Corp-A",
+        "weight_pct": 1.02,
+        "shares_wan": 10.57,
+        "value_wan_rmb": 2095.4
+      },
+      {
+        "rank": 17,
+        "code": "ARRY",
+        "name": "Array Technologies Inc",
+        "weight_pct": 1.0,
+        "shares_wan": 15.23,
+        "value_wan_rmb": 2050.17
+      },
+      {
+        "rank": 18,
+        "code": "02150",
+        "name": "奈雪的茶",
+        "weight_pct": 0.96,
+        "shares_wan": 291.9,
+        "value_wan_rmb": 1963.41
+      },
+      {
+        "rank": 19,
+        "code": "00354",
+        "name": "中国软件国际",
+        "weight_pct": 0.93,
+        "shares_wan": 315.0,
+        "value_wan_rmb": 1910.57
+      },
+      {
+        "rank": 20,
+        "code": "GOOG",
+        "name": "谷歌-C",
+        "weight_pct": 0.89,
+        "shares_wan": 2.95,
+        "value_wan_rmb": 1824.43
+      },
+      {
+        "rank": 21,
+        "code": "02171",
+        "name": "科济药业-B",
+        "weight_pct": 0.86,
+        "shares_wan": 130.75,
+        "value_wan_rmb": 1749.59
+      },
+      {
+        "rank": 22,
+        "code": "MDB",
+        "name": "MongoDB Inc-A",
+        "weight_pct": 0.74,
+        "shares_wan": 1.1,
+        "value_wan_rmb": 1513.76
+      },
+      {
+        "rank": 23,
+        "code": "09863",
+        "name": "零跑汽车",
+        "weight_pct": 0.7,
+        "shares_wan": 60.02,
+        "value_wan_rmb": 1439.17
+      },
+      {
+        "rank": 24,
+        "code": "U",
+        "name": "Unity Software Inc",
+        "weight_pct": 0.65,
+        "shares_wan": 6.69,
+        "value_wan_rmb": 1331.52
+      },
+      {
+        "rank": 25,
+        "code": "02273",
+        "name": "固生堂",
+        "weight_pct": 0.56,
+        "shares_wan": 25.53,
+        "value_wan_rmb": 1151.66
+      },
+      {
+        "rank": 26,
+        "code": "SNOW",
+        "name": "Snowflake Inc-A",
+        "weight_pct": 0.53,
+        "shares_wan": 1.09,
+        "value_wan_rmb": 1085.67
+      },
+      {
+        "rank": 27,
+        "code": "SE",
+        "name": "Sea Ltd ADR",
+        "weight_pct": 0.42,
+        "shares_wan": 2.36,
+        "value_wan_rmb": 856.35
+      },
+      {
+        "rank": 28,
+        "code": "COIN",
+        "name": "Coinbase Global Inc-A",
+        "weight_pct": 0.35,
+        "shares_wan": 2.89,
+        "value_wan_rmb": 712.05
+      },
+      {
+        "rank": 29,
+        "code": "01119",
+        "name": "创梦天地",
+        "weight_pct": 0.29,
+        "shares_wan": 171.08,
+        "value_wan_rmb": 591.42
+      },
+      {
+        "rank": 30,
+        "code": "06865",
+        "name": "福莱特玻璃",
+        "weight_pct": 0.26,
+        "shares_wan": 31.1,
+        "value_wan_rmb": 524.5
+      },
+      {
+        "rank": 31,
+        "code": "03931",
+        "name": "中创新航",
+        "weight_pct": 0.24,
+        "shares_wan": 30.39,
+        "value_wan_rmb": 490.81
+      },
+      {
+        "rank": 32,
+        "code": "02420",
+        "name": "子不语",
+        "weight_pct": 0.24,
+        "shares_wan": 101.85,
+        "value_wan_rmb": 486.52
+      },
+      {
+        "rank": 33,
+        "code": "02251",
+        "name": "鹰瞳科技-B",
+        "weight_pct": 0.2,
+        "shares_wan": 31.58,
+        "value_wan_rmb": 399.45
+      },
+      {
+        "rank": 34,
+        "code": "01030",
+        "name": "新城发展",
+        "weight_pct": 0.19,
+        "shares_wan": 148.6,
+        "value_wan_rmb": 383.62
+      },
+      {
+        "rank": 35,
+        "code": "09985",
+        "name": "卫龙美味",
+        "weight_pct": 0.05,
+        "shares_wan": 11.86,
+        "value_wan_rmb": 111.87
       }
     ]
   },
@@ -866,6 +1642,110 @@
         "weight_pct": 4.12,
         "shares_wan": 4.41,
         "value_wan_rmb": 13088.2
+      },
+      {
+        "rank": 11,
+        "code": "PDD",
+        "name": "拼多多",
+        "weight_pct": 3.66,
+        "shares_wan": 23.32,
+        "value_wan_rmb": 11651.38
+      },
+      {
+        "rank": 12,
+        "code": "CRWD",
+        "name": "CrowdStrike Holdings Inc-A",
+        "weight_pct": 3.26,
+        "shares_wan": 9.78,
+        "value_wan_rmb": 10383.51
+      },
+      {
+        "rank": 13,
+        "code": "AMZN",
+        "name": "亚马逊",
+        "weight_pct": 2.94,
+        "shares_wan": 9.92,
+        "value_wan_rmb": 9342.88
+      },
+      {
+        "rank": 14,
+        "code": "TSM",
+        "name": "台积电",
+        "weight_pct": 2.61,
+        "shares_wan": 11.38,
+        "value_wan_rmb": 8299.49
+      },
+      {
+        "rank": 15,
+        "code": "BEAM",
+        "name": "Beam Therapeutics Inc",
+        "weight_pct": 1.96,
+        "shares_wan": 26.97,
+        "value_wan_rmb": 6221.94
+      },
+      {
+        "rank": 16,
+        "code": "DDOG",
+        "name": "Datadog Inc-A",
+        "weight_pct": 1.91,
+        "shares_wan": 8.52,
+        "value_wan_rmb": 6059.14
+      },
+      {
+        "rank": 17,
+        "code": "COIN",
+        "name": "Coinbase Global Inc-A",
+        "weight_pct": 1.61,
+        "shares_wan": 9.88,
+        "value_wan_rmb": 5108.9
+      },
+      {
+        "rank": 18,
+        "code": "RBLX",
+        "name": "Roblox Corp-A",
+        "weight_pct": 1.55,
+        "shares_wan": 16.97,
+        "value_wan_rmb": 4940.32
+      },
+      {
+        "rank": 19,
+        "code": "U",
+        "name": "Unity Software Inc",
+        "weight_pct": 0.66,
+        "shares_wan": 6.69,
+        "value_wan_rmb": 2098.04
+      },
+      {
+        "rank": 20,
+        "code": "ORCL",
+        "name": "甲骨文",
+        "weight_pct": 0.51,
+        "shares_wan": 1.88,
+        "value_wan_rmb": 1621.65
+      },
+      {
+        "rank": 21,
+        "code": "ARRY",
+        "name": "Array Technologies Inc",
+        "weight_pct": 0.47,
+        "shares_wan": 9.14,
+        "value_wan_rmb": 1492.08
+      },
+      {
+        "rank": 22,
+        "code": "MRVL",
+        "name": "迈威尔科技",
+        "weight_pct": 0.43,
+        "shares_wan": 3.15,
+        "value_wan_rmb": 1362.7
+      },
+      {
+        "rank": 23,
+        "code": "02420",
+        "name": "子不语",
+        "weight_pct": 0.1,
+        "shares_wan": 101.85,
+        "value_wan_rmb": 308.94
       }
     ]
   },
@@ -1040,6 +1920,126 @@
         "weight_pct": 4.37,
         "shares_wan": 52.59,
         "value_wan_rmb": 18718.36
+      },
+      {
+        "rank": 11,
+        "code": "TSLA",
+        "name": "特斯拉",
+        "weight_pct": 4.2,
+        "shares_wan": 10.23,
+        "value_wan_rmb": 18010.91
+      },
+      {
+        "rank": 12,
+        "code": "PANW",
+        "name": "派拓网络",
+        "weight_pct": 3.74,
+        "shares_wan": 7.67,
+        "value_wan_rmb": 16013.1
+      },
+      {
+        "rank": 13,
+        "code": "CRWD",
+        "name": "CrowdStrike Holdings Inc-A",
+        "weight_pct": 2.74,
+        "shares_wan": 6.5,
+        "value_wan_rmb": 11750.87
+      },
+      {
+        "rank": 14,
+        "code": "MU",
+        "name": "美光科技",
+        "weight_pct": 2.72,
+        "shares_wan": 19.29,
+        "value_wan_rmb": 11662.14
+      },
+      {
+        "rank": 15,
+        "code": "CELH",
+        "name": "燃力士控股",
+        "weight_pct": 2.67,
+        "shares_wan": 29.64,
+        "value_wan_rmb": 11444.76
+      },
+      {
+        "rank": 16,
+        "code": "ASML",
+        "name": "阿斯麦",
+        "weight_pct": 1.89,
+        "shares_wan": 1.51,
+        "value_wan_rmb": 8083.91
+      },
+      {
+        "rank": 17,
+        "code": "COIN",
+        "name": "Coinbase Global Inc-A",
+        "weight_pct": 1.31,
+        "shares_wan": 4.55,
+        "value_wan_rmb": 5604.55
+      },
+      {
+        "rank": 19,
+        "code": "SNPS",
+        "name": "新思科技",
+        "weight_pct": 0.94,
+        "shares_wan": 1.11,
+        "value_wan_rmb": 4032.44
+      },
+      {
+        "rank": 20,
+        "code": "MSTR",
+        "name": "MicroStrategy Inc-A",
+        "weight_pct": 0.93,
+        "shares_wan": 0.89,
+        "value_wan_rmb": 3989.09
+      },
+      {
+        "rank": 21,
+        "code": "BEAM",
+        "name": "Beam Therapeutics Inc",
+        "weight_pct": 0.9,
+        "shares_wan": 20.03,
+        "value_wan_rmb": 3860.74
+      },
+      {
+        "rank": 22,
+        "code": "RBLX",
+        "name": "Roblox Corp-A",
+        "weight_pct": 0.76,
+        "shares_wan": 10.1,
+        "value_wan_rmb": 3271.82
+      },
+      {
+        "rank": 23,
+        "code": "SQ",
+        "name": "Block Inc-A",
+        "weight_pct": 0.57,
+        "shares_wan": 4.42,
+        "value_wan_rmb": 2422.41
+      },
+      {
+        "rank": 24,
+        "code": "U",
+        "name": "Unity Software Inc",
+        "weight_pct": 0.23,
+        "shares_wan": 3.35,
+        "value_wan_rmb": 971.62
+      },
+      {
+        "rank": 25,
+        "code": "02420",
+        "name": "子不语",
+        "weight_pct": 0.12,
+        "shares_wan": 101.85,
+        "value_wan_rmb": 502.1
+      },
+      {
+        "rank": 26,
+        "code": "09690",
+        "name": "途虎-W",
+        "weight_pct": 0.02,
+        "shares_wan": 3.99,
+        "value_wan_rmb": 101.6
       }
     ]
   },
@@ -1198,6 +2198,294 @@
         "weight_pct": 3.29,
         "shares_wan": 6.31,
         "value_wan_rmb": 26775.18
+      },
+      {
+        "rank": 11,
+        "code": "000333",
+        "name": "美的集团",
+        "weight_pct": 2.47,
+        "shares_wan": 311.92,
+        "value_wan_rmb": 20119.14
+      },
+      {
+        "rank": 12,
+        "code": "PDD",
+        "name": "拼多多",
+        "weight_pct": 2.32,
+        "shares_wan": 19.93,
+        "value_wan_rmb": 18881.85
+      },
+      {
+        "rank": 13,
+        "code": "MU",
+        "name": "美光科技",
+        "weight_pct": 1.99,
+        "shares_wan": 17.29,
+        "value_wan_rmb": 16209.31
+      },
+      {
+        "rank": 14,
+        "code": "COIN",
+        "name": "Coinbase Global Inc-A",
+        "weight_pct": 1.95,
+        "shares_wan": 10.04,
+        "value_wan_rmb": 15894.59
+      },
+      {
+        "rank": 15,
+        "code": "ASML",
+        "name": "阿斯麦",
+        "weight_pct": 1.71,
+        "shares_wan": 1.91,
+        "value_wan_rmb": 13935.44
+      },
+      {
+        "rank": 16,
+        "code": "AVGO",
+        "name": "博通",
+        "weight_pct": 1.66,
+        "shares_wan": 1.18,
+        "value_wan_rmb": 13527.08
+      },
+      {
+        "rank": 17,
+        "code": "TSM",
+        "name": "台积电",
+        "weight_pct": 1.65,
+        "shares_wan": 10.82,
+        "value_wan_rmb": 13403.45
+      },
+      {
+        "rank": 18,
+        "code": "03690",
+        "name": "美团-W",
+        "weight_pct": 1.64,
+        "shares_wan": 131.59,
+        "value_wan_rmb": 13343.06
+      },
+      {
+        "rank": 19,
+        "code": "MSTR",
+        "name": "MicroStrategy Inc-A",
+        "weight_pct": 1.58,
+        "shares_wan": 1.31,
+        "value_wan_rmb": 12889.75
+      },
+      {
+        "rank": 20,
+        "code": "00941",
+        "name": "中国移动",
+        "weight_pct": 1.46,
+        "shares_wan": 169.55,
+        "value_wan_rmb": 11915.36
+      },
+      {
+        "rank": 21,
+        "code": "00883",
+        "name": "中国海洋石油",
+        "weight_pct": 1.44,
+        "shares_wan": 573.4,
+        "value_wan_rmb": 11722.61
+      },
+      {
+        "rank": 22,
+        "code": "TSLA",
+        "name": "特斯拉",
+        "weight_pct": 1.41,
+        "shares_wan": 8.12,
+        "value_wan_rmb": 11455.75
+      },
+      {
+        "rank": 23,
+        "code": "CELH",
+        "name": "燃力士控股",
+        "weight_pct": 1.16,
+        "shares_wan": 23.24,
+        "value_wan_rmb": 9454.46
+      },
+      {
+        "rank": 24,
+        "code": "ETN",
+        "name": "伊顿",
+        "weight_pct": 1.11,
+        "shares_wan": 4.05,
+        "value_wan_rmb": 9050.61
+      },
+      {
+        "rank": 25,
+        "code": "00857",
+        "name": "中国石油股份",
+        "weight_pct": 1.08,
+        "shares_wan": 1224.0,
+        "value_wan_rmb": 8825.25
+      },
+      {
+        "rank": 26,
+        "code": "00700",
+        "name": "腾讯控股",
+        "weight_pct": 1.06,
+        "shares_wan": 25.38,
+        "value_wan_rmb": 8626.21
+      },
+      {
+        "rank": 27,
+        "code": "CDNS",
+        "name": "铿腾电子",
+        "weight_pct": 0.99,
+        "shares_wan": 3.67,
+        "value_wan_rmb": 8045.8
+      },
+      {
+        "rank": 28,
+        "code": "AMD",
+        "name": "超威半导体",
+        "weight_pct": 0.91,
+        "shares_wan": 6.44,
+        "value_wan_rmb": 7442.0
+      },
+      {
+        "rank": 29,
+        "code": "600809",
+        "name": "山西汾酒",
+        "weight_pct": 0.76,
+        "shares_wan": 29.34,
+        "value_wan_rmb": 6187.22
+      },
+      {
+        "rank": 30,
+        "code": "RACE",
+        "name": "法拉利",
+        "weight_pct": 0.71,
+        "shares_wan": 1.98,
+        "value_wan_rmb": 5768.06
+      },
+      {
+        "rank": 31,
+        "code": "CRWD",
+        "name": "CrowdStrike Holdings Inc-A",
+        "weight_pct": 0.7,
+        "shares_wan": 2.09,
+        "value_wan_rmb": 5705.98
+      },
+      {
+        "rank": 32,
+        "code": "FSLR",
+        "name": "第一太阳能",
+        "weight_pct": 0.69,
+        "shares_wan": 3.5,
+        "value_wan_rmb": 5628.33
+      },
+      {
+        "rank": 33,
+        "code": "601899",
+        "name": "紫金矿业",
+        "weight_pct": 0.69,
+        "shares_wan": 317.59,
+        "value_wan_rmb": 5580.06
+      },
+      {
+        "rank": 34,
+        "code": "VST",
+        "name": "Vistra Corp",
+        "weight_pct": 0.54,
+        "shares_wan": 7.12,
+        "value_wan_rmb": 4364.22
+      },
+      {
+        "rank": 35,
+        "code": "CRM",
+        "name": "赛富时",
+        "weight_pct": 0.51,
+        "shares_wan": 2.25,
+        "value_wan_rmb": 4126.71
+      },
+      {
+        "rank": 36,
+        "code": "WMT",
+        "name": "沃尔玛",
+        "weight_pct": 0.5,
+        "shares_wan": 8.45,
+        "value_wan_rmb": 4078.17
+      },
+      {
+        "rank": 37,
+        "code": "COST",
+        "name": "开市客",
+        "weight_pct": 0.5,
+        "shares_wan": 0.67,
+        "value_wan_rmb": 4052.0
+      },
+      {
+        "rank": 39,
+        "code": "02899",
+        "name": "紫金矿业",
+        "weight_pct": 0.43,
+        "shares_wan": 230.2,
+        "value_wan_rmb": 3462.43
+      },
+      {
+        "rank": 40,
+        "code": "QCOM",
+        "name": "高通",
+        "weight_pct": 0.39,
+        "shares_wan": 2.24,
+        "value_wan_rmb": 3178.15
+      },
+      {
+        "rank": 41,
+        "code": "TDG",
+        "name": "TransDigm Group Inc",
+        "weight_pct": 0.36,
+        "shares_wan": 0.32,
+        "value_wan_rmb": 2950.11
+      },
+      {
+        "rank": 43,
+        "code": "TMDX",
+        "name": "TransMedics Group Inc",
+        "weight_pct": 0.31,
+        "shares_wan": 2.38,
+        "value_wan_rmb": 2559.51
+      },
+      {
+        "rank": 44,
+        "code": "PANW",
+        "name": "派拓网络",
+        "weight_pct": 0.22,
+        "shares_wan": 0.75,
+        "value_wan_rmb": 1806.0
+      },
+      {
+        "rank": 45,
+        "code": "RBLX",
+        "name": "Roblox Corp-A",
+        "weight_pct": 0.17,
+        "shares_wan": 5.1,
+        "value_wan_rmb": 1351.27
+      },
+      {
+        "rank": 46,
+        "code": "601857",
+        "name": "中国石油",
+        "weight_pct": 0.15,
+        "shares_wan": 120.57,
+        "value_wan_rmb": 1244.28
+      },
+      {
+        "rank": 47,
+        "code": "02420",
+        "name": "子不语",
+        "weight_pct": 0.05,
+        "shares_wan": 101.85,
+        "value_wan_rmb": 369.04
+      },
+      {
+        "rank": 48,
+        "code": "09690",
+        "name": "途虎-W",
+        "weight_pct": 0.01,
+        "shares_wan": 3.99,
+        "value_wan_rmb": 84.67
       }
     ]
   },
@@ -1356,6 +2644,374 @@
         "weight_pct": 3.28,
         "shares_wan": 9.8,
         "value_wan_rmb": 28453.4
+      },
+      {
+        "rank": 11,
+        "code": "TSM",
+        "name": "台积电",
+        "weight_pct": 3.09,
+        "shares_wan": 18.91,
+        "value_wan_rmb": 26849.31
+      },
+      {
+        "rank": 12,
+        "code": "SNPS",
+        "name": "新思科技",
+        "weight_pct": 2.26,
+        "shares_wan": 5.62,
+        "value_wan_rmb": 19613.2
+      },
+      {
+        "rank": 14,
+        "code": "000333",
+        "name": "美的集团",
+        "weight_pct": 1.47,
+        "shares_wan": 169.29,
+        "value_wan_rmb": 12734.35
+      },
+      {
+        "rank": 15,
+        "code": "PDD",
+        "name": "拼多多",
+        "weight_pct": 1.37,
+        "shares_wan": 17.01,
+        "value_wan_rmb": 11860.12
+      },
+      {
+        "rank": 16,
+        "code": "TCOM",
+        "name": "携程",
+        "weight_pct": 1.09,
+        "shares_wan": 19.22,
+        "value_wan_rmb": 9486.68
+      },
+      {
+        "rank": 17,
+        "code": "WMT",
+        "name": "沃尔玛",
+        "weight_pct": 1.06,
+        "shares_wan": 14.22,
+        "value_wan_rmb": 9237.76
+      },
+      {
+        "rank": 18,
+        "code": "CRM",
+        "name": "赛富时",
+        "weight_pct": 1.01,
+        "shares_wan": 3.63,
+        "value_wan_rmb": 8731.42
+      },
+      {
+        "rank": 19,
+        "code": "RACE",
+        "name": "法拉利",
+        "weight_pct": 0.94,
+        "shares_wan": 2.67,
+        "value_wan_rmb": 8142.06
+      },
+      {
+        "rank": 20,
+        "code": "ASML",
+        "name": "阿斯麦",
+        "weight_pct": 0.92,
+        "shares_wan": 1.61,
+        "value_wan_rmb": 8010.78
+      },
+      {
+        "rank": 21,
+        "code": "COST",
+        "name": "开市客",
+        "weight_pct": 0.92,
+        "shares_wan": 1.21,
+        "value_wan_rmb": 8001.3
+      },
+      {
+        "rank": 22,
+        "code": "CDNS",
+        "name": "铿腾电子",
+        "weight_pct": 0.88,
+        "shares_wan": 3.54,
+        "value_wan_rmb": 7654.21
+      },
+      {
+        "rank": 23,
+        "code": "LLY",
+        "name": "礼来",
+        "weight_pct": 0.88,
+        "shares_wan": 1.37,
+        "value_wan_rmb": 7624.94
+      },
+      {
+        "rank": 24,
+        "code": "KO",
+        "name": "可口可乐",
+        "weight_pct": 0.73,
+        "shares_wan": 14.08,
+        "value_wan_rmb": 6303.07
+      },
+      {
+        "rank": 25,
+        "code": "TDG",
+        "name": "TransDigm Group Inc",
+        "weight_pct": 0.69,
+        "shares_wan": 0.66,
+        "value_wan_rmb": 6000.57
+      },
+      {
+        "rank": 26,
+        "code": "DECK",
+        "name": "德克斯户外",
+        "weight_pct": 0.66,
+        "shares_wan": 3.92,
+        "value_wan_rmb": 5718.98
+      },
+      {
+        "rank": 27,
+        "code": "ETN",
+        "name": "伊顿",
+        "weight_pct": 0.53,
+        "shares_wan": 1.93,
+        "value_wan_rmb": 4601.13
+      },
+      {
+        "rank": 28,
+        "code": "PCG",
+        "name": "太平洋煤气电力",
+        "weight_pct": 0.51,
+        "shares_wan": 30.54,
+        "value_wan_rmb": 4430.39
+      },
+      {
+        "rank": 29,
+        "code": "AEP",
+        "name": "美国电力",
+        "weight_pct": 0.51,
+        "shares_wan": 6.65,
+        "value_wan_rmb": 4409.85
+      },
+      {
+        "rank": 30,
+        "code": "SRE",
+        "name": "桑普拉能源",
+        "weight_pct": 0.51,
+        "shares_wan": 6.96,
+        "value_wan_rmb": 4391.71
+      },
+      {
+        "rank": 31,
+        "code": "SO",
+        "name": "南方电力",
+        "weight_pct": 0.51,
+        "shares_wan": 7.41,
+        "value_wan_rmb": 4383.32
+      },
+      {
+        "rank": 32,
+        "code": "DUK",
+        "name": "杜克能源",
+        "weight_pct": 0.51,
+        "shares_wan": 5.66,
+        "value_wan_rmb": 4383.31
+      },
+      {
+        "rank": 33,
+        "code": "D",
+        "name": "道明尼能源",
+        "weight_pct": 0.5,
+        "shares_wan": 11.15,
+        "value_wan_rmb": 4316.06
+      },
+      {
+        "rank": 34,
+        "code": "00941",
+        "name": "中国移动",
+        "weight_pct": 0.5,
+        "shares_wan": 60.6,
+        "value_wan_rmb": 4298.64
+      },
+      {
+        "rank": 35,
+        "code": "ONON",
+        "name": "昂跑",
+        "weight_pct": 0.49,
+        "shares_wan": 10.91,
+        "value_wan_rmb": 4294.57
+      },
+      {
+        "rank": 36,
+        "code": "PEG",
+        "name": "公共服务企业",
+        "weight_pct": 0.49,
+        "shares_wan": 7.04,
+        "value_wan_rmb": 4274.76
+      },
+      {
+        "rank": 37,
+        "code": "RDDT",
+        "name": "Reddit Inc-A",
+        "weight_pct": 0.49,
+        "shares_wan": 3.6,
+        "value_wan_rmb": 4224.14
+      },
+      {
+        "rank": 38,
+        "code": "CEG",
+        "name": "Constellation Energy Corp",
+        "weight_pct": 0.48,
+        "shares_wan": 2.61,
+        "value_wan_rmb": 4197.99
+      },
+      {
+        "rank": 39,
+        "code": "00883",
+        "name": "中国海洋石油",
+        "weight_pct": 0.46,
+        "shares_wan": 227.7,
+        "value_wan_rmb": 4031.63
+      },
+      {
+        "rank": 40,
+        "code": "SE",
+        "name": "Sea Ltd ADR",
+        "weight_pct": 0.43,
+        "shares_wan": 4.85,
+        "value_wan_rmb": 3697.9
+      },
+      {
+        "rank": 41,
+        "code": "CRWD",
+        "name": "CrowdStrike Holdings Inc-A",
+        "weight_pct": 0.41,
+        "shares_wan": 1.44,
+        "value_wan_rmb": 3546.23
+      },
+      {
+        "rank": 43,
+        "code": "CELH",
+        "name": "燃力士控股",
+        "weight_pct": 0.4,
+        "shares_wan": 18.43,
+        "value_wan_rmb": 3489.73
+      },
+      {
+        "rank": 44,
+        "code": "600809",
+        "name": "山西汾酒",
+        "weight_pct": 0.35,
+        "shares_wan": 16.64,
+        "value_wan_rmb": 3065.25
+      },
+      {
+        "rank": 45,
+        "code": "REGN",
+        "name": "再生元制药",
+        "weight_pct": 0.33,
+        "shares_wan": 0.55,
+        "value_wan_rmb": 2821.91
+      },
+      {
+        "rank": 46,
+        "code": "AMD",
+        "name": "超威半导体",
+        "weight_pct": 0.32,
+        "shares_wan": 3.25,
+        "value_wan_rmb": 2817.94
+      },
+      {
+        "rank": 47,
+        "code": "601899",
+        "name": "紫金矿业",
+        "weight_pct": 0.31,
+        "shares_wan": 180.09,
+        "value_wan_rmb": 2722.96
+      },
+      {
+        "rank": 48,
+        "code": "00857",
+        "name": "中国石油股份",
+        "weight_pct": 0.29,
+        "shares_wan": 437.4,
+        "value_wan_rmb": 2474.85
+      },
+      {
+        "rank": 49,
+        "code": "AFRM",
+        "name": "Affirm Holdings Inc-A",
+        "weight_pct": 0.27,
+        "shares_wan": 5.34,
+        "value_wan_rmb": 2338.5
+      },
+      {
+        "rank": 50,
+        "code": "NKE",
+        "name": "耐克",
+        "weight_pct": 0.27,
+        "shares_wan": 4.24,
+        "value_wan_rmb": 2308.07
+      },
+      {
+        "rank": 51,
+        "code": "RBLX",
+        "name": "Roblox Corp-A",
+        "weight_pct": 0.24,
+        "shares_wan": 4.92,
+        "value_wan_rmb": 2047.41
+      },
+      {
+        "rank": 52,
+        "code": "PANW",
+        "name": "派拓网络",
+        "weight_pct": 0.22,
+        "shares_wan": 1.44,
+        "value_wan_rmb": 1889.28
+      },
+      {
+        "rank": 53,
+        "code": "FSLR",
+        "name": "第一太阳能",
+        "weight_pct": 0.18,
+        "shares_wan": 1.21,
+        "value_wan_rmb": 1530.14
+      },
+      {
+        "rank": 54,
+        "code": "02899",
+        "name": "紫金矿业",
+        "weight_pct": 0.12,
+        "shares_wan": 82.6,
+        "value_wan_rmb": 1081.58
+      },
+      {
+        "rank": 55,
+        "code": "TMDX",
+        "name": "TransMedics Group Inc",
+        "weight_pct": 0.12,
+        "shares_wan": 2.3,
+        "value_wan_rmb": 1032.42
+      },
+      {
+        "rank": 56,
+        "code": "601857",
+        "name": "中国石油",
+        "weight_pct": 0.07,
+        "shares_wan": 68.37,
+        "value_wan_rmb": 611.23
+      },
+      {
+        "rank": 57,
+        "code": "02420",
+        "name": "子不语",
+        "weight_pct": 0.05,
+        "shares_wan": 101.85,
+        "value_wan_rmb": 457.44
+      },
+      {
+        "rank": 58,
+        "code": "09690",
+        "name": "途虎-W",
+        "weight_pct": 0.01,
+        "shares_wan": 3.99,
+        "value_wan_rmb": 66.51
       }
     ]
   },
@@ -1435,6 +3091,14 @@
         "weight_pct": 2.37,
         "shares_wan": 20.48,
         "value_wan_rmb": 22962.48
+      },
+      {
+        "rank": 11,
+        "code": "GOOGL",
+        "name": "谷歌-A",
+        "weight_pct": 0.0,
+        "shares_wan": 0.0,
+        "value_wan_rmb": 3.44
       }
     ]
   },
@@ -1514,6 +3178,806 @@
         "weight_pct": 2.6,
         "shares_wan": 103.92,
         "value_wan_rmb": 25265.64
+      },
+      {
+        "rank": 11,
+        "code": "SAP",
+        "name": "思爱普",
+        "weight_pct": 2.5,
+        "shares_wan": 11.14,
+        "value_wan_rmb": 24249.48
+      },
+      {
+        "rank": 12,
+        "code": "GOOG",
+        "name": "谷歌-C",
+        "weight_pct": 2.48,
+        "shares_wan": 18.97,
+        "value_wan_rmb": 24092.11
+      },
+      {
+        "rank": 15,
+        "code": "TSLA",
+        "name": "特斯拉",
+        "weight_pct": 2.12,
+        "shares_wan": 9.04,
+        "value_wan_rmb": 20559.7
+      },
+      {
+        "rank": 16,
+        "code": "SNPS",
+        "name": "新思科技",
+        "weight_pct": 2.02,
+        "shares_wan": 5.34,
+        "value_wan_rmb": 19609.56
+      },
+      {
+        "rank": 17,
+        "code": "UNH",
+        "name": "联合健康",
+        "weight_pct": 1.86,
+        "shares_wan": 8.11,
+        "value_wan_rmb": 18114.49
+      },
+      {
+        "rank": 18,
+        "code": "WMT",
+        "name": "沃尔玛",
+        "weight_pct": 1.65,
+        "shares_wan": 22.94,
+        "value_wan_rmb": 16059.57
+      },
+      {
+        "rank": 19,
+        "code": "BTI",
+        "name": "英美烟草",
+        "weight_pct": 1.55,
+        "shares_wan": 44.56,
+        "value_wan_rmb": 15098.68
+      },
+      {
+        "rank": 20,
+        "code": "HOOD",
+        "name": "Robinhood Markets Inc-A",
+        "weight_pct": 1.34,
+        "shares_wan": 19.47,
+        "value_wan_rmb": 13048.48
+      },
+      {
+        "rank": 21,
+        "code": "CELH",
+        "name": "燃力士控股",
+        "weight_pct": 1.25,
+        "shares_wan": 36.67,
+        "value_wan_rmb": 12177.45
+      },
+      {
+        "rank": 22,
+        "code": "PDD",
+        "name": "拼多多",
+        "weight_pct": 1.24,
+        "shares_wan": 16.15,
+        "value_wan_rmb": 12096.52
+      },
+      {
+        "rank": 23,
+        "code": "LLY",
+        "name": "礼来",
+        "weight_pct": 1.13,
+        "shares_wan": 1.97,
+        "value_wan_rmb": 10989.37
+      },
+      {
+        "rank": 24,
+        "code": "00700",
+        "name": "腾讯控股",
+        "weight_pct": 1.11,
+        "shares_wan": 23.42,
+        "value_wan_rmb": 10743.01
+      },
+      {
+        "rank": 25,
+        "code": "01801",
+        "name": "信达生物",
+        "weight_pct": 1.03,
+        "shares_wan": 140.55,
+        "value_wan_rmb": 10048.89
+      },
+      {
+        "rank": 26,
+        "code": "AMD",
+        "name": "超威半导体",
+        "weight_pct": 0.96,
+        "shares_wan": 9.14,
+        "value_wan_rmb": 9286.9
+      },
+      {
+        "rank": 29,
+        "code": "DG",
+        "name": "达乐",
+        "weight_pct": 0.89,
+        "shares_wan": 10.6,
+        "value_wan_rmb": 8682.15
+      },
+      {
+        "rank": 30,
+        "code": "TSM",
+        "name": "台积电",
+        "weight_pct": 0.88,
+        "shares_wan": 5.3,
+        "value_wan_rmb": 8589.27
+      },
+      {
+        "rank": 31,
+        "code": "COST",
+        "name": "开市客",
+        "weight_pct": 0.84,
+        "shares_wan": 1.15,
+        "value_wan_rmb": 8182.88
+      },
+      {
+        "rank": 32,
+        "code": "HWM",
+        "name": "Howmet Aerospace Inc",
+        "weight_pct": 0.84,
+        "shares_wan": 6.1,
+        "value_wan_rmb": 8122.76
+      },
+      {
+        "rank": 33,
+        "code": "TLN",
+        "name": "Talen Energy Corp",
+        "weight_pct": 0.78,
+        "shares_wan": 3.64,
+        "value_wan_rmb": 7576.27
+      },
+      {
+        "rank": 34,
+        "code": "CDNS",
+        "name": "铿腾电子",
+        "weight_pct": 0.76,
+        "shares_wan": 3.37,
+        "value_wan_rmb": 7430.43
+      },
+      {
+        "rank": 35,
+        "code": "CEG",
+        "name": "Constellation Energy Corp",
+        "weight_pct": 0.73,
+        "shares_wan": 3.05,
+        "value_wan_rmb": 7053.06
+      },
+      {
+        "rank": 36,
+        "code": "TDG",
+        "name": "TransDigm Group Inc",
+        "weight_pct": 0.7,
+        "shares_wan": 0.63,
+        "value_wan_rmb": 6815.51
+      },
+      {
+        "rank": 37,
+        "code": "RKLB",
+        "name": "Rocket Lab Corp",
+        "weight_pct": 0.67,
+        "shares_wan": 25.57,
+        "value_wan_rmb": 6546.87
+      },
+      {
+        "rank": 38,
+        "code": "SE",
+        "name": "Sea Ltd ADR",
+        "weight_pct": 0.6,
+        "shares_wan": 5.06,
+        "value_wan_rmb": 5796.41
+      },
+      {
+        "rank": 39,
+        "code": "MELI",
+        "name": "MercadoLibre Inc",
+        "weight_pct": 0.58,
+        "shares_wan": 0.3,
+        "value_wan_rmb": 5670.98
+      },
+      {
+        "rank": 40,
+        "code": "VST",
+        "name": "Vistra Corp",
+        "weight_pct": 0.52,
+        "shares_wan": 3.65,
+        "value_wan_rmb": 5057.94
+      },
+      {
+        "rank": 41,
+        "code": "CRWD",
+        "name": "CrowdStrike Holdings Inc-A",
+        "weight_pct": 0.5,
+        "shares_wan": 1.32,
+        "value_wan_rmb": 4811.92
+      },
+      {
+        "rank": 42,
+        "code": "RACE",
+        "name": "法拉利",
+        "weight_pct": 0.48,
+        "shares_wan": 1.34,
+        "value_wan_rmb": 4697.25
+      },
+      {
+        "rank": 43,
+        "code": "SO",
+        "name": "南方电力",
+        "weight_pct": 0.47,
+        "shares_wan": 7.01,
+        "value_wan_rmb": 4609.64
+      },
+      {
+        "rank": 44,
+        "code": "DUK",
+        "name": "杜克能源",
+        "weight_pct": 0.47,
+        "shares_wan": 5.38,
+        "value_wan_rmb": 4544.06
+      },
+      {
+        "rank": 45,
+        "code": "NKE",
+        "name": "耐克",
+        "weight_pct": 0.45,
+        "shares_wan": 8.69,
+        "value_wan_rmb": 4421.05
+      },
+      {
+        "rank": 46,
+        "code": "FTNT",
+        "name": "防特网",
+        "weight_pct": 0.41,
+        "shares_wan": 5.3,
+        "value_wan_rmb": 4009.94
+      },
+      {
+        "rank": 47,
+        "code": "ONON",
+        "name": "昂跑",
+        "weight_pct": 0.4,
+        "shares_wan": 10.46,
+        "value_wan_rmb": 3898.46
+      },
+      {
+        "rank": 48,
+        "code": "CLS",
+        "name": "天弘科技",
+        "weight_pct": 0.38,
+        "shares_wan": 3.34,
+        "value_wan_rmb": 3737.46
+      },
+      {
+        "rank": 49,
+        "code": "DELL",
+        "name": "戴尔科技",
+        "weight_pct": 0.33,
+        "shares_wan": 3.7,
+        "value_wan_rmb": 3251.32
+      },
+      {
+        "rank": 50,
+        "code": "AEP",
+        "name": "美国电力",
+        "weight_pct": 0.33,
+        "shares_wan": 4.31,
+        "value_wan_rmb": 3198.62
+      },
+      {
+        "rank": 51,
+        "code": "CRDO",
+        "name": "Credo Technology Group Holding Ltd",
+        "weight_pct": 0.32,
+        "shares_wan": 4.63,
+        "value_wan_rmb": 3070.16
+      },
+      {
+        "rank": 52,
+        "code": "MRVL",
+        "name": "迈威尔科技",
+        "weight_pct": 0.29,
+        "shares_wan": 5.17,
+        "value_wan_rmb": 2865.68
+      },
+      {
+        "rank": 53,
+        "code": "HIMS",
+        "name": "Hims & Hers Health Inc-A",
+        "weight_pct": 0.29,
+        "shares_wan": 7.82,
+        "value_wan_rmb": 2791.79
+      },
+      {
+        "rank": 54,
+        "code": "DECK",
+        "name": "德克斯户外",
+        "weight_pct": 0.28,
+        "shares_wan": 3.72,
+        "value_wan_rmb": 2747.26
+      },
+      {
+        "rank": 55,
+        "code": "HEI",
+        "name": "海科航空",
+        "weight_pct": 0.27,
+        "shares_wan": 1.12,
+        "value_wan_rmb": 2624.38
+      },
+      {
+        "rank": 56,
+        "code": "ASML",
+        "name": "阿斯麦",
+        "weight_pct": 0.26,
+        "shares_wan": 0.44,
+        "value_wan_rmb": 2504.13
+      },
+      {
+        "rank": 57,
+        "code": "ETN",
+        "name": "伊顿",
+        "weight_pct": 0.26,
+        "shares_wan": 0.98,
+        "value_wan_rmb": 2498.82
+      },
+      {
+        "rank": 58,
+        "code": "03690",
+        "name": "美团-W",
+        "weight_pct": 0.26,
+        "shares_wan": 21.7,
+        "value_wan_rmb": 2479.6
+      },
+      {
+        "rank": 59,
+        "code": "RBLX",
+        "name": "Roblox Corp-A",
+        "weight_pct": 0.25,
+        "shares_wan": 3.18,
+        "value_wan_rmb": 2393.91
+      },
+      {
+        "rank": 60,
+        "code": "TMUS",
+        "name": "T-Mobile US Inc",
+        "weight_pct": 0.22,
+        "shares_wan": 1.24,
+        "value_wan_rmb": 2118.02
+      },
+      {
+        "rank": 61,
+        "code": "TMDX",
+        "name": "TransMedics Group Inc",
+        "weight_pct": 0.22,
+        "shares_wan": 2.19,
+        "value_wan_rmb": 2100.34
+      },
+      {
+        "rank": 62,
+        "code": "PANW",
+        "name": "派拓网络",
+        "weight_pct": 0.21,
+        "shares_wan": 1.37,
+        "value_wan_rmb": 2011.21
+      },
+      {
+        "rank": 63,
+        "code": "PEG",
+        "name": "公共服务企业",
+        "weight_pct": 0.2,
+        "shares_wan": 3.26,
+        "value_wan_rmb": 1967.28
+      },
+      {
+        "rank": 64,
+        "code": "RDDT",
+        "name": "Reddit Inc-A",
+        "weight_pct": 0.19,
+        "shares_wan": 1.72,
+        "value_wan_rmb": 1851.03
+      },
+      {
+        "rank": 65,
+        "code": "CRWV",
+        "name": "CoreWeave Inc-A",
+        "weight_pct": 0.19,
+        "shares_wan": 1.58,
+        "value_wan_rmb": 1848.86
+      },
+      {
+        "rank": 66,
+        "code": "06181",
+        "name": "老铺黄金",
+        "weight_pct": 0.19,
+        "shares_wan": 2.01,
+        "value_wan_rmb": 1847.68
+      },
+      {
+        "rank": 67,
+        "code": "02105",
+        "name": "来凯医药-B",
+        "weight_pct": 0.17,
+        "shares_wan": 105.2,
+        "value_wan_rmb": 1675.06
+      },
+      {
+        "rank": 68,
+        "code": "GS",
+        "name": "高盛",
+        "weight_pct": 0.15,
+        "shares_wan": 0.29,
+        "value_wan_rmb": 1484.48
+      },
+      {
+        "rank": 69,
+        "code": "CRCL",
+        "name": "Circle Internet Group Inc-A",
+        "weight_pct": 0.15,
+        "shares_wan": 1.1,
+        "value_wan_rmb": 1429.38
+      },
+      {
+        "rank": 70,
+        "code": "00005",
+        "name": "汇丰控股",
+        "weight_pct": 0.14,
+        "shares_wan": 15.28,
+        "value_wan_rmb": 1323.09
+      },
+      {
+        "rank": 71,
+        "code": "AFRM",
+        "name": "Affirm Holdings Inc-A",
+        "weight_pct": 0.13,
+        "shares_wan": 2.58,
+        "value_wan_rmb": 1275.57
+      },
+      {
+        "rank": 72,
+        "code": "YPF",
+        "name": "阿根廷YPF",
+        "weight_pct": 0.12,
+        "shares_wan": 5.24,
+        "value_wan_rmb": 1178.69
+      },
+      {
+        "rank": 73,
+        "code": "ZS",
+        "name": "Zscaler Inc",
+        "weight_pct": 0.11,
+        "shares_wan": 0.46,
+        "value_wan_rmb": 1022.55
+      },
+      {
+        "rank": 74,
+        "code": "EDN",
+        "name": "恩普雷萨电力",
+        "weight_pct": 0.1,
+        "shares_wan": 5.32,
+        "value_wan_rmb": 1009.62
+      },
+      {
+        "rank": 75,
+        "code": "REGN",
+        "name": "再生元制药",
+        "weight_pct": 0.1,
+        "shares_wan": 0.26,
+        "value_wan_rmb": 991.43
+      },
+      {
+        "rank": 76,
+        "code": "BRBR",
+        "name": "BellRing Brands Inc",
+        "weight_pct": 0.09,
+        "shares_wan": 2.17,
+        "value_wan_rmb": 900.14
+      },
+      {
+        "rank": 77,
+        "code": "V",
+        "name": "维萨",
+        "weight_pct": 0.09,
+        "shares_wan": 0.33,
+        "value_wan_rmb": 847.64
+      },
+      {
+        "rank": 78,
+        "code": "T",
+        "name": "美国电话电报",
+        "weight_pct": 0.08,
+        "shares_wan": 3.88,
+        "value_wan_rmb": 803.01
+      },
+      {
+        "rank": 79,
+        "code": "CTRA",
+        "name": "Coterra Energy Inc",
+        "weight_pct": 0.08,
+        "shares_wan": 4.1,
+        "value_wan_rmb": 744.2
+      },
+      {
+        "rank": 80,
+        "code": "FSLR",
+        "name": "第一太阳能",
+        "weight_pct": 0.07,
+        "shares_wan": 0.6,
+        "value_wan_rmb": 708.65
+      },
+      {
+        "rank": 81,
+        "code": "NFLX",
+        "name": "奈飞",
+        "weight_pct": 0.07,
+        "shares_wan": 0.07,
+        "value_wan_rmb": 656.66
+      },
+      {
+        "rank": 82,
+        "code": "DLTR",
+        "name": "美元树",
+        "weight_pct": 0.07,
+        "shares_wan": 0.9,
+        "value_wan_rmb": 639.65
+      },
+      {
+        "rank": 83,
+        "code": "ADM",
+        "name": "阿彻丹尼尔斯米德兰",
+        "weight_pct": 0.06,
+        "shares_wan": 1.59,
+        "value_wan_rmb": 600.49
+      },
+      {
+        "rank": 84,
+        "code": "YUM",
+        "name": "Yum! Brands Inc",
+        "weight_pct": 0.06,
+        "shares_wan": 0.55,
+        "value_wan_rmb": 583.31
+      },
+      {
+        "rank": 85,
+        "code": "XOM",
+        "name": "埃克森美孚",
+        "weight_pct": 0.06,
+        "shares_wan": 0.75,
+        "value_wan_rmb": 580.08
+      },
+      {
+        "rank": 86,
+        "code": "GD",
+        "name": "通用动力",
+        "weight_pct": 0.06,
+        "shares_wan": 0.28,
+        "value_wan_rmb": 574.79
+      },
+      {
+        "rank": 87,
+        "code": "BRO",
+        "name": "布朗保险",
+        "weight_pct": 0.06,
+        "shares_wan": 0.71,
+        "value_wan_rmb": 566.29
+      },
+      {
+        "rank": 88,
+        "code": "MMC",
+        "name": "威达信",
+        "weight_pct": 0.06,
+        "shares_wan": 0.35,
+        "value_wan_rmb": 552.03
+      },
+      {
+        "rank": 89,
+        "code": "OTIS",
+        "name": "Otis Worldwide Corp",
+        "weight_pct": 0.06,
+        "shares_wan": 0.77,
+        "value_wan_rmb": 546.8
+      },
+      {
+        "rank": 90,
+        "code": "LNT",
+        "name": "美国联合能源",
+        "weight_pct": 0.06,
+        "shares_wan": 1.25,
+        "value_wan_rmb": 541.1
+      },
+      {
+        "rank": 91,
+        "code": "ADBE",
+        "name": "奥多比",
+        "weight_pct": 0.05,
+        "shares_wan": 0.19,
+        "value_wan_rmb": 534.24
+      },
+      {
+        "rank": 92,
+        "code": "FICO",
+        "name": "Fair Isaac Corp",
+        "weight_pct": 0.05,
+        "shares_wan": 0.04,
+        "value_wan_rmb": 520.81
+      },
+      {
+        "rank": 93,
+        "code": "02899",
+        "name": "紫金矿业",
+        "weight_pct": 0.05,
+        "shares_wan": 28.0,
+        "value_wan_rmb": 511.97
+      },
+      {
+        "rank": 94,
+        "code": "WFC",
+        "name": "富国银行",
+        "weight_pct": 0.05,
+        "shares_wan": 0.87,
+        "value_wan_rmb": 498.24
+      },
+      {
+        "rank": 95,
+        "code": "00325",
+        "name": "布鲁可",
+        "weight_pct": 0.04,
+        "shares_wan": 3.24,
+        "value_wan_rmb": 417.21
+      },
+      {
+        "rank": 96,
+        "code": "KMI",
+        "name": "金德摩根",
+        "weight_pct": 0.04,
+        "shares_wan": 1.82,
+        "value_wan_rmb": 382.73
+      },
+      {
+        "rank": 97,
+        "code": "JPM",
+        "name": "摩根大通",
+        "weight_pct": 0.04,
+        "shares_wan": 0.17,
+        "value_wan_rmb": 350.73
+      },
+      {
+        "rank": 98,
+        "code": "JNJ",
+        "name": "强生",
+        "weight_pct": 0.03,
+        "shares_wan": 0.29,
+        "value_wan_rmb": 322.36
+      },
+      {
+        "rank": 99,
+        "code": "02420",
+        "name": "子不语",
+        "weight_pct": 0.03,
+        "shares_wan": 101.85,
+        "value_wan_rmb": 300.94
+      },
+      {
+        "rank": 100,
+        "code": "CHA",
+        "name": "霸王茶姬",
+        "weight_pct": 0.03,
+        "shares_wan": 1.56,
+        "value_wan_rmb": 291.17
+      },
+      {
+        "rank": 101,
+        "code": "IBM",
+        "name": "IBM国际商业机器(US)",
+        "weight_pct": 0.02,
+        "shares_wan": 0.11,
+        "value_wan_rmb": 232.76
+      },
+      {
+        "rank": 102,
+        "code": "CVS",
+        "name": "西维斯健康",
+        "weight_pct": 0.02,
+        "shares_wan": 0.47,
+        "value_wan_rmb": 231.99
+      },
+      {
+        "rank": 103,
+        "code": "BKNG",
+        "name": "Booking Holdings",
+        "weight_pct": 0.02,
+        "shares_wan": 0.01,
+        "value_wan_rmb": 223.79
+      },
+      {
+        "rank": 104,
+        "code": "MCHP",
+        "name": "微芯科技",
+        "weight_pct": 0.02,
+        "shares_wan": 0.44,
+        "value_wan_rmb": 222.1
+      },
+      {
+        "rank": 105,
+        "code": "INTU",
+        "name": "财捷",
+        "weight_pct": 0.02,
+        "shares_wan": 0.04,
+        "value_wan_rmb": 221.02
+      },
+      {
+        "rank": 106,
+        "code": "NVS",
+        "name": "诺华制药",
+        "weight_pct": 0.02,
+        "shares_wan": 0.25,
+        "value_wan_rmb": 220.2
+      },
+      {
+        "rank": 107,
+        "code": "GOOGL",
+        "name": "谷歌-A",
+        "weight_pct": 0.02,
+        "shares_wan": 0.17,
+        "value_wan_rmb": 218.75
+      },
+      {
+        "rank": 108,
+        "code": "HD",
+        "name": "家得宝",
+        "weight_pct": 0.02,
+        "shares_wan": 0.08,
+        "value_wan_rmb": 215.48
+      },
+      {
+        "rank": 109,
+        "code": "LIN",
+        "name": "Linde plc",
+        "weight_pct": 0.02,
+        "shares_wan": 0.06,
+        "value_wan_rmb": 213.28
+      },
+      {
+        "rank": 110,
+        "code": "MFC",
+        "name": "宏利金融",
+        "weight_pct": 0.02,
+        "shares_wan": 0.93,
+        "value_wan_rmb": 212.29
+      },
+      {
+        "rank": 111,
+        "code": "NEE",
+        "name": "新纪元能源",
+        "weight_pct": 0.02,
+        "shares_wan": 0.42,
+        "value_wan_rmb": 207.33
+      },
+      {
+        "rank": 112,
+        "code": "ACN",
+        "name": "埃森哲",
+        "weight_pct": 0.02,
+        "shares_wan": 0.09,
+        "value_wan_rmb": 202.62
+      },
+      {
+        "rank": 113,
+        "code": "PLTR",
+        "name": "Palantir Technologies Inc-A",
+        "weight_pct": 0.02,
+        "shares_wan": 0.19,
+        "value_wan_rmb": 183.17
+      },
+      {
+        "rank": 114,
+        "code": "09690",
+        "name": "途虎-W",
+        "weight_pct": 0.01,
+        "shares_wan": 3.99,
+        "value_wan_rmb": 70.44
       }
     ]
   },
@@ -1593,6 +4057,14 @@
         "weight_pct": 3.35,
         "shares_wan": 35.15,
         "value_wan_rmb": 35761.92
+      },
+      {
+        "rank": 11,
+        "code": "GOOGL",
+        "name": "谷歌-A",
+        "weight_pct": 0.03,
+        "shares_wan": 0.17,
+        "value_wan_rmb": 299.52
       }
     ]
   },
@@ -1680,6 +4152,3870 @@
         "weight_pct": 2.62,
         "shares_wan": 11.2,
         "value_wan_rmb": 35416.39
+      },
+      {
+        "rank": 11,
+        "code": "META",
+        "name": "Meta Platforms Inc-A",
+        "weight_pct": 2.35,
+        "shares_wan": 6.84,
+        "value_wan_rmb": 31735.14
+      },
+      {
+        "rank": 12,
+        "code": "TER",
+        "name": "泰瑞达",
+        "weight_pct": 2.21,
+        "shares_wan": 21.99,
+        "value_wan_rmb": 29918.77
+      },
+      {
+        "rank": 16,
+        "code": "09927",
+        "name": "赛力斯",
+        "weight_pct": 1.34,
+        "shares_wan": 196.62,
+        "value_wan_rmb": 18169.23
+      },
+      {
+        "rank": 17,
+        "code": "PDD",
+        "name": "拼多多",
+        "weight_pct": 1.18,
+        "shares_wan": 19.97,
+        "value_wan_rmb": 15913.69
+      },
+      {
+        "rank": 18,
+        "code": "HOOD",
+        "name": "Robinhood Markets Inc-A",
+        "weight_pct": 1.14,
+        "shares_wan": 19.32,
+        "value_wan_rmb": 15360.32
+      },
+      {
+        "rank": 19,
+        "code": "TSM",
+        "name": "台积电",
+        "weight_pct": 1.07,
+        "shares_wan": 6.76,
+        "value_wan_rmb": 14437.53
+      },
+      {
+        "rank": 20,
+        "code": "TLN",
+        "name": "Talen Energy Corp",
+        "weight_pct": 1.05,
+        "shares_wan": 5.37,
+        "value_wan_rmb": 14155.32
+      },
+      {
+        "rank": 21,
+        "code": "SNPS",
+        "name": "新思科技",
+        "weight_pct": 1.0,
+        "shares_wan": 4.08,
+        "value_wan_rmb": 13464.78
+      },
+      {
+        "rank": 22,
+        "code": "300502",
+        "name": "新易盛",
+        "weight_pct": 0.96,
+        "shares_wan": 30.0,
+        "value_wan_rmb": 12925.62
+      },
+      {
+        "rank": 23,
+        "code": "300604",
+        "name": "长川科技",
+        "weight_pct": 0.95,
+        "shares_wan": 126.79,
+        "value_wan_rmb": 12845.09
+      },
+      {
+        "rank": 24,
+        "code": "NOW",
+        "name": "现在服务公司",
+        "weight_pct": 0.92,
+        "shares_wan": 11.6,
+        "value_wan_rmb": 12485.9
+      },
+      {
+        "rank": 25,
+        "code": "01288",
+        "name": "农业银行",
+        "weight_pct": 0.9,
+        "shares_wan": 2342.2,
+        "value_wan_rmb": 12227.72
+      },
+      {
+        "rank": 26,
+        "code": "00883",
+        "name": "中国海洋石油",
+        "weight_pct": 0.87,
+        "shares_wan": 612.6,
+        "value_wan_rmb": 11785.56
+      },
+      {
+        "rank": 27,
+        "code": "00700",
+        "name": "腾讯控股",
+        "weight_pct": 0.85,
+        "shares_wan": 21.15,
+        "value_wan_rmb": 11442.76
+      },
+      {
+        "rank": 28,
+        "code": "688249",
+        "name": "晶合集成",
+        "weight_pct": 0.82,
+        "shares_wan": 333.36,
+        "value_wan_rmb": 11064.15
+      },
+      {
+        "rank": 29,
+        "code": "603993",
+        "name": "洛阳钼业",
+        "weight_pct": 0.81,
+        "shares_wan": 544.69,
+        "value_wan_rmb": 10893.81
+      },
+      {
+        "rank": 30,
+        "code": "603986",
+        "name": "兆易创新",
+        "weight_pct": 0.73,
+        "shares_wan": 46.27,
+        "value_wan_rmb": 9913.35
+      },
+      {
+        "rank": 31,
+        "code": "300274",
+        "name": "阳光电源",
+        "weight_pct": 0.71,
+        "shares_wan": 56.31,
+        "value_wan_rmb": 9632.08
+      },
+      {
+        "rank": 32,
+        "code": "APP",
+        "name": "Applovin Corp-A",
+        "weight_pct": 0.65,
+        "shares_wan": 1.85,
+        "value_wan_rmb": 8777.5
+      },
+      {
+        "rank": 33,
+        "code": "RKLB",
+        "name": "Rocket Lab Corp",
+        "weight_pct": 0.61,
+        "shares_wan": 16.82,
+        "value_wan_rmb": 8248.95
+      },
+      {
+        "rank": 34,
+        "code": "CEG",
+        "name": "Constellation Energy Corp",
+        "weight_pct": 0.6,
+        "shares_wan": 3.28,
+        "value_wan_rmb": 8134.52
+      },
+      {
+        "rank": 35,
+        "code": "NBIS",
+        "name": "Nebius Group NV-A",
+        "weight_pct": 0.6,
+        "shares_wan": 13.78,
+        "value_wan_rmb": 8104.64
+      },
+      {
+        "rank": 36,
+        "code": "01801",
+        "name": "信达生物",
+        "weight_pct": 0.59,
+        "shares_wan": 115.9,
+        "value_wan_rmb": 7982.09
+      },
+      {
+        "rank": 37,
+        "code": "300751",
+        "name": "迈为股份",
+        "weight_pct": 0.55,
+        "shares_wan": 36.13,
+        "value_wan_rmb": 7442.42
+      },
+      {
+        "rank": 39,
+        "code": "VST",
+        "name": "Vistra Corp",
+        "weight_pct": 0.53,
+        "shares_wan": 6.3,
+        "value_wan_rmb": 7148.35
+      },
+      {
+        "rank": 40,
+        "code": "688012",
+        "name": "中微公司",
+        "weight_pct": 0.52,
+        "shares_wan": 24.86,
+        "value_wan_rmb": 7052.72
+      },
+      {
+        "rank": 41,
+        "code": "CIEN",
+        "name": "Ciena科技",
+        "weight_pct": 0.5,
+        "shares_wan": 4.12,
+        "value_wan_rmb": 6770.59
+      },
+      {
+        "rank": 42,
+        "code": "03988",
+        "name": "中国银行",
+        "weight_pct": 0.45,
+        "shares_wan": 1496.9,
+        "value_wan_rmb": 6030.05
+      },
+      {
+        "rank": 43,
+        "code": "CELH",
+        "name": "燃力士控股",
+        "weight_pct": 0.43,
+        "shares_wan": 18.01,
+        "value_wan_rmb": 5790.1
+      },
+      {
+        "rank": 44,
+        "code": "00981",
+        "name": "中芯国际",
+        "weight_pct": 0.43,
+        "shares_wan": 89.5,
+        "value_wan_rmb": 5775.89
+      },
+      {
+        "rank": 45,
+        "code": "SHOP",
+        "name": "Shopify Inc-A",
+        "weight_pct": 0.42,
+        "shares_wan": 4.98,
+        "value_wan_rmb": 5635.52
+      },
+      {
+        "rank": 46,
+        "code": "01347",
+        "name": "华虹半导体",
+        "weight_pct": 0.41,
+        "shares_wan": 81.6,
+        "value_wan_rmb": 5476.11
+      },
+      {
+        "rank": 47,
+        "code": "SAP",
+        "name": "思爱普",
+        "weight_pct": 0.4,
+        "shares_wan": 3.15,
+        "value_wan_rmb": 5386.57
+      },
+      {
+        "rank": 48,
+        "code": "OPEN",
+        "name": "Opendoor Technologies Inc",
+        "weight_pct": 0.39,
+        "shares_wan": 129.78,
+        "value_wan_rmb": 5317.91
+      },
+      {
+        "rank": 49,
+        "code": "688072",
+        "name": "拓荆科技",
+        "weight_pct": 0.39,
+        "shares_wan": 15.9,
+        "value_wan_rmb": 5245.58
+      },
+      {
+        "rank": 50,
+        "code": "CRWV",
+        "name": "CoreWeave Inc-A",
+        "weight_pct": 0.38,
+        "shares_wan": 10.31,
+        "value_wan_rmb": 5189.0
+      },
+      {
+        "rank": 51,
+        "code": "00638",
+        "name": "广和通",
+        "weight_pct": 0.38,
+        "shares_wan": 380.12,
+        "value_wan_rmb": 5168.97
+      },
+      {
+        "rank": 52,
+        "code": "MP",
+        "name": "MP Materials Corp-A",
+        "weight_pct": 0.37,
+        "shares_wan": 14.18,
+        "value_wan_rmb": 5036.74
+      },
+      {
+        "rank": 53,
+        "code": "COST",
+        "name": "开市客",
+        "weight_pct": 0.36,
+        "shares_wan": 0.8,
+        "value_wan_rmb": 4819.88
+      },
+      {
+        "rank": 54,
+        "code": "CLS",
+        "name": "天弘科技",
+        "weight_pct": 0.35,
+        "shares_wan": 2.27,
+        "value_wan_rmb": 4708.67
+      },
+      {
+        "rank": 55,
+        "code": "PANW",
+        "name": "派拓网络",
+        "weight_pct": 0.33,
+        "shares_wan": 3.49,
+        "value_wan_rmb": 4516.06
+      },
+      {
+        "rank": 56,
+        "code": "CRWD",
+        "name": "CrowdStrike Holdings Inc-A",
+        "weight_pct": 0.31,
+        "shares_wan": 1.25,
+        "value_wan_rmb": 4132.36
+      },
+      {
+        "rank": 57,
+        "code": "06090",
+        "name": "不同集团",
+        "weight_pct": 0.3,
+        "shares_wan": 46.49,
+        "value_wan_rmb": 4115.09
+      },
+      {
+        "rank": 58,
+        "code": "ADBE",
+        "name": "奥多比",
+        "weight_pct": 0.29,
+        "shares_wan": 1.62,
+        "value_wan_rmb": 3983.25
+      },
+      {
+        "rank": 59,
+        "code": "603119",
+        "name": "浙江荣泰",
+        "weight_pct": 0.28,
+        "shares_wan": 33.04,
+        "value_wan_rmb": 3821.25
+      },
+      {
+        "rank": 60,
+        "code": "300570",
+        "name": "太辰光",
+        "weight_pct": 0.27,
+        "shares_wan": 31.67,
+        "value_wan_rmb": 3659.47
+      },
+      {
+        "rank": 61,
+        "code": "02788",
+        "name": "创新实业",
+        "weight_pct": 0.27,
+        "shares_wan": 207.3,
+        "value_wan_rmb": 3639.34
+      },
+      {
+        "rank": 62,
+        "code": "688037",
+        "name": "芯源微",
+        "weight_pct": 0.26,
+        "shares_wan": 23.75,
+        "value_wan_rmb": 3527.05
+      },
+      {
+        "rank": 63,
+        "code": "RBLX",
+        "name": "Roblox Corp-A",
+        "weight_pct": 0.24,
+        "shares_wan": 5.72,
+        "value_wan_rmb": 3260.12
+      },
+      {
+        "rank": 64,
+        "code": "688627",
+        "name": "精智达",
+        "weight_pct": 0.22,
+        "shares_wan": 13.31,
+        "value_wan_rmb": 2976.5
+      },
+      {
+        "rank": 65,
+        "code": "AMKR",
+        "name": "艾马克技术",
+        "weight_pct": 0.21,
+        "shares_wan": 10.38,
+        "value_wan_rmb": 2880.56
+      },
+      {
+        "rank": 66,
+        "code": "AMD",
+        "name": "超威半导体",
+        "weight_pct": 0.2,
+        "shares_wan": 1.81,
+        "value_wan_rmb": 2717.95
+      },
+      {
+        "rank": 67,
+        "code": "CDNS",
+        "name": "铿腾电子",
+        "weight_pct": 0.2,
+        "shares_wan": 1.22,
+        "value_wan_rmb": 2688.76
+      },
+      {
+        "rank": 71,
+        "code": "BE",
+        "name": "Bloom Energy Corp-A",
+        "weight_pct": 0.15,
+        "shares_wan": 3.27,
+        "value_wan_rmb": 1994.9
+      },
+      {
+        "rank": 72,
+        "code": "QCOM",
+        "name": "高通",
+        "weight_pct": 0.15,
+        "shares_wan": 1.65,
+        "value_wan_rmb": 1982.91
+      },
+      {
+        "rank": 73,
+        "code": "LLY",
+        "name": "礼来",
+        "weight_pct": 0.12,
+        "shares_wan": 0.21,
+        "value_wan_rmb": 1571.17
+      },
+      {
+        "rank": 74,
+        "code": "ALAB",
+        "name": "Astera Labs Inc",
+        "weight_pct": 0.11,
+        "shares_wan": 1.31,
+        "value_wan_rmb": 1532.27
+      },
+      {
+        "rank": 75,
+        "code": "DG",
+        "name": "达乐",
+        "weight_pct": 0.11,
+        "shares_wan": 1.63,
+        "value_wan_rmb": 1523.1
+      },
+      {
+        "rank": 76,
+        "code": "02259",
+        "name": "紫金黄金国际",
+        "weight_pct": 0.11,
+        "shares_wan": 11.24,
+        "value_wan_rmb": 1482.22
+      },
+      {
+        "rank": 77,
+        "code": "SE",
+        "name": "Sea Ltd ADR",
+        "weight_pct": 0.1,
+        "shares_wan": 1.58,
+        "value_wan_rmb": 1416.64
+      },
+      {
+        "rank": 78,
+        "code": "REGN",
+        "name": "再生元制药",
+        "weight_pct": 0.1,
+        "shares_wan": 0.25,
+        "value_wan_rmb": 1360.13
+      },
+      {
+        "rank": 79,
+        "code": "02105",
+        "name": "来凯医药-B",
+        "weight_pct": 0.1,
+        "shares_wan": 105.2,
+        "value_wan_rmb": 1289.4
+      },
+      {
+        "rank": 80,
+        "code": "AFRM",
+        "name": "Affirm Holdings Inc-A",
+        "weight_pct": 0.09,
+        "shares_wan": 2.45,
+        "value_wan_rmb": 1281.26
+      },
+      {
+        "rank": 81,
+        "code": "01578",
+        "name": "天津银行",
+        "weight_pct": 0.09,
+        "shares_wan": 553.4,
+        "value_wan_rmb": 1244.61
+      },
+      {
+        "rank": 82,
+        "code": "MELI",
+        "name": "MercadoLibre Inc",
+        "weight_pct": 0.09,
+        "shares_wan": 0.09,
+        "value_wan_rmb": 1228.9
+      },
+      {
+        "rank": 83,
+        "code": "UNH",
+        "name": "联合健康",
+        "weight_pct": 0.09,
+        "shares_wan": 0.52,
+        "value_wan_rmb": 1212.34
+      },
+      {
+        "rank": 84,
+        "code": "DUOL",
+        "name": "多邻国",
+        "weight_pct": 0.09,
+        "shares_wan": 0.96,
+        "value_wan_rmb": 1185.08
+      },
+      {
+        "rank": 85,
+        "code": "WMT",
+        "name": "沃尔玛",
+        "weight_pct": 0.08,
+        "shares_wan": 1.37,
+        "value_wan_rmb": 1072.66
+      },
+      {
+        "rank": 86,
+        "code": "RMBS",
+        "name": "Rambus Inc",
+        "weight_pct": 0.08,
+        "shares_wan": 1.6,
+        "value_wan_rmb": 1031.79
+      },
+      {
+        "rank": 87,
+        "code": "SPOT",
+        "name": "Spotify Technology SA",
+        "weight_pct": 0.07,
+        "shares_wan": 0.23,
+        "value_wan_rmb": 925.32
+      },
+      {
+        "rank": 88,
+        "code": "HEI",
+        "name": "海科航空",
+        "weight_pct": 0.07,
+        "shares_wan": 0.39,
+        "value_wan_rmb": 883.4
+      },
+      {
+        "rank": 89,
+        "code": "TDG",
+        "name": "TransDigm Group Inc",
+        "weight_pct": 0.06,
+        "shares_wan": 0.09,
+        "value_wan_rmb": 864.62
+      },
+      {
+        "rank": 90,
+        "code": "RACE",
+        "name": "法拉利",
+        "weight_pct": 0.06,
+        "shares_wan": 0.29,
+        "value_wan_rmb": 751.99
+      },
+      {
+        "rank": 91,
+        "code": "300308",
+        "name": "中际旭创",
+        "weight_pct": 0.05,
+        "shares_wan": 1.21,
+        "value_wan_rmb": 738.1
+      },
+      {
+        "rank": 92,
+        "code": "HIMS",
+        "name": "Hims & Hers Health Inc-A",
+        "weight_pct": 0.05,
+        "shares_wan": 2.93,
+        "value_wan_rmb": 669.68
+      },
+      {
+        "rank": 93,
+        "code": "GOOGL",
+        "name": "谷歌-A",
+        "weight_pct": 0.03,
+        "shares_wan": 0.17,
+        "value_wan_rmb": 381.48
+      },
+      {
+        "rank": 94,
+        "code": "GS",
+        "name": "高盛",
+        "weight_pct": 0.02,
+        "shares_wan": 0.05,
+        "value_wan_rmb": 302.12
+      },
+      {
+        "rank": 95,
+        "code": "688256",
+        "name": "寒武纪",
+        "weight_pct": 0.02,
+        "shares_wan": 0.22,
+        "value_wan_rmb": 298.22
+      },
+      {
+        "rank": 96,
+        "code": "002475",
+        "name": "立讯精密",
+        "weight_pct": 0.02,
+        "shares_wan": 5.18,
+        "value_wan_rmb": 293.76
+      },
+      {
+        "rank": 97,
+        "code": "CVS",
+        "name": "西维斯健康",
+        "weight_pct": 0.02,
+        "shares_wan": 0.47,
+        "value_wan_rmb": 262.06
+      },
+      {
+        "rank": 98,
+        "code": "HWM",
+        "name": "Howmet Aerospace Inc",
+        "weight_pct": 0.02,
+        "shares_wan": 0.17,
+        "value_wan_rmb": 250.17
+      },
+      {
+        "rank": 99,
+        "code": "NVS",
+        "name": "诺华制药",
+        "weight_pct": 0.02,
+        "shares_wan": 0.25,
+        "value_wan_rmb": 246.34
+      },
+      {
+        "rank": 100,
+        "code": "MFC",
+        "name": "宏利金融",
+        "weight_pct": 0.02,
+        "shares_wan": 0.93,
+        "value_wan_rmb": 236.62
+      },
+      {
+        "rank": 101,
+        "code": "NEE",
+        "name": "新纪元能源",
+        "weight_pct": 0.02,
+        "shares_wan": 0.42,
+        "value_wan_rmb": 235.41
+      },
+      {
+        "rank": 102,
+        "code": "PLTR",
+        "name": "Palantir Technologies Inc-A",
+        "weight_pct": 0.02,
+        "shares_wan": 0.19,
+        "value_wan_rmb": 234.51
+      },
+      {
+        "rank": 103,
+        "code": "IBM",
+        "name": "IBM国际商业机器",
+        "weight_pct": 0.02,
+        "shares_wan": 0.11,
+        "value_wan_rmb": 229.64
+      },
+      {
+        "rank": 104,
+        "code": "601138",
+        "name": "工业富联",
+        "weight_pct": 0.02,
+        "shares_wan": 3.54,
+        "value_wan_rmb": 219.66
+      },
+      {
+        "rank": 105,
+        "code": "CTRA",
+        "name": "Coterra Energy Inc",
+        "weight_pct": 0.02,
+        "shares_wan": 1.16,
+        "value_wan_rmb": 213.88
+      },
+      {
+        "rank": 106,
+        "code": "BKNG",
+        "name": "Booking Holdings",
+        "weight_pct": 0.02,
+        "shares_wan": 0.01,
+        "value_wan_rmb": 203.26
+      },
+      {
+        "rank": 107,
+        "code": "V",
+        "name": "维萨",
+        "weight_pct": 0.01,
+        "shares_wan": 0.08,
+        "value_wan_rmb": 201.64
+      },
+      {
+        "rank": 108,
+        "code": "HD",
+        "name": "家得宝",
+        "weight_pct": 0.01,
+        "shares_wan": 0.08,
+        "value_wan_rmb": 198.57
+      },
+      {
+        "rank": 109,
+        "code": "MCHP",
+        "name": "微芯科技",
+        "weight_pct": 0.01,
+        "shares_wan": 0.44,
+        "value_wan_rmb": 197.47
+      },
+      {
+        "rank": 110,
+        "code": "002230",
+        "name": "科大讯飞",
+        "weight_pct": 0.01,
+        "shares_wan": 3.87,
+        "value_wan_rmb": 194.62
+      },
+      {
+        "rank": 111,
+        "code": "LIN",
+        "name": "Linde plc",
+        "weight_pct": 0.01,
+        "shares_wan": 0.06,
+        "value_wan_rmb": 190.31
+      },
+      {
+        "rank": 112,
+        "code": "T",
+        "name": "美国电话电报",
+        "weight_pct": 0.01,
+        "shares_wan": 1.08,
+        "value_wan_rmb": 188.0
+      },
+      {
+        "rank": 113,
+        "code": "002008",
+        "name": "大族激光",
+        "weight_pct": 0.01,
+        "shares_wan": 4.48,
+        "value_wan_rmb": 184.53
+      },
+      {
+        "rank": 114,
+        "code": "002415",
+        "name": "海康威视",
+        "weight_pct": 0.01,
+        "shares_wan": 6.16,
+        "value_wan_rmb": 183.81
+      },
+      {
+        "rank": 115,
+        "code": "INTU",
+        "name": "财捷",
+        "weight_pct": 0.01,
+        "shares_wan": 0.04,
+        "value_wan_rmb": 182.52
+      },
+      {
+        "rank": 116,
+        "code": "002236",
+        "name": "大华股份",
+        "weight_pct": 0.01,
+        "shares_wan": 9.62,
+        "value_wan_rmb": 182.2
+      },
+      {
+        "rank": 117,
+        "code": "ACN",
+        "name": "埃森哲",
+        "weight_pct": 0.01,
+        "shares_wan": 0.09,
+        "value_wan_rmb": 178.59
+      },
+      {
+        "rank": 118,
+        "code": "300124",
+        "name": "汇川技术",
+        "weight_pct": 0.01,
+        "shares_wan": 2.28,
+        "value_wan_rmb": 171.75
+      },
+      {
+        "rank": 119,
+        "code": "002916",
+        "name": "深南电路",
+        "weight_pct": 0.01,
+        "shares_wan": 0.7,
+        "value_wan_rmb": 162.6
+      },
+      {
+        "rank": 120,
+        "code": "688008",
+        "name": "澜起科技",
+        "weight_pct": 0.01,
+        "shares_wan": 1.36,
+        "value_wan_rmb": 160.21
+      },
+      {
+        "rank": 121,
+        "code": "002384",
+        "name": "东山精密",
+        "weight_pct": 0.01,
+        "shares_wan": 1.86,
+        "value_wan_rmb": 157.45
+      },
+      {
+        "rank": 122,
+        "code": "300750",
+        "name": "宁德时代",
+        "weight_pct": 0.01,
+        "shares_wan": 0.42,
+        "value_wan_rmb": 154.25
+      },
+      {
+        "rank": 123,
+        "code": "600183",
+        "name": "生益科技",
+        "weight_pct": 0.01,
+        "shares_wan": 2.08,
+        "value_wan_rmb": 148.53
+      },
+      {
+        "rank": 124,
+        "code": "688041",
+        "name": "海光信息",
+        "weight_pct": 0.01,
+        "shares_wan": 0.64,
+        "value_wan_rmb": 143.62
+      },
+      {
+        "rank": 125,
+        "code": "002463",
+        "name": "沪电股份",
+        "weight_pct": 0.01,
+        "shares_wan": 1.95,
+        "value_wan_rmb": 142.49
+      },
+      {
+        "rank": 126,
+        "code": "002281",
+        "name": "光迅科技",
+        "weight_pct": 0.01,
+        "shares_wan": 1.93,
+        "value_wan_rmb": 135.0
+      },
+      {
+        "rank": 127,
+        "code": "688981",
+        "name": "中芯国际",
+        "weight_pct": 0.01,
+        "shares_wan": 1.04,
+        "value_wan_rmb": 127.74
+      },
+      {
+        "rank": 128,
+        "code": "000725",
+        "name": "京东方A",
+        "weight_pct": 0.01,
+        "shares_wan": 29.96,
+        "value_wan_rmb": 126.13
+      },
+      {
+        "rank": 129,
+        "code": "601318",
+        "name": "中国平安",
+        "weight_pct": 0.01,
+        "shares_wan": 1.77,
+        "value_wan_rmb": 121.07
+      },
+      {
+        "rank": 130,
+        "code": "002371",
+        "name": "北方华创",
+        "weight_pct": 0.01,
+        "shares_wan": 0.26,
+        "value_wan_rmb": 119.36
+      },
+      {
+        "rank": 131,
+        "code": "603486",
+        "name": "科沃斯",
+        "weight_pct": 0.01,
+        "shares_wan": 1.46,
+        "value_wan_rmb": 117.79
+      },
+      {
+        "rank": 132,
+        "code": "000100",
+        "name": "TCL科技",
+        "weight_pct": 0.01,
+        "shares_wan": 25.66,
+        "value_wan_rmb": 116.5
+      },
+      {
+        "rank": 133,
+        "code": "601899",
+        "name": "紫金矿业",
+        "weight_pct": 0.01,
+        "shares_wan": 3.28,
+        "value_wan_rmb": 113.06
+      },
+      {
+        "rank": 134,
+        "code": "688002",
+        "name": "睿创微纳",
+        "weight_pct": 0.01,
+        "shares_wan": 1.08,
+        "value_wan_rmb": 108.86
+      },
+      {
+        "rank": 135,
+        "code": "300033",
+        "name": "同花顺",
+        "weight_pct": 0.01,
+        "shares_wan": 0.33,
+        "value_wan_rmb": 106.32
+      },
+      {
+        "rank": 136,
+        "code": "300373",
+        "name": "扬杰科技",
+        "weight_pct": 0.01,
+        "shares_wan": 1.54,
+        "value_wan_rmb": 104.72
+      },
+      {
+        "rank": 137,
+        "code": "002993",
+        "name": "奥海科技",
+        "weight_pct": 0.01,
+        "shares_wan": 2.37,
+        "value_wan_rmb": 103.59
+      },
+      {
+        "rank": 138,
+        "code": "300219",
+        "name": "鸿利智汇",
+        "weight_pct": 0.01,
+        "shares_wan": 14.32,
+        "value_wan_rmb": 103.25
+      },
+      {
+        "rank": 139,
+        "code": "002436",
+        "name": "兴森科技",
+        "weight_pct": 0.01,
+        "shares_wan": 4.86,
+        "value_wan_rmb": 102.89
+      },
+      {
+        "rank": 140,
+        "code": "300739",
+        "name": "明阳电路",
+        "weight_pct": 0.01,
+        "shares_wan": 5.53,
+        "value_wan_rmb": 101.64
+      },
+      {
+        "rank": 141,
+        "code": "002815",
+        "name": "崇达技术",
+        "weight_pct": 0.01,
+        "shares_wan": 7.44,
+        "value_wan_rmb": 101.63
+      },
+      {
+        "rank": 142,
+        "code": "002559",
+        "name": "亚威股份",
+        "weight_pct": 0.01,
+        "shares_wan": 9.89,
+        "value_wan_rmb": 100.09
+      },
+      {
+        "rank": 143,
+        "code": "688111",
+        "name": "金山办公",
+        "weight_pct": 0.01,
+        "shares_wan": 0.32,
+        "value_wan_rmb": 98.26
+      },
+      {
+        "rank": 144,
+        "code": "300790",
+        "name": "宇瞳光学",
+        "weight_pct": 0.01,
+        "shares_wan": 3.26,
+        "value_wan_rmb": 97.51
+      },
+      {
+        "rank": 145,
+        "code": "002558",
+        "name": "巨人网络",
+        "weight_pct": 0.01,
+        "shares_wan": 2.24,
+        "value_wan_rmb": 96.97
+      },
+      {
+        "rank": 146,
+        "code": "002049",
+        "name": "紫光国微",
+        "weight_pct": 0.01,
+        "shares_wan": 1.15,
+        "value_wan_rmb": 90.63
+      },
+      {
+        "rank": 147,
+        "code": "300454",
+        "name": "深信服",
+        "weight_pct": 0.01,
+        "shares_wan": 0.78,
+        "value_wan_rmb": 89.82
+      },
+      {
+        "rank": 148,
+        "code": "600686",
+        "name": "金龙汽车",
+        "weight_pct": 0.01,
+        "shares_wan": 5.05,
+        "value_wan_rmb": 89.59
+      },
+      {
+        "rank": 149,
+        "code": "002414",
+        "name": "高德红外",
+        "weight_pct": 0.01,
+        "shares_wan": 6.01,
+        "value_wan_rmb": 88.17
+      },
+      {
+        "rank": 150,
+        "code": "600030",
+        "name": "中信证券",
+        "weight_pct": 0.01,
+        "shares_wan": 3.0,
+        "value_wan_rmb": 86.13
+      },
+      {
+        "rank": 151,
+        "code": "300602",
+        "name": "飞荣达",
+        "weight_pct": 0.01,
+        "shares_wan": 2.58,
+        "value_wan_rmb": 85.55
+      },
+      {
+        "rank": 152,
+        "code": "603501",
+        "name": "豪威集团",
+        "weight_pct": 0.01,
+        "shares_wan": 0.67,
+        "value_wan_rmb": 84.35
+      },
+      {
+        "rank": 153,
+        "code": "300458",
+        "name": "全志科技",
+        "weight_pct": 0.01,
+        "shares_wan": 1.98,
+        "value_wan_rmb": 83.22
+      },
+      {
+        "rank": 154,
+        "code": "000733",
+        "name": "振华科技",
+        "weight_pct": 0.01,
+        "shares_wan": 1.55,
+        "value_wan_rmb": 81.24
+      },
+      {
+        "rank": 155,
+        "code": "000338",
+        "name": "潍柴动力",
+        "weight_pct": 0.01,
+        "shares_wan": 4.69,
+        "value_wan_rmb": 80.67
+      },
+      {
+        "rank": 156,
+        "code": "600031",
+        "name": "三一重工",
+        "weight_pct": 0.01,
+        "shares_wan": 3.66,
+        "value_wan_rmb": 77.34
+      },
+      {
+        "rank": 157,
+        "code": "300409",
+        "name": "道氏技术",
+        "weight_pct": 0.01,
+        "shares_wan": 3.4,
+        "value_wan_rmb": 76.47
+      },
+      {
+        "rank": 158,
+        "code": "301031",
+        "name": "中熔电气",
+        "weight_pct": 0.01,
+        "shares_wan": 0.67,
+        "value_wan_rmb": 75.17
+      },
+      {
+        "rank": 159,
+        "code": "603685",
+        "name": "晨丰科技",
+        "weight_pct": 0.01,
+        "shares_wan": 3.83,
+        "value_wan_rmb": 74.65
+      },
+      {
+        "rank": 160,
+        "code": "603296",
+        "name": "华勤技术",
+        "weight_pct": 0.01,
+        "shares_wan": 0.82,
+        "value_wan_rmb": 74.41
+      },
+      {
+        "rank": 161,
+        "code": "300207",
+        "name": "欣旺达",
+        "weight_pct": 0.01,
+        "shares_wan": 2.84,
+        "value_wan_rmb": 74.27
+      },
+      {
+        "rank": 162,
+        "code": "00316",
+        "name": "东方海外国际",
+        "weight_pct": 0.01,
+        "shares_wan": 0.65,
+        "value_wan_rmb": 73.62
+      },
+      {
+        "rank": 163,
+        "code": "300433",
+        "name": "蓝思科技",
+        "weight_pct": 0.01,
+        "shares_wan": 2.41,
+        "value_wan_rmb": 72.95
+      },
+      {
+        "rank": 164,
+        "code": "XOM",
+        "name": "埃克森美孚",
+        "weight_pct": 0.01,
+        "shares_wan": 0.09,
+        "value_wan_rmb": 72.91
+      },
+      {
+        "rank": 165,
+        "code": "300226",
+        "name": "上海钢联",
+        "weight_pct": 0.01,
+        "shares_wan": 2.88,
+        "value_wan_rmb": 72.35
+      },
+      {
+        "rank": 166,
+        "code": "002222",
+        "name": "福晶科技",
+        "weight_pct": 0.01,
+        "shares_wan": 1.28,
+        "value_wan_rmb": 72.12
+      },
+      {
+        "rank": 167,
+        "code": "002668",
+        "name": "TCL智家",
+        "weight_pct": 0.01,
+        "shares_wan": 6.94,
+        "value_wan_rmb": 72.04
+      },
+      {
+        "rank": 168,
+        "code": "301358",
+        "name": "湖南裕能",
+        "weight_pct": 0.01,
+        "shares_wan": 1.11,
+        "value_wan_rmb": 71.77
+      },
+      {
+        "rank": 169,
+        "code": "300759",
+        "name": "康龙化成",
+        "weight_pct": 0.01,
+        "shares_wan": 2.5,
+        "value_wan_rmb": 71.21
+      },
+      {
+        "rank": 170,
+        "code": "601288",
+        "name": "农业银行",
+        "weight_pct": 0.01,
+        "shares_wan": 9.21,
+        "value_wan_rmb": 70.73
+      },
+      {
+        "rank": 171,
+        "code": "603259",
+        "name": "药明康德",
+        "weight_pct": 0.01,
+        "shares_wan": 0.78,
+        "value_wan_rmb": 70.7
+      },
+      {
+        "rank": 172,
+        "code": "300438",
+        "name": "鹏辉能源",
+        "weight_pct": 0.01,
+        "shares_wan": 1.32,
+        "value_wan_rmb": 70.25
+      },
+      {
+        "rank": 173,
+        "code": "300408",
+        "name": "三环集团",
+        "weight_pct": 0.01,
+        "shares_wan": 1.53,
+        "value_wan_rmb": 70.0
+      },
+      {
+        "rank": 174,
+        "code": "688772",
+        "name": "珠海冠宇",
+        "weight_pct": 0.01,
+        "shares_wan": 3.24,
+        "value_wan_rmb": 69.76
+      },
+      {
+        "rank": 175,
+        "code": "600104",
+        "name": "上汽集团",
+        "weight_pct": 0.01,
+        "shares_wan": 4.46,
+        "value_wan_rmb": 67.88
+      },
+      {
+        "rank": 176,
+        "code": "YUM",
+        "name": "Yum! Brands Inc",
+        "weight_pct": 0.01,
+        "shares_wan": 0.06,
+        "value_wan_rmb": 67.73
+      },
+      {
+        "rank": 177,
+        "code": "600989",
+        "name": "宝丰能源",
+        "weight_pct": 0.0,
+        "shares_wan": 3.44,
+        "value_wan_rmb": 67.53
+      },
+      {
+        "rank": 178,
+        "code": "601117",
+        "name": "中国化学",
+        "weight_pct": 0.0,
+        "shares_wan": 8.91,
+        "value_wan_rmb": 67.09
+      },
+      {
+        "rank": 179,
+        "code": "600933",
+        "name": "爱柯迪",
+        "weight_pct": 0.0,
+        "shares_wan": 3.33,
+        "value_wan_rmb": 66.93
+      },
+      {
+        "rank": 180,
+        "code": "000933",
+        "name": "神火股份",
+        "weight_pct": 0.0,
+        "shares_wan": 2.43,
+        "value_wan_rmb": 66.75
+      },
+      {
+        "rank": 181,
+        "code": "002624",
+        "name": "完美世界",
+        "weight_pct": 0.0,
+        "shares_wan": 4.06,
+        "value_wan_rmb": 66.54
+      },
+      {
+        "rank": 182,
+        "code": "600988",
+        "name": "赤峰黄金",
+        "weight_pct": 0.0,
+        "shares_wan": 2.13,
+        "value_wan_rmb": 66.54
+      },
+      {
+        "rank": 183,
+        "code": "603915",
+        "name": "国茂股份",
+        "weight_pct": 0.0,
+        "shares_wan": 3.6,
+        "value_wan_rmb": 66.28
+      },
+      {
+        "rank": 184,
+        "code": "002237",
+        "name": "恒邦股份",
+        "weight_pct": 0.0,
+        "shares_wan": 4.86,
+        "value_wan_rmb": 65.22
+      },
+      {
+        "rank": 185,
+        "code": "601166",
+        "name": "兴业银行",
+        "weight_pct": 0.0,
+        "shares_wan": 3.09,
+        "value_wan_rmb": 65.08
+      },
+      {
+        "rank": 186,
+        "code": "603019",
+        "name": "中科曙光",
+        "weight_pct": 0.0,
+        "shares_wan": 0.75,
+        "value_wan_rmb": 64.23
+      },
+      {
+        "rank": 187,
+        "code": "603236",
+        "name": "移远通信",
+        "weight_pct": 0.0,
+        "shares_wan": 0.67,
+        "value_wan_rmb": 63.92
+      },
+      {
+        "rank": 188,
+        "code": "603444",
+        "name": "吉比特",
+        "weight_pct": 0.0,
+        "shares_wan": 0.15,
+        "value_wan_rmb": 63.58
+      },
+      {
+        "rank": 189,
+        "code": "688369",
+        "name": "致远互联",
+        "weight_pct": 0.0,
+        "shares_wan": 2.46,
+        "value_wan_rmb": 62.56
+      },
+      {
+        "rank": 190,
+        "code": "600490",
+        "name": "鹏欣资源",
+        "weight_pct": 0.0,
+        "shares_wan": 8.09,
+        "value_wan_rmb": 62.54
+      },
+      {
+        "rank": 191,
+        "code": "300363",
+        "name": "博腾股份",
+        "weight_pct": 0.0,
+        "shares_wan": 2.68,
+        "value_wan_rmb": 62.28
+      },
+      {
+        "rank": 192,
+        "code": "600288",
+        "name": "大恒科技",
+        "weight_pct": 0.0,
+        "shares_wan": 4.1,
+        "value_wan_rmb": 61.42
+      },
+      {
+        "rank": 193,
+        "code": "002258",
+        "name": "利尔化学",
+        "weight_pct": 0.0,
+        "shares_wan": 4.66,
+        "value_wan_rmb": 60.81
+      },
+      {
+        "rank": 194,
+        "code": "DLTR",
+        "name": "美元树",
+        "weight_pct": 0.0,
+        "shares_wan": 0.07,
+        "value_wan_rmb": 60.52
+      },
+      {
+        "rank": 195,
+        "code": "600057",
+        "name": "厦门象屿",
+        "weight_pct": 0.0,
+        "shares_wan": 7.06,
+        "value_wan_rmb": 60.15
+      },
+      {
+        "rank": 196,
+        "code": "002772",
+        "name": "众兴菌业",
+        "weight_pct": 0.0,
+        "shares_wan": 4.06,
+        "value_wan_rmb": 59.24
+      },
+      {
+        "rank": 197,
+        "code": "600487",
+        "name": "亨通光电",
+        "weight_pct": 0.0,
+        "shares_wan": 2.39,
+        "value_wan_rmb": 59.1
+      },
+      {
+        "rank": 198,
+        "code": "600919",
+        "name": "江苏银行",
+        "weight_pct": 0.0,
+        "shares_wan": 5.68,
+        "value_wan_rmb": 59.07
+      },
+      {
+        "rank": 199,
+        "code": "688678",
+        "name": "福立旺",
+        "weight_pct": 0.0,
+        "shares_wan": 2.44,
+        "value_wan_rmb": 59.0
+      },
+      {
+        "rank": 200,
+        "code": "600029",
+        "name": "南方航空",
+        "weight_pct": 0.0,
+        "shares_wan": 7.36,
+        "value_wan_rmb": 58.95
+      },
+      {
+        "rank": 201,
+        "code": "688556",
+        "name": "高测股份",
+        "weight_pct": 0.0,
+        "shares_wan": 5.16,
+        "value_wan_rmb": 58.93
+      },
+      {
+        "rank": 202,
+        "code": "00288",
+        "name": "万洲国际",
+        "weight_pct": 0.0,
+        "shares_wan": 7.5,
+        "value_wan_rmb": 58.73
+      },
+      {
+        "rank": 203,
+        "code": "688700",
+        "name": "东威科技",
+        "weight_pct": 0.0,
+        "shares_wan": 1.66,
+        "value_wan_rmb": 58.56
+      },
+      {
+        "rank": 204,
+        "code": "300098",
+        "name": "高新兴",
+        "weight_pct": 0.0,
+        "shares_wan": 9.59,
+        "value_wan_rmb": 58.5
+      },
+      {
+        "rank": 205,
+        "code": "09690",
+        "name": "途虎-W",
+        "weight_pct": 0.0,
+        "shares_wan": 3.99,
+        "value_wan_rmb": 58.17
+      },
+      {
+        "rank": 206,
+        "code": "601865",
+        "name": "福莱特",
+        "weight_pct": 0.0,
+        "shares_wan": 3.7,
+        "value_wan_rmb": 57.98
+      },
+      {
+        "rank": 207,
+        "code": "300185",
+        "name": "通裕重工",
+        "weight_pct": 0.0,
+        "shares_wan": 20.41,
+        "value_wan_rmb": 57.96
+      },
+      {
+        "rank": 208,
+        "code": "300130",
+        "name": "新国都",
+        "weight_pct": 0.0,
+        "shares_wan": 2.08,
+        "value_wan_rmb": 57.68
+      },
+      {
+        "rank": 209,
+        "code": "603507",
+        "name": "振江股份",
+        "weight_pct": 0.0,
+        "shares_wan": 2.19,
+        "value_wan_rmb": 57.62
+      },
+      {
+        "rank": 210,
+        "code": "600941",
+        "name": "中国移动",
+        "weight_pct": 0.0,
+        "shares_wan": 0.57,
+        "value_wan_rmb": 57.6
+      },
+      {
+        "rank": 211,
+        "code": "301606",
+        "name": "绿联科技",
+        "weight_pct": 0.0,
+        "shares_wan": 0.98,
+        "value_wan_rmb": 57.57
+      },
+      {
+        "rank": 212,
+        "code": "600150",
+        "name": "中国船舶",
+        "weight_pct": 0.0,
+        "shares_wan": 1.71,
+        "value_wan_rmb": 56.87
+      },
+      {
+        "rank": 213,
+        "code": "603331",
+        "name": "百达精工",
+        "weight_pct": 0.0,
+        "shares_wan": 3.97,
+        "value_wan_rmb": 56.57
+      },
+      {
+        "rank": 214,
+        "code": "300573",
+        "name": "兴齐眼药",
+        "weight_pct": 0.0,
+        "shares_wan": 0.8,
+        "value_wan_rmb": 56.23
+      },
+      {
+        "rank": 215,
+        "code": "002493",
+        "name": "荣盛石化",
+        "weight_pct": 0.0,
+        "shares_wan": 4.78,
+        "value_wan_rmb": 55.97
+      },
+      {
+        "rank": 216,
+        "code": "603186",
+        "name": "华正新材",
+        "weight_pct": 0.0,
+        "shares_wan": 1.12,
+        "value_wan_rmb": 55.55
+      },
+      {
+        "rank": 217,
+        "code": "000425",
+        "name": "徐工机械",
+        "weight_pct": 0.0,
+        "shares_wan": 4.77,
+        "value_wan_rmb": 55.24
+      },
+      {
+        "rank": 218,
+        "code": "002185",
+        "name": "华天科技",
+        "weight_pct": 0.0,
+        "shares_wan": 5.01,
+        "value_wan_rmb": 54.96
+      },
+      {
+        "rank": 219,
+        "code": "688169",
+        "name": "石头科技",
+        "weight_pct": 0.0,
+        "shares_wan": 0.36,
+        "value_wan_rmb": 54.74
+      },
+      {
+        "rank": 220,
+        "code": "301080",
+        "name": "百普赛斯",
+        "weight_pct": 0.0,
+        "shares_wan": 1.01,
+        "value_wan_rmb": 54.54
+      },
+      {
+        "rank": 221,
+        "code": "002472",
+        "name": "双环传动",
+        "weight_pct": 0.0,
+        "shares_wan": 1.15,
+        "value_wan_rmb": 54.52
+      },
+      {
+        "rank": 222,
+        "code": "688777",
+        "name": "中控技术",
+        "weight_pct": 0.0,
+        "shares_wan": 1.1,
+        "value_wan_rmb": 54.27
+      },
+      {
+        "rank": 223,
+        "code": "600361",
+        "name": "创新新材",
+        "weight_pct": 0.0,
+        "shares_wan": 12.79,
+        "value_wan_rmb": 54.23
+      },
+      {
+        "rank": 224,
+        "code": "MRSH",
+        "name": "达信",
+        "weight_pct": 0.0,
+        "shares_wan": 0.04,
+        "value_wan_rmb": 54.12
+      },
+      {
+        "rank": 225,
+        "code": "300775",
+        "name": "三角防务",
+        "weight_pct": 0.0,
+        "shares_wan": 1.78,
+        "value_wan_rmb": 54.11
+      },
+      {
+        "rank": 226,
+        "code": "002918",
+        "name": "蒙娜丽莎",
+        "weight_pct": 0.0,
+        "shares_wan": 3.8,
+        "value_wan_rmb": 54.07
+      },
+      {
+        "rank": 227,
+        "code": "300735",
+        "name": "光弘科技",
+        "weight_pct": 0.0,
+        "shares_wan": 2.17,
+        "value_wan_rmb": 53.95
+      },
+      {
+        "rank": 228,
+        "code": "688661",
+        "name": "和林微纳",
+        "weight_pct": 0.0,
+        "shares_wan": 1.04,
+        "value_wan_rmb": 53.83
+      },
+      {
+        "rank": 229,
+        "code": "688321",
+        "name": "微芯生物",
+        "weight_pct": 0.0,
+        "shares_wan": 1.84,
+        "value_wan_rmb": 53.76
+      },
+      {
+        "rank": 230,
+        "code": "300556",
+        "name": "丝路视觉",
+        "weight_pct": 0.0,
+        "shares_wan": 2.82,
+        "value_wan_rmb": 53.55
+      },
+      {
+        "rank": 231,
+        "code": "688182",
+        "name": "灿勤科技",
+        "weight_pct": 0.0,
+        "shares_wan": 1.8,
+        "value_wan_rmb": 53.14
+      },
+      {
+        "rank": 232,
+        "code": "600887",
+        "name": "伊利股份",
+        "weight_pct": 0.0,
+        "shares_wan": 1.82,
+        "value_wan_rmb": 52.05
+      },
+      {
+        "rank": 233,
+        "code": "300925",
+        "name": "法本信息",
+        "weight_pct": 0.0,
+        "shares_wan": 2.43,
+        "value_wan_rmb": 51.61
+      },
+      {
+        "rank": 234,
+        "code": "603629",
+        "name": "利通电子",
+        "weight_pct": 0.0,
+        "shares_wan": 1.93,
+        "value_wan_rmb": 51.43
+      },
+      {
+        "rank": 235,
+        "code": "300693",
+        "name": "盛弘股份",
+        "weight_pct": 0.0,
+        "shares_wan": 1.33,
+        "value_wan_rmb": 50.91
+      },
+      {
+        "rank": 236,
+        "code": "300389",
+        "name": "艾比森",
+        "weight_pct": 0.0,
+        "shares_wan": 3.13,
+        "value_wan_rmb": 50.8
+      },
+      {
+        "rank": 237,
+        "code": "000792",
+        "name": "盐湖股份",
+        "weight_pct": 0.0,
+        "shares_wan": 1.8,
+        "value_wan_rmb": 50.69
+      },
+      {
+        "rank": 238,
+        "code": "000938",
+        "name": "紫光股份",
+        "weight_pct": 0.0,
+        "shares_wan": 2.06,
+        "value_wan_rmb": 50.68
+      },
+      {
+        "rank": 239,
+        "code": "002156",
+        "name": "通富微电",
+        "weight_pct": 0.0,
+        "shares_wan": 1.34,
+        "value_wan_rmb": 50.52
+      },
+      {
+        "rank": 240,
+        "code": "300138",
+        "name": "晨光生物",
+        "weight_pct": 0.0,
+        "shares_wan": 4.07,
+        "value_wan_rmb": 50.51
+      },
+      {
+        "rank": 241,
+        "code": "000555",
+        "name": "神州信息",
+        "weight_pct": 0.0,
+        "shares_wan": 3.05,
+        "value_wan_rmb": 50.48
+      },
+      {
+        "rank": 242,
+        "code": "300400",
+        "name": "劲拓股份",
+        "weight_pct": 0.0,
+        "shares_wan": 2.54,
+        "value_wan_rmb": 50.29
+      },
+      {
+        "rank": 243,
+        "code": "301307",
+        "name": "美利信",
+        "weight_pct": 0.0,
+        "shares_wan": 1.43,
+        "value_wan_rmb": 49.45
+      },
+      {
+        "rank": 244,
+        "code": "301338",
+        "name": "凯格精机",
+        "weight_pct": 0.0,
+        "shares_wan": 0.56,
+        "value_wan_rmb": 49.34
+      },
+      {
+        "rank": 245,
+        "code": "000063",
+        "name": "中兴通讯",
+        "weight_pct": 0.0,
+        "shares_wan": 1.3,
+        "value_wan_rmb": 49.19
+      },
+      {
+        "rank": 246,
+        "code": "600415",
+        "name": "小商品城",
+        "weight_pct": 0.0,
+        "shares_wan": 3.07,
+        "value_wan_rmb": 48.97
+      },
+      {
+        "rank": 247,
+        "code": "301251",
+        "name": "威尔高",
+        "weight_pct": 0.0,
+        "shares_wan": 0.93,
+        "value_wan_rmb": 48.62
+      },
+      {
+        "rank": 248,
+        "code": "600230",
+        "name": "沧州大化",
+        "weight_pct": 0.0,
+        "shares_wan": 3.13,
+        "value_wan_rmb": 47.76
+      },
+      {
+        "rank": 249,
+        "code": "002897",
+        "name": "意华股份",
+        "weight_pct": 0.0,
+        "shares_wan": 0.88,
+        "value_wan_rmb": 47.58
+      },
+      {
+        "rank": 250,
+        "code": "002396",
+        "name": "星网锐捷",
+        "weight_pct": 0.0,
+        "shares_wan": 1.57,
+        "value_wan_rmb": 47.57
+      },
+      {
+        "rank": 251,
+        "code": "600050",
+        "name": "中国联通",
+        "weight_pct": 0.0,
+        "shares_wan": 9.28,
+        "value_wan_rmb": 47.42
+      },
+      {
+        "rank": 252,
+        "code": "000598",
+        "name": "兴蓉环境",
+        "weight_pct": 0.0,
+        "shares_wan": 6.59,
+        "value_wan_rmb": 47.25
+      },
+      {
+        "rank": 253,
+        "code": "300257",
+        "name": "开山股份",
+        "weight_pct": 0.0,
+        "shares_wan": 3.27,
+        "value_wan_rmb": 45.94
+      },
+      {
+        "rank": 254,
+        "code": "688183",
+        "name": "生益电子",
+        "weight_pct": 0.0,
+        "shares_wan": 0.48,
+        "value_wan_rmb": 45.93
+      },
+      {
+        "rank": 255,
+        "code": "002314",
+        "name": "南山控股",
+        "weight_pct": 0.0,
+        "shares_wan": 16.0,
+        "value_wan_rmb": 45.6
+      },
+      {
+        "rank": 256,
+        "code": "002795",
+        "name": "永和智控",
+        "weight_pct": 0.0,
+        "shares_wan": 7.18,
+        "value_wan_rmb": 45.23
+      },
+      {
+        "rank": 257,
+        "code": "002497",
+        "name": "雅化集团",
+        "weight_pct": 0.0,
+        "shares_wan": 1.81,
+        "value_wan_rmb": 44.8
+      },
+      {
+        "rank": 258,
+        "code": "600096",
+        "name": "云天化",
+        "weight_pct": 0.0,
+        "shares_wan": 1.34,
+        "value_wan_rmb": 44.77
+      },
+      {
+        "rank": 259,
+        "code": "600584",
+        "name": "长电科技",
+        "weight_pct": 0.0,
+        "shares_wan": 1.21,
+        "value_wan_rmb": 44.5
+      },
+      {
+        "rank": 260,
+        "code": "00857",
+        "name": "中国石油股份",
+        "weight_pct": 0.0,
+        "shares_wan": 5.8,
+        "value_wan_rmb": 43.9
+      },
+      {
+        "rank": 261,
+        "code": "002871",
+        "name": "伟隆股份",
+        "weight_pct": 0.0,
+        "shares_wan": 2.42,
+        "value_wan_rmb": 43.56
+      },
+      {
+        "rank": 262,
+        "code": "600166",
+        "name": "福田汽车",
+        "weight_pct": 0.0,
+        "shares_wan": 14.89,
+        "value_wan_rmb": 43.48
+      },
+      {
+        "rank": 263,
+        "code": "688636",
+        "name": "智明达",
+        "weight_pct": 0.0,
+        "shares_wan": 1.0,
+        "value_wan_rmb": 42.84
+      },
+      {
+        "rank": 264,
+        "code": "300382",
+        "name": "斯莱克",
+        "weight_pct": 0.0,
+        "shares_wan": 2.72,
+        "value_wan_rmb": 42.32
+      },
+      {
+        "rank": 265,
+        "code": "002736",
+        "name": "国信证券",
+        "weight_pct": 0.0,
+        "shares_wan": 3.2,
+        "value_wan_rmb": 41.98
+      },
+      {
+        "rank": 266,
+        "code": "600519",
+        "name": "贵州茅台",
+        "weight_pct": 0.0,
+        "shares_wan": 0.03,
+        "value_wan_rmb": 41.32
+      },
+      {
+        "rank": 267,
+        "code": "300171",
+        "name": "东富龙",
+        "weight_pct": 0.0,
+        "shares_wan": 2.63,
+        "value_wan_rmb": 41.29
+      },
+      {
+        "rank": 268,
+        "code": "301270",
+        "name": "汉仪股份",
+        "weight_pct": 0.0,
+        "shares_wan": 1.1,
+        "value_wan_rmb": 41.12
+      },
+      {
+        "rank": 269,
+        "code": "002033",
+        "name": "丽江股份",
+        "weight_pct": 0.0,
+        "shares_wan": 4.48,
+        "value_wan_rmb": 40.99
+      },
+      {
+        "rank": 270,
+        "code": "600690",
+        "name": "海尔智家",
+        "weight_pct": 0.0,
+        "shares_wan": 1.57,
+        "value_wan_rmb": 40.96
+      },
+      {
+        "rank": 271,
+        "code": "301321",
+        "name": "翰博高新",
+        "weight_pct": 0.0,
+        "shares_wan": 2.14,
+        "value_wan_rmb": 40.77
+      },
+      {
+        "rank": 272,
+        "code": "600795",
+        "name": "国电电力",
+        "weight_pct": 0.0,
+        "shares_wan": 8.08,
+        "value_wan_rmb": 40.72
+      },
+      {
+        "rank": 273,
+        "code": "300921",
+        "name": "南凌科技",
+        "weight_pct": 0.0,
+        "shares_wan": 1.77,
+        "value_wan_rmb": 40.66
+      },
+      {
+        "rank": 274,
+        "code": "600549",
+        "name": "厦门钨业",
+        "weight_pct": 0.0,
+        "shares_wan": 0.99,
+        "value_wan_rmb": 40.65
+      },
+      {
+        "rank": 275,
+        "code": "688307",
+        "name": "中润光学",
+        "weight_pct": 0.0,
+        "shares_wan": 0.94,
+        "value_wan_rmb": 40.62
+      },
+      {
+        "rank": 276,
+        "code": "301283",
+        "name": "聚胶股份",
+        "weight_pct": 0.0,
+        "shares_wan": 0.85,
+        "value_wan_rmb": 40.61
+      },
+      {
+        "rank": 277,
+        "code": "601939",
+        "name": "建设银行",
+        "weight_pct": 0.0,
+        "shares_wan": 4.37,
+        "value_wan_rmb": 40.55
+      },
+      {
+        "rank": 278,
+        "code": "603897",
+        "name": "长城科技",
+        "weight_pct": 0.0,
+        "shares_wan": 1.48,
+        "value_wan_rmb": 40.26
+      },
+      {
+        "rank": 279,
+        "code": "600782",
+        "name": "新钢股份",
+        "weight_pct": 0.0,
+        "shares_wan": 10.37,
+        "value_wan_rmb": 40.24
+      },
+      {
+        "rank": 280,
+        "code": "603656",
+        "name": "泰禾智能",
+        "weight_pct": 0.0,
+        "shares_wan": 1.73,
+        "value_wan_rmb": 39.84
+      },
+      {
+        "rank": 281,
+        "code": "600267",
+        "name": "海正药业",
+        "weight_pct": 0.0,
+        "shares_wan": 4.02,
+        "value_wan_rmb": 39.76
+      },
+      {
+        "rank": 282,
+        "code": "002517",
+        "name": "恺英网络",
+        "weight_pct": 0.0,
+        "shares_wan": 1.81,
+        "value_wan_rmb": 39.58
+      },
+      {
+        "rank": 283,
+        "code": "001896",
+        "name": "豫能控股",
+        "weight_pct": 0.0,
+        "shares_wan": 7.61,
+        "value_wan_rmb": 39.57
+      },
+      {
+        "rank": 284,
+        "code": "301097",
+        "name": "天益医疗",
+        "weight_pct": 0.0,
+        "shares_wan": 0.76,
+        "value_wan_rmb": 39.23
+      },
+      {
+        "rank": 285,
+        "code": "002645",
+        "name": "华宏科技",
+        "weight_pct": 0.0,
+        "shares_wan": 2.6,
+        "value_wan_rmb": 38.06
+      },
+      {
+        "rank": 286,
+        "code": "688333",
+        "name": "铂力特",
+        "weight_pct": 0.0,
+        "shares_wan": 0.34,
+        "value_wan_rmb": 37.91
+      },
+      {
+        "rank": 287,
+        "code": "600019",
+        "name": "宝钢股份",
+        "weight_pct": 0.0,
+        "shares_wan": 5.08,
+        "value_wan_rmb": 37.85
+      },
+      {
+        "rank": 288,
+        "code": "000726",
+        "name": "鲁泰A",
+        "weight_pct": 0.0,
+        "shares_wan": 5.3,
+        "value_wan_rmb": 37.74
+      },
+      {
+        "rank": 289,
+        "code": "605567",
+        "name": "春雪食品",
+        "weight_pct": 0.0,
+        "shares_wan": 3.42,
+        "value_wan_rmb": 37.62
+      },
+      {
+        "rank": 290,
+        "code": "688235",
+        "name": "百济神州",
+        "weight_pct": 0.0,
+        "shares_wan": 0.14,
+        "value_wan_rmb": 37.6
+      },
+      {
+        "rank": 291,
+        "code": "002826",
+        "name": "易明医药",
+        "weight_pct": 0.0,
+        "shares_wan": 2.04,
+        "value_wan_rmb": 37.5
+      },
+      {
+        "rank": 292,
+        "code": "300190",
+        "name": "维尔利",
+        "weight_pct": 0.0,
+        "shares_wan": 8.64,
+        "value_wan_rmb": 37.07
+      },
+      {
+        "rank": 293,
+        "code": "688347",
+        "name": "华虹公司",
+        "weight_pct": 0.0,
+        "shares_wan": 0.34,
+        "value_wan_rmb": 36.68
+      },
+      {
+        "rank": 294,
+        "code": "601111",
+        "name": "中国国航",
+        "weight_pct": 0.0,
+        "shares_wan": 3.91,
+        "value_wan_rmb": 36.64
+      },
+      {
+        "rank": 295,
+        "code": "03360",
+        "name": "远东宏信",
+        "weight_pct": 0.0,
+        "shares_wan": 5.0,
+        "value_wan_rmb": 36.31
+      },
+      {
+        "rank": 296,
+        "code": "002080",
+        "name": "中材科技",
+        "weight_pct": 0.0,
+        "shares_wan": 0.99,
+        "value_wan_rmb": 35.98
+      },
+      {
+        "rank": 297,
+        "code": "000333",
+        "name": "美的集团",
+        "weight_pct": 0.0,
+        "shares_wan": 0.46,
+        "value_wan_rmb": 35.95
+      },
+      {
+        "rank": 298,
+        "code": "688609",
+        "name": "九联科技",
+        "weight_pct": 0.0,
+        "shares_wan": 3.52,
+        "value_wan_rmb": 35.94
+      },
+      {
+        "rank": 299,
+        "code": "688362",
+        "name": "甬矽电子",
+        "weight_pct": 0.0,
+        "shares_wan": 1.1,
+        "value_wan_rmb": 35.65
+      },
+      {
+        "rank": 300,
+        "code": "600066",
+        "name": "宇通客车",
+        "weight_pct": 0.0,
+        "shares_wan": 1.09,
+        "value_wan_rmb": 35.64
+      },
+      {
+        "rank": 301,
+        "code": "00005",
+        "name": "汇丰控股",
+        "weight_pct": 0.0,
+        "shares_wan": 0.32,
+        "value_wan_rmb": 35.38
+      },
+      {
+        "rank": 302,
+        "code": "000783",
+        "name": "长江证券",
+        "weight_pct": 0.0,
+        "shares_wan": 4.34,
+        "value_wan_rmb": 35.37
+      },
+      {
+        "rank": 303,
+        "code": "01308",
+        "name": "海丰国际",
+        "weight_pct": 0.0,
+        "shares_wan": 1.4,
+        "value_wan_rmb": 35.23
+      },
+      {
+        "rank": 304,
+        "code": "600262",
+        "name": "北方股份",
+        "weight_pct": 0.0,
+        "shares_wan": 1.33,
+        "value_wan_rmb": 34.62
+      },
+      {
+        "rank": 305,
+        "code": "002091",
+        "name": "江苏国泰",
+        "weight_pct": 0.0,
+        "shares_wan": 3.81,
+        "value_wan_rmb": 34.4
+      },
+      {
+        "rank": 306,
+        "code": "002664",
+        "name": "信质集团",
+        "weight_pct": 0.0,
+        "shares_wan": 1.42,
+        "value_wan_rmb": 34.02
+      },
+      {
+        "rank": 307,
+        "code": "300971",
+        "name": "博亚精工",
+        "weight_pct": 0.0,
+        "shares_wan": 1.39,
+        "value_wan_rmb": 34.0
+      },
+      {
+        "rank": 308,
+        "code": "002246",
+        "name": "北化股份",
+        "weight_pct": 0.0,
+        "shares_wan": 1.88,
+        "value_wan_rmb": 33.88
+      },
+      {
+        "rank": 309,
+        "code": "002532",
+        "name": "天山铝业",
+        "weight_pct": 0.0,
+        "shares_wan": 2.09,
+        "value_wan_rmb": 33.82
+      },
+      {
+        "rank": 310,
+        "code": "000531",
+        "name": "穗恒运A",
+        "weight_pct": 0.0,
+        "shares_wan": 5.25,
+        "value_wan_rmb": 33.65
+      },
+      {
+        "rank": 311,
+        "code": "600801",
+        "name": "华新建材",
+        "weight_pct": 0.0,
+        "shares_wan": 1.37,
+        "value_wan_rmb": 33.62
+      },
+      {
+        "rank": 312,
+        "code": "600999",
+        "name": "招商证券",
+        "weight_pct": 0.0,
+        "shares_wan": 2.01,
+        "value_wan_rmb": 33.45
+      },
+      {
+        "rank": 313,
+        "code": "00941",
+        "name": "中国移动",
+        "weight_pct": 0.0,
+        "shares_wan": 0.45,
+        "value_wan_rmb": 33.21
+      },
+      {
+        "rank": 314,
+        "code": "688208",
+        "name": "道通科技",
+        "weight_pct": 0.0,
+        "shares_wan": 0.9,
+        "value_wan_rmb": 33.12
+      },
+      {
+        "rank": 315,
+        "code": "002527",
+        "name": "新时达",
+        "weight_pct": 0.0,
+        "shares_wan": 1.85,
+        "value_wan_rmb": 32.82
+      },
+      {
+        "rank": 316,
+        "code": "002787",
+        "name": "华源控股",
+        "weight_pct": 0.0,
+        "shares_wan": 2.63,
+        "value_wan_rmb": 32.74
+      },
+      {
+        "rank": 317,
+        "code": "605305",
+        "name": "中际联合",
+        "weight_pct": 0.0,
+        "shares_wan": 0.78,
+        "value_wan_rmb": 32.49
+      },
+      {
+        "rank": 318,
+        "code": "300394",
+        "name": "天孚通信",
+        "weight_pct": 0.0,
+        "shares_wan": 0.16,
+        "value_wan_rmb": 32.48
+      },
+      {
+        "rank": 319,
+        "code": "00177",
+        "name": "江苏宁沪高速公路",
+        "weight_pct": 0.0,
+        "shares_wan": 3.6,
+        "value_wan_rmb": 32.48
+      },
+      {
+        "rank": 320,
+        "code": "603681",
+        "name": "永冠新材",
+        "weight_pct": 0.0,
+        "shares_wan": 1.71,
+        "value_wan_rmb": 32.46
+      },
+      {
+        "rank": 321,
+        "code": "600496",
+        "name": "精工钢构",
+        "weight_pct": 0.0,
+        "shares_wan": 7.81,
+        "value_wan_rmb": 32.41
+      },
+      {
+        "rank": 322,
+        "code": "603901",
+        "name": "永创智能",
+        "weight_pct": 0.0,
+        "shares_wan": 2.28,
+        "value_wan_rmb": 32.38
+      },
+      {
+        "rank": 323,
+        "code": "301108",
+        "name": "洁雅股份",
+        "weight_pct": 0.0,
+        "shares_wan": 0.97,
+        "value_wan_rmb": 32.26
+      },
+      {
+        "rank": 324,
+        "code": "300644",
+        "name": "南京聚隆",
+        "weight_pct": 0.0,
+        "shares_wan": 0.87,
+        "value_wan_rmb": 32.11
+      },
+      {
+        "rank": 325,
+        "code": "600011",
+        "name": "华能国际",
+        "weight_pct": 0.0,
+        "shares_wan": 4.27,
+        "value_wan_rmb": 31.85
+      },
+      {
+        "rank": 326,
+        "code": "601601",
+        "name": "中国太保",
+        "weight_pct": 0.0,
+        "shares_wan": 0.76,
+        "value_wan_rmb": 31.85
+      },
+      {
+        "rank": 327,
+        "code": "002523",
+        "name": "天桥起重",
+        "weight_pct": 0.0,
+        "shares_wan": 7.42,
+        "value_wan_rmb": 31.83
+      },
+      {
+        "rank": 328,
+        "code": "000837",
+        "name": "秦川机床",
+        "weight_pct": 0.0,
+        "shares_wan": 2.47,
+        "value_wan_rmb": 31.81
+      },
+      {
+        "rank": 329,
+        "code": "301257",
+        "name": "普蕊斯",
+        "weight_pct": 0.0,
+        "shares_wan": 0.61,
+        "value_wan_rmb": 31.74
+      },
+      {
+        "rank": 330,
+        "code": "300496",
+        "name": "中科创达",
+        "weight_pct": 0.0,
+        "shares_wan": 0.47,
+        "value_wan_rmb": 31.73
+      },
+      {
+        "rank": 331,
+        "code": "601991",
+        "name": "大唐发电",
+        "weight_pct": 0.0,
+        "shares_wan": 9.07,
+        "value_wan_rmb": 31.65
+      },
+      {
+        "rank": 332,
+        "code": "688308",
+        "name": "欧科亿",
+        "weight_pct": 0.0,
+        "shares_wan": 1.0,
+        "value_wan_rmb": 31.64
+      },
+      {
+        "rank": 333,
+        "code": "601898",
+        "name": "中煤能源",
+        "weight_pct": 0.0,
+        "shares_wan": 2.53,
+        "value_wan_rmb": 31.47
+      },
+      {
+        "rank": 334,
+        "code": "002533",
+        "name": "金杯电工",
+        "weight_pct": 0.0,
+        "shares_wan": 2.51,
+        "value_wan_rmb": 31.32
+      },
+      {
+        "rank": 335,
+        "code": "002410",
+        "name": "广联达",
+        "weight_pct": 0.0,
+        "shares_wan": 2.48,
+        "value_wan_rmb": 31.2
+      },
+      {
+        "rank": 336,
+        "code": "601918",
+        "name": "新集能源",
+        "weight_pct": 0.0,
+        "shares_wan": 4.71,
+        "value_wan_rmb": 31.13
+      },
+      {
+        "rank": 337,
+        "code": "06818",
+        "name": "中国光大银行",
+        "weight_pct": 0.0,
+        "shares_wan": 9.4,
+        "value_wan_rmb": 30.9
+      },
+      {
+        "rank": 338,
+        "code": "601088",
+        "name": "中国神华",
+        "weight_pct": 0.0,
+        "shares_wan": 0.76,
+        "value_wan_rmb": 30.78
+      },
+      {
+        "rank": 339,
+        "code": "688088",
+        "name": "虹软科技",
+        "weight_pct": 0.0,
+        "shares_wan": 0.62,
+        "value_wan_rmb": 30.69
+      },
+      {
+        "rank": 340,
+        "code": "002863",
+        "name": "今飞凯达",
+        "weight_pct": 0.0,
+        "shares_wan": 5.22,
+        "value_wan_rmb": 30.64
+      },
+      {
+        "rank": 341,
+        "code": "600346",
+        "name": "恒力石化",
+        "weight_pct": 0.0,
+        "shares_wan": 1.36,
+        "value_wan_rmb": 30.64
+      },
+      {
+        "rank": 342,
+        "code": "600232",
+        "name": "金鹰股份",
+        "weight_pct": 0.0,
+        "shares_wan": 3.87,
+        "value_wan_rmb": 30.61
+      },
+      {
+        "rank": 343,
+        "code": "001979",
+        "name": "招商蛇口",
+        "weight_pct": 0.0,
+        "shares_wan": 3.54,
+        "value_wan_rmb": 30.59
+      },
+      {
+        "rank": 344,
+        "code": "300041",
+        "name": "回天新材",
+        "weight_pct": 0.0,
+        "shares_wan": 2.76,
+        "value_wan_rmb": 30.58
+      },
+      {
+        "rank": 345,
+        "code": "300024",
+        "name": "机器人",
+        "weight_pct": 0.0,
+        "shares_wan": 1.68,
+        "value_wan_rmb": 30.56
+      },
+      {
+        "rank": 346,
+        "code": "002248",
+        "name": "华东数控",
+        "weight_pct": 0.0,
+        "shares_wan": 2.64,
+        "value_wan_rmb": 30.44
+      },
+      {
+        "rank": 347,
+        "code": "600512",
+        "name": "腾达建设",
+        "weight_pct": 0.0,
+        "shares_wan": 12.53,
+        "value_wan_rmb": 30.32
+      },
+      {
+        "rank": 348,
+        "code": "02666",
+        "name": "环球医疗",
+        "weight_pct": 0.0,
+        "shares_wan": 5.6,
+        "value_wan_rmb": 30.1
+      },
+      {
+        "rank": 349,
+        "code": "603500",
+        "name": "祥和实业",
+        "weight_pct": 0.0,
+        "shares_wan": 2.51,
+        "value_wan_rmb": 30.07
+      },
+      {
+        "rank": 350,
+        "code": "000899",
+        "name": "赣能股份",
+        "weight_pct": 0.0,
+        "shares_wan": 3.03,
+        "value_wan_rmb": 30.0
+      },
+      {
+        "rank": 351,
+        "code": "600805",
+        "name": "悦达投资",
+        "weight_pct": 0.0,
+        "shares_wan": 5.45,
+        "value_wan_rmb": 29.59
+      },
+      {
+        "rank": 352,
+        "code": "688162",
+        "name": "巨一科技",
+        "weight_pct": 0.0,
+        "shares_wan": 0.96,
+        "value_wan_rmb": 29.57
+      },
+      {
+        "rank": 353,
+        "code": "600785",
+        "name": "新华百货",
+        "weight_pct": 0.0,
+        "shares_wan": 2.18,
+        "value_wan_rmb": 29.54
+      },
+      {
+        "rank": 354,
+        "code": "002111",
+        "name": "威海广泰",
+        "weight_pct": 0.0,
+        "shares_wan": 2.8,
+        "value_wan_rmb": 29.46
+      },
+      {
+        "rank": 355,
+        "code": "603118",
+        "name": "共进股份",
+        "weight_pct": 0.0,
+        "shares_wan": 2.56,
+        "value_wan_rmb": 29.44
+      },
+      {
+        "rank": 356,
+        "code": "002114",
+        "name": "罗平锌电",
+        "weight_pct": 0.0,
+        "shares_wan": 3.49,
+        "value_wan_rmb": 29.39
+      },
+      {
+        "rank": 357,
+        "code": "300283",
+        "name": "温州宏丰",
+        "weight_pct": 0.0,
+        "shares_wan": 3.88,
+        "value_wan_rmb": 29.22
+      },
+      {
+        "rank": 358,
+        "code": "300043",
+        "name": "星辉娱乐",
+        "weight_pct": 0.0,
+        "shares_wan": 5.14,
+        "value_wan_rmb": 29.04
+      },
+      {
+        "rank": 359,
+        "code": "300588",
+        "name": "熙菱信息",
+        "weight_pct": 0.0,
+        "shares_wan": 1.06,
+        "value_wan_rmb": 28.62
+      },
+      {
+        "rank": 360,
+        "code": "601336",
+        "name": "新华保险",
+        "weight_pct": 0.0,
+        "shares_wan": 0.41,
+        "value_wan_rmb": 28.58
+      },
+      {
+        "rank": 361,
+        "code": "688396",
+        "name": "华润微",
+        "weight_pct": 0.0,
+        "shares_wan": 0.54,
+        "value_wan_rmb": 28.54
+      },
+      {
+        "rank": 362,
+        "code": "688062",
+        "name": "迈威生物",
+        "weight_pct": 0.0,
+        "shares_wan": 0.74,
+        "value_wan_rmb": 28.48
+      },
+      {
+        "rank": 363,
+        "code": "600497",
+        "name": "驰宏锌锗",
+        "weight_pct": 0.0,
+        "shares_wan": 3.84,
+        "value_wan_rmb": 28.07
+      },
+      {
+        "rank": 364,
+        "code": "600039",
+        "name": "四川路桥",
+        "weight_pct": 0.0,
+        "shares_wan": 2.81,
+        "value_wan_rmb": 27.96
+      },
+      {
+        "rank": 365,
+        "code": "600833",
+        "name": "第一医药",
+        "weight_pct": 0.0,
+        "shares_wan": 2.16,
+        "value_wan_rmb": 27.93
+      },
+      {
+        "rank": 366,
+        "code": "688160",
+        "name": "步科股份",
+        "weight_pct": 0.0,
+        "shares_wan": 0.18,
+        "value_wan_rmb": 27.45
+      },
+      {
+        "rank": 367,
+        "code": "300106",
+        "name": "西部牧业",
+        "weight_pct": 0.0,
+        "shares_wan": 2.52,
+        "value_wan_rmb": 27.09
+      },
+      {
+        "rank": 368,
+        "code": "002582",
+        "name": "好想你",
+        "weight_pct": 0.0,
+        "shares_wan": 2.45,
+        "value_wan_rmb": 27.07
+      },
+      {
+        "rank": 369,
+        "code": "688322",
+        "name": "奥比中光",
+        "weight_pct": 0.0,
+        "shares_wan": 0.3,
+        "value_wan_rmb": 26.9
+      },
+      {
+        "rank": 370,
+        "code": "605499",
+        "name": "东鹏饮料",
+        "weight_pct": 0.0,
+        "shares_wan": 0.1,
+        "value_wan_rmb": 26.74
+      },
+      {
+        "rank": 371,
+        "code": "688213",
+        "name": "思特威",
+        "weight_pct": 0.0,
+        "shares_wan": 0.28,
+        "value_wan_rmb": 26.63
+      },
+      {
+        "rank": 372,
+        "code": "300073",
+        "name": "当升科技",
+        "weight_pct": 0.0,
+        "shares_wan": 0.46,
+        "value_wan_rmb": 26.59
+      },
+      {
+        "rank": 373,
+        "code": "300319",
+        "name": "麦捷科技",
+        "weight_pct": 0.0,
+        "shares_wan": 2.26,
+        "value_wan_rmb": 26.42
+      },
+      {
+        "rank": 374,
+        "code": "03311",
+        "name": "中国建筑国际",
+        "weight_pct": 0.0,
+        "shares_wan": 3.2,
+        "value_wan_rmb": 26.33
+      },
+      {
+        "rank": 375,
+        "code": "002793",
+        "name": "罗欣药业",
+        "weight_pct": 0.0,
+        "shares_wan": 5.46,
+        "value_wan_rmb": 26.21
+      },
+      {
+        "rank": 376,
+        "code": "002241",
+        "name": "歌尔股份",
+        "weight_pct": 0.0,
+        "shares_wan": 0.9,
+        "value_wan_rmb": 25.86
+      },
+      {
+        "rank": 377,
+        "code": "600100",
+        "name": "同方股份",
+        "weight_pct": 0.0,
+        "shares_wan": 2.87,
+        "value_wan_rmb": 25.6
+      },
+      {
+        "rank": 378,
+        "code": "603505",
+        "name": "金石资源",
+        "weight_pct": 0.0,
+        "shares_wan": 1.37,
+        "value_wan_rmb": 25.59
+      },
+      {
+        "rank": 379,
+        "code": "002470",
+        "name": "金正大",
+        "weight_pct": 0.0,
+        "shares_wan": 14.27,
+        "value_wan_rmb": 25.4
+      },
+      {
+        "rank": 380,
+        "code": "600189",
+        "name": "泉阳泉",
+        "weight_pct": 0.0,
+        "shares_wan": 3.67,
+        "value_wan_rmb": 25.36
+      },
+      {
+        "rank": 381,
+        "code": "300264",
+        "name": "佳创视讯",
+        "weight_pct": 0.0,
+        "shares_wan": 3.73,
+        "value_wan_rmb": 25.03
+      },
+      {
+        "rank": 382,
+        "code": "002142",
+        "name": "宁波银行",
+        "weight_pct": 0.0,
+        "shares_wan": 0.89,
+        "value_wan_rmb": 25.0
+      },
+      {
+        "rank": 383,
+        "code": "02388",
+        "name": "中银香港",
+        "weight_pct": 0.0,
+        "shares_wan": 0.7,
+        "value_wan_rmb": 24.92
+      },
+      {
+        "rank": 384,
+        "code": "001337",
+        "name": "四川黄金",
+        "weight_pct": 0.0,
+        "shares_wan": 0.89,
+        "value_wan_rmb": 24.8
+      },
+      {
+        "rank": 385,
+        "code": "002028",
+        "name": "思源电气",
+        "weight_pct": 0.0,
+        "shares_wan": 0.16,
+        "value_wan_rmb": 24.73
+      },
+      {
+        "rank": 386,
+        "code": "603982",
+        "name": "泉峰汽车",
+        "weight_pct": 0.0,
+        "shares_wan": 2.93,
+        "value_wan_rmb": 24.52
+      },
+      {
+        "rank": 387,
+        "code": "601009",
+        "name": "南京银行",
+        "weight_pct": 0.0,
+        "shares_wan": 2.14,
+        "value_wan_rmb": 24.46
+      },
+      {
+        "rank": 388,
+        "code": "002967",
+        "name": "广电计量",
+        "weight_pct": 0.0,
+        "shares_wan": 1.11,
+        "value_wan_rmb": 24.43
+      },
+      {
+        "rank": 389,
+        "code": "03877",
+        "name": "中国船舶租赁",
+        "weight_pct": 0.0,
+        "shares_wan": 12.8,
+        "value_wan_rmb": 24.28
+      },
+      {
+        "rank": 390,
+        "code": "600115",
+        "name": "中国东航",
+        "weight_pct": 0.0,
+        "shares_wan": 4.03,
+        "value_wan_rmb": 24.18
+      },
+      {
+        "rank": 391,
+        "code": "601628",
+        "name": "中国人寿",
+        "weight_pct": 0.0,
+        "shares_wan": 0.53,
+        "value_wan_rmb": 24.12
+      },
+      {
+        "rank": 392,
+        "code": "002016",
+        "name": "世荣兆业",
+        "weight_pct": 0.0,
+        "shares_wan": 4.09,
+        "value_wan_rmb": 23.64
+      },
+      {
+        "rank": 393,
+        "code": "002555",
+        "name": "三七互娱",
+        "weight_pct": 0.0,
+        "shares_wan": 1.0,
+        "value_wan_rmb": 23.6
+      },
+      {
+        "rank": 394,
+        "code": "300620",
+        "name": "光库科技",
+        "weight_pct": 0.0,
+        "shares_wan": 0.16,
+        "value_wan_rmb": 23.53
+      },
+      {
+        "rank": 395,
+        "code": "000157",
+        "name": "中联重科",
+        "weight_pct": 0.0,
+        "shares_wan": 2.69,
+        "value_wan_rmb": 23.21
+      },
+      {
+        "rank": 396,
+        "code": "00384",
+        "name": "中国燃气",
+        "weight_pct": 0.0,
+        "shares_wan": 3.3,
+        "value_wan_rmb": 22.89
+      },
+      {
+        "rank": 397,
+        "code": "601007",
+        "name": "金陵饭店",
+        "weight_pct": 0.0,
+        "shares_wan": 2.93,
+        "value_wan_rmb": 22.88
+      },
+      {
+        "rank": 398,
+        "code": "688148",
+        "name": "芳源股份",
+        "weight_pct": 0.0,
+        "shares_wan": 2.6,
+        "value_wan_rmb": 22.8
+      },
+      {
+        "rank": 399,
+        "code": "688702",
+        "name": "盛科通信",
+        "weight_pct": 0.0,
+        "shares_wan": 0.16,
+        "value_wan_rmb": 22.67
+      },
+      {
+        "rank": 400,
+        "code": "688271",
+        "name": "联影医疗",
+        "weight_pct": 0.0,
+        "shares_wan": 0.18,
+        "value_wan_rmb": 22.59
+      },
+      {
+        "rank": 401,
+        "code": "02420",
+        "name": "子不语",
+        "weight_pct": 0.0,
+        "shares_wan": 6.0,
+        "value_wan_rmb": 22.49
+      },
+      {
+        "rank": 402,
+        "code": "002796",
+        "name": "世嘉科技",
+        "weight_pct": 0.0,
+        "shares_wan": 0.81,
+        "value_wan_rmb": 22.46
+      },
+      {
+        "rank": 403,
+        "code": "601377",
+        "name": "兴业证券",
+        "weight_pct": 0.0,
+        "shares_wan": 3.02,
+        "value_wan_rmb": 22.41
+      },
+      {
+        "rank": 404,
+        "code": "002004",
+        "name": "华邦健康",
+        "weight_pct": 0.0,
+        "shares_wan": 4.68,
+        "value_wan_rmb": 22.37
+      },
+      {
+        "rank": 405,
+        "code": "300511",
+        "name": "雪榕生物",
+        "weight_pct": 0.0,
+        "shares_wan": 3.58,
+        "value_wan_rmb": 22.34
+      },
+      {
+        "rank": 406,
+        "code": "300903",
+        "name": "科翔股份",
+        "weight_pct": 0.0,
+        "shares_wan": 1.15,
+        "value_wan_rmb": 22.18
+      },
+      {
+        "rank": 407,
+        "code": "00083",
+        "name": "信和置业",
+        "weight_pct": 0.0,
+        "shares_wan": 2.4,
+        "value_wan_rmb": 22.15
+      },
+      {
+        "rank": 408,
+        "code": "600372",
+        "name": "中航机载",
+        "weight_pct": 0.0,
+        "shares_wan": 1.65,
+        "value_wan_rmb": 22.14
+      },
+      {
+        "rank": 409,
+        "code": "603126",
+        "name": "中材节能",
+        "weight_pct": 0.0,
+        "shares_wan": 3.27,
+        "value_wan_rmb": 21.97
+      },
+      {
+        "rank": 410,
+        "code": "300850",
+        "name": "新强联",
+        "weight_pct": 0.0,
+        "shares_wan": 0.53,
+        "value_wan_rmb": 21.93
+      },
+      {
+        "rank": 411,
+        "code": "000586",
+        "name": "汇源通信",
+        "weight_pct": 0.0,
+        "shares_wan": 1.62,
+        "value_wan_rmb": 21.92
+      },
+      {
+        "rank": 412,
+        "code": "300032",
+        "name": "金龙机电",
+        "weight_pct": 0.0,
+        "shares_wan": 4.08,
+        "value_wan_rmb": 21.91
+      },
+      {
+        "rank": 413,
+        "code": "002507",
+        "name": "涪陵榨菜",
+        "weight_pct": 0.0,
+        "shares_wan": 1.69,
+        "value_wan_rmb": 21.82
+      },
+      {
+        "rank": 414,
+        "code": "000895",
+        "name": "双汇发展",
+        "weight_pct": 0.0,
+        "shares_wan": 0.82,
+        "value_wan_rmb": 21.71
+      },
+      {
+        "rank": 415,
+        "code": "002560",
+        "name": "通达股份",
+        "weight_pct": 0.0,
+        "shares_wan": 2.15,
+        "value_wan_rmb": 21.67
+      },
+      {
+        "rank": 416,
+        "code": "002297",
+        "name": "博云新材",
+        "weight_pct": 0.0,
+        "shares_wan": 1.81,
+        "value_wan_rmb": 21.67
+      },
+      {
+        "rank": 417,
+        "code": "00728",
+        "name": "中国电信",
+        "weight_pct": 0.0,
+        "shares_wan": 4.4,
+        "value_wan_rmb": 21.42
+      },
+      {
+        "rank": 418,
+        "code": "000988",
+        "name": "华工科技",
+        "weight_pct": 0.0,
+        "shares_wan": 0.27,
+        "value_wan_rmb": 21.42
+      },
+      {
+        "rank": 419,
+        "code": "600332",
+        "name": "白云山",
+        "weight_pct": 0.0,
+        "shares_wan": 0.83,
+        "value_wan_rmb": 21.36
+      },
+      {
+        "rank": 420,
+        "code": "300464",
+        "name": "星徽股份",
+        "weight_pct": 0.0,
+        "shares_wan": 3.35,
+        "value_wan_rmb": 21.24
+      },
+      {
+        "rank": 421,
+        "code": "000589",
+        "name": "贵州轮胎",
+        "weight_pct": 0.0,
+        "shares_wan": 4.1,
+        "value_wan_rmb": 21.24
+      },
+      {
+        "rank": 422,
+        "code": "601319",
+        "name": "中国人保",
+        "weight_pct": 0.0,
+        "shares_wan": 2.37,
+        "value_wan_rmb": 21.21
+      },
+      {
+        "rank": 423,
+        "code": "301603",
+        "name": "乔锋智能",
+        "weight_pct": 0.0,
+        "shares_wan": 0.28,
+        "value_wan_rmb": 21.2
+      },
+      {
+        "rank": 424,
+        "code": "600351",
+        "name": "亚宝药业",
+        "weight_pct": 0.0,
+        "shares_wan": 3.26,
+        "value_wan_rmb": 21.16
+      },
+      {
+        "rank": 425,
+        "code": "603288",
+        "name": "海天味业",
+        "weight_pct": 0.0,
+        "shares_wan": 0.57,
+        "value_wan_rmb": 21.1
+      },
+      {
+        "rank": 426,
+        "code": "000422",
+        "name": "湖北宜化",
+        "weight_pct": 0.0,
+        "shares_wan": 1.48,
+        "value_wan_rmb": 21.03
+      },
+      {
+        "rank": 427,
+        "code": "001283",
+        "name": "豪鹏科技",
+        "weight_pct": 0.0,
+        "shares_wan": 0.3,
+        "value_wan_rmb": 21.0
+      },
+      {
+        "rank": 428,
+        "code": "600718",
+        "name": "东软集团",
+        "weight_pct": 0.0,
+        "shares_wan": 2.07,
+        "value_wan_rmb": 20.84
+      },
+      {
+        "rank": 429,
+        "code": "300771",
+        "name": "智莱科技",
+        "weight_pct": 0.0,
+        "shares_wan": 1.34,
+        "value_wan_rmb": 20.77
+      },
+      {
+        "rank": 430,
+        "code": "688222",
+        "name": "成都先导",
+        "weight_pct": 0.0,
+        "shares_wan": 0.88,
+        "value_wan_rmb": 20.64
+      },
+      {
+        "rank": 431,
+        "code": "002756",
+        "name": "永兴材料",
+        "weight_pct": 0.0,
+        "shares_wan": 0.38,
+        "value_wan_rmb": 20.62
+      },
+      {
+        "rank": 432,
+        "code": "300866",
+        "name": "安克创新",
+        "weight_pct": 0.0,
+        "shares_wan": 0.18,
+        "value_wan_rmb": 20.59
+      },
+      {
+        "rank": 433,
+        "code": "300707",
+        "name": "威唐工业",
+        "weight_pct": 0.0,
+        "shares_wan": 1.24,
+        "value_wan_rmb": 20.4
+      },
+      {
+        "rank": 434,
+        "code": "00012",
+        "name": "恒基地产",
+        "weight_pct": 0.0,
+        "shares_wan": 0.8,
+        "value_wan_rmb": 20.33
+      },
+      {
+        "rank": 435,
+        "code": "600428",
+        "name": "中远海特",
+        "weight_pct": 0.0,
+        "shares_wan": 2.86,
+        "value_wan_rmb": 20.31
+      },
+      {
+        "rank": 436,
+        "code": "000539",
+        "name": "粤电力A",
+        "weight_pct": 0.0,
+        "shares_wan": 4.59,
+        "value_wan_rmb": 20.29
+      },
+      {
+        "rank": 437,
+        "code": "603218",
+        "name": "日月股份",
+        "weight_pct": 0.0,
+        "shares_wan": 1.52,
+        "value_wan_rmb": 20.14
+      },
+      {
+        "rank": 438,
+        "code": "300645",
+        "name": "正元智慧",
+        "weight_pct": 0.0,
+        "shares_wan": 1.07,
+        "value_wan_rmb": 20.04
+      },
+      {
+        "rank": 439,
+        "code": "000823",
+        "name": "超声电子",
+        "weight_pct": 0.0,
+        "shares_wan": 1.47,
+        "value_wan_rmb": 19.93
+      },
+      {
+        "rank": 440,
+        "code": "301236",
+        "name": "软通动力",
+        "weight_pct": 0.0,
+        "shares_wan": 0.42,
+        "value_wan_rmb": 19.92
+      },
+      {
+        "rank": 441,
+        "code": "601688",
+        "name": "华泰证券",
+        "weight_pct": 0.0,
+        "shares_wan": 0.84,
+        "value_wan_rmb": 19.82
+      },
+      {
+        "rank": 442,
+        "code": "688343",
+        "name": "云天励飞",
+        "weight_pct": 0.0,
+        "shares_wan": 0.26,
+        "value_wan_rmb": 19.78
+      },
+      {
+        "rank": 443,
+        "code": "600522",
+        "name": "中天科技",
+        "weight_pct": 0.0,
+        "shares_wan": 1.09,
+        "value_wan_rmb": 19.75
+      },
+      {
+        "rank": 444,
+        "code": "002487",
+        "name": "大金重工",
+        "weight_pct": 0.0,
+        "shares_wan": 0.38,
+        "value_wan_rmb": 19.73
+      },
+      {
+        "rank": 445,
+        "code": "00762",
+        "name": "中国联通",
+        "weight_pct": 0.0,
+        "shares_wan": 2.8,
+        "value_wan_rmb": 19.68
+      },
+      {
+        "rank": 446,
+        "code": "600067",
+        "name": "冠城新材",
+        "weight_pct": 0.0,
+        "shares_wan": 4.71,
+        "value_wan_rmb": 19.55
+      },
+      {
+        "rank": 447,
+        "code": "300681",
+        "name": "英搏尔",
+        "weight_pct": 0.0,
+        "shares_wan": 0.77,
+        "value_wan_rmb": 19.3
+      },
+      {
+        "rank": 448,
+        "code": "688017",
+        "name": "绿的谐波",
+        "weight_pct": 0.0,
+        "shares_wan": 0.1,
+        "value_wan_rmb": 19.21
+      },
+      {
+        "rank": 449,
+        "code": "00293",
+        "name": "国泰航空",
+        "weight_pct": 0.0,
+        "shares_wan": 1.7,
+        "value_wan_rmb": 19.09
+      },
+      {
+        "rank": 450,
+        "code": "603115",
+        "name": "海星股份",
+        "weight_pct": 0.0,
+        "shares_wan": 1.02,
+        "value_wan_rmb": 19.08
+      },
+      {
+        "rank": 451,
+        "code": "688639",
+        "name": "华恒生物",
+        "weight_pct": 0.0,
+        "shares_wan": 0.58,
+        "value_wan_rmb": 18.9
+      },
+      {
+        "rank": 452,
+        "code": "600578",
+        "name": "京能电力",
+        "weight_pct": 0.0,
+        "shares_wan": 3.67,
+        "value_wan_rmb": 18.72
+      },
+      {
+        "rank": 453,
+        "code": "600210",
+        "name": "紫江企业",
+        "weight_pct": 0.0,
+        "shares_wan": 2.54,
+        "value_wan_rmb": 18.67
+      },
+      {
+        "rank": 454,
+        "code": "601600",
+        "name": "中国铝业",
+        "weight_pct": 0.0,
+        "shares_wan": 1.52,
+        "value_wan_rmb": 18.57
+      },
+      {
+        "rank": 455,
+        "code": "003017",
+        "name": "大洋生物",
+        "weight_pct": 0.0,
+        "shares_wan": 0.62,
+        "value_wan_rmb": 18.51
+      },
+      {
+        "rank": 456,
+        "code": "000757",
+        "name": "浩物股份",
+        "weight_pct": 0.0,
+        "shares_wan": 3.78,
+        "value_wan_rmb": 18.41
+      },
+      {
+        "rank": 457,
+        "code": "002323",
+        "name": "雅博股份",
+        "weight_pct": 0.0,
+        "shares_wan": 11.09,
+        "value_wan_rmb": 18.19
+      },
+      {
+        "rank": 458,
+        "code": "000932",
+        "name": "华菱钢铁",
+        "weight_pct": 0.0,
+        "shares_wan": 3.22,
+        "value_wan_rmb": 18.1
+      },
+      {
+        "rank": 459,
+        "code": "688600",
+        "name": "皖仪科技",
+        "weight_pct": 0.0,
+        "shares_wan": 0.72,
+        "value_wan_rmb": 18.04
+      },
+      {
+        "rank": 460,
+        "code": "688312",
+        "name": "燕麦科技",
+        "weight_pct": 0.0,
+        "shares_wan": 0.54,
+        "value_wan_rmb": 17.92
+      },
+      {
+        "rank": 461,
+        "code": "301126",
+        "name": "达嘉维康",
+        "weight_pct": 0.0,
+        "shares_wan": 1.43,
+        "value_wan_rmb": 17.57
+      },
+      {
+        "rank": 462,
+        "code": "300158",
+        "name": "振东制药",
+        "weight_pct": 0.0,
+        "shares_wan": 3.02,
+        "value_wan_rmb": 17.55
+      },
+      {
+        "rank": 463,
+        "code": "300018",
+        "name": "中元股份",
+        "weight_pct": 0.0,
+        "shares_wan": 1.59,
+        "value_wan_rmb": 17.49
+      },
+      {
+        "rank": 464,
+        "code": "600660",
+        "name": "福耀玻璃",
+        "weight_pct": 0.0,
+        "shares_wan": 0.27,
+        "value_wan_rmb": 17.49
+      },
+      {
+        "rank": 465,
+        "code": "300240",
+        "name": "飞力达",
+        "weight_pct": 0.0,
+        "shares_wan": 2.31,
+        "value_wan_rmb": 17.42
+      },
+      {
+        "rank": 466,
+        "code": "00683",
+        "name": "嘉里建设",
+        "weight_pct": 0.0,
+        "shares_wan": 0.95,
+        "value_wan_rmb": 17.4
+      },
+      {
+        "rank": 467,
+        "code": "002172",
+        "name": "澳洋健康",
+        "weight_pct": 0.0,
+        "shares_wan": 4.38,
+        "value_wan_rmb": 17.39
+      },
+      {
+        "rank": 468,
+        "code": "000850",
+        "name": "华茂股份",
+        "weight_pct": 0.0,
+        "shares_wan": 3.1,
+        "value_wan_rmb": 16.96
+      },
+      {
+        "rank": 469,
+        "code": "301526",
+        "name": "国际复材",
+        "weight_pct": 0.0,
+        "shares_wan": 2.4,
+        "value_wan_rmb": 16.8
+      },
+      {
+        "rank": 470,
+        "code": "301536",
+        "name": "星宸科技",
+        "weight_pct": 0.0,
+        "shares_wan": 0.28,
+        "value_wan_rmb": 16.77
+      },
+      {
+        "rank": 471,
+        "code": "688599",
+        "name": "天合光能",
+        "weight_pct": 0.0,
+        "shares_wan": 1.0,
+        "value_wan_rmb": 16.55
+      },
+      {
+        "rank": 472,
+        "code": "300008",
+        "name": "天海防务",
+        "weight_pct": 0.0,
+        "shares_wan": 2.08,
+        "value_wan_rmb": 16.41
+      },
+      {
+        "rank": 473,
+        "code": "002031",
+        "name": "巨轮智能",
+        "weight_pct": 0.0,
+        "shares_wan": 2.06,
+        "value_wan_rmb": 16.19
+      },
+      {
+        "rank": 474,
+        "code": "002139",
+        "name": "拓邦股份",
+        "weight_pct": 0.0,
+        "shares_wan": 1.16,
+        "value_wan_rmb": 15.98
+      },
+      {
+        "rank": 475,
+        "code": "000977",
+        "name": "浪潮信息",
+        "weight_pct": 0.0,
+        "shares_wan": 0.24,
+        "value_wan_rmb": 15.98
+      },
+      {
+        "rank": 476,
+        "code": "002448",
+        "name": "中原内配",
+        "weight_pct": 0.0,
+        "shares_wan": 1.23,
+        "value_wan_rmb": 15.9
+      },
+      {
+        "rank": 477,
+        "code": "002023",
+        "name": "海特高新",
+        "weight_pct": 0.0,
+        "shares_wan": 1.16,
+        "value_wan_rmb": 15.71
+      },
+      {
+        "rank": 478,
+        "code": "603967",
+        "name": "中创物流",
+        "weight_pct": 0.0,
+        "shares_wan": 1.14,
+        "value_wan_rmb": 15.65
+      },
+      {
+        "rank": 479,
+        "code": "601988",
+        "name": "中国银行",
+        "weight_pct": 0.0,
+        "shares_wan": 2.72,
+        "value_wan_rmb": 15.59
+      },
+      {
+        "rank": 480,
+        "code": "600082",
+        "name": "海泰发展",
+        "weight_pct": 0.0,
+        "shares_wan": 3.82,
+        "value_wan_rmb": 15.51
+      },
+      {
+        "rank": 481,
+        "code": "002293",
+        "name": "罗莱生活",
+        "weight_pct": 0.0,
+        "shares_wan": 1.5,
+        "value_wan_rmb": 15.41
+      },
+      {
+        "rank": 482,
+        "code": "300014",
+        "name": "亿纬锂能",
+        "weight_pct": 0.0,
+        "shares_wan": 0.23,
+        "value_wan_rmb": 15.12
+      },
+      {
+        "rank": 483,
+        "code": "300567",
+        "name": "精测电子",
+        "weight_pct": 0.0,
+        "shares_wan": 0.16,
+        "value_wan_rmb": 14.59
+      },
+      {
+        "rank": 484,
+        "code": "601186",
+        "name": "中国铁建",
+        "weight_pct": 0.0,
+        "shares_wan": 1.86,
+        "value_wan_rmb": 14.27
+      },
+      {
+        "rank": 485,
+        "code": "600027",
+        "name": "华电国际",
+        "weight_pct": 0.0,
+        "shares_wan": 2.87,
+        "value_wan_rmb": 14.24
+      },
+      {
+        "rank": 486,
+        "code": "300003",
+        "name": "乐普医疗",
+        "weight_pct": 0.0,
+        "shares_wan": 0.9,
+        "value_wan_rmb": 14.23
+      },
+      {
+        "rank": 487,
+        "code": "002460",
+        "name": "赣锋锂业",
+        "weight_pct": 0.0,
+        "shares_wan": 0.22,
+        "value_wan_rmb": 13.84
+      },
+      {
+        "rank": 488,
+        "code": "000408",
+        "name": "藏格矿业",
+        "weight_pct": 0.0,
+        "shares_wan": 0.16,
+        "value_wan_rmb": 13.5
+      },
+      {
+        "rank": 489,
+        "code": "002705",
+        "name": "新宝股份",
+        "weight_pct": 0.0,
+        "shares_wan": 0.94,
+        "value_wan_rmb": 13.4
+      },
+      {
+        "rank": 490,
+        "code": "600438",
+        "name": "通威股份",
+        "weight_pct": 0.0,
+        "shares_wan": 0.65,
+        "value_wan_rmb": 13.34
+      },
+      {
+        "rank": 491,
+        "code": "000034",
+        "name": "神州数码",
+        "weight_pct": 0.0,
+        "shares_wan": 0.34,
+        "value_wan_rmb": 13.23
+      },
+      {
+        "rank": 492,
+        "code": "301007",
+        "name": "德迈仕",
+        "weight_pct": 0.0,
+        "shares_wan": 0.32,
+        "value_wan_rmb": 12.97
+      },
+      {
+        "rank": 493,
+        "code": "000659",
+        "name": "珠海中富",
+        "weight_pct": 0.0,
+        "shares_wan": 3.19,
+        "value_wan_rmb": 12.95
+      },
+      {
+        "rank": 494,
+        "code": "601658",
+        "name": "邮储银行",
+        "weight_pct": 0.0,
+        "shares_wan": 2.36,
+        "value_wan_rmb": 12.86
+      },
+      {
+        "rank": 495,
+        "code": "00836",
+        "name": "华润电力",
+        "weight_pct": 0.0,
+        "shares_wan": 0.8,
+        "value_wan_rmb": 12.51
+      },
+      {
+        "rank": 496,
+        "code": "688331",
+        "name": "荣昌生物",
+        "weight_pct": 0.0,
+        "shares_wan": 0.16,
+        "value_wan_rmb": 12.45
+      },
+      {
+        "rank": 497,
+        "code": "00598",
+        "name": "中国外运",
+        "weight_pct": 0.0,
+        "shares_wan": 2.8,
+        "value_wan_rmb": 12.27
+      },
+      {
+        "rank": 498,
+        "code": "600558",
+        "name": "大西洋",
+        "weight_pct": 0.0,
+        "shares_wan": 2.0,
+        "value_wan_rmb": 12.2
+      },
+      {
+        "rank": 499,
+        "code": "601998",
+        "name": "中信银行",
+        "weight_pct": 0.0,
+        "shares_wan": 1.53,
+        "value_wan_rmb": 11.78
+      },
+      {
+        "rank": 500,
+        "code": "00576",
+        "name": "浙江沪杭甬",
+        "weight_pct": 0.0,
+        "shares_wan": 1.8,
+        "value_wan_rmb": 11.66
       }
     ]
   },
@@ -1767,6 +8103,14 @@
         "weight_pct": 3.26,
         "shares_wan": 20.93,
         "value_wan_rmb": 48937.54
+      },
+      {
+        "rank": 11,
+        "code": "GOOGL",
+        "name": "谷歌-A",
+        "weight_pct": 0.02,
+        "shares_wan": 0.17,
+        "value_wan_rmb": 345.02
       }
     ]
   }
