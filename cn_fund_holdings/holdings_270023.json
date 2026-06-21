@@ -1,0 +1,1773 @@
+[
+  {
+    "year": 2021,
+    "quarter": 1,
+    "as_of": "2021-03-31",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "00883",
+        "name": "中国海洋石油",
+        "weight_pct": 5.65,
+        "shares_wan": 4161.2,
+        "value_wan_rmb": 28592.91
+      },
+      {
+        "rank": 2,
+        "code": "SE",
+        "name": "Sea Ltd ADR",
+        "weight_pct": 3.91,
+        "shares_wan": 13.5,
+        "value_wan_rmb": 19803.3
+      },
+      {
+        "rank": 3,
+        "code": "VNET",
+        "name": "世纪互联",
+        "weight_pct": 3.77,
+        "shares_wan": 90.0,
+        "value_wan_rmb": 19102.77
+      },
+      {
+        "rank": 4,
+        "code": "BILI",
+        "name": "哔哩哔哩",
+        "weight_pct": 3.75,
+        "shares_wan": 27.0,
+        "value_wan_rmb": 18995.13
+      },
+      {
+        "rank": 5,
+        "code": "09988",
+        "name": "阿里巴巴-SW",
+        "weight_pct": 3.67,
+        "shares_wan": 100.0,
+        "value_wan_rmb": 18593.96
+      },
+      {
+        "rank": 6,
+        "code": "00700",
+        "name": "腾讯控股",
+        "weight_pct": 3.36,
+        "shares_wan": 33.0,
+        "value_wan_rmb": 17013.47
+      },
+      {
+        "rank": 7,
+        "code": "WOLF",
+        "name": "Wolfspeed Inc",
+        "weight_pct": 3.16,
+        "shares_wan": 22.5,
+        "value_wan_rmb": 15987.48
+      },
+      {
+        "rank": 8,
+        "code": "TSM",
+        "name": "台积电",
+        "weight_pct": 3.11,
+        "shares_wan": 20.25,
+        "value_wan_rmb": 15739.38
+      },
+      {
+        "rank": 9,
+        "code": "01209",
+        "name": "华润万象生活",
+        "weight_pct": 3.09,
+        "shares_wan": 400.0,
+        "value_wan_rmb": 15652.73
+      },
+      {
+        "rank": 10,
+        "code": "00522",
+        "name": "ASMPT",
+        "weight_pct": 2.98,
+        "shares_wan": 180.0,
+        "value_wan_rmb": 15068.71
+      }
+    ]
+  },
+  {
+    "year": 2021,
+    "quarter": 2,
+    "as_of": "2021-06-30",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "RBLX",
+        "name": "Roblox Corp-A",
+        "weight_pct": 9.88,
+        "shares_wan": 83.78,
+        "value_wan_rmb": 48696.77
+      },
+      {
+        "rank": 2,
+        "code": "00700",
+        "name": "腾讯控股",
+        "weight_pct": 7.88,
+        "shares_wan": 79.93,
+        "value_wan_rmb": 38840.76
+      },
+      {
+        "rank": 3,
+        "code": "00883",
+        "name": "中国海洋石油",
+        "weight_pct": 6.2,
+        "shares_wan": 4161.2,
+        "value_wan_rmb": 30573.44
+      },
+      {
+        "rank": 4,
+        "code": "SE",
+        "name": "Sea Ltd ADR",
+        "weight_pct": 4.86,
+        "shares_wan": 13.5,
+        "value_wan_rmb": 23948.24
+      },
+      {
+        "rank": 5,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 4.64,
+        "shares_wan": 4.43,
+        "value_wan_rmb": 22871.61
+      },
+      {
+        "rank": 6,
+        "code": "LULU",
+        "name": "lululemon athletica inc",
+        "weight_pct": 4.57,
+        "shares_wan": 9.56,
+        "value_wan_rmb": 22546.15
+      },
+      {
+        "rank": 7,
+        "code": "PDD",
+        "name": "拼多多",
+        "weight_pct": 4.31,
+        "shares_wan": 25.86,
+        "value_wan_rmb": 21221.54
+      },
+      {
+        "rank": 8,
+        "code": "BEAM",
+        "name": "Beam Therapeutics Inc",
+        "weight_pct": 3.66,
+        "shares_wan": 21.7,
+        "value_wan_rmb": 18041.44
+      },
+      {
+        "rank": 9,
+        "code": "BILI",
+        "name": "哔哩哔哩",
+        "weight_pct": 3.51,
+        "shares_wan": 22.0,
+        "value_wan_rmb": 17316.17
+      },
+      {
+        "rank": 10,
+        "code": "09939",
+        "name": "开拓药业-B",
+        "weight_pct": 3.48,
+        "shares_wan": 326.95,
+        "value_wan_rmb": 17139.06
+      }
+    ]
+  },
+  {
+    "year": 2021,
+    "quarter": 3,
+    "as_of": "2021-09-30",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "RBLX",
+        "name": "Roblox Corp-A",
+        "weight_pct": 9.48,
+        "shares_wan": 75.85,
+        "value_wan_rmb": 37162.86
+      },
+      {
+        "rank": 2,
+        "code": "TSLA",
+        "name": "特斯拉",
+        "weight_pct": 9.44,
+        "shares_wan": 7.36,
+        "value_wan_rmb": 37006.08
+      },
+      {
+        "rank": 3,
+        "code": "00700",
+        "name": "腾讯控股",
+        "weight_pct": 7.84,
+        "shares_wan": 79.93,
+        "value_wan_rmb": 30723.0
+      },
+      {
+        "rank": 4,
+        "code": "SE",
+        "name": "Sea Ltd ADR",
+        "weight_pct": 7.65,
+        "shares_wan": 14.5,
+        "value_wan_rmb": 29968.07
+      },
+      {
+        "rank": 5,
+        "code": "03690",
+        "name": "美团-W",
+        "weight_pct": 6.41,
+        "shares_wan": 122.35,
+        "value_wan_rmb": 25134.68
+      },
+      {
+        "rank": 6,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 6.07,
+        "shares_wan": 17.7,
+        "value_wan_rmb": 23780.22
+      },
+      {
+        "rank": 7,
+        "code": "LULU",
+        "name": "lululemon athletica inc",
+        "weight_pct": 5.34,
+        "shares_wan": 7.97,
+        "value_wan_rmb": 20918.65
+      },
+      {
+        "rank": 8,
+        "code": "MRNA",
+        "name": "Moderna Inc",
+        "weight_pct": 5.15,
+        "shares_wan": 8.08,
+        "value_wan_rmb": 20176.43
+      },
+      {
+        "rank": 9,
+        "code": "SQ",
+        "name": "Block Inc-A",
+        "weight_pct": 4.86,
+        "shares_wan": 12.24,
+        "value_wan_rmb": 19044.88
+      },
+      {
+        "rank": 10,
+        "code": "BEAM",
+        "name": "Beam Therapeutics Inc",
+        "weight_pct": 4.65,
+        "shares_wan": 32.29,
+        "value_wan_rmb": 18221.58
+      }
+    ]
+  },
+  {
+    "year": 2021,
+    "quarter": 4,
+    "as_of": "2021-12-31",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "03690",
+        "name": "美团-W",
+        "weight_pct": 10.11,
+        "shares_wan": 201.38,
+        "value_wan_rmb": 37111.72
+      },
+      {
+        "rank": 2,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 9.45,
+        "shares_wan": 18.5,
+        "value_wan_rmb": 34688.91
+      },
+      {
+        "rank": 3,
+        "code": "TSLA",
+        "name": "特斯拉",
+        "weight_pct": 9.17,
+        "shares_wan": 5.0,
+        "value_wan_rmb": 33675.09
+      },
+      {
+        "rank": 4,
+        "code": "00700",
+        "name": "腾讯控股",
+        "weight_pct": 7.86,
+        "shares_wan": 77.3,
+        "value_wan_rmb": 28869.98
+      },
+      {
+        "rank": 5,
+        "code": "RBLX",
+        "name": "Roblox Corp-A",
+        "weight_pct": 5.71,
+        "shares_wan": 31.89,
+        "value_wan_rmb": 20972.23
+      },
+      {
+        "rank": 6,
+        "code": "LULU",
+        "name": "lululemon athletica inc",
+        "weight_pct": 5.24,
+        "shares_wan": 7.71,
+        "value_wan_rmb": 19237.13
+      },
+      {
+        "rank": 7,
+        "code": "TSM",
+        "name": "台积电",
+        "weight_pct": 4.97,
+        "shares_wan": 23.79,
+        "value_wan_rmb": 18247.14
+      },
+      {
+        "rank": 8,
+        "code": "BEAM",
+        "name": "Beam Therapeutics Inc",
+        "weight_pct": 4.32,
+        "shares_wan": 31.23,
+        "value_wan_rmb": 15866.76
+      },
+      {
+        "rank": 9,
+        "code": "NOW",
+        "name": "现在服务公司",
+        "weight_pct": 4.13,
+        "shares_wan": 3.67,
+        "value_wan_rmb": 15170.2
+      },
+      {
+        "rank": 10,
+        "code": "AMD",
+        "name": "超威半导体",
+        "weight_pct": 4.01,
+        "shares_wan": 16.04,
+        "value_wan_rmb": 14718.95
+      }
+    ]
+  },
+  {
+    "year": 2022,
+    "quarter": 1,
+    "as_of": "2022-03-31",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "TSLA",
+        "name": "特斯拉",
+        "weight_pct": 10.24,
+        "shares_wan": 3.82,
+        "value_wan_rmb": 26129.2
+      },
+      {
+        "rank": 2,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 9.42,
+        "shares_wan": 13.89,
+        "value_wan_rmb": 24057.59
+      },
+      {
+        "rank": 3,
+        "code": "TSM",
+        "name": "台积电",
+        "weight_pct": 5.63,
+        "shares_wan": 21.71,
+        "value_wan_rmb": 14369.65
+      },
+      {
+        "rank": 4,
+        "code": "MSFT",
+        "name": "微软",
+        "weight_pct": 5.35,
+        "shares_wan": 6.97,
+        "value_wan_rmb": 13647.26
+      },
+      {
+        "rank": 5,
+        "code": "NOW",
+        "name": "现在服务公司",
+        "weight_pct": 4.42,
+        "shares_wan": 3.19,
+        "value_wan_rmb": 11275.32
+      },
+      {
+        "rank": 6,
+        "code": "BEAM",
+        "name": "Beam Therapeutics Inc",
+        "weight_pct": 4.06,
+        "shares_wan": 28.5,
+        "value_wan_rmb": 10367.51
+      },
+      {
+        "rank": 7,
+        "code": "MRNA",
+        "name": "Moderna Inc",
+        "weight_pct": 3.76,
+        "shares_wan": 8.78,
+        "value_wan_rmb": 9596.48
+      },
+      {
+        "rank": 8,
+        "code": "AAPL",
+        "name": "苹果",
+        "weight_pct": 3.58,
+        "shares_wan": 8.25,
+        "value_wan_rmb": 9140.47
+      },
+      {
+        "rank": 9,
+        "code": "GOOG",
+        "name": "谷歌-C",
+        "weight_pct": 3.5,
+        "shares_wan": 0.5,
+        "value_wan_rmb": 8937.92
+      },
+      {
+        "rank": 10,
+        "code": "AMZN",
+        "name": "亚马逊",
+        "weight_pct": 3.41,
+        "shares_wan": 0.42,
+        "value_wan_rmb": 8714.59
+      }
+    ]
+  },
+  {
+    "year": 2022,
+    "quarter": 2,
+    "as_of": "2022-06-30",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "TSLA",
+        "name": "特斯拉",
+        "weight_pct": 7.6,
+        "shares_wan": 3.71,
+        "value_wan_rmb": 16754.58
+      },
+      {
+        "rank": 2,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 6.41,
+        "shares_wan": 13.89,
+        "value_wan_rmb": 14130.1
+      },
+      {
+        "rank": 3,
+        "code": "MSFT",
+        "name": "微软",
+        "weight_pct": 5.45,
+        "shares_wan": 6.97,
+        "value_wan_rmb": 12018.94
+      },
+      {
+        "rank": 4,
+        "code": "OXY",
+        "name": "西方石油",
+        "weight_pct": 5.42,
+        "shares_wan": 30.25,
+        "value_wan_rmb": 11955.71
+      },
+      {
+        "rank": 5,
+        "code": "TSM",
+        "name": "台积电",
+        "weight_pct": 5.4,
+        "shares_wan": 21.71,
+        "value_wan_rmb": 11911.84
+      },
+      {
+        "rank": 6,
+        "code": "NOW",
+        "name": "现在服务公司",
+        "weight_pct": 4.62,
+        "shares_wan": 3.19,
+        "value_wan_rmb": 10178.67
+      },
+      {
+        "rank": 7,
+        "code": "MRNA",
+        "name": "Moderna Inc",
+        "weight_pct": 3.82,
+        "shares_wan": 8.78,
+        "value_wan_rmb": 8413.37
+      },
+      {
+        "rank": 8,
+        "code": "AAPL",
+        "name": "苹果",
+        "weight_pct": 3.43,
+        "shares_wan": 8.25,
+        "value_wan_rmb": 7566.48
+      },
+      {
+        "rank": 9,
+        "code": "GOOG",
+        "name": "谷歌-C",
+        "weight_pct": 3.36,
+        "shares_wan": 0.5,
+        "value_wan_rmb": 7400.62
+      },
+      {
+        "rank": 10,
+        "code": "ASML",
+        "name": "阿斯麦",
+        "weight_pct": 3.1,
+        "shares_wan": 2.14,
+        "value_wan_rmb": 6823.28
+      }
+    ]
+  },
+  {
+    "year": 2022,
+    "quarter": 3,
+    "as_of": "2022-09-30",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "TSLA",
+        "name": "特斯拉",
+        "weight_pct": 8.89,
+        "shares_wan": 10.33,
+        "value_wan_rmb": 19454.06
+      },
+      {
+        "rank": 2,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 6.99,
+        "shares_wan": 17.73,
+        "value_wan_rmb": 15283.61
+      },
+      {
+        "rank": 3,
+        "code": "ASML",
+        "name": "阿斯麦",
+        "weight_pct": 5.92,
+        "shares_wan": 4.39,
+        "value_wan_rmb": 12958.06
+      },
+      {
+        "rank": 4,
+        "code": "MSFT",
+        "name": "微软",
+        "weight_pct": 5.27,
+        "shares_wan": 6.97,
+        "value_wan_rmb": 11529.83
+      },
+      {
+        "rank": 5,
+        "code": "TSM",
+        "name": "台积电",
+        "weight_pct": 4.83,
+        "shares_wan": 21.71,
+        "value_wan_rmb": 10568.05
+      },
+      {
+        "rank": 6,
+        "code": "OXY",
+        "name": "西方石油",
+        "weight_pct": 4.64,
+        "shares_wan": 23.25,
+        "value_wan_rmb": 10145.41
+      },
+      {
+        "rank": 7,
+        "code": "BEAM",
+        "name": "Beam Therapeutics Inc",
+        "weight_pct": 4.17,
+        "shares_wan": 26.97,
+        "value_wan_rmb": 9121.34
+      },
+      {
+        "rank": 8,
+        "code": "NOW",
+        "name": "现在服务公司",
+        "weight_pct": 4.08,
+        "shares_wan": 3.33,
+        "value_wan_rmb": 8931.34
+      },
+      {
+        "rank": 9,
+        "code": "DDOG",
+        "name": "Datadog Inc-A",
+        "weight_pct": 4.08,
+        "shares_wan": 14.16,
+        "value_wan_rmb": 8924.52
+      },
+      {
+        "rank": 10,
+        "code": "AAPL",
+        "name": "苹果",
+        "weight_pct": 3.7,
+        "shares_wan": 8.25,
+        "value_wan_rmb": 8091.01
+      }
+    ]
+  },
+  {
+    "year": 2022,
+    "quarter": 4,
+    "as_of": "2022-12-31",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 7.75,
+        "shares_wan": 15.57,
+        "value_wan_rmb": 15850.61
+      },
+      {
+        "rank": 2,
+        "code": "TSLA",
+        "name": "特斯拉",
+        "weight_pct": 7.17,
+        "shares_wan": 17.09,
+        "value_wan_rmb": 14658.76
+      },
+      {
+        "rank": 3,
+        "code": "ASML",
+        "name": "阿斯麦",
+        "weight_pct": 7.06,
+        "shares_wan": 3.79,
+        "value_wan_rmb": 14435.24
+      },
+      {
+        "rank": 4,
+        "code": "NOW",
+        "name": "现在服务公司",
+        "weight_pct": 6.97,
+        "shares_wan": 5.27,
+        "value_wan_rmb": 14243.0
+      },
+      {
+        "rank": 5,
+        "code": "PDD",
+        "name": "拼多多",
+        "weight_pct": 6.48,
+        "shares_wan": 23.32,
+        "value_wan_rmb": 13245.92
+      },
+      {
+        "rank": 6,
+        "code": "AMD",
+        "name": "超威半导体",
+        "weight_pct": 6.1,
+        "shares_wan": 27.64,
+        "value_wan_rmb": 12467.2
+      },
+      {
+        "rank": 7,
+        "code": "MSFT",
+        "name": "微软",
+        "weight_pct": 5.7,
+        "shares_wan": 6.97,
+        "value_wan_rmb": 11646.32
+      },
+      {
+        "rank": 8,
+        "code": "TSM",
+        "name": "台积电",
+        "weight_pct": 5.51,
+        "shares_wan": 21.71,
+        "value_wan_rmb": 11263.46
+      },
+      {
+        "rank": 9,
+        "code": "OXY",
+        "name": "西方石油",
+        "weight_pct": 4.99,
+        "shares_wan": 23.25,
+        "value_wan_rmb": 10201.62
+      },
+      {
+        "rank": 10,
+        "code": "BEAM",
+        "name": "Beam Therapeutics Inc",
+        "weight_pct": 3.59,
+        "shares_wan": 26.97,
+        "value_wan_rmb": 7345.56
+      }
+    ]
+  },
+  {
+    "year": 2023,
+    "quarter": 1,
+    "as_of": "2023-03-31",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "MSFT",
+        "name": "微软",
+        "weight_pct": 9.61,
+        "shares_wan": 12.42,
+        "value_wan_rmb": 24613.72
+      },
+      {
+        "rank": 2,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 9.39,
+        "shares_wan": 12.6,
+        "value_wan_rmb": 24047.6
+      },
+      {
+        "rank": 3,
+        "code": "AMD",
+        "name": "超威半导体",
+        "weight_pct": 7.85,
+        "shares_wan": 29.82,
+        "value_wan_rmb": 20085.79
+      },
+      {
+        "rank": 4,
+        "code": "TSLA",
+        "name": "特斯拉",
+        "weight_pct": 7.01,
+        "shares_wan": 12.59,
+        "value_wan_rmb": 17944.49
+      },
+      {
+        "rank": 5,
+        "code": "ASML",
+        "name": "阿斯麦",
+        "weight_pct": 6.93,
+        "shares_wan": 3.79,
+        "value_wan_rmb": 17743.67
+      },
+      {
+        "rank": 6,
+        "code": "NOW",
+        "name": "现在服务公司",
+        "weight_pct": 6.57,
+        "shares_wan": 5.27,
+        "value_wan_rmb": 16820.04
+      },
+      {
+        "rank": 7,
+        "code": "TSM",
+        "name": "台积电",
+        "weight_pct": 6.4,
+        "shares_wan": 25.64,
+        "value_wan_rmb": 16387.76
+      },
+      {
+        "rank": 8,
+        "code": "META",
+        "name": "Meta Platforms Inc-A",
+        "weight_pct": 5.07,
+        "shares_wan": 8.91,
+        "value_wan_rmb": 12969.28
+      },
+      {
+        "rank": 9,
+        "code": "PDD",
+        "name": "拼多多",
+        "weight_pct": 4.75,
+        "shares_wan": 23.32,
+        "value_wan_rmb": 12163.77
+      },
+      {
+        "rank": 10,
+        "code": "CRWD",
+        "name": "CrowdStrike Holdings Inc-A",
+        "weight_pct": 3.6,
+        "shares_wan": 9.78,
+        "value_wan_rmb": 9228.55
+      }
+    ]
+  },
+  {
+    "year": 2023,
+    "quarter": 2,
+    "as_of": "2023-06-30",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 9.8,
+        "shares_wan": 10.19,
+        "value_wan_rmb": 31155.29
+      },
+      {
+        "rank": 2,
+        "code": "MSFT",
+        "name": "微软",
+        "weight_pct": 9.29,
+        "shares_wan": 12.0,
+        "value_wan_rmb": 29535.72
+      },
+      {
+        "rank": 3,
+        "code": "TSLA",
+        "name": "特斯拉",
+        "weight_pct": 9.23,
+        "shares_wan": 15.52,
+        "value_wan_rmb": 29359.45
+      },
+      {
+        "rank": 4,
+        "code": "NOW",
+        "name": "现在服务公司",
+        "weight_pct": 7.03,
+        "shares_wan": 5.51,
+        "value_wan_rmb": 22358.12
+      },
+      {
+        "rank": 5,
+        "code": "GOOG",
+        "name": "谷歌-C",
+        "weight_pct": 6.93,
+        "shares_wan": 25.21,
+        "value_wan_rmb": 22038.64
+      },
+      {
+        "rank": 6,
+        "code": "AMD",
+        "name": "超威半导体",
+        "weight_pct": 6.09,
+        "shares_wan": 23.54,
+        "value_wan_rmb": 19371.77
+      },
+      {
+        "rank": 7,
+        "code": "META",
+        "name": "Meta Platforms Inc-A",
+        "weight_pct": 5.81,
+        "shares_wan": 8.91,
+        "value_wan_rmb": 18466.15
+      },
+      {
+        "rank": 8,
+        "code": "ADBE",
+        "name": "奥多比",
+        "weight_pct": 4.92,
+        "shares_wan": 4.43,
+        "value_wan_rmb": 15642.11
+      },
+      {
+        "rank": 9,
+        "code": "PANW",
+        "name": "派拓网络",
+        "weight_pct": 4.45,
+        "shares_wan": 7.67,
+        "value_wan_rmb": 14155.49
+      },
+      {
+        "rank": 10,
+        "code": "MDB",
+        "name": "MongoDB Inc-A",
+        "weight_pct": 4.12,
+        "shares_wan": 4.41,
+        "value_wan_rmb": 13088.2
+      }
+    ]
+  },
+  {
+    "year": 2023,
+    "quarter": 3,
+    "as_of": "2023-09-30",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 9.06,
+        "shares_wan": 9.69,
+        "value_wan_rmb": 30252.93
+      },
+      {
+        "rank": 2,
+        "code": "GOOG",
+        "name": "谷歌-C",
+        "weight_pct": 8.16,
+        "shares_wan": 28.81,
+        "value_wan_rmb": 27272.14
+      },
+      {
+        "rank": 3,
+        "code": "MSFT",
+        "name": "微软",
+        "weight_pct": 8.15,
+        "shares_wan": 12.0,
+        "value_wan_rmb": 27211.29
+      },
+      {
+        "rank": 4,
+        "code": "TSLA",
+        "name": "特斯拉",
+        "weight_pct": 7.87,
+        "shares_wan": 14.63,
+        "value_wan_rmb": 26291.31
+      },
+      {
+        "rank": 5,
+        "code": "PDD",
+        "name": "拼多多",
+        "weight_pct": 7.49,
+        "shares_wan": 35.52,
+        "value_wan_rmb": 25009.04
+      },
+      {
+        "rank": 6,
+        "code": "ADBE",
+        "name": "奥多比",
+        "weight_pct": 6.8,
+        "shares_wan": 6.21,
+        "value_wan_rmb": 22722.97
+      },
+      {
+        "rank": 7,
+        "code": "NOW",
+        "name": "现在服务公司",
+        "weight_pct": 6.62,
+        "shares_wan": 5.51,
+        "value_wan_rmb": 22096.79
+      },
+      {
+        "rank": 8,
+        "code": "META",
+        "name": "Meta Platforms Inc-A",
+        "weight_pct": 5.75,
+        "shares_wan": 8.91,
+        "value_wan_rmb": 19194.48
+      },
+      {
+        "rank": 9,
+        "code": "AMD",
+        "name": "超威半导体",
+        "weight_pct": 5.2,
+        "shares_wan": 23.54,
+        "value_wan_rmb": 17374.47
+      },
+      {
+        "rank": 10,
+        "code": "AMZN",
+        "name": "亚马逊",
+        "weight_pct": 4.76,
+        "shares_wan": 17.42,
+        "value_wan_rmb": 15896.89
+      }
+    ]
+  },
+  {
+    "year": 2023,
+    "quarter": 4,
+    "as_of": "2023-12-31",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "GOOG",
+        "name": "谷歌-C",
+        "weight_pct": 7.72,
+        "shares_wan": 33.14,
+        "value_wan_rmb": 33083.08
+      },
+      {
+        "rank": 2,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 7.52,
+        "shares_wan": 9.18,
+        "value_wan_rmb": 32200.2
+      },
+      {
+        "rank": 3,
+        "code": "MSFT",
+        "name": "微软",
+        "weight_pct": 7.46,
+        "shares_wan": 12.0,
+        "value_wan_rmb": 31968.8
+      },
+      {
+        "rank": 4,
+        "code": "META",
+        "name": "Meta Platforms Inc-A",
+        "weight_pct": 7.12,
+        "shares_wan": 12.16,
+        "value_wan_rmb": 30484.03
+      },
+      {
+        "rank": 5,
+        "code": "NOW",
+        "name": "现在服务公司",
+        "weight_pct": 6.43,
+        "shares_wan": 5.51,
+        "value_wan_rmb": 27551.24
+      },
+      {
+        "rank": 6,
+        "code": "AMD",
+        "name": "超威半导体",
+        "weight_pct": 5.74,
+        "shares_wan": 23.54,
+        "value_wan_rmb": 24572.39
+      },
+      {
+        "rank": 7,
+        "code": "ADBE",
+        "name": "奥多比",
+        "weight_pct": 5.24,
+        "shares_wan": 5.31,
+        "value_wan_rmb": 22439.72
+      },
+      {
+        "rank": 8,
+        "code": "PDD",
+        "name": "拼多多",
+        "weight_pct": 4.9,
+        "shares_wan": 20.25,
+        "value_wan_rmb": 20981.36
+      },
+      {
+        "rank": 9,
+        "code": "CRM",
+        "name": "赛富时",
+        "weight_pct": 4.74,
+        "shares_wan": 10.91,
+        "value_wan_rmb": 20325.59
+      },
+      {
+        "rank": 10,
+        "code": "INTC",
+        "name": "英特尔",
+        "weight_pct": 4.37,
+        "shares_wan": 52.59,
+        "value_wan_rmb": 18718.36
+      }
+    ]
+  },
+  {
+    "year": 2024,
+    "quarter": 1,
+    "as_of": "2024-03-31",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 8.12,
+        "shares_wan": 10.36,
+        "value_wan_rmb": 66403.27
+      },
+      {
+        "rank": 2,
+        "code": "NOW",
+        "name": "现在服务公司",
+        "weight_pct": 5.82,
+        "shares_wan": 8.8,
+        "value_wan_rmb": 47593.63
+      },
+      {
+        "rank": 3,
+        "code": "META",
+        "name": "Meta Platforms Inc-A",
+        "weight_pct": 5.71,
+        "shares_wan": 13.56,
+        "value_wan_rmb": 46715.4
+      },
+      {
+        "rank": 4,
+        "code": "MSFT",
+        "name": "微软",
+        "weight_pct": 5.29,
+        "shares_wan": 14.5,
+        "value_wan_rmb": 43287.1
+      },
+      {
+        "rank": 5,
+        "code": "GOOG",
+        "name": "谷歌-C",
+        "weight_pct": 4.08,
+        "shares_wan": 30.92,
+        "value_wan_rmb": 33406.83
+      },
+      {
+        "rank": 6,
+        "code": "AMZN",
+        "name": "亚马逊",
+        "weight_pct": 3.46,
+        "shares_wan": 22.09,
+        "value_wan_rmb": 28272.1
+      },
+      {
+        "rank": 7,
+        "code": "SNPS",
+        "name": "新思科技",
+        "weight_pct": 3.13,
+        "shares_wan": 6.31,
+        "value_wan_rmb": 25600.34
+      },
+      {
+        "rank": 8,
+        "code": "LLY",
+        "name": "礼来",
+        "weight_pct": 3.06,
+        "shares_wan": 4.53,
+        "value_wan_rmb": 25017.15
+      },
+      {
+        "rank": 9,
+        "code": "CRM",
+        "name": "赛富时",
+        "weight_pct": 3.05,
+        "shares_wan": 11.67,
+        "value_wan_rmb": 24943.07
+      }
+    ]
+  },
+  {
+    "year": 2024,
+    "quarter": 2,
+    "as_of": "2024-06-30",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 9.06,
+        "shares_wan": 83.83,
+        "value_wan_rmb": 73808.75
+      },
+      {
+        "rank": 2,
+        "code": "NOW",
+        "name": "现在服务公司",
+        "weight_pct": 6.61,
+        "shares_wan": 9.6,
+        "value_wan_rmb": 53838.08
+      },
+      {
+        "rank": 3,
+        "code": "META",
+        "name": "Meta Platforms Inc-A",
+        "weight_pct": 6.43,
+        "shares_wan": 14.56,
+        "value_wan_rmb": 52328.18
+      },
+      {
+        "rank": 4,
+        "code": "AAPL",
+        "name": "苹果",
+        "weight_pct": 5.75,
+        "shares_wan": 31.18,
+        "value_wan_rmb": 46809.09
+      },
+      {
+        "rank": 5,
+        "code": "MSFT",
+        "name": "微软",
+        "weight_pct": 5.67,
+        "shares_wan": 14.5,
+        "value_wan_rmb": 46191.97
+      },
+      {
+        "rank": 6,
+        "code": "GOOG",
+        "name": "谷歌-C",
+        "weight_pct": 4.96,
+        "shares_wan": 30.92,
+        "value_wan_rmb": 40423.91
+      },
+      {
+        "rank": 7,
+        "code": "AMZN",
+        "name": "亚马逊",
+        "weight_pct": 3.74,
+        "shares_wan": 22.09,
+        "value_wan_rmb": 30425.06
+      },
+      {
+        "rank": 8,
+        "code": "LLY",
+        "name": "礼来",
+        "weight_pct": 3.59,
+        "shares_wan": 4.53,
+        "value_wan_rmb": 29245.14
+      },
+      {
+        "rank": 9,
+        "code": "SNPS",
+        "name": "新思科技",
+        "weight_pct": 3.29,
+        "shares_wan": 6.31,
+        "value_wan_rmb": 26775.18
+      }
+    ]
+  },
+  {
+    "year": 2024,
+    "quarter": 3,
+    "as_of": "2024-09-30",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 7.96,
+        "shares_wan": 78.18,
+        "value_wan_rmb": 66529.6
+      },
+      {
+        "rank": 2,
+        "code": "AAPL",
+        "name": "苹果",
+        "weight_pct": 6.35,
+        "shares_wan": 32.49,
+        "value_wan_rmb": 53045.09
+      },
+      {
+        "rank": 3,
+        "code": "META",
+        "name": "Meta Platforms Inc-A",
+        "weight_pct": 6.18,
+        "shares_wan": 12.88,
+        "value_wan_rmb": 51660.13
+      },
+      {
+        "rank": 4,
+        "code": "MSFT",
+        "name": "微软",
+        "weight_pct": 5.0,
+        "shares_wan": 13.86,
+        "value_wan_rmb": 41804.5
+      },
+      {
+        "rank": 5,
+        "code": "GOOG",
+        "name": "谷歌-C",
+        "weight_pct": 3.85,
+        "shares_wan": 27.45,
+        "value_wan_rmb": 32155.77
+      },
+      {
+        "rank": 6,
+        "code": "AMZN",
+        "name": "亚马逊",
+        "weight_pct": 3.58,
+        "shares_wan": 22.93,
+        "value_wan_rmb": 29941.01
+      },
+      {
+        "rank": 7,
+        "code": "LLY",
+        "name": "礼来",
+        "weight_pct": 3.39,
+        "shares_wan": 4.57,
+        "value_wan_rmb": 28361.87
+      },
+      {
+        "rank": 8,
+        "code": "NOW",
+        "name": "现在服务公司",
+        "weight_pct": 3.31,
+        "shares_wan": 4.41,
+        "value_wan_rmb": 27632.11
+      },
+      {
+        "rank": 9,
+        "code": "PDD",
+        "name": "拼多多",
+        "weight_pct": 3.03,
+        "shares_wan": 26.78,
+        "value_wan_rmb": 25297.16
+      }
+    ]
+  },
+  {
+    "year": 2024,
+    "quarter": 4,
+    "as_of": "2024-12-31",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 7.32,
+        "shares_wan": 65.79,
+        "value_wan_rmb": 63512.07
+      },
+      {
+        "rank": 2,
+        "code": "AAPL",
+        "name": "苹果",
+        "weight_pct": 6.74,
+        "shares_wan": 32.49,
+        "value_wan_rmb": 58483.53
+      },
+      {
+        "rank": 3,
+        "code": "META",
+        "name": "Meta Platforms Inc-A",
+        "weight_pct": 6.25,
+        "shares_wan": 12.88,
+        "value_wan_rmb": 54204.48
+      },
+      {
+        "rank": 4,
+        "code": "MSFT",
+        "name": "微软",
+        "weight_pct": 5.59,
+        "shares_wan": 15.99,
+        "value_wan_rmb": 48459.18
+      },
+      {
+        "rank": 5,
+        "code": "GOOG",
+        "name": "谷歌-C",
+        "weight_pct": 4.18,
+        "shares_wan": 26.52,
+        "value_wan_rmb": 36297.95
+      },
+      {
+        "rank": 6,
+        "code": "AMZN",
+        "name": "亚马逊",
+        "weight_pct": 4.17,
+        "shares_wan": 22.93,
+        "value_wan_rmb": 36163.95
+      },
+      {
+        "rank": 7,
+        "code": "AVGO",
+        "name": "博通",
+        "weight_pct": 3.78,
+        "shares_wan": 19.69,
+        "value_wan_rmb": 32821.21
+      },
+      {
+        "rank": 8,
+        "code": "NOW",
+        "name": "现在服务公司",
+        "weight_pct": 3.74,
+        "shares_wan": 4.26,
+        "value_wan_rmb": 32458.28
+      },
+      {
+        "rank": 10,
+        "code": "TSLA",
+        "name": "特斯拉",
+        "weight_pct": 3.28,
+        "shares_wan": 9.8,
+        "value_wan_rmb": 28453.4
+      }
+    ]
+  },
+  {
+    "year": 2025,
+    "quarter": 1,
+    "as_of": "2025-03-31",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "META",
+        "name": "Meta Platforms Inc-A",
+        "weight_pct": 5.22,
+        "shares_wan": 12.21,
+        "value_wan_rmb": 50525.48
+      },
+      {
+        "rank": 2,
+        "code": "AAPL",
+        "name": "苹果",
+        "weight_pct": 5.02,
+        "shares_wan": 30.49,
+        "value_wan_rmb": 48609.57
+      },
+      {
+        "rank": 3,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 5.02,
+        "shares_wan": 62.4,
+        "value_wan_rmb": 48543.2
+      },
+      {
+        "rank": 4,
+        "code": "AMZN",
+        "name": "亚马逊",
+        "weight_pct": 4.83,
+        "shares_wan": 34.21,
+        "value_wan_rmb": 46727.3
+      },
+      {
+        "rank": 6,
+        "code": "MSFT",
+        "name": "微软",
+        "weight_pct": 4.14,
+        "shares_wan": 14.85,
+        "value_wan_rmb": 40006.82
+      },
+      {
+        "rank": 7,
+        "code": "PM",
+        "name": "菲利普莫里斯国际",
+        "weight_pct": 3.16,
+        "shares_wan": 26.83,
+        "value_wan_rmb": 30571.7
+      },
+      {
+        "rank": 8,
+        "code": "00700",
+        "name": "腾讯控股",
+        "weight_pct": 2.69,
+        "shares_wan": 56.73,
+        "value_wan_rmb": 26019.02
+      },
+      {
+        "rank": 9,
+        "code": "TSM",
+        "name": "台积电",
+        "weight_pct": 2.38,
+        "shares_wan": 19.28,
+        "value_wan_rmb": 22976.19
+      },
+      {
+        "rank": 10,
+        "code": "GOOG",
+        "name": "谷歌-C",
+        "weight_pct": 2.37,
+        "shares_wan": 20.48,
+        "value_wan_rmb": 22962.48
+      }
+    ]
+  },
+  {
+    "year": 2025,
+    "quarter": 2,
+    "as_of": "2025-06-30",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "MSFT",
+        "name": "微软",
+        "weight_pct": 5.17,
+        "shares_wan": 14.11,
+        "value_wan_rmb": 50247.65
+      },
+      {
+        "rank": 2,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 5.12,
+        "shares_wan": 44.04,
+        "value_wan_rmb": 49808.0
+      },
+      {
+        "rank": 4,
+        "code": "META",
+        "name": "Meta Platforms Inc-A",
+        "weight_pct": 4.9,
+        "shares_wan": 9.02,
+        "value_wan_rmb": 47649.38
+      },
+      {
+        "rank": 5,
+        "code": "AMZN",
+        "name": "亚马逊",
+        "weight_pct": 4.68,
+        "shares_wan": 28.96,
+        "value_wan_rmb": 45485.87
+      },
+      {
+        "rank": 6,
+        "code": "PM",
+        "name": "菲利普莫里斯国际",
+        "weight_pct": 4.53,
+        "shares_wan": 33.74,
+        "value_wan_rmb": 43992.68
+      },
+      {
+        "rank": 7,
+        "code": "AAPL",
+        "name": "苹果",
+        "weight_pct": 4.38,
+        "shares_wan": 28.98,
+        "value_wan_rmb": 42557.48
+      },
+      {
+        "rank": 8,
+        "code": "NOW",
+        "name": "现在服务公司",
+        "weight_pct": 2.87,
+        "shares_wan": 3.79,
+        "value_wan_rmb": 27881.16
+      },
+      {
+        "rank": 9,
+        "code": "AVGO",
+        "name": "博通",
+        "weight_pct": 2.76,
+        "shares_wan": 13.59,
+        "value_wan_rmb": 26807.44
+      },
+      {
+        "rank": 10,
+        "code": "09992",
+        "name": "泡泡玛特",
+        "weight_pct": 2.6,
+        "shares_wan": 103.92,
+        "value_wan_rmb": 25265.64
+      }
+    ]
+  },
+  {
+    "year": 2025,
+    "quarter": 3,
+    "as_of": "2025-09-30",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 5.69,
+        "shares_wan": 45.84,
+        "value_wan_rmb": 60767.61
+      },
+      {
+        "rank": 2,
+        "code": "AAPL",
+        "name": "苹果",
+        "weight_pct": 5.23,
+        "shares_wan": 30.85,
+        "value_wan_rmb": 55809.57
+      },
+      {
+        "rank": 3,
+        "code": "MSFT",
+        "name": "微软",
+        "weight_pct": 4.67,
+        "shares_wan": 13.54,
+        "value_wan_rmb": 49843.69
+      },
+      {
+        "rank": 4,
+        "code": "AVGO",
+        "name": "博通",
+        "weight_pct": 4.45,
+        "shares_wan": 20.27,
+        "value_wan_rmb": 47517.38
+      },
+      {
+        "rank": 5,
+        "code": "META",
+        "name": "Meta Platforms Inc-A",
+        "weight_pct": 4.31,
+        "shares_wan": 8.82,
+        "value_wan_rmb": 46020.84
+      },
+      {
+        "rank": 6,
+        "code": "GOOG",
+        "name": "谷歌-C",
+        "weight_pct": 4.24,
+        "shares_wan": 26.15,
+        "value_wan_rmb": 45252.35
+      },
+      {
+        "rank": 7,
+        "code": "AMZN",
+        "name": "亚马逊",
+        "weight_pct": 4.11,
+        "shares_wan": 28.17,
+        "value_wan_rmb": 43949.87
+      },
+      {
+        "rank": 9,
+        "code": "PM",
+        "name": "菲利普莫里斯国际",
+        "weight_pct": 3.61,
+        "shares_wan": 33.42,
+        "value_wan_rmb": 38520.3
+      },
+      {
+        "rank": 10,
+        "code": "HOOD",
+        "name": "Robinhood Markets Inc-A",
+        "weight_pct": 3.35,
+        "shares_wan": 35.15,
+        "value_wan_rmb": 35761.92
+      }
+    ]
+  },
+  {
+    "year": 2025,
+    "quarter": 4,
+    "as_of": "2025-12-31",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "GOOG",
+        "name": "谷歌-C",
+        "weight_pct": 6.48,
+        "shares_wan": 39.71,
+        "value_wan_rmb": 87591.6
+      },
+      {
+        "rank": 2,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 5.67,
+        "shares_wan": 58.48,
+        "value_wan_rmb": 76660.53
+      },
+      {
+        "rank": 3,
+        "code": "AAPL",
+        "name": "苹果",
+        "weight_pct": 4.93,
+        "shares_wan": 34.85,
+        "value_wan_rmb": 66593.49
+      },
+      {
+        "rank": 4,
+        "code": "AVGO",
+        "name": "博通",
+        "weight_pct": 4.44,
+        "shares_wan": 24.66,
+        "value_wan_rmb": 59992.5
+      },
+      {
+        "rank": 5,
+        "code": "AMZN",
+        "name": "亚马逊",
+        "weight_pct": 3.71,
+        "shares_wan": 30.92,
+        "value_wan_rmb": 50171.85
+      },
+      {
+        "rank": 6,
+        "code": "LITE",
+        "name": "Lumentum Holdings Inc",
+        "weight_pct": 3.64,
+        "shares_wan": 18.98,
+        "value_wan_rmb": 49167.43
+      },
+      {
+        "rank": 7,
+        "code": "MSFT",
+        "name": "微软",
+        "weight_pct": 3.41,
+        "shares_wan": 13.54,
+        "value_wan_rmb": 46037.65
+      },
+      {
+        "rank": 8,
+        "code": "PM",
+        "name": "菲利普莫里斯国际",
+        "weight_pct": 2.79,
+        "shares_wan": 33.42,
+        "value_wan_rmb": 37681.63
+      },
+      {
+        "rank": 9,
+        "code": "SNDK",
+        "name": "闪迪",
+        "weight_pct": 2.71,
+        "shares_wan": 21.93,
+        "value_wan_rmb": 36590.3
+      },
+      {
+        "rank": 10,
+        "code": "TSLA",
+        "name": "特斯拉",
+        "weight_pct": 2.62,
+        "shares_wan": 11.2,
+        "value_wan_rmb": 35416.39
+      }
+    ]
+  },
+  {
+    "year": 2026,
+    "quarter": 1,
+    "as_of": "2026-03-31",
+    "holdings": [
+      {
+        "rank": 1,
+        "code": "ASML",
+        "name": "阿斯麦",
+        "weight_pct": 5.21,
+        "shares_wan": 8.57,
+        "value_wan_rmb": 78350.74
+      },
+      {
+        "rank": 2,
+        "code": "02513",
+        "name": "智谱",
+        "weight_pct": 5.1,
+        "shares_wan": 133.92,
+        "value_wan_rmb": 76700.8
+      },
+      {
+        "rank": 3,
+        "code": "GOOG",
+        "name": "谷歌-C",
+        "weight_pct": 4.94,
+        "shares_wan": 37.45,
+        "value_wan_rmb": 74331.1
+      },
+      {
+        "rank": 4,
+        "code": "NVDA",
+        "name": "英伟达",
+        "weight_pct": 4.47,
+        "shares_wan": 55.67,
+        "value_wan_rmb": 67179.04
+      },
+      {
+        "rank": 5,
+        "code": "AAPL",
+        "name": "苹果",
+        "weight_pct": 4.07,
+        "shares_wan": 34.85,
+        "value_wan_rmb": 61199.55
+      },
+      {
+        "rank": 6,
+        "code": "AMZN",
+        "name": "亚马逊",
+        "weight_pct": 4.02,
+        "shares_wan": 41.97,
+        "value_wan_rmb": 60487.15
+      },
+      {
+        "rank": 7,
+        "code": "LRCX",
+        "name": "拉姆研究",
+        "weight_pct": 4.01,
+        "shares_wan": 40.72,
+        "value_wan_rmb": 60206.03
+      },
+      {
+        "rank": 8,
+        "code": "SNDK",
+        "name": "闪迪",
+        "weight_pct": 3.54,
+        "shares_wan": 12.12,
+        "value_wan_rmb": 53268.85
+      },
+      {
+        "rank": 9,
+        "code": "AVGO",
+        "name": "博通",
+        "weight_pct": 3.27,
+        "shares_wan": 22.94,
+        "value_wan_rmb": 49124.77
+      },
+      {
+        "rank": 10,
+        "code": "MU",
+        "name": "美光科技",
+        "weight_pct": 3.26,
+        "shares_wan": 20.93,
+        "value_wan_rmb": 48937.54
+      }
+    ]
+  }
+]
