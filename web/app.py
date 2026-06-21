@@ -1145,6 +1145,7 @@ INDEX_TEMPLATE = """
         .hero-card.portal { background: linear-gradient(135deg, #334155 0%, #0f172a 100%); }
         .hero-card.parameter { background: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%); }
         .hero-card.qqindex { background: linear-gradient(135deg, #b45309 0%, #d97706 58%, #f59e0b 100%); }
+        .hero-card.cnfund { background: linear-gradient(135deg, #8a2f20 0%, #b8412e 55%, #d4533c 100%); }
         .panel {
             background:
                 linear-gradient(180deg, rgba(162, 213, 242, 0.18), transparent 32%),
@@ -1200,6 +1201,10 @@ INDEX_TEMPLATE = """
             <a href="/qq-index-fund" class="hero-card qqindex">
                 <strong>QQ 指数基金</strong>
                 <span>QQQ Top10 等权/加权组合 · N-PORT 历史快照</span>
+            </a>
+            <a href="/cn-fund" class="hero-card cnfund">
+                <strong>270023 vs QQQ</strong>
+                <span>广发全球精选 QDII 全面对比 · 持仓/行业/超额归因</span>
             </a>
             <a href="http://aqcloud.ltd" class="hero-card portal" target="_blank">
                 <strong>AQCloud 首页</strong>
@@ -11877,6 +11882,32 @@ def api_qq_index_refresh_nport_all():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"success": False, "message": f"回溯失败: {e}"}), 500
+
+
+# ===================== 270023 vs QQQ 对比 =====================
+
+
+@app.route('/cn-fund')
+def cn_fund_page():
+    """270023 (广发全球精选 QDII) vs QQQ 全面对比页面。"""
+    from cn_fund_holdings.web_compare import page_context
+    ctx = page_context()
+    response = app.make_response(render_template("cn_fund.html", **ctx))
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+@app.route('/api/cn-fund/series')
+def api_cn_fund_series():
+    """270023 vs QQQ 全部图表数据 (净值曲线/重叠度/行业敞口/个股轨迹)。"""
+    try:
+        from cn_fund_holdings.web_compare import series_payload
+        return jsonify({"success": True, "data": series_payload()})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"success": False, "message": f"加载失败: {e}"}), 500
 
 
 if __name__ == '__main__':
