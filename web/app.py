@@ -11801,7 +11801,12 @@ def api_qq_index_backtest():
         end = date.fromisoformat(end_raw)
         if end <= start:
             return jsonify({"success": False, "message": "结束日必须晚于起始日"}), 400
-        result = run_backtest(start, end)
+        # top_n：成分集中度，可选 3/5/10，默认 10
+        try:
+            top_n = int(payload.get("top_n", 10))
+        except (TypeError, ValueError):
+            top_n = 10
+        result = run_backtest(start, end, top_n=top_n)
         return jsonify({"success": True, "result": result.to_dict()})
     except ValueError as e:
         return jsonify({"success": False, "message": str(e)}), 400

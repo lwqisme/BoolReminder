@@ -235,6 +235,13 @@
         }
         .bt-controls input[type=date]:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
         .bt-controls input[type=date]::-webkit-calendar-picker-indicator { cursor: pointer; filter: sepia(0.6) saturate(2) hue-rotate(-10deg); }
+        .bt-select {
+            font-family: var(--font-mono); font-size: 13px; padding: 7px 10px; color: var(--ink);
+            border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg-1);
+            min-height: 34px; cursor: pointer;
+            box-shadow: inset 0 1px 2px rgba(60,45,20,0.06); transition: border-color 140ms ease;
+        }
+        .bt-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
 
         .bt-stats { display: flex; flex-wrap: wrap; gap: 14px; margin: 16px 0; }
         .bt-stat {
@@ -278,6 +285,21 @@
         <h2>当前快照（stockanalysis.com）</h2>
         <div class="meta" id="current-meta">{{ current_meta }}</div>
         {% if current_holdings %}
+        <div style="margin-bottom:14px;">
+            <h3 style="margin:0 0 8px;">Top3 / Top5 速览（按当前市值权重）</h3>
+            <div style="margin-bottom:6px;">
+                <span class="muted" style="font-size:11px;margin-right:6px;">Top3</span>
+                {% for h in current_holdings[:3] %}
+                <span class="chip">{{ h.ticker }}<span class="pct">{{ '%.2f'|format(h.weight_pct) }}%</span></span>
+                {% endfor %}
+            </div>
+            <div>
+                <span class="muted" style="font-size:11px;margin-right:6px;">Top5</span>
+                {% for h in current_holdings[:5] %}
+                <span class="chip">{{ h.ticker }}<span class="pct">{{ '%.2f'|format(h.weight_pct) }}%</span></span>
+                {% endfor %}
+            </div>
+        </div>
         <div class="two-col">
             <div>
                 <h3 style="margin:0 0 10px;">qq_top10_equal · 等权</h3>
@@ -359,6 +381,14 @@
                 <label for="bt-end">结束日</label>
                 <input type="date" id="bt-end" value="{{ bt_default_end }}">
             </div>
+            <div>
+                <label for="bt-topn">集中度</label>
+                <select id="bt-topn" class="bt-select">
+                    <option value="10">Top10（默认）</option>
+                    <option value="5">Top5</option>
+                    <option value="3">Top3</option>
+                </select>
+            </div>
             <button id="btn-backtest" class="btn btn-green" onclick="runBacktest()">运行回测</button>
         </div>
         <div id="bt-stats" class="bt-stats" style="display:none;"></div>
@@ -433,6 +463,7 @@ async function runBacktest() {
     const orig = btn.innerHTML;
     const start = document.getElementById('bt-start').value;
     const end = document.getElementById('bt-end').value;
+    const topN = parseInt(document.getElementById('bt-topn').value, 10) || 10;
     if (!start || !end) { showStatus('error', '请选择起止日期'); return; }
     btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>回测中…';
     clearStatus();
@@ -442,12 +473,12 @@ async function runBacktest() {
     try {
         const resp = await fetch('/api/qq-index-fund/backtest', {
             method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ start, end }),
+            body: JSON.stringify({ start, end, top_n: topN }),
         });
         const data = await resp.json();
         if (!data.success) throw new Error(data.message || '回测失败');
         renderBacktest(data.result);
-        showStatus('success', '回测完成：' + data.result.dates.length + ' 个交易日，' + data.result.rebalance_count + ' 次再平衡');
+        showStatus('success', '回测完成（Top' + (data.result.top_n || topN) + '）：' + data.result.dates.length + ' 个交易日，' + data.result.rebalance_count + ' 次再平衡');
     } catch (e) {
         showStatus('error', '回测失败: ' + e.message);
     } finally {
@@ -457,12 +488,13 @@ async function runBacktest() {
 
 function renderBacktest(r) {
     const stats = document.getElementById('bt-stats');
+    const N = r.top_n || 10;
     const eq = r.total_return_equal, wt = r.total_return_weighted, qqq = r.total_return_qqq;
     const fmt = v => (v==null?'-':(v>=0?'+':'') + v.toFixed(2) + '%');
     const retCls = v => v == null ? 'val neutral' : (v >= 0 ? 'val pos' : 'val neg');
     stats.innerHTML =
-        statBox('等权总收益', fmt(eq), retCls(eq)) +
-        statBox('加权总收益', fmt(wt), retCls(wt)) +
+        statBox('Top' + N + ' 等权', fmt(eq), retCls(eq)) +
+        statBox('Top' + N + ' 加权', fmt(wt), retCls(wt)) +
         statBox('QQQ 基准', fmt(qqq), retCls(qqq)) +
         statBox('交易日', r.dates.length, 'val neutral') +
         statBox('再平衡', r.rebalance_count + ' 次', 'val neutral') +
@@ -470,10 +502,10 @@ function renderBacktest(r) {
     stats.style.display = 'flex';
 
     // 配色（暖纸研报）：等权=砖红，加权=赭金点线，QQQ 基准=墨绿长虚线，再平衡=赭金三角
-    const eqTrace = { x: r.dates, y: r.nav_equal, name: '等权', mode: 'lines',
-        line: { color: '#b8412e', width: 2.4, shape: 'spline' }, hovertemplate: '%{x}<br>等权 %{y:.4f}<extra></extra>' };
-    const wtTrace = { x: r.dates, y: r.nav_weighted, name: '加权', mode: 'lines',
-        line: { color: '#a8761c', width: 2, dash: 'dot' }, hovertemplate: '%{x}<br>加权 %{y:.4f}<extra></extra>' };
+    const eqTrace = { x: r.dates, y: r.nav_equal, name: 'Top' + N + ' 等权', mode: 'lines',
+        line: { color: '#b8412e', width: 2.4, shape: 'spline' }, hovertemplate: '%{x}<br>Top' + N + ' 等权 %{y:.4f}<extra></extra>' };
+    const wtTrace = { x: r.dates, y: r.nav_weighted, name: 'Top' + N + ' 加权', mode: 'lines',
+        line: { color: '#a8761c', width: 2, dash: 'dot' }, hovertemplate: '%{x}<br>Top' + N + ' 加权 %{y:.4f}<extra></extra>' };
     const qqqTrace = { x: r.dates, y: r.nav_qqq, name: 'QQQ 基准', mode: 'lines',
         line: { color: '#2d6a4f', width: 1.6, dash: 'longdash' },
         hovertemplate: '%{x}<br>QQQ %{y:.4f}<extra></extra>' };

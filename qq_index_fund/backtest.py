@@ -39,7 +39,8 @@ from .store import _DEFAULT_DATA_DIR, _read_json, load_prospectus_snapshots_raw
 
 logger = logging.getLogger(__name__)
 
-TOP_N = 10  # "QQ 指数基金"成分数
+TOP_N = 10  # "QQ 指数基金"成分数（默认）
+SUPPORTED_TOP_N = (3, 5, 10)  # 页面可选的集中度
 
 
 @dataclass
@@ -57,6 +58,7 @@ class RebalanceEvent:
 class BacktestResult:
     start: str
     end: str
+    top_n: int
     dates: list[str]
     nav_equal: list[float]
     nav_weighted: list[float]
@@ -72,6 +74,7 @@ class BacktestResult:
         return {
             "start": self.start,
             "end": self.end,
+            "top_n": self.top_n,
             "dates": self.dates,
             "nav_equal": self.nav_equal,
             "nav_weighted": self.nav_weighted,
@@ -121,14 +124,17 @@ def load_nport_snapshots_raw(data_dir: Optional[str] = None) -> list[dict]:
 def derive_top10_weights(
     holdings: list[dict],
     mode: str,
+    *,
+    top_n: int = TOP_N,
 ) -> list[tuple[str, float]]:
     """
-    由一份快照的 holdings 派生 Top10 目标权重。
+    由一份快照的 holdings 派生 Top-N 目标权重（默认 Top10）。
 
     Args:
         holdings: holdings 列表。N-PORT 用 val_usd/pct_val/symbol；
                   招募书用 value/symbol（无 pct_val，加权按 value 归一化）。
         mode: 'equal' 或 'weighted'。
+        top_n: 取前几名成分（3/5/10），默认 TOP_N=10。
 
     Returns:
         [(symbol, weight_pct), ...] 权重已归一化到合计 100。
@@ -137,7 +143,7 @@ def derive_top10_weights(
     def sort_key(h: dict) -> float:
         return float(h.get("val_usd") or h.get("value") or 0)
     ordered = sorted(holdings, key=sort_key, reverse=True)
-    top = [h for h in ordered[:TOP_N] if h.get("symbol")]
+    top = [h for h in ordered[:top_n] if h.get("symbol")]
     if not top:
         return []
 
@@ -165,6 +171,8 @@ def build_rebalance_schedule(
     start: date,
     end: date,
     trading_days: list[str],
+    *,
+    top_n: int = TOP_N,
 ) -> list[RebalanceEvent]:
     """
     构建再平衡调度：初始（filing_date ≤ start 最近一份）+ 窗口内
@@ -209,8 +217,8 @@ def build_rebalance_schedule(
             apply_date=apply_day,
             filing_date=s["filing_date"],
             repd_date=s.get("repd_date", ""),
-            symbols_equal=derive_top10_weights(holdings, "equal"),
-            symbols_weighted=derive_top10_weights(holdings, "weighted"),
+            symbols_equal=derive_top10_weights(holdings, "equal", top_n=top_n),
+            symbols_weighted=derive_top10_weights(holdings, "weighted", top_n=top_n),
         ))
     return events
 
@@ -362,6 +370,7 @@ def run_backtest(
     *,
     quote_ctx=None,
     data_dir: Optional[str] = None,
+    top_n: int = TOP_N,
 ) -> BacktestResult:
     """
     运行 QQ 指数基金回测。
@@ -371,6 +380,7 @@ def run_backtest(
         end: 回测结束日。
         quote_ctx: 可选 Longbridge QuoteContext（None 则自动构建）。
         data_dir: 数据目录（None 用默认）。
+        top_n: 基金成分数（3/5/10），默认 10。决定每份快照取前几名构建组合。
 
     Returns:
         BacktestResult（含等权/加权双净值序列）。
@@ -378,6 +388,8 @@ def run_backtest(
     Raises:
         ValueError: 无可用 N-PORT 快照覆盖 start 之前（早于 2019-11）。
     """
+    if top_n not in SUPPORTED_TOP_N:
+        raise ValueError(f"top_n 仅支持 {SUPPORTED_TOP_N}，收到 {top_n}。")
     notes: list[str] = []
     # 合并：N-PORT 季度快照（2019+）+ 招募书年度快照（1999-2018，补 N-PORT 之前）。
     snapshots = load_nport_snapshots_raw(data_dir)
@@ -409,9 +421,9 @@ def run_backtest(
 
     candidate_symbols: set[str] = set()
     for s in candidate_snaps:
-        for sym, _ in derive_top10_weights(s.get("holdings", []), "equal"):
+        for sym, _ in derive_top10_weights(s.get("holdings", []), "equal", top_n=top_n):
             candidate_symbols.add(sym)
-        for sym, _ in derive_top10_weights(s.get("holdings", []), "weighted"):
+        for sym, _ in derive_top10_weights(s.get("holdings", []), "weighted", top_n=top_n):
             candidate_symbols.add(sym)
 
     if not candidate_symbols:
@@ -431,11 +443,11 @@ def run_backtest(
     if not trading_days:
         raise ValueError("回测区间内无任何交易日价格数据。")
 
-    rebalances = build_rebalance_schedule(snapshots, start, end, trading_days)
+    rebalances = build_rebalance_schedule(snapshots, start, end, trading_days, top_n=top_n)
     if not rebalances:
         raise ValueError("未能构建再平衡调度（无初始成分）。")
 
-    notes.append(f"候选成分 {len(candidate_symbols)} 只，交易日 {len(trading_days)} 天，再平衡 {len(rebalances)} 次。")
+    notes.append(f"组合 Top{top_n}：候选成分 {len(candidate_symbols)} 只，交易日 {len(trading_days)} 天，再平衡 {len(rebalances)} 次。")
     missing = candidate_symbols - set(prices.keys())
     if missing:
         notes.append(f"以下成分未取到价格已忽略: {', '.join(sorted(missing))}")
@@ -460,6 +472,7 @@ def run_backtest(
     return BacktestResult(
         start=start.isoformat(),
         end=end.isoformat(),
+        top_n=top_n,
         dates=trading_days,
         nav_equal=nav_equal,
         nav_weighted=nav_weighted,
