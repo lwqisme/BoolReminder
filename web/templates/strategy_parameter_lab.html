@@ -8000,6 +8000,11 @@
                                     ' · <span class="sig-source-icon">' + mcLabel + '</span>' + mcText +
                                     '</div>';
                             }
+                            // 同步快照版本：dryrun(手动) 与 定时推送 若读到不同快照会显示不同时间，便于排查 auto≠manual
+                            const syncTag = formatSyncTag(s.snapshot_updated_at, s.sync_version);
+                            if (syncTag) {
+                                html += '<div class="sig-sync-line" style="color:var(--muted);font-size:10px;">🗂 同步快照 ' + escapeHtml(syncTag) + '</div>';
+                            }
                         }
                         if (res.position_context && res.position_context.summary) {
                             html += '<div class="sig-position-context">📊 ' + escapeHtml(res.position_context.summary) + '</div>';
@@ -8022,6 +8027,18 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // 把同步快照时间格式化成 'MM-DD HH:MM'，用于标注信号依据的快照版本
+        function formatSyncTag(updatedAt, syncVersion) {
+            if (updatedAt) {
+                const d = new Date(updatedAt);
+                if (!isNaN(d)) {
+                    const pad = (n) => String(n).padStart(2, '0');
+                    return pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+                }
+            }
+            return String(syncVersion || '').trim();
         }
 
         window.toggleSignalConfig = toggleSignalConfig;

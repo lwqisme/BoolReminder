@@ -425,6 +425,10 @@ def generate_signal(
         "is_weekend": is_weekend,
         "buy_strategy": config.buy_strategy,
         "sell_strategy": config.sell_strategy,
+        # 暴露本次信号所依据的同步快照版本，便于排查 auto(定时)与 manual(dryrun)
+        # 读到不同 by_symbol 快照导致的持仓数不一致(快照每次同步被整体覆盖)。
+        "sync_version": snapshot.get("sync_version", ""),
+        "snapshot_updated_at": snapshot.get("updated_at", ""),
         "current_state": {
             "shares": real_shares,
             "cash": real_cash,
@@ -432,6 +436,8 @@ def generate_signal(
             "market_value": real_shares * last_price_val,
             "last_price": last_price_val,
             "avg_cost": total_buy / real_shares if real_shares > 0 else 0,
+            "sync_version": snapshot.get("sync_version", ""),
+            "snapshot_updated_at": snapshot.get("updated_at", ""),
         },
         "initial_cash": initial_cash,
         "initial_cash_source": initial_cash_source,
@@ -682,6 +688,22 @@ def _action_label(action):
     return {"buy": "买入", "sell": "卖出"}.get(str(action), str(action))
 
 
+def _fmt_sync_time(updated_at: str, sync_version: str) -> str:
+    """可读的同步快照时间，用于在邮件/UI 标注信号所依据的快照版本。
+
+    优先解析 updated_at(ISO, 如 2026-07-03T00:58:54+08:00)→ '07-03 00:58'；
+    解析失败则回退到 sync_version 原文。
+    """
+    raw = (updated_at or "").strip()
+    if raw:
+        try:
+            dt = datetime.fromisoformat(raw)
+            return dt.strftime("%m-%d %H:%M")
+        except (ValueError, TypeError):
+            pass
+    return str(sync_version or "").strip() or "?"
+
+
 def build_signal_email_html(results: list[dict[str, object]]) -> tuple[str, str]:
     """Build subject + HTML body for signal email. Returns (subject, html).
 
@@ -768,6 +790,8 @@ def build_signal_email_html(results: list[dict[str, object]]) -> tuple[str, str]
         cs = r.get("current_state")
         if cs:
             state_html = f'<tr><td colspan="4" style="color:#657184;font-size:11px;padding-top:6px;">持仓 {_fmt_num(cs.get("shares", 0), 1)}股 · 现金 ${_fmt_price(cs.get("cash", 0))} · 市值 ${_fmt_price(cs.get("market_value", 0))} · 均价 ${_fmt_price(cs.get("avg_cost", 0))}</td></tr>'
+            sync_tag = _fmt_sync_time(str(cs.get("snapshot_updated_at", "")), str(cs.get("sync_version", "")))
+            state_html += f'<tr><td colspan="4" style="color:#9aa3b2;font-size:10px;">🗂 同步快照 {sync_tag}</td></tr>'
             ic = r.get("initial_cash")
             if ic is not None:
                 ic_src = r.get("initial_cash_source", "")
