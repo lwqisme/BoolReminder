@@ -129,7 +129,7 @@ def main():
     # 设置全局scheduler实例，供web应用使用
     set_scheduler(scheduler)
 
-    # 启动策略信号调度器 (每晚 23:00)
+    # 启动策略信号调度器 (每晚 23:30，北京时间)
     email_config = config_manager.get_email_config()
     smtp_host = email_config.get("smtp_host", "")
     if smtp_host:
@@ -147,7 +147,7 @@ def main():
         )
         signal_scheduler.start()
         set_signal_scheduler(signal_scheduler)
-        logger.info("盘中策略信号调度器已启动 (11:00, 12:00 US/Eastern)")
+        logger.info("盘中策略信号调度器已启动 (23:30 Asia/Shanghai)")
     else:
         logger.warning("SMTP未配置，策略信号调度器未启动")
     

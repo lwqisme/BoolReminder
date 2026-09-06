@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class SignalScheduler:
-    """Intraday strategy signal scheduler (11:00 + 12:00 US/Eastern)."""
+    """Intraday strategy signal scheduler (23:30 Asia/Shanghai)."""
 
     def __init__(
         self,
@@ -23,16 +23,16 @@ class SignalScheduler:
     ):
         self.email_sender = email_sender
         self.to_emails = to_emails
-        hours = hours or [11, 12]
-        minutes = minutes or [0, 0]
-        tz = pytz.timezone("US/Eastern")
+        hours = hours or [23]
+        minutes = minutes or [30]
+        tz = pytz.timezone("Asia/Shanghai")
         self.scheduler = BackgroundScheduler(timezone=tz)
         for h, m in zip(hours, minutes):
             self.scheduler.add_job(
                 func=self._run,
                 trigger=CronTrigger(hour=h, minute=m, timezone=tz),
                 id=f"intraday_signal_{h:02d}{m:02d}",
-                name=f"盘中策略信号 {h:02d}:{m:02d} ET",
+                name=f"盘中策略信号 {h:02d}:{m:02d} Asia/Shanghai",
                 replace_existing=True,
             )
 
@@ -124,7 +124,7 @@ class SignalScheduler:
 
     def start(self):
         self.scheduler.start()
-        logger.info("盘中策略信号调度器已启动 (11:00, 12:00 US/Eastern)")
+        logger.info("盘中策略信号调度器已启动: %s", "; ".join(str(job) for job in self.scheduler.get_jobs()))
 
     def stop(self):
         self.scheduler.shutdown()
